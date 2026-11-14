@@ -1008,8 +1008,11 @@ export default function Viewer({ slug, galleryTitle, images: sourceImages, encry
   const ownerPanelProps = ownerInline && ownerGallery ? {
     owner: galleryOwner ?? '',
     slug,
-    title: ownerGallery.title,
-    caption: ownerGallery.caption,
+    // The saved overrides, not the SSR values: a panel that remounts
+    // (the sheet closes and reopens) must open on the name and caption
+    // the owner actually saved, same as the intro head below.
+    title: titleOverride ?? ownerGallery.title,
+    caption: captionOverride ?? ownerGallery.caption,
     sourceLabel: ownerGallery.sourceLabel,
     galleryId,
     sourceUrl: ownerGallery.sourceUrl,

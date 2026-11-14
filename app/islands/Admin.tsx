@@ -84,8 +84,10 @@ const effectivePinned = (gallery: GallerySummary) => Boolean(gallery.pinnedAt)
 /** After a new gallery card mounts, bring it fully into view: centered with
  *  breathing room when it fits, top-parked with a margin when it doesn't.
  *  Fires in the same frame the card renders — just as its strip images begin
- *  streaming in. */
-const scrollToGalleryCard = (slug: string) => {
+ *  streaming in. `reveal` runs first so a card inside a collapsed section
+ *  mounts before the query looks for it. */
+const scrollToGalleryCard = (slug: string, reveal?: () => void) => {
+  reveal?.()
   requestAnimationFrame(() => {
     const card = document.querySelector<HTMLElement>(`[data-gallery-card="${slug}"]`)
     if (!card) return
@@ -169,6 +171,13 @@ export default function Admin({ galleries: initialGalleries, owner, ownerName, p
   const [cloudOpen, setCloudOpen] = useState(true)
   const [localOpen, setLocalOpen] = useState(true)
   const [pinnedOpen, setPinnedOpen] = useState(true)
+  // A card only mounts inside an open section — a collapsed Pinned, Cloud
+  // or Hidden list would leave the post-add scroll with nothing to find.
+  const revealGallerySection = (gallery: GallerySummary) => {
+    if (gallery.hiddenAt) setHiddenOpen(true)
+    else if (gallery.pinnedAt) setPinnedOpen(true)
+    else setCloudOpen(true)
+  }
   // `?details=` opens the sheet once per page load. The marker lives on
   // documentElement rather than in state because hono/jsx can remount the
   // island when an update races a sheet's unmount — a remount replays this
@@ -659,13 +668,14 @@ export default function Admin({ galleries: initialGalleries, owner, ownerName, p
       // successful reopen, not a scan failure: keep the card, point at it,
       // and say so instead of showing a could-not-read error.
       if (response.status === 409 && payload.gallery) {
-        setGalleries((previous) => sortRecent([...previous.filter((item) => item.slug !== payload.gallery!.slug), payload.gallery!]))
+        const reopened = payload.gallery
+        setGalleries((previous) => sortRecent([...previous.filter((item) => item.slug !== reopened.slug), reopened]))
         setSourceUrl('')
         setAddName('')
         setAddCaption('')
         resetAddVerification()
         setAddOpen(false)
-        scrollToGalleryCard(payload.gallery.slug)
+        scrollToGalleryCard(reopened.slug, () => revealGallerySection(reopened))
         announce(payload.error || 'That link is already one of your galleries.')
         return
       }
@@ -673,14 +683,15 @@ export default function Admin({ galleries: initialGalleries, owner, ownerName, p
         if (response.status === 403) { announce(''); setAddError(payload.error || 'That gallery could not be added'); return }
         throw new Error(payload.error || 'That gallery could not be added')
       }
-      setGalleries((previous) => sortRecent([...previous.filter((item) => item.slug !== payload.gallery!.slug), payload.gallery!]))
+      const added = payload.gallery
+      setGalleries((previous) => sortRecent([...previous.filter((item) => item.slug !== added.slug), added]))
       setSourceUrl('')
       setAddName('')
       setAddCaption('')
       resetAddVerification()
       setAddOpen(false)
-      scrollToGalleryCard(payload.gallery.slug)
-      announce('Done! ' + payload.gallery.title + ' is at the top.')
+      scrollToGalleryCard(added.slug, () => revealGallerySection(added))
+      announce('Done! ' + added.title + ' is at the top.')
     } catch (error) {
       announce('')
       setAddError(friendlySourceError(error))

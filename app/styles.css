@@ -2132,7 +2132,7 @@ button.lib-card-title {
 .lib-card-sub { margin: 2px 0 0; color: var(--m-secondary); font-size: var(--m-fs-small); }
 /* The one inline action a list card can offer — the ghost device row's
    "Link folder" — quiet text-level chrome, no button box. */
-.lib-card-action { display: inline-block; margin-top: 6px; padding: 0; border: 0; background: none; color: var(--m-ink); font-size: var(--m-fs-small); font-weight: 600; text-decoration: underline; text-underline-offset: 2px; cursor: pointer; }
+.lib-card-action { display: inline-block; margin-top: 6px; padding: 0; border: 0; background: none; color: var(--m-ink); font-size: var(--m-fs-small); font-weight: 600; text-decoration: underline; text-underline-offset: 2px; cursor: pointer; min-height: var(--m-touch); }
 .lib-card-action:disabled { color: rgba(var(--ink), .35); cursor: default; }
 .lib-card-action:focus-visible { outline: 2px solid var(--m-focus); outline-offset: 2px; }
 .lib-card > .lib-card-caption { margin: 6px 0 0; padding: 0; font-size: 15px; color: var(--m-secondary); }
