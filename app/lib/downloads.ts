@@ -6,6 +6,14 @@
 // pointer bump + history refresh, never a deploy. The page carries the
 // homepage's chrome — wordmark, nav, theme, footer — so the download
 // surface reads as part of the same product.
+//
+// latest.json doubles as the in-app update check: the shells fetch it on
+// Library load and compare `version` (desktop) or `mobile.<platform>`
+// (phone/tablet, published when each store listing ships) against their
+// own build. App origins get CORS on every response so a webview fetch()
+// can read the manifest; browsers see the same public bytes either way.
+
+import { isAppOrigin } from './app-origin'
 
 export const DOWNLOAD_HOST = 'downloads.manorama.xyz'
 const SITE = 'https://manorama.xyz'
@@ -13,10 +21,16 @@ const REPO = 'https://github.com/thecont1/manorama'
 
 export type DownloadsEnv = { DOWNLOADS?: R2Bucket }
 
+/** A mobile surface's latest published version and where to get it.
+ *  `url` is the store/TestFlight link once that platform ships — absent
+ *  until then, so a mobile block never has to pretend a release exists. */
+type MobileRelease = { version?: string; url?: string }
+
 type LatestManifest = {
   version: string
   released?: string
   assets: { mac?: string; windows?: string; linux?: string; all?: string[] }
+  mobile?: { ios?: MobileRelease | null; android?: MobileRelease | null }
 }
 
 type HistoryHighlight = { sha: string; subject: string; url?: string }
@@ -157,7 +171,7 @@ html.light .home-account-panel{background:#fff}
   .home-wordmark img{width:162px}
 }
 /* ── the downloads page itself ── */
-.dl-main{padding-block:clamp(96px,11vw,160px) clamp(64px,8vw,120px)}
+.dl-main{padding-block:clamp(48px,5.5vw,80px) clamp(64px,8vw,120px)}
 .dl-eyebrow{font-family:'DM Mono',ui-monospace,monospace;font-size:13px;letter-spacing:.14em;text-transform:uppercase;color:var(--home-ink-muted);margin:0 0 12px}
 .dl-title{font-family:'Bricolage Grotesque','Manrope',ui-sans-serif,system-ui,sans-serif;font-weight:700;font-size:clamp(40px,6vw,72px);line-height:1.02;letter-spacing:-.02em;margin:0 0 20px}
 .dl-lede{max-width:62ch;color:var(--home-ink-soft);font-size:19px;margin:0 0 clamp(36px,4.5vw,56px)}
@@ -474,10 +488,15 @@ ${(['mac', 'windows', 'linux'] as const)
   })
   .join('')}
 </div>
-<p class="dl-eyebrow">mobile downloads</p>
-<p class="dl-shortcuts">iPhone &amp; iPad — coming soon</p>
 <p class="dl-shortcuts" style="margin-top:20px">Shortcuts: <a href="/mac">/mac</a> · <a href="/windows">/windows</a> · <a href="/linux">/linux</a> · <a href="/latest.json">/latest.json</a></p>
-${rows ? `<p class="dl-shortcuts" style="margin-top:10px">${rows}</p>` : ''}
+<p class="dl-eyebrow" style="margin-top:clamp(30px,4vw,48px)">mobile downloads</p>
+${(() => {
+  const row = (name: string, mobile?: MobileRelease | null) =>
+    mobile?.url
+      ? `<p class="dl-shortcuts"><a href="${escapeHtml(mobile.url)}">${name}</a>${mobile.version ? ` · v${escapeHtml(mobile.version)}` : ''}</p>`
+      : `<p class="dl-shortcuts">${name} — coming soon</p>`
+  return row('iPhone &amp; iPad', manifest?.mobile?.ios) + row('Android', manifest?.mobile?.android)
+})()}
 ${current?.highlights.length ? `<p class="dl-latest-line">Latest: ${escapeHtml(current.highlights[0]!.subject)}</p>` : ''}
 </section>`
   const history = releases.length
@@ -518,15 +537,25 @@ const objectResponse = async (env: DownloadsEnv, key: string, head: boolean): Pr
   return new Response(head ? null : object.body, { headers })
 }
 
-export async function handleDownloads(request: Request, env: DownloadsEnv): Promise<Response> {
-  if (!env.DOWNLOADS) return new Response('downloads are not configured', { status: 503 })
-  if (request.method !== 'GET' && request.method !== 'HEAD') {
-    return new Response('method not allowed', { status: 405, headers: { allow: 'GET, HEAD' } })
+/** Shell-origin CORS, same rule the API group applies: Capacitor, Tauri
+ *  and the SwiftUI shell origins may read the response — the update check
+ *  runs as a webview fetch() and would report a bare "Load failed"
+ *  without the header. Vary: Origin goes on every response so a cacheable
+ *  manifest 200 varies correctly either way. A fresh Response re-wraps
+ *  everything — Response.redirect() headers are immutable. */
+const withAppCors = (request: Request, response: Response): Response => {
+  const origin = request.headers.get('Origin')
+  const headers = new Headers(response.headers)
+  if (isAppOrigin(origin)) headers.set('Access-Control-Allow-Origin', origin!)
+  const vary = headers.get('Vary') ?? ''
+  if (!vary.split(',').some((value) => value.trim().toLowerCase() === 'origin')) {
+    headers.append('Vary', 'Origin')
   }
-  const url = new URL(request.url)
-  const path = url.pathname.replace(/^\/+|\/+$/g, '')
-  const head = request.method === 'HEAD'
+  return new Response(response.body, { status: response.status, statusText: response.statusText, headers })
+}
 
+const routeDownloads = async (env: DownloadsEnv, url: URL, head: boolean): Promise<Response> => {
+  const path = url.pathname.replace(/^\/+|\/+$/g, '')
   const manifest = await latestManifest(env)
 
   if (path === '') return indexPage(env, manifest)
@@ -549,4 +578,12 @@ export async function handleDownloads(request: Request, env: DownloadsEnv): Prom
     return new Response('not found', { status: 404 })
   }
   return objectResponse(env, path, head)
+}
+
+export async function handleDownloads(request: Request, env: DownloadsEnv): Promise<Response> {
+  if (!env.DOWNLOADS) return new Response('downloads are not configured', { status: 503 })
+  if (request.method !== 'GET' && request.method !== 'HEAD') {
+    return new Response('method not allowed', { status: 405, headers: { allow: 'GET, HEAD' } })
+  }
+  return withAppCors(request, await routeDownloads(env, new URL(request.url), request.method === 'HEAD'))
 }
