@@ -159,13 +159,20 @@ jobs:
           set -euo pipefail
           version="${TAG#v}"
           # versionCode is derived, not stored: major·10000 + minor·100 +
-          # patch keeps it monotonic with semver while each field < 100.
-          # The 10# prefix stops a "08"-style segment reading as octal.
+          # patch keeps it monotonic with semver while minor and patch stay
+          # < 100 — enforced below, since the encoding cannot order a
+          # component that size. The 10# prefix stops a "08"-style segment
+          # reading as octal.
           if ! [[ "$version" =~ ^([0-9]+)\.([0-9]+)\.([0-9]+)$ ]]; then
             echo "::error::tag $TAG is not a semver like v0.4.0 — cannot derive versionCode"
             exit 1
           fi
-          code=$(( 10#${BASH_REMATCH[1]} * 10000 + 10#${BASH_REMATCH[2]} * 100 + 10#${BASH_REMATCH[3]} ))
+          major=$((10#${BASH_REMATCH[1]})); minor=$((10#${BASH_REMATCH[2]})); patch=$((10#${BASH_REMATCH[3]}))
+          if [ "$minor" -ge 100 ] || [ "$patch" -ge 100 ]; then
+            echo "::error::tag $TAG has a version component >= 100 — the versionCode encoding only orders minor/patch below 100"
+            exit 1
+          fi
+          code=$(( major * 10000 + minor * 100 + patch ))
           args=( -PMANORAMA_VERSION_NAME="$version" -PMANORAMA_VERSION_CODE="$code" )
           if [ -n "${ADMOB:-}" ]; then args+=( -PADMOB_ANDROID_APP_ID="$ADMOB" ); fi
           ./gradlew --no-daemon assembleRelease bundleRelease "${args[@]}"
@@ -234,6 +241,11 @@ jobs:
   publish-downloads:
     needs: release
     runs-on: ubuntu-latest
+    # Both release pipelines rewrite the same latest.json — serialize the
+    # manifest read-modify-write across workflows, not just per tag.
+    concurrency:
+      group: downloads-manifest
+      cancel-in-progress: false
     steps:
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
 
@@ -257,10 +269,26 @@ jobs:
           apk="$(basename dist/*.apk)"
           bunx wrangler r2 object put "manorama-downloads/v${version}/${apk}" \
             --file "dist/${apk}" --content-type application/vnd.android.package-archive --remote
-          bunx wrangler r2 object get manorama-downloads/latest.json --pipe --remote > latest.json || echo '{}' > latest.json
+          # Only a confirmed-missing object earns the empty baseline — any
+          # other read failure aborts rather than publishing over the
+          # desktop fields this job does not own.
+          if ! bunx wrangler r2 object get manorama-downloads/latest.json --pipe --remote > latest.json 2> latest.err; then
+            if grep -qiE 'does not exist|NoSuchKey|404' latest.err; then
+              echo '{}' > latest.json
+            else
+              cat latest.err >&2
+              exit 1
+            fi
+          fi
+          rm -f latest.err
           VERSION="$version" APK_URL="https://downloads.manorama.xyz/v${version}/${apk}" bun -e '
+            const raw = (await Bun.file("latest.json").text()).trim()
             let manifest = {}
-            try { manifest = JSON.parse(await Bun.file("latest.json").text()) } catch {}
+            if (raw) {
+              try { manifest = JSON.parse(raw) } catch (e) {
+                console.error("latest.json is not valid JSON:", e.message); process.exit(1)
+              }
+            }
             if (typeof manifest !== "object" || manifest === null) manifest = {}
             manifest.mobile = { ...(manifest.mobile ?? {}), android: { version: process.env.VERSION, url: process.env.APK_URL } }
             await Bun.write("latest.json", JSON.stringify(manifest, null, 2) + "\n")

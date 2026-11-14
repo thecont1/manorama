@@ -195,7 +195,9 @@ jobs:
               exit 1
             fi
           else
-            gh release create "$TAG" --draft --title "manorama $TAG" --generate-notes
+            # A concurrent pipeline may win the draft create — re-read so its
+            # draft satisfies this step instead of failing the whole release.
+            gh release create "$TAG" --draft --title "manorama $TAG" --generate-notes || gh release view "$TAG" >/dev/null
           fi
           mapfile -d '' -t assets < <(find dist -type f -print0)
           if [ ${#assets[@]} -eq 0 ]; then echo "::error::no bundles to upload"; exit 1; fi
@@ -209,6 +211,11 @@ jobs:
     # every build and needs no manual sync.
     needs: release
     runs-on: ubuntu-latest
+    # Shares the manifest lock with android-release's publish job — both
+    # rewrite latest.json and must not interleave read-modify-write.
+    concurrency:
+      group: downloads-manifest
+      cancel-in-progress: false
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
@@ -248,19 +255,34 @@ jobs:
           bun scripts/build-download-history.mjs history.json
           # latest.json is shared with the Android pipeline, which owns the
           # mobile slot — carry it across instead of clobbering the field on
-          # every desktop tag. A missing/unparseable manifest just means no
-          # mobile release has shipped yet.
-          bunx wrangler r2 object get manorama-downloads/latest.json --pipe --remote > current-latest.json || echo '{}' > current-latest.json
+          # every desktop tag. A missing manifest just means no mobile
+          # release has shipped yet; an unparseable one aborts below.
+          # Only a confirmed-missing object earns the empty baseline — any
+          # other read failure aborts rather than publishing over the mobile
+          # fields this job does not own.
+          if ! bunx wrangler r2 object get manorama-downloads/latest.json --pipe --remote > current-latest.json 2> current-latest.err; then
+            if grep -qiE 'does not exist|NoSuchKey|404' current-latest.err; then
+              echo '{}' > current-latest.json
+            else
+              cat current-latest.err >&2
+              exit 1
+            fi
+          fi
+          rm -f current-latest.err
           VERSION="$version" MAC="$mac" WIN="$win" LINUX="$linux" bun -e '
             if (!process.env.MAC || !process.env.WIN || !process.env.LINUX) {
               console.error("missing platform asset", { mac: process.env.MAC, win: process.env.WIN, linux: process.env.LINUX })
               process.exit(1)
             }
             let mobile
-            try {
-              const current = JSON.parse(await Bun.file("current-latest.json").text())
+            const raw = (await Bun.file("current-latest.json").text()).trim()
+            if (raw) {
+              let current
+              try { current = JSON.parse(raw) } catch (e) {
+                console.error("latest.json is not valid JSON:", e.message); process.exit(1)
+              }
               if (current && typeof current.mobile === "object" && current.mobile !== null) mobile = current.mobile
-            } catch {}
+            }
             const key = (name) => `v${process.env.VERSION}/${name}`
             const manifest = {
               version: process.env.VERSION,

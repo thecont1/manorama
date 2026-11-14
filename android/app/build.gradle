@@ -17,7 +17,8 @@ android {
         targetSdkVersion rootProject.ext.targetSdkVersion
         // CI stamps the tag: -PMANORAMA_VERSION_NAME=0.4.0
         // -PMANORAMA_VERSION_CODE=400 (major·10000 + minor·100 + patch —
-        // monotonic while each field stays under 100).
+        // monotonic while minor and patch stay under 100; the workflow
+        // rejects tags that break the bound).
         versionCode Integer.parseInt(releaseProp('MANORAMA_VERSION_CODE') ?: '1')
         versionName releaseProp('MANORAMA_VERSION_NAME') ?: '1.0'
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
