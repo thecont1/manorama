@@ -6,9 +6,11 @@ import { HOME_DEMO_ENABLED } from '../components/home/home-manifest'
 
 export default createRoute(async (c) => {
   // The landing page doubles as the sign-in door: editors arriving with a
-  // session go straight to their dashboard.
+  // session go straight to their dashboard — unless the link explicitly
+  // asked for the marketing page (the downloads site's nav does), so a
+  // signed-in visitor can still read it.
   const session = await resolveManoramaSession(c.req.raw, accessEnvOf(c))
-  if (session) return c.redirect(`/${session.ownerSlug}`)
+  if (session && !c.req.query('home')) return c.redirect(`/${session.ownerSlug}`)
 
   const failed = c.req.query('error') === '1'
   // We can't know whether the Dropbox account has a manorama record until

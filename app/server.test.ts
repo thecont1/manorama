@@ -94,7 +94,7 @@ describe('gallery management API authentication', () => {
   test('a valid session reaches the scan validation handler', async () => {
     const response = await request(api(), '/api/galleries/scan', authed({ method: 'POST', body: '{}' }))
     expect(response.status).toBe(400)
-    expect(await response.json()).toEqual({ error: 'Paste a public Dropbox folder, Google Drive folder, iCloud shared album, MEGA folder/collection, Ente album, or Proton Drive link' })
+    expect(await response.json()).toEqual({ error: 'Paste a public Dropbox folder, Google Drive folder, iCloud shared album, Google Photos shared album, MEGA folder/collection, Ente album, or Proton Drive link' })
   })
 
   test('a valid session reaches the update validation handler', async () => {
@@ -226,6 +226,12 @@ describe('the homepage is the marketing page', () => {
     const response = await page().request('/', authed(), env)
     expect(response.status).toBe(302)
     expect(response.headers.get('location')).toBe('/test-owner')
+  })
+
+  test('a signed-in visitor who explicitly asked for the homepage still gets it', async () => {
+    const response = await page().request('/?home=1', authed(), env)
+    expect(response.status).toBe(200)
+    expect(await response.text()).toContain('manorama')
   })
 
   test('every other page stays noindex', async () => {

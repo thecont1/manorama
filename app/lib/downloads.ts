@@ -88,6 +88,8 @@ html.light{
   --home-bg:#f3f0e8;--home-ink:#171715;--home-ink-bright:#000;--home-ink-soft:#49473f;--home-ink-muted:#5a574f;
   --home-surface:#e9e5dc;--home-surface-raised:#ddd8cd;--home-line:#a8a296;--home-line-soft:#d8d2c6;color-scheme:light;
 }
+html{background:var(--home-bg)}
+html,body{margin:0;padding:0}
 .home{overflow-x:clip;background:var(--home-bg);color:var(--home-ink);font-family:'Manrope',ui-sans-serif,system-ui,sans-serif;font-size:18px;line-height:1.6;font-synthesis:none;text-rendering:optimizeLegibility;-webkit-font-smoothing:antialiased}
 .home *{box-sizing:border-box}
 .home img{max-width:100%;height:auto;display:block}
@@ -110,8 +112,20 @@ html.light .home .home-logo-light{display:block}
 .home-theme-sun{display:none}
 html.light .home-theme-sun{display:block}
 html.light .home-theme-moon{display:none}
-.home-signin-trigger,.home-nav-signin{min-height:44px;padding:0 6px;border:0;background:none;color:var(--home-ink-muted);font:inherit;font-size:15px;cursor:pointer;text-decoration:none;transition:color 120ms ease-out}
+.home-signin-trigger,.home-nav-signin{display:inline-flex;align-items:center;min-height:44px;padding:0 6px;border:0;background:none;color:var(--home-ink-muted);font:inherit;font-size:15px;cursor:pointer;text-decoration:none;transition:color 120ms ease-out}
 .home-signin-trigger:hover,.home-nav-signin:hover{color:var(--home-ink)}
+.home-account-panel{position:fixed;inset:calc(var(--home-header-h) + 8px) clamp(20px,4.5vw,64px) auto auto;width:min(320px,calc(100vw - 40px));max-height:calc(100svh - var(--home-header-h) - 24px);margin:0;padding:14px;overflow-y:auto;border:2px solid var(--home-ink);border-radius:0;background:var(--home-surface-raised);color:var(--home-ink);box-shadow:4px 4px 0 var(--home-accent)}
+.home-account-panel:not(:popover-open){display:none}
+html.light .home-account-panel{background:#fff}
+.home-account-heading{margin:2px 8px 6px;font-size:13px;font-weight:500;color:var(--home-ink-muted)}
+.home-account-panel section+section{margin-top:14px;padding-top:12px;border-top:1px solid var(--home-line)}
+.home-account-list{list-style:none;margin:0;padding:0}
+.home-account-list a{display:flex;align-items:center;gap:10px;min-height:44px;padding:9px 10px;color:var(--home-ink);text-decoration:none}
+.home .home-account-list a:hover{background:var(--home-accent)}
+.home-account-list a:has(small){flex-wrap:wrap;row-gap:0}
+.home-account-list small{flex-basis:100%;color:var(--home-ink-muted);font-size:12px}
+.home-account-name{font-size:16px;font-weight:600}
+.home-signin-list svg{width:20px;height:20px;flex:none}
 .home-nav-menu{display:none}
 .home-nav-menu summary{cursor:pointer;list-style:none;font-size:15px;color:var(--home-ink-soft);padding:10px 2px}
 .home-nav-menu summary::-webkit-details-marker{display:none}
@@ -119,6 +133,7 @@ html.light .home-theme-moon{display:none}
 .home-nav-menu-list{position:absolute;right:var(--home-wrap-pad);top:var(--home-header-h);display:flex;flex-direction:column;gap:4px;padding:12px;background:var(--home-surface-raised);min-width:190px}
 .home .home-nav-menu-list a{font-size:15px;text-decoration:none;color:var(--home-ink-soft);padding:10px 8px}
 .home .home-nav-menu-list a:hover{color:var(--home-ink)}
+.home-nav-menu-label{font-size:13px;color:var(--home-ink-muted);padding:12px 8px 2px}
 .home .home-btn{display:inline-flex;align-items:center;justify-content:center;min-height:46px;padding:10px 22px;border:0;border-radius:999px;background:var(--home-ink);color:var(--home-bg);font-family:inherit;font-size:15px;font-weight:600;text-decoration:none;cursor:pointer;transition:background-color 120ms ease-out,color 120ms ease-out}
 .home .home-btn:hover{background:var(--home-ink-bright);color:var(--home-bg)}
 .home .home-btn-quiet{background:transparent;color:var(--home-ink);box-shadow:inset 0 0 0 2px var(--home-line)}
@@ -143,7 +158,7 @@ html.light .home-theme-moon{display:none}
   .home-wordmark img{width:162px}
 }
 /* ── the downloads page itself ── */
-.dl-main{padding-block:clamp(56px,7vw,110px) clamp(64px,8vw,120px)}
+.dl-main{padding-block:clamp(88px,10vw,144px) clamp(64px,8vw,120px)}
 .dl-eyebrow{font-family:'DM Mono',ui-monospace,monospace;font-size:13px;letter-spacing:.14em;text-transform:uppercase;color:var(--home-ink-muted);margin-bottom:18px}
 .dl-title{font-family:'Bricolage Grotesque','Manrope',ui-sans-serif,system-ui,sans-serif;font-weight:700;font-size:clamp(40px,6vw,72px);line-height:1.02;letter-spacing:-.02em;margin:0 0 20px}
 .dl-lede{max-width:62ch;color:var(--home-ink-soft);font-size:19px;margin-bottom:clamp(32px,4vw,48px)}
@@ -191,15 +206,37 @@ const THEME_TOGGLE = `<button type="button" class="home-theme-toggle" data-theme
 <svg class="home-theme-moon" viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><path d="M20 15.2A8.5 8.5 0 0 1 8.8 4 8.5 8.5 0 1 0 20 15.2Z"/></svg>
 </button>`
 
+const GLYPHS = {
+  apple:
+    '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12.152 6.896c-.948 0-2.415-1.078-3.96-1.04-2.04.027-3.91 1.183-4.961 3.014-2.117 3.675-.546 9.103 1.519 12.09 1.013 1.454 2.208 3.09 3.792 3.039 1.52-.065 2.09-.987 3.935-.987 1.831 0 2.35.987 3.96.948 1.637-.026 2.676-1.48 3.676-2.948 1.156-1.688 1.636-3.325 1.662-3.415-.039-.013-3.182-1.221-3.22-4.857-.026-3.04 2.48-4.494 2.597-4.559-1.429-2.09-3.623-2.324-4.39-2.376-2-.156-3.675 1.09-4.61 1.09zM15.53 3.83c.843-1.012 1.4-2.427 1.245-3.83-1.207.052-2.662.805-3.532 1.818-.78.896-1.454 2.338-1.273 3.714 1.338.104 2.715-.688 3.559-1.702" fill="currentColor"/></svg>',
+  google:
+    '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12.48 10.92v3.28h7.84c-.24 1.84-.853 3.187-1.787 4.133-1.147 1.147-2.933 2.4-6.053 2.4-4.828 0-8.6-3.893-8.6-8.72s3.773-8.72 8.6-8.72c2.6 0 4.507 1.027 5.907 2.347l2.307-2.307C18.747 1.44 16.133 0 12.48 0 5.867 0 .307 5.387.307 12s5.56 12 12.173 12c3.573 0 6.267-1.173 8.373-3.36 2.16-2.16 2.84-5.213 2.84-7.667 0-.76-.053-1.467-.173-2.053H12.48z" fill="currentColor"/></svg>',
+  dropbox:
+    '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 1.807L0 5.629l6 3.822 6.001-3.822L6 1.807zM18 1.807l-6 3.822 6 3.822 6-3.822-6-3.822zM0 13.274l6 3.822 6.001-3.822L6 9.452l-6 3.822zM18 9.452l-6 3.822 6 3.822 6-3.822-6-3.822zM6 18.371l6.001 3.822 6-3.822-6-3.822L6 18.371z" fill="currentColor"/></svg>',
+} as const
+
+const accountPanelHtml = () => `<div id="home-account-panel" class="home-account-panel" popover="auto">
+<section aria-labelledby="home-account-signin"><h2 id="home-account-signin" class="home-account-heading">Continue with</h2>
+<ul class="home-account-list home-signin-list">${(['apple', 'google', 'dropbox'] as const)
+  .map((id) => `<li><a href="${SITE}/auth/${id}">${GLYPHS[id]}<span class="home-account-name">${id === 'apple' ? 'Apple' : id === 'google' ? 'Google' : 'Dropbox'}</span></a></li>`)
+  .join('')}</ul></section>
+<section aria-labelledby="home-account-apps"><h2 id="home-account-apps" class="home-account-heading">Get the app</h2>
+<ul class="home-account-list">
+<li><a href="/mac"><span class="home-account-name">Mac</span><small>Apple silicon</small></a></li>
+<li><a href="/windows"><span class="home-account-name">Windows</span></a></li>
+</ul></section>
+</div>`
+
 const headerHtml = () => `<header class="home-header"><div class="home-header-inner">
-<a class="home-wordmark" href="${SITE}/" aria-label="manorama, home"><img class="home-logo-dark" src="${SITE}/manorama-merged-logo.png" alt="manorama" width="2027" height="688"><img class="home-logo-light" src="${SITE}/manorama-merged-logo-light.png" alt="" aria-hidden="true" width="2027" height="688"></a>
-<nav class="home-nav" aria-label="Sections"><a href="${SITE}/#unify">Features</a><a href="${SITE}/#pricing">Pricing</a><a href="${SITE}/#faq">FAQ</a></nav>
+<a class="home-wordmark" href="${SITE}/?home=1" aria-label="manorama, home"><img class="home-logo-dark" src="${SITE}/manorama-merged-logo.png" alt="manorama" width="2027" height="688"><img class="home-logo-light" src="${SITE}/manorama-merged-logo-light.png" alt="" aria-hidden="true" width="2027" height="688"></a>
+<nav class="home-nav" aria-label="Sections"><a href="${SITE}/?home=1#unify">Features</a><a href="${SITE}/?home=1#pricing">Pricing</a><a href="${SITE}/?home=1#faq">FAQ</a></nav>
 ${THEME_TOGGLE}
-<a class="home-signin-trigger" href="${SITE}/">Sign in</a>
-<a class="home-btn" href="${SITE}/">Start free</a>
+<button type="button" class="home-signin-trigger" popovertarget="home-account-panel" popovertargetaction="show">Sign in</button>
+<button type="button" class="home-btn" popovertarget="home-account-panel" popovertargetaction="show">Start free</button>
 <details class="home-nav-menu"><summary>Menu</summary><div class="home-nav-menu-list">
-<a href="${SITE}/#unify">Features</a><a href="${SITE}/#pricing">Pricing</a><a href="${SITE}/#faq">FAQ</a>
-<a href="${SITE}/">Sign in</a><a href="${SITE}/">Start free</a>${THEME_TOGGLE}
+<a href="${SITE}/?home=1#unify">Features</a><a href="${SITE}/?home=1#pricing">Pricing</a><a href="${SITE}/?home=1#faq">FAQ</a>
+<button type="button" class="home-nav-signin" popovertarget="home-account-panel" popovertargetaction="show">Sign in</button>
+<p class="home-nav-menu-label">View</p>${THEME_TOGGLE}
 </div></details>
 </div></header>`
 
@@ -211,7 +248,7 @@ const footerHtml = () => `<footer class="home-footer"><div class="home-wrap home
 const page = (title: string, body: string): Response =>
   new Response(`<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${escapeHtml(title)}</title>
 <meta name="robots" content="noindex"><meta name="theme-color" content="#0a0a0a"><style>${STYLE}</style>${THEME_INIT}</head>
-<body><div class="home">${headerHtml()}<main class="home-wrap">${body}</main>${footerHtml()}</div>${THEME_WIRE}</body></html>`,
+<body><div class="home">${headerHtml()}${accountPanelHtml()}<main class="home-wrap">${body}</main>${footerHtml()}</div>${THEME_WIRE}</body></html>`,
     { headers: { 'content-type': 'text/html; charset=utf-8' } })
 
 /* ── the data ────────────────────────────────────────────────────────── */
@@ -377,6 +414,7 @@ ${(['mac', 'windows', 'linux'] as const)
   })
   .join('')}
 </div>
+<p class="dl-shortcuts" style="margin-top:6px;color:var(--home-ink-muted)">iPhone &amp; iPad — coming soon</p>
 <p class="dl-shortcuts">Shortcuts: <a href="/mac">/mac</a> · <a href="/windows">/windows</a> · <a href="/linux">/linux</a> · <a href="/latest.json">/latest.json</a></p>
 ${rows ? `<p class="dl-shortcuts" style="margin-top:10px">${rows}</p>` : ''}
 ${current?.highlights.length ? `<p class="dl-lede" style="margin-top:28px;font-size:16px">Latest: ${escapeHtml(current.highlights[0]!.subject)}</p>` : ''}
