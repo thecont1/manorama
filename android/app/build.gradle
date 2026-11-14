@@ -1,13 +1,5 @@
 apply plugin: 'com.android.application'
 
-// Release credentials arrive as -P properties or environment variables —
-// never a committed file. CI decodes ANDROID_KEYSTORE_BASE64 into a file
-// and points MANORAMA_UPLOAD_KEYSTORE at it; a local release build without
-// it stays unsigned rather than failing, and the workflow verifies the
-// signature so an unsigned artifact can never slip onto a release.
-def releaseProp = { String name -> project.findProperty(name) ?: System.getenv(name) }
-def uploadKeystore = releaseProp('MANORAMA_UPLOAD_KEYSTORE')
-
 android {
     namespace = "in.thecontrarian.manorama"
     compileSdk = rootProject.ext.compileSdkVersion
@@ -15,11 +7,8 @@ android {
         applicationId "in.thecontrarian.manorama"
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
-        // CI stamps the tag: -PMANORAMA_VERSION_NAME=0.4.0
-        // -PMANORAMA_VERSION_CODE=400 (major·10000 + minor·100 + patch —
-        // monotonic while each field stays under 100).
-        versionCode Integer.parseInt(releaseProp('MANORAMA_VERSION_CODE') ?: '1')
-        versionName releaseProp('MANORAMA_VERSION_NAME') ?: '1.0'
+        versionCode 1
+        versionName "1.0"
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
         // The Android AdMob app id is a separate id from the iOS one and only
         // exists once the owner creates the Android app in the AdMob console;
@@ -33,25 +22,10 @@ android {
             ignoreAssetsPattern = '!.svn:!.git:!.ds_store:!*.scc:.*:!CVS:!thumbs.db:!picasa.ini:!*~'
         }
     }
-    signingConfigs {
-        release {
-            if (uploadKeystore) {
-                storeFile file(uploadKeystore)
-                storePassword releaseProp('MANORAMA_UPLOAD_STORE_PASSWORD')
-                keyAlias releaseProp('MANORAMA_UPLOAD_KEY_ALIAS')
-                keyPassword releaseProp('MANORAMA_UPLOAD_KEY_PASSWORD')
-            }
-        }
-    }
     buildTypes {
         release {
             minifyEnabled false
             proguardFiles getDefaultProguardFile('proguard-android.txt'), 'proguard-rules.pro'
-            if (uploadKeystore) {
-                signingConfig signingConfigs.release
-            } else {
-                logger.warn('manorama: MANORAMA_UPLOAD_KEYSTORE is not set — the release build will be unsigned')
-            }
         }
     }
 }

@@ -246,28 +246,17 @@ jobs:
             bunx wrangler r2 object put "manorama-downloads/v${version}/${name}" --file "$f" --content-type "$type" --remote
           done
           bun scripts/build-download-history.mjs history.json
-          # latest.json is shared with the Android pipeline, which owns the
-          # mobile slot — carry it across instead of clobbering the field on
-          # every desktop tag. A missing/unparseable manifest just means no
-          # mobile release has shipped yet.
-          bunx wrangler r2 object get manorama-downloads/latest.json --pipe --remote > current-latest.json || echo '{}' > current-latest.json
           VERSION="$version" MAC="$mac" WIN="$win" LINUX="$linux" bun -e '
             if (!process.env.MAC || !process.env.WIN || !process.env.LINUX) {
               console.error("missing platform asset", { mac: process.env.MAC, win: process.env.WIN, linux: process.env.LINUX })
               process.exit(1)
             }
-            let mobile
-            try {
-              const current = JSON.parse(await Bun.file("current-latest.json").text())
-              if (current && typeof current.mobile === "object" && current.mobile !== null) mobile = current.mobile
-            } catch {}
             const key = (name) => `v${process.env.VERSION}/${name}`
             const manifest = {
               version: process.env.VERSION,
               released: new Date().toISOString().slice(0, 10),
               assets: { mac: key(process.env.MAC), windows: key(process.env.WIN), linux: key(process.env.LINUX), all: [key(process.env.MAC)] },
             }
-            if (mobile) manifest.mobile = mobile
             await Bun.write("latest.json", JSON.stringify(manifest, null, 2) + "\n")
           '
           bunx wrangler r2 object put manorama-downloads/history.json --file history.json --content-type application/json --remote
