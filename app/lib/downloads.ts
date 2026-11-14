@@ -493,11 +493,16 @@ ${(['mac', 'windows', 'linux'] as const)
 <p class="dl-shortcuts" style="margin-top:20px">Shortcuts: <a href="/mac">/mac</a> · <a href="/windows">/windows</a> · <a href="/linux">/linux</a> · <a href="/latest.json">/latest.json</a></p>
 <p class="dl-eyebrow" style="margin-top:clamp(30px,4vw,48px)">mobile downloads</p>
 ${(() => {
-  const row = (name: string, mobile?: MobileRelease | null) =>
+  const btn = (label: string, mobile?: MobileRelease | null) =>
+    mobile?.url ? `<a class="home-btn home-btn-quiet" href="${escapeHtml(mobile.url)}">${label}</a>` : ''
+  const note = (name: string, mobile?: MobileRelease | null) =>
     mobile?.url
-      ? `<p class="dl-shortcuts"><a href="${escapeHtml(mobile.url)}">${name}</a>${mobile.version ? ` · v${escapeHtml(mobile.version)}` : ''}</p>`
+      ? `<p class="dl-shortcuts">${name}${mobile.version ? ` · v${escapeHtml(mobile.version)}` : ''}</p>`
       : `<p class="dl-shortcuts">${name} — coming soon</p>`
-  return row('iPhone &amp; iPad', manifest?.mobile?.ios) + row('Android', manifest?.mobile?.android)
+  const ios = manifest?.mobile?.ios
+  const android = manifest?.mobile?.android
+  const buttons = btn('Download for iPhone &amp; iPad', ios) + btn('Download for Android', android)
+  return `${buttons ? `<div class="dl-platforms">${buttons}</div>` : ''}${note('iPhone &amp; iPad', ios)}${note('Android', android)}`
 })()}
 ${current?.highlights.length ? `<p class="dl-latest-line">Latest: ${escapeHtml(current.highlights[0]!.subject)}</p>` : ''}
 </section>`
