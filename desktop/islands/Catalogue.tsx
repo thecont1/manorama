@@ -418,6 +418,26 @@ export default function Catalogue({ apiBase }: { apiBase: string }) {
   useEffect(() => {
     sessionRef.current = session
   }, [session])
+  // Catalogue writes serialize through one queue: each task merges onto the
+  // catalogue as it stands when the task RUNS, so a slow folder scan or
+  // dims backfill can't be overwritten by a snapshot built before it
+  // landed. The ref and state move only after the disk write succeeds.
+  const catalogueWrites = useRef<Promise<unknown>>(Promise.resolve())
+  const enqueueCatalogueWrite = <T,>(task: () => Promise<T>): Promise<T> => {
+    const run = catalogueWrites.current.then(task)
+    catalogueWrites.current = run.then(() => undefined, () => undefined)
+    return run
+  }
+  const commitCatalogue = async (next: LocalCatalogue): Promise<boolean> => {
+    try {
+      await writeCatalogueFile(serializeLocalCatalogue(next))
+    } catch {
+      return false
+    }
+    catalogueRef.current = next
+    setCatalogue(next)
+    return true
+  }
   // Toasts are transient like the web dashboard's — five seconds, then
   // gone. The derived account/slug warnings are not timed: they stay up
   // until the underlying failure clears on the next refresh.
@@ -556,20 +576,23 @@ export default function Catalogue({ apiBase }: { apiBase: string }) {
     return () => window.removeEventListener('popstate', followHistory)
   }, [])
 
-  const persistCatalogue = useCallback(async (next: LocalCatalogue): Promise<boolean> => {
-    // The write lands before the state does — a failed save answers
-    // false so the caller can stop before deleting a synced row or
-    // announcing a change the disk never took.
-    try {
-      await writeCatalogueFile(serializeLocalCatalogue(next))
-    } catch {
-      setNotice('The catalogue could not be saved locally')
-      return false
-    }
-    catalogueRef.current = next
-    setCatalogue(next)
-    return true
-  }, [])
+  const persistCatalogue = useCallback(
+    (mutate: (current: LocalCatalogue) => LocalCatalogue): Promise<LocalCatalogue | null> =>
+      enqueueCatalogueWrite(async () => {
+        const current = catalogueRef.current
+        if (!current) return null
+        const next = mutate(current)
+        // The write lands before the state does — a failed save answers
+        // null so the caller can stop before deleting a synced row or
+        // announcing a change the disk never took.
+        if (!(await commitCatalogue(next))) {
+          setNotice('The catalogue could not be saved locally')
+          return null
+        }
+        return next
+      }),
+    [],
+  )
 
   const hiddenPasswordSet = Boolean(prefs.hiddenPassword)
 
@@ -725,15 +748,15 @@ export default function Catalogue({ apiBase }: { apiBase: string }) {
         if (result.adoptedHidden.length) {
           const adopted = new Set(result.adoptedHidden)
           const stamp = new Date().toISOString()
-          const current = catalogueRef.current ?? cat
-          const reconciled: LocalCatalogue = {
-            ...current,
-            galleries: current.galleries.map((gallery) =>
-              adopted.has(gallery.id) && !gallery.hiddenAt ? { ...gallery, hiddenAt: stamp } : gallery),
-          }
-          catalogueRef.current = reconciled
-          setCatalogue(reconciled)
-          await writeCatalogueFile(serializeLocalCatalogue(reconciled)).catch(() => {})
+          await enqueueCatalogueWrite(async () => {
+            const current = catalogueRef.current ?? cat
+            const reconciled: LocalCatalogue = {
+              ...current,
+              galleries: current.galleries.map((gallery) =>
+                adopted.has(gallery.id) && !gallery.hiddenAt ? { ...gallery, hiddenAt: stamp } : gallery),
+            }
+            await commitCatalogue(reconciled)
+          })
         }
         return result.failed === 0
       } catch {
@@ -765,25 +788,30 @@ export default function Catalogue({ apiBase }: { apiBase: string }) {
         .then((scan) => new Map(scan.items.map((item) => [item.id, item])))
         .catch(() => new Map())
       // A failed scan still stamps the record — repeating it every launch
-      // buys nothing; the manual rescan remains the repair path.
-      const latest = catalogueRef.current ?? current
-      const next: LocalCatalogue = {
-        ...latest,
-        galleries: latest.galleries.map((gallery) =>
-          gallery.id !== record.id ? gallery : {
-            ...gallery,
-            dimsScannedAt: stamp,
-            items: gallery.items.map((item) => {
-              const seen = fresh.get(item.id)
-              return seen?.width && seen.height && !(item.width && item.height)
-                ? { ...item, width: seen.width, height: seen.height }
-                : item
+      // buys nothing; the manual rescan remains the repair path. The merge
+      // and write run inside the shared queue: the snapshot is built from
+      // the catalogue as it stands when the write executes, and ref/state
+      // move only after the disk write lands. A failed write still advances
+      // the loop cursor — the stamp simply isn't persisted.
+      const next = await enqueueCatalogueWrite(async () => {
+        const latest = catalogueRef.current ?? current
+        const merged: LocalCatalogue = {
+          ...latest,
+          galleries: latest.galleries.map((gallery) =>
+            gallery.id !== record.id ? gallery : {
+              ...gallery,
+              dimsScannedAt: stamp,
+              items: gallery.items.map((item) => {
+                const seen = fresh.get(item.id)
+                return seen?.width && seen.height && !(item.width && item.height)
+                  ? { ...item, width: seen.width, height: seen.height }
+                  : item
+              }),
             }),
-          }),
-      }
-      catalogueRef.current = next
-      setCatalogue(next)
-      await writeCatalogueFile(serializeLocalCatalogue(next)).catch(() => {})
+        }
+        await commitCatalogue(merged)
+        return merged
+      })
       current = next
     }
   }
@@ -1016,21 +1044,20 @@ export default function Catalogue({ apiBase }: { apiBase: string }) {
       }
       // Re-picking an existing root replaces its record — same source,
       // fresh scan, new id (the old remote row goes stale and is deleted).
-      // The scan took a while — build on the catalogue as it is NOW, not
-      // the one this handler was created with, so edits that landed
-      // during the wait are never overwritten.
-      const latest = catalogueRef.current ?? catalogue
-      const replaced = latest.galleries.find((g) => g.rootPath === root)
-      const next = {
+      // The merge runs inside the write queue on the catalogue as it stands
+      // when the write executes, so edits that landed during the scan are
+      // never overwritten.
+      const replaced = (catalogueRef.current ?? catalogue).galleries.find((g) => g.rootPath === root)
+      setAvailability((previous) => ({ ...previous, [record.id]: 'available' }))
+      const saved = await persistCatalogue((latest) => ({
         ...latest,
         galleries: [...latest.galleries.filter((g) => g.rootPath !== root), record],
-      }
-      setAvailability((previous) => ({ ...previous, [record.id]: 'available' }))
-      if (!(await persistCatalogue(next))) return
+      }))
+      if (!saved) return
       if (session && replaced) void removeDeviceGallery(base, session.token, replaced)
       setNotice(`${record.title} added.`)
       scrollToGalleryCard(record.id)
-      void runSync(next, session)
+      void runSync(saved, session)
     } catch {
       setNotice('That folder could not be opened')
     } finally {
@@ -1072,20 +1099,19 @@ export default function Catalogue({ apiBase }: { apiBase: string }) {
         // that flag or the next sync PUTs it back visible.
         ...(ghost.hidden ? { hiddenAt: now } : {}),
       }
-      // Same staleness rule as addFolder: merge into the catalogue as it
-      // is after the scan, not the snapshot this handler opened with.
-      const latest = catalogueRef.current ?? catalogue
-      const replaced = latest.galleries.find((g) => g.rootPath === root && g.id !== ghost.id)
-      const next = {
+      // Same staleness rule as addFolder: the merge runs inside the write
+      // queue on the catalogue as it stands when the write executes.
+      const replaced = (catalogueRef.current ?? catalogue).galleries.find((g) => g.rootPath === root && g.id !== ghost.id)
+      setAvailability((previous) => ({ ...previous, [record.id]: 'available' }))
+      const saved = await persistCatalogue((latest) => ({
         ...latest,
         galleries: [...latest.galleries.filter((g) => g.rootPath !== root && g.id !== ghost.id), record],
-      }
-      setAvailability((previous) => ({ ...previous, [record.id]: 'available' }))
-      if (!(await persistCatalogue(next))) return
+      }))
+      if (!saved) return
       if (session && replaced) void removeDeviceGallery(base, session.token, replaced)
       setNotice(`“${record.title}” is linked to this Mac again.`)
       scrollToGalleryCard(record.id)
-      void runSync(next, session)
+      void runSync(saved, session)
     } catch {
       setNotice('That folder could not be opened')
     } finally {
