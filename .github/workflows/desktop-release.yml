@@ -27,25 +27,20 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          # Both macOS arches build on the ARM runner; there is no Intel
-          # runner worth keeping in the matrix.
+          # The Mac ships only from the SwiftUI shell — the Tauri desktop is
+          # deprecated on macOS (scripts/build-macos.sh compiles macos/
+          # ManoramaMac with swiftc, arm64 only; there is no Intel build).
           - os: macos-latest
-            rustTarget: aarch64-apple-darwin
+            swiftui: true
             asset: macos-arm64
-            bundles: src-tauri/target/aarch64-apple-darwin/release/bundle/dmg/*.dmg
-          - os: macos-latest
-            rustTarget: x86_64-apple-darwin
-            asset: macos-x64
-            bundles: src-tauri/target/x86_64-apple-darwin/release/bundle/dmg/*.dmg
+            bundles: build/dmg/*.dmg
           - os: windows-latest
-            rustTarget: ''
             asset: windows
             bundles: |
               src-tauri/target/release/bundle/msi/*.msi
               src-tauri/target/release/bundle/nsis/*.exe
           # 22.04 keeps the AppImage/.deb runnable on older glibc.
           - os: ubuntu-22.04
-            rustTarget: ''
             asset: linux
             bundles: |
               src-tauri/target/release/bundle/deb/*.deb
@@ -110,13 +105,9 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev patchelf libxdo-dev libssl-dev
 
-      - name: Install the Rust target for this build
-        if: matrix.rustTarget != ''
-        run: rustup target add ${{ matrix.rustTarget }}
-
-      # tauri.conf.json pins a Developer ID identity, so the macOS legs
-      # fail at codesign until the APPLE_* secrets exist — no unsigned
-      # fallback on purpose. The certificate never enters the other legs.
+      # The macOS leg codesigns through scripts/build-macos.sh, so it fails at
+      # codesign until the APPLE_* secrets exist — no unsigned fallback on
+      # purpose. The certificate never enters the other legs.
       - name: Import the macOS signing certificate
         if: runner.os == 'macOS'
         env:
@@ -140,17 +131,31 @@ jobs:
           security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$KEYCHAIN_PASSWORD" build.keychain
           rm signing.p12
 
-      # The tauri CLI notarizes itself (notarytool + staple) when the
-      # APPLE_ID trio is in its environment — macOS only.
-      - name: Build desktop bundles
-        if: runner.os == 'macOS'
+      # The SwiftUI shell is the only Mac build — swiftc + codesign via
+      # scripts/build-macos.sh, then a drag-install DMG. notarytool + stapler
+      # run when the APPLE_ID trio is present, the same posture the tauri CLI
+      # took before the Mac leg moved off it.
+      - name: Build the SwiftUI Mac bundle
+        if: matrix.swiftui == true
         env:
           APPLE_ID: ${{ secrets.APPLE_ID }}
           # Either name works; the app-specific password is what notarization
           # needs, and APPLE_APP_SPECIFIC_PASSWORD is the other common spelling.
           APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD || secrets.APPLE_APP_SPECIFIC_PASSWORD }}
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
-        run: bunx tauri build --target ${{ matrix.rustTarget }}
+        run: |
+          scripts/build-macos.sh release
+          APP_BUNDLE=macos/ManoramaMac/build/ManoramaMac.app
+          VERSION=$(/usr/libexec/PlistBuddy -c 'Print CFBundleShortVersionString' "$APP_BUNDLE/Contents/Info.plist")
+          mkdir -p build/dmg-stage build/dmg
+          cp -R "$APP_BUNDLE" build/dmg-stage/
+          ln -s /Applications build/dmg-stage/Applications
+          DMG="build/dmg/manorama_${VERSION}_aarch64.dmg"
+          hdiutil create -volname manorama -srcfolder build/dmg-stage -ov -format UDZO "$DMG"
+          if [ -n "${APPLE_ID:-}" ] && [ -n "${APPLE_PASSWORD:-}" ] && [ -n "${APPLE_TEAM_ID:-}" ]; then
+            xcrun notarytool submit "$DMG" --apple-id "$APPLE_ID" --password "$APPLE_PASSWORD" --team-id "$APPLE_TEAM_ID" --wait
+            xcrun stapler staple "$DMG"
+          fi
 
       - name: Build desktop bundles
         if: runner.os != 'macOS'
