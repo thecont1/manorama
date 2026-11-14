@@ -328,15 +328,34 @@ final class LocalSchemeHandler: NSObject, WKURLSchemeHandler {
         upstream = upstream.absoluteURL
         var outgoing = URLRequest(url: upstream)
         outgoing.httpMethod = request.httpMethod
-        outgoing.httpBody = request.httpBody
-        // The browser's own headers are carried across; the shell adds none.
-        for (key, value) in request.allHTTPHeaderFields ?? [:] {
-            outgoing.setValue(value, forHTTPHeaderField: key)
-        }
-        // The upstream must see the site it is, not the shell's scheme.
-        outgoing.setValue(Self.apiOrigin.absoluteString, forHTTPHeaderField: "Origin")
+        // WebKit does not populate `httpBody` on a custom-scheme task — the
+        // body arrives on `httpBodyStream` instead, so a PATCH that copied
+        // only `httpBody` would reach the API empty. Read the stream off
+        // the caller's queue, then send.
+        Self.requestBody(from: request) { [weak self] body in
+            guard let self else { return }
+            // A task stopped while its body was being read owes nothing.
+            if self.wasStopped(taskID) {
+                self.clearStopped(taskID)
+                return
+            }
+            if let body {
+                outgoing.httpBody = body
+            }
+            // The browser's own headers are carried across; the shell adds none.
+            for (key, value) in request.allHTTPHeaderFields ?? [:] {
+                outgoing.setValue(value, forHTTPHeaderField: key)
+            }
+            if let body {
+                // The length the page declared may describe the stream, not
+                // the bytes — restate it after the header copy so the
+                // upstream never reads a lie.
+                outgoing.setValue("\(body.count)", forHTTPHeaderField: "Content-Length")
+            }
+            // The upstream must see the site it is, not the shell's scheme.
+            outgoing.setValue(Self.apiOrigin.absoluteString, forHTTPHeaderField: "Origin")
 
-        Self.apiSession.dataTask(with: outgoing) { [weak self] data, response, error in
+            Self.apiSession.dataTask(with: outgoing) { [weak self] data, response, error in
             guard let self else { return }
             // WebKit delivers stop on the main queue — the stopped check
             // and every response call join it there, so a stop can never
@@ -397,6 +416,35 @@ final class LocalSchemeHandler: NSObject, WKURLSchemeHandler {
                 task.didFinish()
             }
         }.resume()
+        }
+    }
+
+    /// The request's body, however WebKit chose to deliver it.
+    ///
+    /// `httpBody` is populated for some requests and `httpBodyStream` for
+    /// others — the stream is the reliable carrier on a custom scheme, and
+    /// it blocks, so it is drained on a background queue.
+    private static func requestBody(from request: URLRequest, completion: @escaping (Data?) -> Void) {
+        if let body = request.httpBody {
+            completion(body)
+            return
+        }
+        guard let stream = request.httpBodyStream else {
+            completion(nil)
+            return
+        }
+        DispatchQueue.global(qos: .userInitiated).async {
+            stream.open()
+            defer { stream.close() }
+            var data = Data()
+            var buffer = [UInt8](repeating: 0, count: 64 * 1024)
+            while stream.hasBytesAvailable {
+                let read = stream.read(&buffer, maxLength: buffer.count)
+                if read <= 0 { break }
+                data.append(buffer, count: read)
+            }
+            completion(data.isEmpty ? nil : data)
+        }
     }
 
 /// Tell the shell that a photograph could not be served.
