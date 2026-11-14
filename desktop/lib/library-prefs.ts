@@ -21,6 +21,9 @@ export type LibraryPrefs = {
   version: number
   hidden?: string[]
   hiddenPassword?: HiddenPassword | null
+  /** The app-update version this device last dismissed — the banner
+   *  stays quiet until a NEWER release publishes; it is not a mute. */
+  dismissedUpdateVersion?: string | null
 }
 
 const isHex = (value: unknown): value is string =>
@@ -42,6 +45,7 @@ export const parseLibraryPrefs = (text: string | null | undefined): LibraryPrefs
         password && isHex(password.salt) && isHex(password.hash)
           ? { salt: password.salt, hash: password.hash }
           : null,
+      dismissedUpdateVersion: typeof raw.dismissedUpdateVersion === 'string' && raw.dismissedUpdateVersion ? raw.dismissedUpdateVersion : null,
     }
   } catch {
     return fallback
@@ -54,6 +58,7 @@ export const serializeLibraryPrefs = (prefs: LibraryPrefs): string =>
       version: LIBRARY_PREFS_VERSION,
       hidden: [...(prefs.hidden ?? [])],
       ...(prefs.hiddenPassword ? { hiddenPassword: prefs.hiddenPassword } : {}),
+      ...(prefs.dismissedUpdateVersion ? { dismissedUpdateVersion: prefs.dismissedUpdateVersion } : {}),
     },
     null,
     2,

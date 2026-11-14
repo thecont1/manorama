@@ -50,4 +50,8 @@ declare global {
   /** Injected by vite.config's `define` — the build commit shown under the
    *  Library mark. Undefined outside bundled code (unit tests, scripts). */
   const __MANORAMA_COMMIT__: string | undefined
+  /** The packaged app version baked at build time (tauri.conf.json) —
+   *  the update check's fallback when the Tauri API is not in process,
+   *  e.g. the SwiftUI shell. Undefined outside bundled code. */
+  const __MANORAMA_APP_VERSION__: string | undefined
 }

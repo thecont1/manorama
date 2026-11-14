@@ -330,6 +330,40 @@ export const setDeviceGalleryHidden = async (
   if (!response.ok) throw new AccountApiError(response.status, payload.error || 'That device gallery could not be hidden')
 }
 
+/** The probe endpoint's answer — 'device' means only a key-holding shell
+ *  can list the source and the compare runs here, reported back via
+ *  { reported }. */
+export type GalleryProbeResult = {
+  status: 'changed' | 'unchanged' | 'unknown' | 'device' | 'skipped'
+  reason?: string
+  lastSourceCheckAt?: string | null
+}
+
+/** POST {apiBase}/api/galleries/{slug}/probe — the once-a-day metadata
+ *  check behind Library-load freshness (#208). Pass { reported } to
+ *  record a device-side verdict for an encrypted source; { force } skips
+ *  the throttle. A non-200 or shapeless answer returns null — callers
+ *  treat that like 'unknown' and move on. */
+export const probeAccountGallery = async (
+  apiBase: string,
+  token: string,
+  slug: string,
+  body: { force?: boolean; reported?: 'changed' | 'unchanged' | 'unknown' } = {},
+  fetcher: typeof fetch = fetch,
+): Promise<GalleryProbeResult | null> => {
+  const response = await fetcher(`${normalizeApiBase(apiBase)}/api/galleries/${encodeURIComponent(slug)}/probe`, {
+    method: 'POST',
+    headers: { ...bearer(token), 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  })
+  const payload = await response.json().catch(() => null) as ({ status?: string } & Omit<GalleryProbeResult, 'status'>) | null
+  if (!response.ok || !payload) return null
+  const status = payload.status
+  return status === 'changed' || status === 'unchanged' || status === 'unknown' || status === 'device' || status === 'skipped'
+    ? { ...payload, status }
+    : null
+}
+
 /** POST {apiBase}/api/galleries/{slug}/refresh — the rescan the web card
  *  menu runs. The init comes from refreshRequestInit so encrypted sources
  *  scan on-device and only the keyless listing crosses the wire. */

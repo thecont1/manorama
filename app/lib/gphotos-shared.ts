@@ -1,4 +1,5 @@
 import { MAX_GALLERY_ITEMS, SourceFetchError, type GalleryImage, type GalleryMediaItem } from './imagesource'
+import { keyListingDiffers, manifestKeyOf, type FreshnessItem, type ProbeOutcome } from './source-freshness'
 import { MAX_RETRY_WAIT_MS, retryAfterMs } from './transient-retry'
 
 /**
@@ -453,6 +454,28 @@ export const scanGPhotosAlbum = async (input: string, fetchImpl: typeof fetch = 
     images,
     truncated: photoItems.length > MAX_GALLERY_ITEMS ? photoItems.length : undefined,
     ...(partial ? { partial: true } : {}),
+  }
+}
+
+/**
+ * The freshness probe: shared-album items are immutable objects, so the
+ * listing's uid set is the whole answer — an add or a removal is the only
+ * change a refresh would act on. The probe reuses the scan listing (the
+ * share page plus the same batchexecute pages, all metadata) and compares
+ * key sets. A `partial` listing — continuation data the reader could not
+ * finish — can prove nothing and answers 'unknown', as does any failure.
+ */
+export const probeGPhotosAlbum = async (
+  input: string,
+  images: readonly FreshnessItem[],
+  fetchImpl: typeof fetch = fetch,
+): Promise<ProbeOutcome> => {
+  try {
+    const scan = await scanGPhotosAlbum(input, fetchImpl)
+    if (scan.partial) return { status: 'unknown', reason: 'listing-incomplete' }
+    return { status: keyListingDiffers(images, scan.images.map(manifestKeyOf)) }
+  } catch {
+    return { status: 'unknown', reason: 'listing-incomplete' }
   }
 }
 

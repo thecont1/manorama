@@ -1,4 +1,6 @@
-import { MAX_GALLERY_ITEMS, SourceFetchError, type GalleryImage } from './imagesource'
+import { MAX_GALLERY_ITEMS, SourceFetchError, type GalleryImage, type GalleryMediaItem } from './imagesource'
+import { createScanBudget } from './scan-budget'
+import { manifestKeyOf, versionedListingDiffers, type FreshnessItem, type ProbeOutcome } from './source-freshness'
 
 /**
  * Google Drive "anyone with the link" folder scanning. Mirrors the Dropbox
@@ -24,6 +26,8 @@ type DriveFile = {
   mimeType?: string
   resourceKey?: string
   imageMediaMetadata?: { width?: number; height?: number }
+  md5Checksum?: string
+  modifiedTime?: string
 }
 type DriveList = { files?: DriveFile[]; nextPageToken?: string }
 
@@ -85,7 +89,7 @@ const collectFiles = async (folderId: string, folderKey: string | undefined, env
   let pageToken = ''
   do {
     const query = encodeURIComponent(`'${folderId}' in parents and trashed=false`)
-    const fields = encodeURIComponent('nextPageToken,files(id,name,mimeType,resourceKey,imageMediaMetadata)')
+    const fields = encodeURIComponent('nextPageToken,files(id,name,mimeType,resourceKey,imageMediaMetadata,md5Checksum,modifiedTime)')
     const page = await driveGet<DriveList>(`files?q=${query}&fields=${fields}&pageSize=1000&includeItemsFromAllDrives=true${pageToken ? `&pageToken=${pageToken}` : ''}`, env, fetchImpl, [[folderId, folderKey]])
     files.push(...(page.files ?? []).filter((file) => file.mimeType && SUPPORTED_MIME.has(file.mimeType.toLowerCase())))
     pageToken = page.nextPageToken ?? ''
@@ -120,11 +124,49 @@ export const scanDriveFolder = async (input: string, env: GDriveEnv, fetchImpl: 
       c2pa: true,
       fidelity: 'original',
       thumbnailFidelity: 'display-derivative',
+      ...(file.md5Checksum || file.modifiedTime ? { contentVersion: file.md5Checksum ?? file.modifiedTime } : {}),
       placeholder: `data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 ${width} ${height}'%3E%3Crect width='100%25' height='100%25' fill='%23111212'/%3E%3C/svg%3E`,
       variants: [{ width: 256, src: thumbnailProxy(file.id, 'w256', file.resourceKey), format: 'jpeg' }],
     }
   })
   return { sourceUrl: canonicalDriveUrl(folder.id, folder.resourceKey), title, images, ...(found.length > files.length ? { truncated: found.length } : {}) }
+}
+
+/**
+ * The freshness probe: a metadata-only files.list — ids, mime and the
+ * md5/modifiedTime change token, no imageMediaMetadata — compared against
+ * the manifest's (file id, token) pairs. Paging stops the moment the
+ * folder outgrows the manifest; any fetch or budget failure answers
+ * 'unknown', never 'unchanged'.
+ */
+export const probeDriveFolder = async (
+  input: string,
+  images: readonly FreshnessItem[],
+  env: GDriveEnv,
+  fetchImpl: typeof fetch = fetch,
+): Promise<ProbeOutcome> => {
+  const folder = extractDriveFolderId(input)
+  if (!folder) return { status: 'unknown', reason: 'unrecognized-source' }
+  const expected = new Map(images.map((image) => [manifestKeyOf(image), image.contentVersion]))
+  const found = new Map<string, string | undefined>()
+  const budgetFetch = createScanBudget().fetch(fetchImpl)
+  try {
+    let pageToken = ''
+    do {
+      const query = encodeURIComponent(`'${folder.id}' in parents and trashed=false`)
+      const fields = encodeURIComponent('nextPageToken,files(id,mimeType,md5Checksum,modifiedTime)')
+      const page = await driveGet<DriveList>(`files?q=${query}&fields=${fields}&pageSize=1000&includeItemsFromAllDrives=true${pageToken ? `&pageToken=${pageToken}` : ''}`, env, budgetFetch, [[folder.id, folder.resourceKey]])
+      for (const file of page.files ?? []) {
+        if (file.mimeType && SUPPORTED_MIME.has(file.mimeType.toLowerCase())) {
+          found.set(file.id, file.md5Checksum ?? file.modifiedTime)
+        }
+      }
+      pageToken = page.nextPageToken ?? ''
+    } while (pageToken && found.size <= expected.size)
+  } catch {
+    return { status: 'unknown', reason: 'listing-incomplete' }
+  }
+  return { status: versionedListingDiffers(images, [...found].map(([key, version]) => ({ key, version }))) }
 }
 
 export const fetchDriveFile = async (fileId: string, env: GDriveEnv, fetchImpl: typeof fetch = fetch, resourceKey?: string, range?: string | null) => {

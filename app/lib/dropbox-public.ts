@@ -1,6 +1,7 @@
 import { MAX_GALLERY_ITEMS, SourceFetchError, type GalleryImage, type GalleryMediaItem, type VideoItem } from './imagesource'
 import { parseJpegDimensions, probeImageDimensions } from './image-dims'
 import { createScanBudget, mapWithConcurrency, PROBE_CONCURRENCY, ScanBudgetExhausted } from './scan-budget'
+import { manifestKeyOf, versionedListingDiffers, type FreshnessItem, type ListingEntry, type ProbeOutcome } from './source-freshness'
 import { MAX_RETRY_WAIT_MS, PROBE_RETRY_WAIT_MS, retryAfterMs } from './transient-retry'
 
 export { parseJpegDimensions }
@@ -15,7 +16,7 @@ const HEIC = /\.hei[cf]$/i
 const ALLOWED_HOSTS = new Set(['dropbox.com', 'www.dropbox.com'])
 
 type DropboxEnv = { DROPBOX_APP_KEY?: string; DROPBOX_APP_SECRET?: string }
-type DropboxEntry = { '.tag': 'file' | 'folder'; name: string; id: string; size?: number; media_info?: { metadata?: { dimensions?: { width?: number; height?: number } } } }
+type DropboxEntry = { '.tag': 'file' | 'folder'; name: string; id: string; size?: number; rev?: string; media_info?: { metadata?: { dimensions?: { width?: number; height?: number } } } }
 type ListResponse = { entries: DropboxEntry[]; cursor: string; has_more: boolean }
 type SharedLinkMetadata = { name?: string }
 
@@ -203,6 +204,7 @@ export const scanDropboxFolder = async (input: string, env: DropboxEnv, fetchImp
           c2pa: false,
           fidelity: 'original',
           thumbnailFidelity: 'display-derivative',
+          ...(entry.rev ? { contentVersion: entry.rev } : {}),
           placeholder: `data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 ${width} ${height}'%3E%3Crect width='100%25' height='100%25' fill='%23111212'/%3E%3C/svg%3E`,
           variants: [{ width: 2048, src: thumbnailProxy(sourceUrl, entry.name), format: 'jpeg' }],
         }
@@ -219,6 +221,7 @@ export const scanDropboxFolder = async (input: string, env: DropboxEnv, fetchImp
         c2pa: true,
         fidelity: 'original',
         thumbnailFidelity: 'display-derivative',
+        ...(entry.rev ? { contentVersion: entry.rev } : {}),
         placeholder: `data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 ${dimensions.width} ${dimensions.height}'%3E%3Crect width='100%25' height='100%25' fill='%23111212'/%3E%3C/svg%3E`,
         variants: [{ width: 2048, src: thumbnailProxy(sourceUrl, entry.name), format: 'jpeg' }],
       }
@@ -238,6 +241,42 @@ export const scanDropboxFolder = async (input: string, env: DropboxEnv, fetchImp
   // gallery cap's honest prefix, so a refresh can refuse to persist a
   // partial listing over a complete one.
   return { sourceUrl, title, images, ...(truncated ? { truncated } : {}), ...(dropped ? { partial: true } : {}) }
+}
+
+/**
+ * The freshness probe: a bare folder listing — no media_info, no per-item
+ * dimension calls — compared against the manifest's (filename, rev) pairs.
+ * Manifests written before rev tracking carry no version to compare and
+ * answer 'unknown'; the refresh that follows writes the baseline.
+ * Listing pages stop the moment the folder outgrows the manifest — at
+ * that point 'changed' is already proven — and a listing cut by the
+ * subrequest budget answers 'unknown', never 'unchanged'.
+ */
+export const probeDropboxFolder = async (
+  input: string,
+  images: readonly FreshnessItem[],
+  env: DropboxEnv,
+  fetchImpl: typeof fetch = fetch,
+): Promise<ProbeOutcome> => {
+  const sourceUrl = validateFolderUrl(input)
+  const expected = new Map(images.map((image) => [manifestKeyOf(image), image.contentVersion]))
+  const found = new Map<string, string | undefined>()
+  const budgetFetch = createScanBudget().fetch(fetchImpl)
+  try {
+    let response = await rpc<ListResponse>('files/list_folder', { path: '', shared_link: { url: sourceUrl } }, env, budgetFetch)
+    for (;;) {
+      for (const entry of response.entries) {
+        if (entry['.tag'] === 'file' && MEDIA_EXTENSIONS.test(entry.name)) found.set(entry.name, entry.rev)
+      }
+      if (!response.has_more || found.size > expected.size) break
+      response = await rpc<ListResponse>('files/list_folder/continue', { cursor: response.cursor }, env, budgetFetch)
+    }
+  } catch {
+    // A provider failure or a budget cut proves nothing — 'unknown'.
+    return { status: 'unknown', reason: 'listing-incomplete' }
+  }
+  const fresh: ListingEntry[] = [...found].map(([key, version]) => ({ key, version }))
+  return { status: versionedListingDiffers(images, fresh) }
 }
 
 export const fetchDropboxFile = async (sourceUrlInput: string, filename: string, env: DropboxEnv, range?: string | null) => {
