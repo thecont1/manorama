@@ -40,7 +40,7 @@ if [ ! -d "$VIEW_DIR" ]; then
   exit 1
 fi
 
-APP="$ROOT/macos/ManoramaMac/build-focus-test/ManoramaMac.app"
+APP="$ROOT/macos/ManoramaMac/build-focus-test/manorama.app"
 # The suite's app is built with its OWN bundle identifier — a startup-arg
 # probe override alone is not enough: `tell application id`, focusprobe,
 # and the single-instance check all resolve the bundle's real
@@ -219,13 +219,13 @@ wait_window() {
 stop_app() {
   # Only the focus-test build is killed — a running installed copy is
   # what the suite proves it can coexist with.
-  pkill -f "build-focus-test/ManoramaMac.app/Contents/MacOS/ManoramaMac" 2>/dev/null
+  pkill -f "build-focus-test/manorama.app/Contents/MacOS/manorama" 2>/dev/null
   # Two instances share one grant list, so a survivor would rewrite the
   # file underneath the test. Wait for the last one to go.
   local n=1
   for _ in 1 2 3 4 5 6 7 8 9 10; do
     sleep 0.5
-    n=$(pgrep -f "build-focus-test/ManoramaMac.app/Contents/MacOS/ManoramaMac" | wc -l | tr -d ' ')
+    n=$(pgrep -f "build-focus-test/manorama.app/Contents/MacOS/manorama" | wc -l | tr -d ' ')
     [ "$n" = "0" ] && break
   done
   [ "$n" = "0" ]
@@ -275,7 +275,7 @@ launch() {
     exit 1
   fi
   local n
-  n=$(pgrep -f "build-focus-test/ManoramaMac.app/Contents/MacOS/ManoramaMac" | wc -l | tr -d ' ')
+  n=$(pgrep -f "build-focus-test/manorama.app/Contents/MacOS/manorama" | wc -l | tr -d ' ')
   if [ "$n" != "1" ]; then
     echo "FATAL: expected exactly one instance, found $n"
     exit 1

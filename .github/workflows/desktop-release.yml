@@ -145,7 +145,7 @@ jobs:
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
         run: |
           scripts/build-macos.sh release
-          APP_BUNDLE=macos/ManoramaMac/build/ManoramaMac.app
+          APP_BUNDLE=macos/ManoramaMac/build/manorama.app
           VERSION=$(/usr/libexec/PlistBuddy -c 'Print CFBundleShortVersionString' "$APP_BUNDLE/Contents/Info.plist")
           mkdir -p build/dmg-stage build/dmg
           cp -R "$APP_BUNDLE" build/dmg-stage/
@@ -200,3 +200,64 @@ jobs:
           mapfile -d '' -t assets < <(find dist -type f -print0)
           if [ ${#assets[@]} -eq 0 ]; then echo "::error::no bundles to upload"; exit 1; fi
           gh release upload "$TAG" --clobber "${assets[@]}"
+
+  publish-downloads:
+    # Keeps downloads.manorama.xyz in step with every tag: the installers
+    # land under v<tag>/ keys, history.json regenerates from the git tags
+    # (scripts/build-download-history.mjs), and latest.json repoints all
+    # three platforms — so the release-history page updates itself with
+    # every build and needs no manual sync.
+    needs: release
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          fetch-depth: 0 # history.json needs every tag's ancestry
+
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          pattern: manorama-*
+          merge-multiple: true
+          path: dist
+
+      - name: Publish installers and manifests to the downloads bucket
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          TAG: ${{ inputs.tag || github.ref_name }}
+        run: |
+          set -euo pipefail
+          version="${TAG#v}"
+          mac=""; win=""; linux=""
+          for f in dist/*; do
+            [ -f "$f" ] || continue
+            name="$(basename "$f")"
+            type="application/octet-stream"
+            case "$name" in
+              *_aarch64.dmg) type="application/x-apple-diskimage"; mac="$name" ;;
+              *_x64-setup.exe) win="$name" ;;
+              *_amd64.AppImage) linux="$name" ;;
+              *.msi) type="application/x-msi" ;;
+              *.deb) type="application/vnd.debian.binary-package" ;;
+            esac
+            echo "uploading $name"
+            bunx wrangler r2 object put "manorama-downloads/v${version}/${name}" --file "$f" --content-type "$type" --remote
+          done
+          bun scripts/build-download-history.mjs history.json
+          VERSION="$version" MAC="$mac" WIN="$win" LINUX="$linux" bun -e '
+            if (!process.env.MAC || !process.env.WIN || !process.env.LINUX) {
+              console.error("missing platform asset", { mac: process.env.MAC, win: process.env.WIN, linux: process.env.LINUX })
+              process.exit(1)
+            }
+            const key = (name) => `v${process.env.VERSION}/${name}`
+            const manifest = {
+              version: process.env.VERSION,
+              released: new Date().toISOString().slice(0, 10),
+              assets: { mac: key(process.env.MAC), windows: key(process.env.WIN), linux: key(process.env.LINUX), all: [key(process.env.MAC)] },
+            }
+            await Bun.write("latest.json", JSON.stringify(manifest, null, 2) + "\n")
+          '
+          bunx wrangler r2 object put manorama-downloads/history.json --file history.json --content-type application/json --remote
+          bunx wrangler r2 object put manorama-downloads/latest.json --file latest.json --content-type application/json --remote
