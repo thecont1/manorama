@@ -66,7 +66,10 @@ const focusables = (root: HTMLElement): HTMLElement[] =>
     root.querySelectorAll<HTMLElement>(
       'a[href], button:not([disabled]), textarea, input, select, [tabindex]:not([tabindex="-1"])',
     ),
-  ).filter((el) => !el.hasAttribute('disabled') && el.getAttribute('aria-hidden') !== 'true')
+    // A control inside a `hidden` subtree stays in the DOM (mounted sheet
+    // pages keep their state that way) but can never take focus — counting
+    // it would let the trap wrap Tab onto an invisible element.
+  ).filter((el) => !el.hasAttribute('disabled') && el.getAttribute('aria-hidden') !== 'true' && !el.closest('[hidden]'))
 
 const onKeyDown = (event: KeyboardEvent) => {
   const active = top()
