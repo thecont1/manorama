@@ -76,12 +76,12 @@ jobs:
 
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
 
-      # AGP 8.13 wants JDK 17; pinning it keeps the build independent of the
-      # runner image's default-JDK drift.
+      # capacitor.build.gradle compiles at Java 21 — the runner needs a JDK
+      # that can --release 21, not just one AGP will run on.
       - uses: actions/setup-java@d1374f8ac74474200d16ef8ecee22c7ae7a51880 # v6
         with:
           distribution: temurin
-          java-version: '17'
+          java-version: '21'
 
       - run: bun install --frozen-lockfile
 
