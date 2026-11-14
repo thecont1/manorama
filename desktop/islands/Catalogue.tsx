@@ -24,6 +24,7 @@ import {
   probeAllAvailability,
   probeAvailability,
   serializeLocalCatalogue,
+  UUID_PATTERN,
   visibleItemsFor,
   type GalleryAvailability,
   type LocalCatalogue,
@@ -37,6 +38,7 @@ import { AccountApiError, createAccountGallery, deleteAccount, deleteDeviceGalle
 import { previewSrcFor, sourceLabelFor } from '../../native/lib/library-media'
 import type { GallerySummary } from '../../app/lib/gallery-repository'
 import type { DeviceGallery } from '../../packages/core/device-gallery'
+import type { StandaloneDeviceGallery } from '../lib/account'
 import { cancelProviderConnect, handleProviderDeepLink } from '../lib/providers/oauth'
 import { encryptedProviderForUrl, encryptedSourceFromGalleryHash, galleryHashForSource, isEncryptedSourceUrl, keylessSourceUrl } from '../../packages/core/encrypted-source'
 import type { EncryptedMediaResolver } from '../../app/lib/encrypted-resolver'
@@ -89,7 +91,7 @@ const PREFS_FILE = LIBRARY_PREFS_FILE
 // (scutil ComputerName → hostname → generic), resolved natively once per
 // launch. Two of the owner's Macs stop reading identically.
 const FALLBACK_DEVICE_LABEL = 'This Mac'
-const resolveDeviceLabel = () => invoke<string>('device_label').catch(() => FALLBACK_DEVICE_LABEL)
+const resolveDeviceLabel = () => invoke<string>('device_label').then((label) => label || FALLBACK_DEVICE_LABEL).catch(() => FALLBACK_DEVICE_LABEL)
 
 // The build tag under the rail mark — injected by vite's define, 'dev' under
 // tests and scripts which never see it.
@@ -183,6 +185,26 @@ const writeCatalogueFile = (contents: string) =>
 const readPrefsFile = () => invoke<string | null>('read_private_file', { name: PREFS_FILE })
 const writePrefsFile = (contents: string) =>
   invoke('write_private_file', { name: PREFS_FILE, contents })
+
+/** The device identity lives apart from the catalogue on purpose: a
+ *  catalogue reset or parse failure must not mint a new deviceId — every
+ *  synced row would orphan as a foreign mirror that can never show a
+ *  thumbnail. Where the shell answers `device_id` (a hardware-anchored id)
+ *  it wins outright; `device.json` keeps the resolved id for shells
+ *  without the command. */
+const DEVICE_FILE = 'device.json'
+const readDeviceFile = () => invoke<string | null>('read_private_file', { name: DEVICE_FILE })
+const writeDeviceFile = (deviceId: string) =>
+  invoke('write_private_file', { name: DEVICE_FILE, contents: JSON.stringify({ deviceId }) })
+const parseDeviceIdentity = (raw: string | null): string | null => {
+  if (!raw) return null
+  try {
+    const parsed = JSON.parse(raw) as { deviceId?: unknown }
+    return typeof parsed.deviceId === 'string' && UUID_PATTERN.test(parsed.deviceId) ? parsed.deviceId : null
+  } catch {
+    return null
+  }
+}
 
 type ViewerState = { galleryId: string; index: number; edit?: boolean }
 /** A fetched cloud manifest riding the same Viewer the local records use. */
@@ -765,9 +787,18 @@ export default function Catalogue({ apiBase }: { apiBase: string }) {
       if (storedSession && active) setSession(storedSession)
       if (active) setSessionResolved(true)
       const deviceLabel = await resolveDeviceLabel()
+      // Resolve identity before the catalogue: the hardware-anchored id a
+      // shell can offer survives reinstalls, the persisted device.json
+      // covers everything else, and a catalogue that already exists
+      // contributes its id as the last resort (adopted into device.json so
+      // a later reset reuses it instead of minting a stranger).
+      const hardwareDeviceIdRaw = await invoke<string>('device_id').catch(() => null)
+      const hardwareDeviceId = hardwareDeviceIdRaw && UUID_PATTERN.test(hardwareDeviceIdRaw) ? hardwareDeviceIdRaw : null
+      const storedDeviceId = parseDeviceIdentity(await readDeviceFile().catch(() => null))
+      const inheritedDeviceId = hardwareDeviceId ?? storedDeviceId ?? crypto.randomUUID()
       let next: LocalCatalogue
       try {
-        next = deserializeLocalCatalogue(await readCatalogueFile()) ?? newCatalogue(crypto.randomUUID(), deviceLabel)
+        next = deserializeLocalCatalogue(await readCatalogueFile()) ?? newCatalogue(inheritedDeviceId, deviceLabel)
         const parsedPrefs = parseLibraryPrefs(await readPrefsFile().catch(() => null))
         // The first Hidden galleries build parked hides in this file, device
         // — local. The account-wide flags live elsewhere now: migrate each
@@ -805,8 +836,14 @@ export default function Catalogue({ apiBase }: { apiBase: string }) {
         }
         setPrefs(parsedPrefs)
       } catch {
-        next = newCatalogue(crypto.randomUUID(), deviceLabel)
+        next = newCatalogue(inheritedDeviceId, deviceLabel)
       }
+      // A stable identity outranks the catalogue's own: a catalogue written
+      // by an earlier generation (or rebuilt after a reset) rejoins this
+      // device, and the routine sync re-points every server row it owns.
+      const resolvedDeviceId = hardwareDeviceId ?? storedDeviceId ?? next.deviceId
+      if (next.deviceId !== resolvedDeviceId) next = { ...next, deviceId: resolvedDeviceId }
+      if (resolvedDeviceId !== storedDeviceId) void writeDeviceFile(resolvedDeviceId).catch(() => {})
       // A catalogue written before labels were resolved still says the
       // generic "This Mac" — heal it once; an owner-set name is never
       // overwritten.
@@ -976,6 +1013,55 @@ export default function Catalogue({ apiBase }: { apiBase: string }) {
       await persistCatalogue(next)
       if (session && replaced) void removeDeviceGallery(base, session.token, replaced)
       setNotice(`${record.title} added.`)
+      scrollToGalleryCard(record.id)
+      void runSync(next, session)
+    } catch {
+      setNotice('That folder could not be opened')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  /** A ghost is a synced row this Mac owns but no longer has a record for —
+   *  a catalogue reset or reinstall dropped the record, not the folder.
+   *  Linking re-picks the folder and writes the record under the row's own
+   *  id, so the next sync PUTs over it (keeping any published-gallery link
+   *  the upsert preserves) and the mirror card becomes a real local card
+   *  in one step. */
+  const linkGhostFolder = async (ghost: DeviceGallery) => {
+    setNotice(null)
+    setBusy(true)
+    setCardMenu(null)
+    try {
+      const root = await pickGalleryFolder()
+      if (!root || !catalogue) return
+      const scan = await scanLocalDirectory(root, readDirEntries)
+      if (!scan.items.length) {
+        setNotice('That folder has no photos Manorama can display')
+        return
+      }
+      const { sourceKind, mountPoint } = classifyRoot(root)
+      const now = new Date().toISOString()
+      const record: LocalGalleryRecord = {
+        id: ghost.id,
+        title: ghost.title || galleryTitleForRoot(root),
+        rootPath: root,
+        sourceKind,
+        ...(mountPoint ? { mountPoint } : {}),
+        itemCount: scan.truncated ?? scan.items.length,
+        items: scan.items,
+        addedAt: now,
+        lastSeenAt: now,
+      }
+      const replaced = catalogue.galleries.find((g) => g.rootPath === root && g.id !== ghost.id)
+      const next = {
+        ...catalogue,
+        galleries: [...catalogue.galleries.filter((g) => g.rootPath !== root && g.id !== ghost.id), record],
+      }
+      setAvailability((previous) => ({ ...previous, [record.id]: 'available' }))
+      await persistCatalogue(next)
+      if (session && replaced) void removeDeviceGallery(base, session.token, replaced)
+      setNotice(`“${record.title}” is linked to this Mac again.`)
       scrollToGalleryCard(record.id)
       void runSync(next, session)
     } catch {
@@ -2062,7 +2148,7 @@ export default function Catalogue({ apiBase }: { apiBase: string }) {
           </div>
           <footer class="site-footer">
             <a class="site-footer-link" {...externalAnchor(PRIVACY_URL)}>Privacy Policy</a>
-            <p class="site-footer-copy">© 2026 Mahesh Shantaram · <a {...externalAnchor(AUTHOR_URL)}>thecontrarian.in</a></p>
+            <p class="site-footer-copy">© 2026 Mahesh Shantaram. · <a {...externalAnchor(AUTHOR_URL)}>thecontrarian.in</a><br />Photographs in galleries belong to their respective owners.</p>
           </footer>
         </main>
       </>
@@ -2103,7 +2189,8 @@ export default function Catalogue({ apiBase }: { apiBase: string }) {
   // Dedupe at render so whichever feed lands last re-derives the list — a
   // device row published as a cloud gallery collapses the moment the account
   // read arrives, without waiting on the slower call.
-  const remoteDeviceGalleries = standaloneDeviceGalleries(deviceRows, accountGalleries ?? [], catalogue.deviceId)
+  const localRecordIds = new Set(galleries.map((record) => record.id))
+  const remoteDeviceGalleries = standaloneDeviceGalleries(deviceRows, accountGalleries ?? [], catalogue.deviceId, catalogue.deviceLabel, localRecordIds)
   // Partition the account galleries into pinned strips and compact cards,
   // mirroring the web Library's shared layout rule. Pinned rows lead by
   // pinnedAt; everything else collapses to a compact cover card.
@@ -2148,8 +2235,8 @@ export default function Catalogue({ apiBase }: { apiBase: string }) {
   // kept on this device.
   const hiddenAccountGalleries = liveAccountGalleries.filter((g) => g.hiddenAt)
   const hiddenLocalGalleries = galleries.filter((r) => r.hiddenAt)
-  const hiddenDeviceGalleries = remoteDeviceGalleries.filter((g) => g.hidden)
-  const visibleDeviceGalleries = remoteDeviceGalleries.filter((g) => !g.hidden)
+  const hiddenDeviceGalleries = remoteDeviceGalleries.filter((entry) => entry.gallery.hidden)
+  const visibleDeviceGalleries = remoteDeviceGalleries.filter((entry) => !entry.gallery.hidden)
   const hiddenCount = hiddenAccountGalleries.length + hiddenLocalGalleries.length + hiddenDeviceGalleries.length
 
   // Saved copies are a device fact, not an account fact — a gallery whose
@@ -2257,8 +2344,28 @@ export default function Catalogue({ apiBase }: { apiBase: string }) {
     </li>
   }
 
-  /** The compact card an account gallery takes in "Cloud galleries" —
-   *  cover, title, status badges and the ··· quick menu. */
+  /** A synced row with no local record on this device. A `ghost` row names
+   *  this Mac — its catalogue reset or an earlier install changed the
+   *  deviceId, so "open it on that device" would lie about a machine that
+   *  doesn't exist; the card offers to link the folder instead. A foreign
+   *  row is an honest mirror of another device. Either way the row carries
+   *  no paths, so there is deliberately no thumbnail. */
+  const deviceMirrorCard = (entry: StandaloneDeviceGallery) => {
+    const { gallery, ghost } = entry
+    return <li key={`device-${gallery.id}`}><article class="lib-card" data-gallery-card={`device:${gallery.id}`}>
+      <div class="lib-card-head">
+        <span class="lib-card-title">{gallery.title}</span>
+        <button type="button" class="lib-card-menu" aria-label={`${gallery.title} actions`} aria-haspopup="dialog" onClick={() => setCardMenu({ kind: 'device', gallery })}>···</button>
+      </div>
+      <p class="lib-card-sub">
+        {gallery.itemCount} {gallery.itemCount === 1 ? 'photograph' : 'photographs'} · {gallery.deviceLabel}
+        {ghost ? ' · on this Mac — the folder isn’t linked' : ' · synced — open it on that device'}
+      </p>
+      {ghost ? (
+        <button type="button" class="lib-card-action" disabled={busy} onClick={() => void linkGhostFolder(gallery)}>Link folder…</button>
+      ) : null}
+    </article></li>
+  }
   const accountCompactCard = (gallery: GallerySummary) => {
     const title = gallery.title || gallery.slug
     const galleryUrl = accountGalleryUrl(gallery)
@@ -2460,17 +2567,7 @@ export default function Catalogue({ apiBase }: { apiBase: string }) {
               <p class="lib-section-sub">Folders on this Mac — the originals stay where they are, referenced in place.</p>
               {visibleDeviceGalleries.length ? (
                 <ul class="lib-list">
-                  {visibleDeviceGalleries.map((gallery) => (
-                    <li key={`device-${gallery.id}`}><article class="lib-card" data-gallery-card={`device:${gallery.id}`}>
-                      <div class="lib-card-head">
-                        <span class="lib-card-title">{gallery.title}</span>
-                        <button type="button" class="lib-card-menu" aria-label={`${gallery.title} actions`} aria-haspopup="dialog" onClick={() => setCardMenu({ kind: 'device', gallery })}>···</button>
-                      </div>
-                      <p class="lib-card-sub">
-                        {gallery.itemCount} {gallery.itemCount === 1 ? 'photograph' : 'photographs'} · {gallery.deviceLabel} · synced — open it on that device
-                      </p>
-                    </article></li>
-                  ))}
+                  {visibleDeviceGalleries.map(deviceMirrorCard)}
                 </ul>
               ) : null}
               {compactLocalGalleries.length ? (
@@ -2549,17 +2646,7 @@ export default function Catalogue({ apiBase }: { apiBase: string }) {
                   </ul>
                   {hiddenDeviceGalleries.length ? (
                     <ul class="lib-list">
-                      {hiddenDeviceGalleries.map((gallery) => (
-                        <li key={`device-${gallery.id}`}><article class="lib-card" data-gallery-card={`device:${gallery.id}`}>
-                          <div class="lib-card-head">
-                            <span class="lib-card-title">{gallery.title}</span>
-                            <button type="button" class="lib-card-menu" aria-label={`${gallery.title} actions`} aria-haspopup="dialog" onClick={() => setCardMenu({ kind: 'device', gallery })}>···</button>
-                          </div>
-                          <p class="lib-card-sub">
-                            {gallery.itemCount} {gallery.itemCount === 1 ? 'photograph' : 'photographs'} · {gallery.deviceLabel} · synced — open it on that device
-                          </p>
-                        </article></li>
-                      ))}
+                      {hiddenDeviceGalleries.map(deviceMirrorCard)}
                     </ul>
                   ) : null}
                 </>

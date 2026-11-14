@@ -82,15 +82,46 @@ describe('fetchAccountProfile', () => {
 describe('standaloneDeviceGalleries', () => {
   const OWN = '11111111-2222-4333-8444-555555555555'
   const OTHER = '66666666-7777-4888-8999-000000000000'
-  test('drops this Mac’s own records and ones already published as cloud galleries', () => {
+  const LABEL = 'This Mac'
+  const entries = (devices: DeviceGallery[], localIds: ReadonlySet<string> = new Set()) =>
+    standaloneDeviceGalleries(devices, [summary('kashmir')], OWN, LABEL, localIds)
+
+  test('drops rows a local record already stands for and ones published as cloud galleries', () => {
     const devices = [
       device('aaaaaaaa-0000-4000-8000-000000000001', OWN),
       device('bbbbbbbb-0000-4000-8000-000000000002', OTHER, { publicGallerySlug: 'kashmir' }),
       device('cccccccc-0000-4000-8000-000000000003', OTHER),
     ]
-    const account = [summary('kashmir')]
-    expect(standaloneDeviceGalleries(devices, account, OWN).map((g) => g.id)).toEqual([
+    // The first row is the synced copy of a live record — the local card
+    // represents it, so no standalone card at all.
+    const localIds = new Set(['aaaaaaaa-0000-4000-8000-000000000001'])
+    expect(entries(devices, localIds).map((entry) => entry.gallery.id)).toEqual([
       'cccccccc-0000-4000-8000-000000000003',
+    ])
+  })
+
+  test('an own-device row with no record left is a ghost, not a foreign mirror', () => {
+    // The catalogue that synced this row was rebuilt — the record is gone
+    // but the row still names this device.
+    const devices = [device('aaaaaaaa-0000-4000-8000-000000000001', OWN, { deviceLabel: LABEL })]
+    expect(entries(devices)).toEqual([
+      { gallery: devices[0], ghost: true },
+    ])
+  })
+
+  test('a row naming this Mac under a regenerated deviceId is a ghost', () => {
+    // The previous install synced under one deviceId; a reset minted
+    // another. The label is the tell that the folder lives on this disk.
+    const devices = [device('bbbbbbbb-0000-4000-8000-000000000002', OTHER, { deviceLabel: LABEL })]
+    expect(entries(devices)).toEqual([
+      { gallery: devices[0], ghost: true },
+    ])
+  })
+
+  test('a genuinely different device is an honest mirror', () => {
+    const devices = [device('cccccccc-0000-4000-8000-000000000003', OTHER, { deviceLabel: 'Office iMac' })]
+    expect(entries(devices)).toEqual([
+      { gallery: devices[0], ghost: false },
     ])
   })
 })

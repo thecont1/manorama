@@ -46,7 +46,7 @@ final class NativeBridge {
     ///
     /// A fixed allowlist, never a caller-supplied path — the same list the
     /// Tauri build keeps.
-    private static let privateFiles: Set<String> = ["session.json", "catalogue.json", "providers.json", "library-prefs.json"]
+    private static let privateFiles: Set<String> = ["session.json", "catalogue.json", "providers.json", "library-prefs.json", "device.json"]
 
     /// The logical prefix the vault's own paths carry.
     nonisolated private static let vaultDirName = "manorama-vault-v1"
@@ -250,6 +250,8 @@ final class NativeBridge {
         switch cmd {
         case "device_label":
             return deviceLabel
+        case "device_id":
+            return try stableDeviceId()
 
         case "read_private_file":
             let name = try privateName(args)
@@ -832,6 +834,23 @@ final class NativeBridge {
     }
 
     // MARK: - The Keychain
+
+    /// The identity a synced row names. A random UUID minted once and kept
+    /// in the login Keychain — the same place vault keys live — so it
+    /// survives the catalogue resets and reinstalls that were proven to
+    /// orphan synced rows as mirrors that can never render. It is not a
+    /// serial, MAC address or hardware UUID: the privacy rule `device_label`
+    /// documents stays true.
+    private static let deviceIdAccount = "device-id"
+
+    private func stableDeviceId() throws -> String {
+        if let existing = try keychainGet(Self.deviceIdAccount), !existing.isEmpty {
+            return existing
+        }
+        let minted = UUID().uuidString.lowercased()
+        try keychainSet(Self.deviceIdAccount, minted)
+        return minted
+    }
 
     private func keychainGet(_ name: String) throws -> String? {
         var query: [String: Any] = [

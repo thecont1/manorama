@@ -59,7 +59,7 @@ export type LocalCatalogue = {
 
 export type GalleryAvailability = 'available' | 'unavailable'
 
-const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
+export const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
 
 export const newCatalogue = (deviceId: string, deviceLabel: string): LocalCatalogue => ({
   version: LOCAL_CATALOGUE_VERSION,

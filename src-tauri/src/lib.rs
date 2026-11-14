@@ -327,6 +327,28 @@ fn vault_key_entry(name: &str) -> Result<keyring::Entry, String> {
     keyring::Entry::new(VAULT_KEYCHAIN_SERVICE, name).map_err(|e| e.to_string())
 }
 
+/// The identity a synced row names. A random UUID minted once and kept in
+/// the platform credential store — the same place vault keys live — so a
+/// catalogue reset or reinstall stops orphaning the device's own synced
+/// rows as un-openable mirrors. It is not a serial, MAC address or
+/// hardware UUID: the privacy rule `device_label` documents stays true.
+#[tauri::command]
+async fn device_id() -> Result<String, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let entry = vault_key_entry("device-id")?;
+        match entry.get_password() {
+            Ok(existing) if !existing.is_empty() => Ok(existing),
+            _ => {
+                let minted = uuid::Uuid::new_v4().to_string();
+                entry.set_password(&minted).map_err(|e| e.to_string())?;
+                Ok(minted)
+            }
+        }
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
 /// Fetch one gallery key. Absent and "could not read" are deliberately
 /// different answers: the vault treats absent as a clean miss but a storage
 /// error must surface, never read back as a deleted key.
@@ -515,6 +537,7 @@ pub fn run() {
         .manage(LoopbackState(Mutex::new(None)))
         .invoke_handler(tauri::generate_handler![
             device_label,
+            device_id,
             pick_gallery_root,
             register_saved_gallery_roots,
             oauth_loopback_begin,

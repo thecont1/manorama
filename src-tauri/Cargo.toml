@@ -29,3 +29,4 @@ tauri-plugin-http = "2.7.0"
 # Entry owns a private RefCell, so set_password from one IPC call is invisible
 # to get_password in the next and the vault key "persists" nowhere.
 keyring = { version = "3", features = ["apple-native"] }
+uuid = { version = "1.20.0", features = ["v4"] }

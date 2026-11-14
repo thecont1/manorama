@@ -381,16 +381,32 @@ export const deleteDeviceGalleryRecord = async (
   if (!response.ok) throw new AccountApiError(response.status, payload.error || 'That gallery could not be removed')
 }
 
+/** A synced row with no local record behind it, classified for the card it
+ *  earns. `ghost` means the row almost certainly came from this Mac — same
+ *  deviceId, or same device label under an identity a catalogue reset
+ *  regenerated — so "open it on that device" would send the owner looking
+ *  for a machine that does not exist. Foreign rows stay honest mirrors. */
+export type StandaloneDeviceGallery = { gallery: DeviceGallery; ghost: boolean }
+
 /** A synced record earns its own card only while nothing else already
- *  represents it: this Mac's catalogue renders its own records as local
- *  galleries, and a folder published as a cloud gallery collapses into that
- *  gallery's card — the same dedupe the iOS library applies. */
+ *  represents it: a local catalogue record stands for its own synced row,
+ *  and a folder published as a cloud gallery collapses into that gallery's
+ *  card — the same dedupe the iOS library applies. Rows that survive are
+ *  flagged `ghost` when they name this Mac — a catalogue that lost its
+ *  records (or an earlier install that generated a new deviceId) leaves
+ *  rows that look foreign but live on the disk in front of the owner. */
 export const standaloneDeviceGalleries = (
   deviceGalleries: readonly DeviceGallery[],
   accountGalleries: readonly GallerySummary[],
   ownDeviceId: string | undefined,
-): DeviceGallery[] =>
-  deviceGalleries.filter((gallery) =>
-    gallery.deviceId !== ownDeviceId &&
-    (!gallery.publicGallerySlug || !accountGalleries.some((published) => published.slug === gallery.publicGallerySlug)),
-  )
+  ownDeviceLabel: string | undefined,
+  localIds: ReadonlySet<string>,
+): StandaloneDeviceGallery[] =>
+  deviceGalleries
+    .filter((gallery) =>
+      !localIds.has(gallery.id) &&
+      (!gallery.publicGallerySlug || !accountGalleries.some((published) => published.slug === gallery.publicGallerySlug)))
+    .map((gallery) => ({
+      gallery,
+      ghost: gallery.deviceId === ownDeviceId || gallery.deviceLabel === ownDeviceLabel,
+    }))
