@@ -243,8 +243,11 @@ jobs:
     runs-on: ubuntu-latest
     # Both release pipelines rewrite the same latest.json — serialize the
     # manifest read-modify-write across workflows, not just per tag.
+    # queue:max keeps every pending publish; the default single slot would
+    # cancel one and silently drop that release's manifest update.
     concurrency:
       group: downloads-manifest
+      queue: max
       cancel-in-progress: false
     steps:
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2

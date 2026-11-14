@@ -187,17 +187,17 @@ jobs:
           GH_REPO: ${{ github.repository }}
           TAG: ${{ inputs.tag || github.ref_name }}
         run: |
-          if gh release view "$TAG" >/dev/null 2>&1; then
-            # A rerun must never rewrite a release that already went out —
-            # only drafts accept uploads.
-            if [ "$(gh release view "$TAG" --json isDraft --jq .isDraft)" != "true" ]; then
-              echo "::error::$TAG is already published; cut a new tag instead"
-              exit 1
-            fi
-          else
+          if ! gh release view "$TAG" >/dev/null 2>&1; then
             # A concurrent pipeline may win the draft create — re-read so its
-            # draft satisfies this step instead of failing the whole release.
+            # release satisfies this step instead of failing the whole release.
             gh release create "$TAG" --draft --title "manorama $TAG" --generate-notes || gh release view "$TAG" >/dev/null
+          fi
+          # A rerun must never rewrite a release that already went out —
+          # only drafts accept uploads. Checked after resolution so the
+          # create/fallback path is held to the same bar.
+          if [ "$(gh release view "$TAG" --json isDraft --jq .isDraft)" != "true" ]; then
+            echo "::error::$TAG is already published; cut a new tag instead"
+            exit 1
           fi
           mapfile -d '' -t assets < <(find dist -type f -print0)
           if [ ${#assets[@]} -eq 0 ]; then echo "::error::no bundles to upload"; exit 1; fi
@@ -212,9 +212,11 @@ jobs:
     needs: release
     runs-on: ubuntu-latest
     # Shares the manifest lock with android-release's publish job — both
-    # rewrite latest.json and must not interleave read-modify-write.
+    # rewrite latest.json and must not interleave read-modify-write. queue:max
+    # keeps every pending publish; the default single slot would cancel one.
     concurrency:
       group: downloads-manifest
+      queue: max
       cancel-in-progress: false
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
