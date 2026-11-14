@@ -93,7 +93,6 @@ html,body{margin:0;padding:0}
 .home{overflow-x:clip;background:var(--home-bg);color:var(--home-ink);font-family:'Manrope',ui-sans-serif,system-ui,sans-serif;font-size:18px;line-height:1.6;font-synthesis:none;text-rendering:optimizeLegibility;-webkit-font-smoothing:antialiased}
 .home *{box-sizing:border-box}
 .home img{max-width:100%;height:auto;display:block}
-.home p{margin:0}
 .home a{color:inherit}
 .home-wrap{width:100%;max-width:1440px;margin-inline:auto;padding-inline:var(--home-wrap-pad)}
 .home-header{position:sticky;top:0;z-index:20;background:var(--home-bg)}
@@ -133,7 +132,7 @@ html.light .home-account-panel{background:#fff}
 .home-nav-menu-list{position:absolute;right:var(--home-wrap-pad);top:var(--home-header-h);display:flex;flex-direction:column;gap:4px;padding:12px;background:var(--home-surface-raised);min-width:190px}
 .home .home-nav-menu-list a{font-size:15px;text-decoration:none;color:var(--home-ink-soft);padding:10px 8px}
 .home .home-nav-menu-list a:hover{color:var(--home-ink)}
-.home-nav-menu-label{font-size:13px;color:var(--home-ink-muted);padding:12px 8px 2px}
+.home-nav-menu-label{font-size:13px;color:var(--home-ink-muted);margin:0;padding:12px 8px 2px}
 .home .home-btn{display:inline-flex;align-items:center;justify-content:center;min-height:46px;padding:10px 22px;border:0;border-radius:999px;background:var(--home-ink);color:var(--home-bg);font-family:inherit;font-size:15px;font-weight:600;text-decoration:none;cursor:pointer;transition:background-color 120ms ease-out,color 120ms ease-out}
 .home .home-btn:hover{background:var(--home-ink-bright);color:var(--home-bg)}
 .home .home-btn-quiet{background:transparent;color:var(--home-ink);box-shadow:inset 0 0 0 2px var(--home-line)}
@@ -158,24 +157,25 @@ html.light .home-account-panel{background:#fff}
   .home-wordmark img{width:162px}
 }
 /* ── the downloads page itself ── */
-.dl-main{padding-block:clamp(88px,10vw,144px) clamp(64px,8vw,120px)}
-.dl-eyebrow{font-family:'DM Mono',ui-monospace,monospace;font-size:13px;letter-spacing:.14em;text-transform:uppercase;color:var(--home-ink-muted);margin-bottom:18px}
+.dl-main{padding-block:clamp(96px,11vw,160px) clamp(64px,8vw,120px)}
+.dl-eyebrow{font-family:'DM Mono',ui-monospace,monospace;font-size:13px;letter-spacing:.14em;text-transform:uppercase;color:var(--home-ink-muted);margin:0 0 12px}
 .dl-title{font-family:'Bricolage Grotesque','Manrope',ui-sans-serif,system-ui,sans-serif;font-weight:700;font-size:clamp(40px,6vw,72px);line-height:1.02;letter-spacing:-.02em;margin:0 0 20px}
-.dl-lede{max-width:62ch;color:var(--home-ink-soft);font-size:19px;margin-bottom:clamp(32px,4vw,48px)}
-.dl-platforms{display:flex;flex-wrap:wrap;gap:14px;margin-bottom:14px}
-.dl-shortcuts{font-family:'DM Mono',ui-monospace,monospace;font-size:13px;color:var(--home-ink-muted)}
+.dl-lede{max-width:62ch;color:var(--home-ink-soft);font-size:19px;margin:0 0 clamp(36px,4.5vw,56px)}
+.dl-platforms{display:flex;flex-wrap:wrap;gap:16px;margin:0 0 clamp(30px,4vw,44px)}
+.dl-shortcuts{font-family:'DM Mono',ui-monospace,monospace;font-size:13px;color:var(--home-ink-muted);margin:0}
 .dl-shortcuts a{color:var(--home-ink-soft);text-decoration:none}
 .dl-shortcuts a:hover{color:var(--home-ink)}
-.dl-history{margin-top:clamp(72px,9vw,128px)}
+.dl-latest-line{margin:clamp(24px,3vw,36px) 0 0;font-size:16px;color:var(--home-ink-soft)}
+.dl-history{margin-top:clamp(24px,3vw,44px)}
 .dl-history h2{font-family:'Bricolage Grotesque','Manrope',ui-sans-serif,system-ui,sans-serif;font-size:clamp(28px,3.4vw,40px);font-weight:700;letter-spacing:-.01em;margin:0 0 8px}
-.dl-history-sub{color:var(--home-ink-muted);max-width:62ch;margin-bottom:clamp(28px,3.5vw,44px)}
+.dl-history-sub{color:var(--home-ink-muted);max-width:62ch;margin:0 0 clamp(28px,3.5vw,44px)}
 .dl-release{background:var(--home-surface);padding:clamp(24px,3vw,40px);margin-bottom:clamp(16px,2vw,24px)}
 .dl-release-head{display:flex;align-items:baseline;flex-wrap:wrap;gap:6px 14px;margin-bottom:6px}
 .dl-version{font-family:'Bricolage Grotesque','Manrope',ui-sans-serif,system-ui,sans-serif;font-size:clamp(24px,2.6vw,32px);font-weight:700;letter-spacing:-.01em;text-decoration:none;color:var(--home-ink)}
 .dl-version:hover{color:var(--home-accent)}
 .dl-date{font-family:'DM Mono',ui-monospace,monospace;font-size:13px;color:var(--home-ink-muted)}
 .dl-latest{font-family:'DM Mono',ui-monospace,monospace;font-size:12px;letter-spacing:.1em;text-transform:uppercase;color:var(--home-accent)}
-.dl-meta{font-family:'DM Mono',ui-monospace,monospace;font-size:12px;color:var(--home-ink-muted);margin-bottom:clamp(14px,1.6vw,20px)}
+.dl-meta{font-family:'DM Mono',ui-monospace,monospace;font-size:12px;color:var(--home-ink-muted);margin:0 0 clamp(14px,1.6vw,20px)}
 .dl-highlights{list-style:none;margin:0 0 clamp(14px,1.6vw,20px);padding:0;display:grid;gap:6px;max-width:76ch}
 .dl-highlights a{color:var(--home-ink-soft);text-decoration:none;font-size:16px}
 .dl-highlights a:hover{color:var(--home-ink)}
@@ -184,7 +184,7 @@ html.light .home-account-panel{background:#fff}
 .dl-assets a{font-family:'DM Mono',ui-monospace,monospace;font-size:13px;color:var(--home-ink);text-decoration:none;padding:8px 14px;box-shadow:inset 0 0 0 1px var(--home-line);transition:background-color 120ms ease-out}
 .dl-assets a:hover{background:var(--home-surface-raised)}
 .dl-assets .dl-size{color:var(--home-ink-muted);margin-left:8px}
-.dl-empty{color:var(--home-ink-muted)}
+.dl-empty{color:var(--home-ink-muted);margin:0}
 `
 
 const THEME_INIT = `<script>
@@ -198,6 +198,66 @@ Array.prototype.forEach.call(toggles,function(el){el.hidden=false;el.setAttribut
 var m=document.querySelector('meta[name="theme-color"]');if(m)m.setAttribute('content',l?'#f3f0e8':'#0a0a0a')}
 var cur=root.classList.contains('light')?'light':'dark';apply(cur);
 Array.prototype.forEach.call(toggles,function(el){el.addEventListener('click',function(){cur=cur==='light'?'dark':'light';try{localStorage.setItem('manorama:theme',cur)}catch(e){}apply(cur)})});
+}catch(e){}
+</script>
+<script>
+/* Same hover-intent and outside-click behaviour as the homepage's
+   home-menu.js: fine pointers open the account panel on hover and the
+   small-screen menu yields to clicks outside and Escape. */
+try{
+var menus=Array.prototype.slice.call(document.querySelectorAll('.home-nav-menu'));
+var account=document.getElementById('home-account-panel');
+var triggers=Array.prototype.slice.call(document.querySelectorAll('.home-signin-trigger, .home-btn[popovertarget="home-account-panel"]'));
+var finePointer=window.matchMedia('(hover: hover) and (pointer: fine)');
+var hoverOpen=false,accountInvoker=null,closeTimer;
+var cancelClose=function(){window.clearTimeout(closeTimer)};
+var scheduleClose=function(){
+  if(!account||!hoverOpen)return;cancelClose();
+  closeTimer=window.setTimeout(function(){
+    if(account.contains(document.activeElement))return;
+    account.hidePopover();hoverOpen=false;
+  },150);
+};
+triggers.forEach(function(trigger){
+  trigger.addEventListener('mouseenter',function(){
+    if(!account||!finePointer.matches)return;cancelClose();
+    if(!account.matches(':popover-open')){account.showPopover();hoverOpen=true;}
+  });
+  trigger.addEventListener('mouseleave',scheduleClose);
+  trigger.addEventListener('click',function(){hoverOpen=false;accountInvoker=trigger;cancelClose()});
+});
+if(account){
+  account.addEventListener('mouseenter',cancelClose);
+  account.addEventListener('focusin',cancelClose);
+  account.addEventListener('mouseleave',scheduleClose);
+  account.addEventListener('toggle',function(){
+    if(account.matches(':popover-open'))return;
+    hoverOpen=false;
+    var active=document.activeElement;
+    var lost=!active||active===document.body||account.contains(active);
+    if(accountInvoker&&lost)accountInvoker.focus();
+    accountInvoker=null;
+  });
+}
+document.addEventListener('click',function(event){
+  var target=event.target;
+  menus.forEach(function(menu){
+    if(!menu.open)return;
+    var inside=menu.contains(target);
+    var control=inside&&target.closest&&target.closest('a, button');
+    if(inside&&!control)return;
+    menu.open=false;
+    if(!control||control.tagName!=='BUTTON'||event.detail!==0)return;
+    var trigger=menu.querySelector('summary');if(trigger)trigger.focus();
+  });
+});
+document.addEventListener('keydown',function(event){
+  if(event.key!=='Escape')return;
+  menus.forEach(function(menu){
+    if(!menu.open)return;menu.open=false;
+    var trigger=menu.querySelector('summary');if(trigger)trigger.focus();
+  });
+});
 }catch(e){}
 </script>`
 
@@ -401,9 +461,9 @@ const indexPage = async (env: DownloadsEnv, manifest: LatestManifest | null): Pr
         .join('')
     : '<span class="dl-empty">No release published yet.</span>'
   const hero = `<section class="dl-hero">
-<p class="dl-eyebrow">manorama · desktop downloads</p>
 <h1 class="dl-title">${manifest ? `manorama v${escapeHtml(manifest.version)}` : 'manorama downloads'}</h1>
 <p class="dl-lede">Native apps for macOS, Windows and Linux — the same gallery, on your desk. Every release stays here, with its notes.</p>
+<p class="dl-eyebrow">desktop downloads</p>
 <div class="dl-platforms">
 ${(['mac', 'windows', 'linux'] as const)
   .map((platform) => {
@@ -414,10 +474,11 @@ ${(['mac', 'windows', 'linux'] as const)
   })
   .join('')}
 </div>
-<p class="dl-shortcuts" style="margin-top:6px;color:var(--home-ink-muted)">iPhone &amp; iPad — coming soon</p>
-<p class="dl-shortcuts">Shortcuts: <a href="/mac">/mac</a> · <a href="/windows">/windows</a> · <a href="/linux">/linux</a> · <a href="/latest.json">/latest.json</a></p>
+<p class="dl-eyebrow">mobile downloads</p>
+<p class="dl-shortcuts">iPhone &amp; iPad — coming soon</p>
+<p class="dl-shortcuts" style="margin-top:20px">Shortcuts: <a href="/mac">/mac</a> · <a href="/windows">/windows</a> · <a href="/linux">/linux</a> · <a href="/latest.json">/latest.json</a></p>
 ${rows ? `<p class="dl-shortcuts" style="margin-top:10px">${rows}</p>` : ''}
-${current?.highlights.length ? `<p class="dl-lede" style="margin-top:28px;font-size:16px">Latest: ${escapeHtml(current.highlights[0]!.subject)}</p>` : ''}
+${current?.highlights.length ? `<p class="dl-latest-line">Latest: ${escapeHtml(current.highlights[0]!.subject)}</p>` : ''}
 </section>`
   const history = releases.length
     ? `<section class="dl-history"><h2>Release history</h2>
