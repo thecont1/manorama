@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'hono/jsx'
 import { applyTheme, readStoredTheme, storeTheme, type Theme } from '../lib/owner-theme'
 import type { GallerySummary } from '../lib/gallery-repository'
 import type { AccountTier } from '../../packages/core/account'
+import type { DeviceGallery } from '../../packages/core/device-gallery'
 import { friendlySourceError } from '../lib/source-errors'
 import { FREE_RETAINED_LIMIT, PAID_RETAINED_LIMIT, isGalleryExpired, expiryCountdownText } from '../lib/gallery-policy'
 import type { AuthProvider } from '../lib/identity-repository'
@@ -10,12 +11,14 @@ import { readRuntimeFoldLayout, subscribeToRuntimeFoldLayout } from '../../nativ
 import { AddGallerySheet } from '../components/AddGallerySheet'
 import { useMasonry } from '../components/library/useMasonry'
 import { CompactCoverImg } from '../components/library/CompactCoverImg'
+import { DeviceGalleriesRows, DeviceGalleriesSection } from '../components/library/DeviceGalleriesSection'
+import { SectionChevron } from '../components/library/SectionChevron'
 import { GalleryShareSheet } from '../components/GalleryShareSheet'
 import { HeicImg } from '../components/ui/HeicImg'
 import { Sheet } from '../components/ui/Sheet'
 import { WebSettings, type AccountIdentityWeb } from '../components/WebSettings'
 import { SettingsIcon } from '../components/admin-icons'
-import OwnerGalleryPanel from '../components/viewer/OwnerGalleryPanel'
+import GallerySettingsSheet from '../components/GallerySettingsSheet'
 import { copyText } from '../lib/gallery-share'
 import { cardCountSource, formatMediaCount, summaryMediaCount } from '../lib/imagesource'
 import { houseAdFrameFor, type AdFrame } from '../lib/adframe'
@@ -81,8 +84,10 @@ const effectivePinned = (gallery: GallerySummary) => Boolean(gallery.pinnedAt)
 /** After a new gallery card mounts, bring it fully into view: centered with
  *  breathing room when it fits, top-parked with a margin when it doesn't.
  *  Fires in the same frame the card renders — just as its strip images begin
- *  streaming in. */
-const scrollToGalleryCard = (slug: string) => {
+ *  streaming in. `reveal` runs first so a card inside a collapsed section
+ *  mounts before the query looks for it. */
+const scrollToGalleryCard = (slug: string, reveal?: () => void) => {
+  reveal?.()
   requestAnimationFrame(() => {
     const card = document.querySelector<HTMLElement>(`[data-gallery-card="${slug}"]`)
     if (!card) return
@@ -161,6 +166,18 @@ export default function Admin({ galleries: initialGalleries, owner, ownerName, p
   const [galleryHashes, setGalleryHashes] = useState<Record<string, string>>({})
   const [menuSlug, setMenuSlug] = useState<string | null>(null)
   const [hiddenOpen, setHiddenOpen] = useState(false)
+  // Cloud and Local collapse like Hidden does — user choice per session,
+  // not persisted: the Library opens with every section showing.
+  const [cloudOpen, setCloudOpen] = useState(true)
+  const [localOpen, setLocalOpen] = useState(true)
+  const [pinnedOpen, setPinnedOpen] = useState(true)
+  // A card only mounts inside an open section — a collapsed Pinned, Cloud
+  // or Hidden list would leave the post-add scroll with nothing to find.
+  const revealGallerySection = (gallery: GallerySummary) => {
+    if (gallery.hiddenAt) setHiddenOpen(true)
+    else if (gallery.pinnedAt) setPinnedOpen(true)
+    else setCloudOpen(true)
+  }
   // `?details=` opens the sheet once per page load. The marker lives on
   // documentElement rather than in state because hono/jsx can remount the
   // island when an update races a sheet's unmount — a remount replays this
@@ -191,6 +208,24 @@ export default function Admin({ galleries: initialGalleries, owner, ownerName, p
 
   // The OAuth link callback lands back here on `?linked=` / `?link=conflict`;
   // the params become a one-line note and are stripped so a refresh is quiet.
+  // The synced device feed is account metadata — the same rows the desktops
+  // mirror, deliberately carrying no paths. The web lists them compact and
+  // thumbnail-less; writes stay bound to the devices that own the folders.
+  const [deviceGalleries, setDeviceGalleries] = useState<DeviceGallery[]>([])
+  useEffect(() => {
+    let active = true
+    void (async () => {
+      try {
+        const response = await fetch('/api/device-galleries')
+        const payload = await response.json() as { galleries?: DeviceGallery[] }
+        if (active && response.ok && payload.galleries) setDeviceGalleries(payload.galleries)
+      } catch {
+        // A failed read leaves the section hidden.
+      }
+    })()
+    return () => { active = false }
+  }, [])
+
   useEffect(() => {
     let active = true
     void (async () => {
@@ -633,13 +668,14 @@ export default function Admin({ galleries: initialGalleries, owner, ownerName, p
       // successful reopen, not a scan failure: keep the card, point at it,
       // and say so instead of showing a could-not-read error.
       if (response.status === 409 && payload.gallery) {
-        setGalleries((previous) => sortRecent([...previous.filter((item) => item.slug !== payload.gallery!.slug), payload.gallery!]))
+        const reopened = payload.gallery
+        setGalleries((previous) => sortRecent([...previous.filter((item) => item.slug !== reopened.slug), reopened]))
         setSourceUrl('')
         setAddName('')
         setAddCaption('')
         resetAddVerification()
         setAddOpen(false)
-        scrollToGalleryCard(payload.gallery.slug)
+        scrollToGalleryCard(reopened.slug, () => revealGallerySection(reopened))
         announce(payload.error || 'That link is already one of your galleries.')
         return
       }
@@ -647,14 +683,15 @@ export default function Admin({ galleries: initialGalleries, owner, ownerName, p
         if (response.status === 403) { announce(''); setAddError(payload.error || 'That gallery could not be added'); return }
         throw new Error(payload.error || 'That gallery could not be added')
       }
-      setGalleries((previous) => sortRecent([...previous.filter((item) => item.slug !== payload.gallery!.slug), payload.gallery!]))
+      const added = payload.gallery
+      setGalleries((previous) => sortRecent([...previous.filter((item) => item.slug !== added.slug), added]))
       setSourceUrl('')
       setAddName('')
       setAddCaption('')
       resetAddVerification()
       setAddOpen(false)
-      scrollToGalleryCard(payload.gallery.slug)
-      announce('Done! ' + payload.gallery.title + ' is at the top.')
+      scrollToGalleryCard(added.slug, () => revealGallerySection(added))
+      announce('Done! ' + added.title + ' is at the top.')
     } catch (error) {
       announce('')
       setAddError(friendlySourceError(error))
@@ -763,6 +800,12 @@ export default function Admin({ galleries: initialGalleries, owner, ownerName, p
   const stripGalleries = layout.strips.map((slug) => bySlug.get(slug)).filter((gallery): gallery is GallerySummary => Boolean(gallery))
   const compactGalleries = layout.compact.map((slug) => bySlug.get(slug)).filter((gallery): gallery is GallerySummary => Boolean(gallery))
   const hiddenGalleries = liveGalleries.filter((gallery) => gallery.hiddenAt)
+  // A device row published as a cloud gallery collapses into that card —
+  // the same dedupe the desktop Library applies to its synced mirrors.
+  const publishedSlugs = new Set(liveGalleries.map((gallery) => gallery.slug))
+  const standaloneDeviceRows = deviceGalleries.filter((gallery) => !gallery.publicGallerySlug || !publishedSlugs.has(gallery.publicGallerySlug))
+  const visibleDeviceRows = standaloneDeviceRows.filter((gallery) => !gallery.hidden)
+  const hiddenDeviceRows = standaloneDeviceRows.filter((gallery) => gallery.hidden)
 
   /** Proton's API answers CORS only to drive.proton.me itself, so a real
    *  browser can never reach it — the same verdict `protonTransport`
@@ -821,6 +864,7 @@ export default function Admin({ galleries: initialGalleries, owner, ownerName, p
       </div>
     </li>
   }
+
   const pinnedCount = liveGalleries.filter((gallery) => gallery.pinnedAt).length
   const retainedCount = liveGalleries.filter((gallery) => gallery.retention !== 'pipeline').length
   const retainedLimit = tier === 'pro' ? PAID_RETAINED_LIMIT : FREE_RETAINED_LIMIT
@@ -898,11 +942,21 @@ export default function Admin({ galleries: initialGalleries, owner, ownerName, p
             </div>
           </aside>
         ) : null}
-        <p class="admin-copyright">© 2026 Mahesh Shantaram.<br />All platform rights reserved.</p>
+        <p class="admin-copyright">© 2026 Mahesh Shantaram.<br />Photographs in galleries belong to their respective owners.</p>
       </aside>
       <section class="gallery-list" aria-labelledby="galleries-heading">
         {stripGalleries.length ? <section aria-labelledby="lib-strips-title">
-          <h2 id="lib-strips-title" class="lib-section-title">Pinned galleries <span class="lib-section-count">({stripGalleries.length})</span></h2>
+          <button
+            type="button"
+            id="lib-strips-title"
+            class="lib-section-title lib-compact-title lib-hidden-toggle"
+            aria-expanded={pinnedOpen}
+            onClick={() => setPinnedOpen((open) => !open)}
+          >
+            <SectionChevron open={pinnedOpen} />
+            Pinned galleries <span class="lib-hidden-count">({stripGalleries.length})</span>
+          </button>
+          {pinnedOpen ? (<>
           <p class="lib-section-sub">Pinned galleries show up as strips and download entirely — pinning is a display choice, not permanence.</p>
           <ul class="lib-list">{stripGalleries.map((gallery) => {
           const title = gallery.title || gallery.slug
@@ -965,21 +1019,36 @@ export default function Admin({ galleries: initialGalleries, owner, ownerName, p
             </p>
             {gallery.caption?.trim() ? <p class="lib-card-caption">{gallery.caption}</p> : null}
           </article></li>
-        })}</ul></section> : null}
+        })}</ul></>) : null}</section> : null}
         {compactGalleries.length ? (
           <section aria-labelledby="lib-compact-title">
-            <h2 id="lib-compact-title" class="lib-section-title lib-compact-title">Cloud galleries <span class="lib-section-count">({compactGalleries.length})</span></h2>
+            <button
+              type="button"
+              id="lib-compact-title"
+              class="lib-section-title lib-compact-title lib-hidden-toggle"
+              aria-expanded={cloudOpen}
+              onClick={() => setCloudOpen((open) => !open)}
+            >
+              <SectionChevron open={cloudOpen} />
+              Cloud galleries <span class="lib-hidden-count">({compactGalleries.length})</span>
+            </button>
             {/* A masonry feed of cover cards — the cover keeps its own
                 ratio (nothing is ever cropped), so card heights vary the
                 way a pin feed does. */}
-            <ul class="lib-compact-grid" ref={compactGridRef}>{compactGalleries.map(compactCard)}</ul>
+            {cloudOpen ? (
+              <ul class="lib-compact-grid" ref={compactGridRef}>{compactGalleries.map(compactCard)}</ul>
+            ) : null}
           </section>
         ) : null}
+        {/* The synced device feed in compact form — titles, counts and the
+            device each folder lives on, no covers: the rows carry no paths
+            and the web keeps them that way. */}
+        <DeviceGalleriesSection galleries={visibleDeviceRows} open={localOpen} onToggle={() => setLocalOpen((open) => !open)} />
         {/* Concealed galleries stay reachable — the flag is account-wide,
             so a gallery hidden on a device can be restored from the
             browser too. Collapsed by default: hidden means out of sight,
             not gone. */}
-        {hiddenGalleries.length ? (
+        {hiddenGalleries.length || hiddenDeviceRows.length ? (
           <section aria-labelledby="lib-hidden-title" class="lib-hidden-section">
             <button
               type="button"
@@ -988,11 +1057,14 @@ export default function Admin({ galleries: initialGalleries, owner, ownerName, p
               aria-expanded={hiddenOpen}
               onClick={() => setHiddenOpen((open) => !open)}
             >
-              <span class="lib-hidden-chevron" aria-hidden="true">{hiddenOpen ? '▾' : '▸'}</span>
-              Hidden galleries <span class="lib-hidden-count">({hiddenGalleries.length})</span>
+              <SectionChevron open={hiddenOpen} />
+              Hidden galleries <span class="lib-hidden-count">({hiddenGalleries.length + hiddenDeviceRows.length})</span>
             </button>
             {hiddenOpen ? (
-              <ul class="lib-compact-grid" ref={hiddenGridRef}>{hiddenGalleries.map(compactCard)}</ul>
+              <>
+                <ul class="lib-compact-grid" ref={hiddenGridRef}>{hiddenGalleries.map(compactCard)}</ul>
+                {hiddenDeviceRows.length ? <DeviceGalleriesRows galleries={hiddenDeviceRows} /> : null}
+              </>
             ) : null}
           </section>
         ) : null}
@@ -1039,9 +1111,9 @@ export default function Admin({ galleries: initialGalleries, owner, ownerName, p
               onClick={() => { void togglePin(menuGallery) }}
             >{effectivePinned(menuGallery) ? 'Unpin gallery' : 'Pin gallery'}</button>
             <button type="button" onClick={() => { setShareSlug(menuGallery.slug); setMenuSlug(null) }}>Share link</button>
-            {/* The gallery's own Settings — the same panel the viewer's
-                Settings popover hosts, so the owner edits in place. */}
-            <button type="button" onClick={() => { setGalSettingsSlug(menuGallery.slug); setMenuSlug(null) }}>Gallery settings</button>
+            {/* The gallery's own Settings — the same two-layer dialog the
+                viewer's Settings popover hosts, so the owner edits in place. */}
+            <button type="button" onClick={() => { setGalSettingsSlug(menuGallery.slug); setMenuSlug(null) }}>Gallery Settings</button>
             {menuGallery.hiddenAt ? (
               <button type="button" disabled={busy} onClick={() => { void unhideGallery(menuGallery) }}>Unhide gallery</button>
             ) : null}
@@ -1050,54 +1122,52 @@ export default function Admin({ galleries: initialGalleries, owner, ownerName, p
       ) : null}
 
       {galSettingsGallery ? (
-        <Sheet open onClose={() => setGalSettingsSlug(null)} title="Gallery settings">
-          <div class="m-dark">
-            <OwnerGalleryPanel
-              owner={owner}
-              slug={galSettingsGallery.slug}
-              title={galSettingsGallery.title}
-              caption={galSettingsGallery.caption}
-              sourceLabel={sourceLabelFor(galSettingsGallery.sourceUrl)}
-              galleryId={galSettingsGallery.id}
-              sourceUrl={galSettingsGallery.sourceUrl}
-              temporary={isLocked(galSettingsGallery)}
-              expiresAt={galSettingsGallery.expiresAt}
-              mediaCount={summaryMediaCount(galSettingsGallery)}
-              libraryHref={`/${owner}`}
-              upgradeHref={upgradeHref}
-              onOpen={blockedProviderFor(galSettingsGallery) === 'proton' ? undefined : () => { openGallery(galSettingsGallery) }}
-              onOpenSource={galSettingsGallery.sourceUrl ? () => {
-                // The menu's old Open source row: an encrypted v2 gallery
-                // resolves its real URL through the key store first;
-                // every other source opens the stored link directly.
-                if (galSettingsGallery.manifestVersion === 2 && galSettingsGallery.id && isEncryptedSourceUrl(galSettingsGallery.sourceUrl!)) {
-                  openSource(galSettingsGallery)
-                } else {
-                  window.open(galSettingsGallery.sourceUrl!, '_blank', 'noopener,noreferrer')
-                }
-              } : undefined}
-              onReorder={blockedProviderFor(galSettingsGallery) === 'proton' ? undefined : () => { openGallery(galSettingsGallery, '?edit=1') }}
-              // The share sheet's address: the key fragment rides along
-              // when this tab holds custody, and the row refuses to copy
-              // a keyless link that would only open locked.
-              shareHref={`https://${galleryAddressWithKey(galSettingsGallery)}`}
-              shareDisabled={Boolean(galSettingsGallery.manifestVersion === 2 && galSettingsGallery.id && !galleryHashes[galSettingsGallery.id])}
-              shareNote="This tab does not hold the key. Open the full gallery link before sharing; a keyless address opens locked."
-              currentPhotoId={() => ''}
-              onTitleSaved={(next) => setGalleries((previous) => previous.map((item) => item.slug === galSettingsGallery.slug ? { ...item, title: next } : item))}
-              onCaptionSaved={(next) => setGalleries((previous) => previous.map((item) => item.slug === galSettingsGallery.slug ? { ...item, caption: next } : item))}
-              onRemoved={() => {
-                // The D1 row is gone; this tab's custody copy of the key
-                // goes with it — the cleanup the retired card-confirm ran.
-                if (galSettingsGallery.id) {
-                  void webGalleryKeyStore().remove(galSettingsGallery.id).catch(() => {})
-                  releaseEncryptedGallery(galSettingsGallery.id)
-                }
-                window.location.assign(`/${owner}`)
-              }}
-            />
-          </div>
-        </Sheet>
+        <GallerySettingsSheet
+          open
+          onClose={() => setGalSettingsSlug(null)}
+          owner={owner}
+          slug={galSettingsGallery.slug}
+          title={galSettingsGallery.title}
+          caption={galSettingsGallery.caption}
+          sourceLabel={sourceLabelFor(galSettingsGallery.sourceUrl)}
+          galleryId={galSettingsGallery.id}
+          sourceUrl={galSettingsGallery.sourceUrl}
+          temporary={isLocked(galSettingsGallery)}
+          expiresAt={galSettingsGallery.expiresAt}
+          mediaCount={summaryMediaCount(galSettingsGallery)}
+          libraryHref={`/${owner}`}
+          upgradeHref={upgradeHref}
+          onOpen={blockedProviderFor(galSettingsGallery) === 'proton' ? undefined : () => { openGallery(galSettingsGallery) }}
+          onOpenSource={galSettingsGallery.sourceUrl ? () => {
+            // The menu's old Open source row: an encrypted v2 gallery
+            // resolves its real URL through the key store first;
+            // every other source opens the stored link directly.
+            if (galSettingsGallery.manifestVersion === 2 && galSettingsGallery.id && isEncryptedSourceUrl(galSettingsGallery.sourceUrl!)) {
+              openSource(galSettingsGallery)
+            } else {
+              window.open(galSettingsGallery.sourceUrl!, '_blank', 'noopener,noreferrer')
+            }
+          } : undefined}
+          onReorder={blockedProviderFor(galSettingsGallery) === 'proton' ? undefined : () => { openGallery(galSettingsGallery, '?edit=1') }}
+          // The share sheet's address: the key fragment rides along
+          // when this tab holds custody, and the row refuses to copy
+          // a keyless link that would only open locked.
+          shareHref={`https://${galleryAddressWithKey(galSettingsGallery)}`}
+          shareDisabled={Boolean(galSettingsGallery.manifestVersion === 2 && galSettingsGallery.id && !galleryHashes[galSettingsGallery.id])}
+          shareNote="This tab does not hold the key. Open the full gallery link before sharing; a keyless address opens locked."
+          currentPhotoId={() => ''}
+          onTitleSaved={(next) => setGalleries((previous) => previous.map((item) => item.slug === galSettingsGallery.slug ? { ...item, title: next } : item))}
+          onCaptionSaved={(next) => setGalleries((previous) => previous.map((item) => item.slug === galSettingsGallery.slug ? { ...item, caption: next } : item))}
+          onRemoved={() => {
+            // The D1 row is gone; this tab's custody copy of the key
+            // goes with it — the cleanup the retired card-confirm ran.
+            if (galSettingsGallery.id) {
+              void webGalleryKeyStore().remove(galSettingsGallery.id).catch(() => {})
+              releaseEncryptedGallery(galSettingsGallery.id)
+            }
+            window.location.assign(`/${owner}`)
+          }}
+        />
       ) : null}
 
       {pinChoiceGallery ? (

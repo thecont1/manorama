@@ -85,6 +85,10 @@ export type OwnerGalleryPanelProps = {
   onRefreshed?: () => void
   /** Post-remove landing — defaults to `libraryHref ?? '/'`. */
   onRemoved?: () => void
+  /** Which slice of rows this instance renders. 'quick' is the front
+   *  layer's common actions — share, reorder, refresh; 'rest' is
+   *  everything else under More Settings; unset renders all rows. */
+  layer?: 'quick' | 'rest' | 'all'
 }
 
 type EditField = 'name' | 'caption' | 'address'
@@ -134,6 +138,7 @@ export default function OwnerGalleryPanel({
   onRenamed,
   onRefreshed,
   onRemoved,
+  layer = 'all',
 }: OwnerGalleryPanelProps) {
   // Same-origin on the web; absolute + bearer on shells that carry their
   // own session. The bearer rides every call because the cross-origin
@@ -263,6 +268,20 @@ export default function OwnerGalleryPanel({
 
   const [readState, setReadState] = useState<'idle' | 'busy' | 'error'>('idle')
   const [readNote, setReadNote] = useState<string | null>(null)
+  // A refresh can legitimately run for minutes — the device-side scan
+  // for encrypted sources, then the server's own scan deadline — so the
+  // row counts elapsed seconds and, past the point where a hang is
+  // indistinguishable from work, says so plainly.
+  const [readElapsed, setReadElapsed] = useState(0)
+  useEffect(() => {
+    if (readState !== 'busy') {
+      setReadElapsed(0)
+      return
+    }
+    const started = Date.now()
+    const timer = setInterval(() => setReadElapsed(Math.floor((Date.now() - started) / 1000)), 1000)
+    return () => clearInterval(timer)
+  }, [readState])
   const readFolderAgain = () => {
     if (readState === 'busy') return
     setReadState('busy')
@@ -341,68 +360,82 @@ export default function OwnerGalleryPanel({
           {upgradeHref ?? libraryHref ? <a href={upgradeHref ?? libraryHref}>Upgrade</a> : null}
         </p>
       ) : null}
-      <ActionGroup>
-        {onOpen ? (
-          <ActionRow
-            label={GALLERY_ROWS.open.label}
-            icon={GALLERY_ROWS.open.icon()}
-            onClick={onOpen}
-          />
-        ) : null}
-        <ActionRow
-          label={linkCopied ? 'Link copied' : GALLERY_ROWS.share.label}
-          icon={GALLERY_ROWS.share.icon()}
-          onClick={copyShareLink}
-          disabled={shareDisabled}
-        />
-      </ActionGroup>
-      {shareDisabled && shareNote ? <p class="m-note" role="alert">{shareNote}</p> : null}
-      <ActionGroup>
-        {editing === 'name' ? editBlock('Name', (
-          <input class="m-input" type="text" aria-label="Name" value={draft} maxLength={120} data-owner-edit-field onInput={onDraft} onKeyDown={onFieldKey} />
-        )) : (
-          <ActionRow label={GALLERY_ROWS.name.label} icon={GALLERY_ROWS.name.icon()} value={liveTitle} onClick={() => startEdit('name')} disabled={locked} />
-        )}
-        {/* A present caption reads in full on the head — the row only
-            carries the empty state, so nothing ellipsizes. */}
-        {editing === 'caption' ? editBlock('Caption', (
-          <textarea class="m-input" rows={3} aria-label="Caption" value={draft} maxLength={500} data-owner-edit-field onInput={onDraft} onKeyDown={onFieldKey} />
-        )) : (
-          <ActionRow label={GALLERY_ROWS.caption.label} icon={GALLERY_ROWS.caption.icon()} value={liveCaption ? undefined : 'None'} onClick={() => startEdit('caption')} disabled={locked} />
-        )}
-        {editing === 'address' ? editBlock('Address', (
-          <input class="m-input" type="text" aria-label="Address" value={draft} maxLength={120} data-owner-edit-field onInput={onDraft} onKeyDown={onFieldKey} />
-        )) : (
-          <ActionRow label={GALLERY_ROWS.address.label} icon={GALLERY_ROWS.address.icon()} value={`${owner}/${slug}`} onClick={() => startEdit('address')} disabled={locked} />
-        )}
-        {onReorder ? (
-          <ActionRow
-            label={GALLERY_ROWS.reorder.label}
-            icon={GALLERY_ROWS.reorder.icon()}
-            value={mediaCount.stills + mediaCount.videos + (mediaCount.hidden ?? 0)}
-            onClick={onReorder}
-            disabled={locked}
-          />
-        ) : null}
-      </ActionGroup>
-      <ActionGroup>
-        <ActionRow
-          label={readState === 'busy' ? 'Refreshing…' : GALLERY_ROWS.refresh.label}
-          icon={GALLERY_ROWS.refresh.icon()}
-          onClick={readFolderAgain}
-          disabled={locked || readState === 'busy'}
-        />
-        {onOpenSource ? (
-          <ActionRow
-            label={GALLERY_ROWS.openSource.label}
-            icon={GALLERY_ROWS.openSource.icon()}
-            onClick={onOpenSource}
-            disabled={locked}
-          />
-        ) : null}
-      </ActionGroup>
-      {readNote ? <p class="m-error" role="alert">{readNote}</p> : null}
-      {deviceGroup}
+      {layer !== 'rest' || onOpen ? (
+        <ActionGroup>
+          {layer !== 'quick' && onOpen ? (
+            <ActionRow
+              label={GALLERY_ROWS.open.label}
+              icon={GALLERY_ROWS.open.icon()}
+              onClick={onOpen}
+            />
+          ) : null}
+          {layer !== 'rest' ? (
+            <ActionRow
+              label={linkCopied ? 'Link copied' : GALLERY_ROWS.share.label}
+              icon={GALLERY_ROWS.share.icon()}
+              onClick={copyShareLink}
+              disabled={shareDisabled}
+            />
+          ) : null}
+        </ActionGroup>
+      ) : null}
+      {shareDisabled && shareNote && layer !== 'rest' ? <p class="m-note" role="alert">{shareNote}</p> : null}
+      {layer !== 'quick' || onReorder ? (
+        <ActionGroup>
+          {layer !== 'quick' && editing === 'name' ? editBlock('Name', (
+            <input class="m-input" type="text" aria-label="Name" value={draft} maxLength={120} data-owner-edit-field onInput={onDraft} onKeyDown={onFieldKey} />
+          )) : layer !== 'quick' ? (
+            <ActionRow label={GALLERY_ROWS.name.label} icon={GALLERY_ROWS.name.icon()} value={liveTitle} onClick={() => startEdit('name')} disabled={locked} />
+          ) : null}
+          {/* A present caption reads in full on the head — the row only
+              carries the empty state, so nothing ellipsizes. */}
+          {layer !== 'quick' && editing === 'caption' ? editBlock('Caption', (
+            <textarea class="m-input" rows={3} aria-label="Caption" value={draft} maxLength={500} data-owner-edit-field onInput={onDraft} onKeyDown={onFieldKey} />
+          )) : layer !== 'quick' ? (
+            <ActionRow label={GALLERY_ROWS.caption.label} icon={GALLERY_ROWS.caption.icon()} value={liveCaption ? undefined : 'None'} onClick={() => startEdit('caption')} disabled={locked} />
+          ) : null}
+          {layer !== 'quick' && editing === 'address' ? editBlock('Address', (
+            <input class="m-input" type="text" aria-label="Address" value={draft} maxLength={120} data-owner-edit-field onInput={onDraft} onKeyDown={onFieldKey} />
+          )) : layer !== 'quick' ? (
+            <ActionRow label={GALLERY_ROWS.address.label} icon={GALLERY_ROWS.address.icon()} value={`${owner}/${slug}`} onClick={() => startEdit('address')} disabled={locked} />
+          ) : null}
+          {layer !== 'rest' && onReorder ? (
+            <ActionRow
+              label={GALLERY_ROWS.reorder.label}
+              icon={GALLERY_ROWS.reorder.icon()}
+              value={mediaCount.stills + mediaCount.videos + (mediaCount.hidden ?? 0)}
+              onClick={onReorder}
+              disabled={locked}
+            />
+          ) : null}
+        </ActionGroup>
+      ) : null}
+      {layer !== 'rest' || onOpenSource ? (
+        <ActionGroup>
+          {layer !== 'rest' ? (
+            <ActionRow
+              label={readState === 'busy' ? (readElapsed > 0 ? `Refreshing… ${readElapsed}s` : 'Refreshing…') : GALLERY_ROWS.refresh.label}
+              icon={GALLERY_ROWS.refresh.icon()}
+              onClick={readFolderAgain}
+              disabled={locked || readState === 'busy'}
+            />
+          ) : null}
+          {layer !== 'quick' && onOpenSource ? (
+            <ActionRow
+              label={GALLERY_ROWS.openSource.label}
+              icon={GALLERY_ROWS.openSource.icon()}
+              onClick={onOpenSource}
+              disabled={locked}
+            />
+          ) : null}
+        </ActionGroup>
+      ) : null}
+      {readState === 'busy' && readElapsed >= 20 && layer !== 'rest' ? (
+        <p class="m-note" role="status">Still scanning — very large galleries can take a few minutes.</p>
+      ) : null}
+      {readNote && layer !== 'rest' ? <p class="m-error" role="alert">{readNote}</p> : null}
+      {layer !== 'quick' ? deviceGroup : null}
+      {layer !== 'quick' ? (
       <ActionGroup>
         {confirmingRemove ? (
           <div class="m-owner-confirm" role="group" aria-label={`Confirm removal of ${liveTitle}`}>
@@ -423,6 +456,7 @@ export default function OwnerGalleryPanel({
           />
         )}
       </ActionGroup>
+      ) : null}
     </div>
   )
 }

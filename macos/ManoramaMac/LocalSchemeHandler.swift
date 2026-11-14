@@ -272,7 +272,15 @@ final class LocalSchemeHandler: NSObject, WKURLSchemeHandler {
     /// One ephemeral session for every proxied API call — creating a
     /// URLSession per request discards its connection pool and pays the
     /// setup cost on each photograph-adjacent API round-trip.
-    private static let apiSession = URLSession(configuration: .ephemeral)
+    /// `timeoutIntervalForRequest` is an inactivity timeout: the refresh
+    /// endpoint's server-side scan has a 90s deadline and sends nothing
+    /// until it finishes, so the 60s default would cut a legitimate long
+    /// scan that the web app (direct fetch) lets complete.
+    private static let apiSession: URLSession = {
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.timeoutIntervalForRequest = 150
+        return URLSession(configuration: configuration)
+    }()
 
     /// When launched with `--config <dir>` (an isolated test run), never
     /// forward non-GET `/api/device-galleries` mutations to the live server so
@@ -328,15 +336,50 @@ final class LocalSchemeHandler: NSObject, WKURLSchemeHandler {
         upstream = upstream.absoluteURL
         var outgoing = URLRequest(url: upstream)
         outgoing.httpMethod = request.httpMethod
-        outgoing.httpBody = request.httpBody
-        // The browser's own headers are carried across; the shell adds none.
-        for (key, value) in request.allHTTPHeaderFields ?? [:] {
-            outgoing.setValue(value, forHTTPHeaderField: key)
-        }
-        // The upstream must see the site it is, not the shell's scheme.
-        outgoing.setValue(Self.apiOrigin.absoluteString, forHTTPHeaderField: "Origin")
+        // WebKit does not populate `httpBody` on a custom-scheme task — the
+        // body arrives on `httpBodyStream` instead, so a PATCH that copied
+        // only `httpBody` would reach the API empty. Read the stream off
+        // the caller's queue, then send.
+        Self.requestBody(from: request) { [weak self] result in
+            guard let self else { return }
+            if case .failure(let error) = result {
+                // A body that cannot be read is never forwarded partial —
+                // the task fails on the main queue, where a stop and the
+                // answer can never interleave.
+                DispatchQueue.main.async { [weak self] in
+                    guard let self else { return }
+                    if self.wasStopped(taskID) {
+                        self.clearStopped(taskID)
+                        return
+                    }
+                    self.clearStopped(taskID)
+                    task.didFailWithError(error)
+                }
+                return
+            }
+            guard case .success(let body) = result else { return }
+            // A task stopped while its body was being read owes nothing.
+            if self.wasStopped(taskID) {
+                self.clearStopped(taskID)
+                return
+            }
+            if let body {
+                outgoing.httpBody = body
+            }
+            // The browser's own headers are carried across; the shell adds none.
+            for (key, value) in request.allHTTPHeaderFields ?? [:] {
+                outgoing.setValue(value, forHTTPHeaderField: key)
+            }
+            if let body {
+                // The length the page declared may describe the stream, not
+                // the bytes — restate it after the header copy so the
+                // upstream never reads a lie.
+                outgoing.setValue("\(body.count)", forHTTPHeaderField: "Content-Length")
+            }
+            // The upstream must see the site it is, not the shell's scheme.
+            outgoing.setValue(Self.apiOrigin.absoluteString, forHTTPHeaderField: "Origin")
 
-        Self.apiSession.dataTask(with: outgoing) { [weak self] data, response, error in
+            Self.apiSession.dataTask(with: outgoing) { [weak self] data, response, error in
             guard let self else { return }
             // WebKit delivers stop on the main queue — the stopped check
             // and every response call join it there, so a stop can never
@@ -397,6 +440,49 @@ final class LocalSchemeHandler: NSObject, WKURLSchemeHandler {
                 task.didFinish()
             }
         }.resume()
+        }
+    }
+
+    /// The request's body, however WebKit chose to deliver it.
+    ///
+    /// `httpBody` is populated for some requests and `httpBodyStream` for
+    /// others — the stream is the reliable carrier on a custom scheme, and
+    /// it blocks, so it is drained on a background queue. A zero read is
+    /// the end of the stream; a negative one is a failure, and the bytes
+    /// gathered so far must not pass for a complete body.
+    private static func requestBody(from request: URLRequest, completion: @escaping (Result<Data?, Error>) -> Void) {
+        if let body = request.httpBody {
+            completion(.success(body))
+            return
+        }
+        guard let stream = request.httpBodyStream else {
+            completion(.success(nil))
+            return
+        }
+        DispatchQueue.global(qos: .userInitiated).async {
+            stream.open()
+            defer { stream.close() }
+            var data = Data()
+            var buffer = [UInt8](repeating: 0, count: 64 * 1024)
+            var failure: Error?
+            while stream.hasBytesAvailable {
+                let read = stream.read(&buffer, maxLength: buffer.count)
+                if read == 0 { break }
+                if read < 0 {
+                    failure = stream.streamError ?? URLError(.cannotDecodeContentData)
+                    break
+                }
+                data.append(buffer, count: read)
+            }
+            if failure == nil, let streamError = stream.streamError {
+                failure = streamError
+            }
+            if let failure {
+                completion(.failure(failure))
+            } else {
+                completion(.success(data.isEmpty ? nil : data))
+            }
+        }
     }
 
 /// Tell the shell that a photograph could not be served.

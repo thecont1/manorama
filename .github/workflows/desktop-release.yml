@@ -145,7 +145,7 @@ jobs:
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
         run: |
           scripts/build-macos.sh release
-          APP_BUNDLE=macos/ManoramaMac/build/ManoramaMac.app
+          APP_BUNDLE=macos/ManoramaMac/build/manorama.app
           VERSION=$(/usr/libexec/PlistBuddy -c 'Print CFBundleShortVersionString' "$APP_BUNDLE/Contents/Info.plist")
           mkdir -p build/dmg-stage build/dmg
           cp -R "$APP_BUNDLE" build/dmg-stage/

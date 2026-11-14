@@ -45,14 +45,14 @@ swiftc \
   -framework SwiftUI \
   -framework WebKit \
   -framework Security \
-  -o "$BUILD_DIR/ManoramaMac" \
+  -o "$BUILD_DIR/manorama" \
   "$APP"/*.swift
 
 echo "==> assembling the .app bundle"
-APP_BUNDLE="$BUILD_DIR/ManoramaMac.app"
+APP_BUNDLE="$BUILD_DIR/manorama.app"
 rm -rf "$APP_BUNDLE"
 mkdir -p "$APP_BUNDLE/Contents/MacOS" "$APP_BUNDLE/Contents/Resources"
-cp "$BUILD_DIR/ManoramaMac" "$APP_BUNDLE/Contents/MacOS/ManoramaMac"
+cp "$BUILD_DIR/manorama" "$APP_BUNDLE/Contents/MacOS/manorama"
 cp -R "$APP/Resources/ViewerBundle" "$APP_BUNDLE/Contents/Resources/ViewerBundle"
 if [ -f "src-tauri/icons/icon.icns" ]; then
   cp "src-tauri/icons/icon.icns" "$APP_BUNDLE/Contents/Resources/icon.icns"
@@ -65,7 +65,7 @@ cat > "$APP_BUNDLE/Contents/Info.plist" <<PLIST
 <dict>
   <key>CFBundleName</key><string>manorama</string>
   <key>CFBundleDisplayName</key><string>manorama</string>
-  <key>CFBundleExecutable</key><string>ManoramaMac</string>
+  <key>CFBundleExecutable</key><string>manorama</string>
   <key>CFBundleIdentifier</key><string>$BUNDLE_ID</string>
   <key>CFBundleIconFile</key><string>icon.icns</string>
   <key>CFBundlePackageType</key><string>APPL</string>

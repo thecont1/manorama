@@ -463,8 +463,10 @@ describe('desktop catalogue workbench', () => {
     try {
       const container = await mount(true)
       // Section order is Pinned → Local galleries → Cloud galleries; the
-      // account card lands in Cloud galleries after the local cards.
-      const headings = [...container.querySelectorAll<HTMLElement>('.lib-section-title')].map((el) => el.textContent ?? '')
+      // account card lands in Cloud galleries after the local cards. The
+      // collapsible headers lead with a chevron glyph — strip it before
+      // matching on the title text.
+      const headings = [...container.querySelectorAll<HTMLElement>('.lib-section-title')].map((el) => (el.textContent ?? '').replace(/^[▸▾]/, ''))
       const localHeading = headings.findIndex((text) => text.startsWith('Local galleries'))
       const cloudHeading = headings.findIndex((text) => text.startsWith('Cloud galleries'))
       expect(localHeading).toBeGreaterThanOrEqual(0)
@@ -485,7 +487,7 @@ describe('desktop catalogue workbench', () => {
       // live inside Gallery settings now.
       card.querySelector<HTMLButtonElement>(`[aria-label="kashmir, in winter actions"]`)!.click()
       await settle()
-      for (const item of ['Pin gallery', 'Share link', 'Gallery settings']) {
+      for (const item of ['Pin gallery', 'Share link', 'Gallery Settings']) {
         expect(menuItem(container, item)).toBeDefined()
       }
       for (const item of ['Reorder photographs', 'Open source', 'Refresh gallery contents', 'Remove gallery']) {
@@ -1564,10 +1566,16 @@ describe('desktop catalogue workbench', () => {
       expect(pin?.body).toBe('{"pinned":true}')
 
       // Remove left the quick menu — it is the account card's Gallery
-      // settings panel's last row, behind its own inline confirm.
+      // Settings panel's last row, behind its own inline confirm.
       container.querySelector<HTMLButtonElement>('[aria-label="kashmir, in winter actions"]')!.click()
       await settle()
-      menuItem(container, 'Gallery settings')!.click()
+      menuItem(container, 'Gallery Settings')!.click()
+      await settle()
+      // Removal lives one layer deeper — More Settings holds the rest.
+      const moreRow = [...container.querySelectorAll<HTMLElement>('.m-actionrow')]
+        .find((el) => el.textContent?.includes('More Settings')) as HTMLElement
+      expect(moreRow).toBeTruthy()
+      moreRow.click()
       await settle()
       const removeRow = [...container.querySelectorAll<HTMLElement>('.m-actionrow')]
         .find((el) => el.textContent?.includes('Remove from Library')) as HTMLElement
@@ -1604,7 +1612,7 @@ describe('desktop catalogue workbench', () => {
 
       container.querySelector<HTMLButtonElement>('[aria-label="kashmir, in winter actions"]')!.click()
       await settle()
-      menuItem(container, 'Gallery settings')!.click()
+      menuItem(container, 'Gallery Settings')!.click()
       await settle()
       // The shared owner panel mounts — the same rows the web sheet hosts.
       expect(container.querySelector('.m-owner-panel')).not.toBeNull()
@@ -2070,6 +2078,63 @@ describe('desktop catalogue workbench', () => {
       await settle()
       expect(deleted).toEqual([`https://manorama.xyz/api/device-galleries/${remoteRow.id}`])
       expect(container.querySelector(`[data-gallery-card="device:${remoteRow.id}"]`)).toBeNull()
+    } finally {
+      globals.fetch = defaultFetch
+    }
+  })
+
+  test('a synced row naming this Mac is a ghost — it says so, offers Link folder, and linking reuses the row id', async () => {
+    // The row an earlier install synced before its catalogue was rebuilt:
+    // this device's own deviceId, with no local record left to stand for it.
+    const ghost = {
+      id: 'eeeeeeee-1111-4222-8333-555555555555',
+      title: 'UGANDA',
+      sourceKind: 'folder',
+      itemCount: 28,
+      deviceId: DEVICE_ID,
+      deviceLabel: 'This Mac',
+      updatedAt: '2026-11-14T13:50:00.000Z',
+    }
+    const puts: string[] = []
+    const defaultFetch = globals.fetch
+    globals.fetch = (async (url: string, init?: { method?: string }) => {
+      const path = String(url)
+      if (init?.method === 'PUT' && path.includes('/api/device-galleries/')) {
+        puts.push(path)
+        return new Response(JSON.stringify({ gallery: ghost }), { status: 200 })
+      }
+      if (path.endsWith('/api/device-galleries')) return new Response(JSON.stringify({ galleries: [ghost] }), { status: 200 })
+      if (path.endsWith('/api/galleries')) return new Response(JSON.stringify({ galleries: [] }), { status: 200 })
+      if (path.endsWith('/api/account')) return new Response(JSON.stringify({ ownerSlug: 'thecontrarian', tier: 'pro' }), { status: 200 })
+      return new Response(JSON.stringify({}), { status: 200 })
+    }) as unknown as typeof fetch
+    try {
+      const container = await mount(true)
+      const card = container.querySelector<HTMLElement>(`[data-gallery-card="device:${ghost.id}"]`)
+      expect(card).not.toBeNull()
+      // "Open it on that device" would send the owner looking for a machine
+      // that does not exist — the ghost copy says what actually happened.
+      expect(card!.textContent).toContain('on this Mac')
+      expect(card!.textContent).not.toContain('open it on that device')
+      const link = card!.querySelector<HTMLButtonElement>('.lib-card-action')
+      expect(link).not.toBeNull()
+      pickedFolder = '/Users/home/Pictures/uganda'
+      dirs['/Users/home/Pictures/uganda'] = [
+        { name: 'MS202201-uganda01.jpg', isDirectory: false, isFile: true },
+        { name: 'MS202201-uganda02.jpg', isDirectory: false, isFile: true },
+      ]
+      link!.click()
+      await settle()
+      // The record reuses the row's id, so the routine sync PUTs over the
+      // ghost rather than leaving a second stale mirror behind.
+      const saved = JSON.parse(files['catalogue.json']!) as { galleries: { id: string; title: string; rootPath: string }[] }
+      const linked = saved.galleries.find((gallery) => gallery.id === ghost.id)
+      expect(linked?.rootPath).toBe('/Users/home/Pictures/uganda')
+      expect(linked?.title).toBe('UGANDA')
+      expect(puts).toContain(`https://manorama.xyz/api/device-galleries/${ghost.id}`)
+      // And the ghost card is a real local card now.
+      expect(container.querySelector(`[data-gallery-card="device:${ghost.id}"]`)).toBeNull()
+      expect(container.querySelector(`.lib-compact-card[data-gallery-card="${ghost.id}"]`)).not.toBeNull()
     } finally {
       globals.fetch = defaultFetch
     }

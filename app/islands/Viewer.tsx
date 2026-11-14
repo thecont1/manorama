@@ -985,7 +985,7 @@ export default function Viewer({ slug, galleryTitle, images: sourceImages, encry
   // viewer no longer navigates away for editing.
   const settingsActions = onOpenDetails ? (
     <ActionGroup>
-      <ActionRow label="Gallery settings" onClick={() => onOpenDetails({ imageId: images[index]?.id ?? '', index })} />
+      <ActionRow label="More Settings" onClick={() => onOpenDetails({ imageId: images[index]?.id ?? '', index })} />
     </ActionGroup>
   ) : ownerGallery ? null : addToLibrary ? (
     <ActionGroup>
@@ -1002,33 +1002,42 @@ export default function Viewer({ slug, galleryTitle, images: sourceImages, encry
   ) : null
   // The owner's gallery management drills into the Settings popover's
   // gallery page: the hoisted head is the intro, the panel the body. The
-  // viewer is already inside the gallery, so no "Open gallery" row.
-  const galleryPanel = ownerInline && ownerGallery ? (
-    <OwnerGalleryPanel
-      owner={galleryOwner ?? ''}
-      slug={slug}
-      title={ownerGallery.title}
-      caption={ownerGallery.caption}
-      sourceLabel={ownerGallery.sourceLabel}
-      galleryId={galleryId}
-      sourceUrl={ownerGallery.sourceUrl}
-      temporary={ownerGallery.temporary}
-      expiresAt={ownerGallery.expiresAt}
-      mediaCount={ownerGallery.mediaCount}
-      libraryHref={libraryHref}
-      headless
-      apiBase={apiBase}
-      authToken={authToken}
-      keyStore={keyStore}
-      shareHref={shareHref}
-      onRenamed={onGalleryRenamed}
-      onRefreshed={onGalleryRefreshed}
-      onRemoved={onGalleryRemoved}
-      onReorder={openPickerEdit}
-      currentPhotoId={() => images[indexRef.current]?.id ?? ''}
-      onTitleSaved={(title) => setTitleOverride(title)}
-      onCaptionSaved={(caption) => setCaptionOverride(caption)}
-    />
+  // viewer is already inside the gallery, so no "Open gallery" row. The
+  // front layer carries only the common actions — share, reorder,
+  // refresh — and More Settings holds the rest.
+  const ownerPanelProps = ownerInline && ownerGallery ? {
+    owner: galleryOwner ?? '',
+    slug,
+    // The saved overrides, not the SSR values: a panel that remounts
+    // (the sheet closes and reopens) must open on the name and caption
+    // the owner actually saved, same as the intro head below.
+    title: titleOverride ?? ownerGallery.title,
+    caption: captionOverride ?? ownerGallery.caption,
+    sourceLabel: ownerGallery.sourceLabel,
+    galleryId,
+    sourceUrl: ownerGallery.sourceUrl,
+    temporary: ownerGallery.temporary,
+    expiresAt: ownerGallery.expiresAt,
+    mediaCount: ownerGallery.mediaCount,
+    libraryHref,
+    headless: true,
+    apiBase,
+    authToken,
+    keyStore,
+    shareHref,
+    onRenamed: onGalleryRenamed,
+    onRefreshed: onGalleryRefreshed,
+    onRemoved: onGalleryRemoved,
+    onReorder: openPickerEdit,
+    currentPhotoId: () => images[indexRef.current]?.id ?? '',
+    onTitleSaved: (title: string) => setTitleOverride(title),
+    onCaptionSaved: (caption: string) => setCaptionOverride(caption),
+  } : null
+  const quickPanel = ownerPanelProps ? (
+    <OwnerGalleryPanel {...ownerPanelProps} layer="quick" />
+  ) : undefined
+  const galleryPanel = ownerPanelProps ? (
+    <OwnerGalleryPanel {...ownerPanelProps} layer="rest" />
   ) : undefined
   // The gallery page's intro: the gallery's own identity — title, source
   // line, caption — so the drilled page reads what it manages.
@@ -3526,6 +3535,7 @@ export default function Viewer({ slug, galleryTitle, images: sourceImages, encry
           onFullscreen={() => { void toggleFullscreen() }}
           showShortcuts={magnifierAvailable}
           actions={settingsActions}
+          quickPanel={quickPanel}
           galleryPanel={galleryPanel}
           galleryIntro={galleryIntro}
           onOpenShortcuts={() => { setModalOpen(false); setShortcutsOpen(true) }}

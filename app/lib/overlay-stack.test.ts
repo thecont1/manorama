@@ -131,6 +131,29 @@ describe('overlay-stack', () => {
     release()
   })
 
+  test('controls inside a hidden subtree stay out of the Tab trap', () => {
+    const host = el()
+    const first = document.createElement('button')
+    first.id = 'vis-first'
+    const last = document.createElement('button')
+    last.id = 'vis-last'
+    const hiddenPage = document.createElement('div')
+    hiddenPage.hidden = true
+    const hiddenBtn = document.createElement('button')
+    hiddenBtn.id = 'hidden-btn'
+    hiddenPage.appendChild(hiddenBtn)
+    host.appendChild(first)
+    host.appendChild(last)
+    host.appendChild(hiddenPage)
+    const release = pushOverlay({ host })
+    // The hidden button is last in DOM order — if the trap counted it,
+    // Tab on the real last control would not wrap.
+    last.focus()
+    key('Tab')
+    expect(document.activeElement?.id).toBe('vis-first')
+    release()
+  })
+
   test('an element that was already inert stays inert after the stack empties', () => {
     const already = el()
     already.inert = true

@@ -48,6 +48,9 @@ const mounted = (overrides: Partial<SettingsSheetProps> = {}) => {
 
 /** The popover's sheet element. */
 const sheet = (root: HTMLElement) => root.querySelector<HTMLElement>('.m-sheet')
+/** One of the sheet's two pages — both stay mounted; `hidden` marks the inactive one. */
+const page = (root: HTMLElement, name: 'view' | 'gallery') =>
+  root.querySelector<HTMLElement>(`[data-settings-page="${name}"]`)
 /** The action row whose text carries `label`. */
 const row = (root: HTMLElement, label: string) =>
   [...root.querySelectorAll<HTMLElement>(`.m-actionrow`)].find((node) => node.textContent?.includes(label))
@@ -92,35 +95,40 @@ describe('the Settings popover pages', () => {
     expect(sheet(root)?.textContent).toContain('Settings')
     expect(sheet(root)?.textContent).toContain('View')
     expect(sheet(root)?.textContent).toContain('Sign in')
-    expect(row(root, 'Gallery settings')).toBeUndefined()
+    expect(row(root, 'More Settings')).toBeUndefined()
   })
 
-  test('an owner drills into Gallery settings and Back returns to the view page', async () => {
+  test('an owner drills into More Settings and Back returns to the view page', async () => {
     const { root } = mounted({
+      quickPanel: <div class="m-owner-panel" data-testid="quick-panel">quick rows</div>,
       galleryPanel: <div class="m-owner-panel" data-testid="owner-panel">panel body</div>,
       galleryIntro: <div class="m-owner-panel-head">Mixed album</div>,
     })
-    // The role slot is the single Gallery settings row — `actions` would be
-    // ignored even if a caller passed both.
-    expect(row(root, 'Gallery settings')).toBeTruthy()
+    // The role slot is the quick rows plus the More Settings row — `actions`
+    // would be ignored even if a caller passed both.
+    expect(row(root, 'More Settings')).toBeTruthy()
+    expect(root.querySelector('[data-testid="quick-panel"]')).not.toBeNull()
 
-    flushSync(() => row(root, 'Gallery settings')?.click())
+    flushSync(() => row(root, 'More Settings')?.click())
     await settle()
-    expect(sheet(root)?.textContent).toContain('Gallery settings')
+    expect(sheet(root)?.textContent).toContain('More Settings')
     expect(root.querySelector('[data-testid="owner-panel"]')).not.toBeNull()
+    // The quick panel stays mounted under `hidden` — its in-flight
+    // refresh survives the drill instead of being discarded.
+    expect(page(root, 'view')?.hasAttribute('hidden')).toBe(true)
+    expect(root.querySelector('[data-testid="quick-panel"]')).not.toBeNull()
     expect(root.querySelector('.m-owner-panel-head')?.textContent).toBe('Mixed album')
-    // The view controls are gone while the gallery page is up.
-    expect(sheet(root)?.textContent).not.toContain('Layout')
     // Focus moved to the gallery page heading.
-    expect(dom.document.activeElement?.textContent).toBe('Gallery settings')
+    expect(dom.document.activeElement?.textContent).toBe('More Settings')
 
     // Back returns to the view page and focus returns to the row.
-    const back = [...root.querySelectorAll<HTMLButtonElement>('button')].find((b) => b.textContent?.trim() === 'Settings')!
+    const back = [...root.querySelectorAll<HTMLButtonElement>('button')].find((b) => b.textContent?.trim() === 'Gallery Settings')!
     flushSync(() => back.click())
     await settle()
-    expect(sheet(root)?.textContent).toContain('Layout')
-    expect(root.querySelector('[data-testid="owner-panel"]')).toBeNull()
-    expect(dom.document.activeElement?.closest('.m-actionrow')?.textContent).toContain('Gallery settings')
+    expect(page(root, 'view')?.hasAttribute('hidden')).toBe(false)
+    expect(page(root, 'gallery')?.hasAttribute('hidden')).toBe(true)
+    expect(root.querySelector('[data-testid="quick-panel"]')).not.toBeNull()
+    expect(dom.document.activeElement?.closest('.m-actionrow')?.textContent).toContain('More Settings')
   })
 
   test('Escape inside the gallery page steps back before it closes the sheet', async () => {
@@ -129,13 +137,13 @@ describe('the Settings popover pages', () => {
       onClose: () => { closed += 1 },
       galleryPanel: <div class="m-owner-panel">panel body</div>,
     })
-    flushSync(() => row(root, 'Gallery settings')?.click())
+    flushSync(() => row(root, 'More Settings')?.click())
     await settle()
     escape()
     await settle()
     // Still open — the gallery page consumed the Escape as a Back.
     expect(closed).toBe(0)
-    expect(sheet(root)?.textContent).toContain('Layout')
+    expect(page(root, 'view')?.hasAttribute('hidden')).toBe(false)
     escape()
     await settle()
     expect(closed).toBe(1)
@@ -143,7 +151,7 @@ describe('the Settings popover pages', () => {
 
   test('reopening always lands on the view page', async () => {
     const { root, renderSheet } = mounted({ galleryPanel: <div class="m-owner-panel">panel</div> })
-    flushSync(() => row(root, 'Gallery settings')?.click())
+    flushSync(() => row(root, 'More Settings')?.click())
     await settle()
     expect(root.querySelector('.m-owner-panel')).not.toBeNull()
     // Close and reopen the same mounted sheet — the drill-in is per-open.
@@ -151,8 +159,8 @@ describe('the Settings popover pages', () => {
     await settle()
     renderSheet({ open: true })
     await settle()
-    expect(root.querySelector('.m-owner-panel')).toBeNull()
-    expect(sheet(root)?.textContent).toContain('Layout')
+    expect(page(root, 'gallery')?.hasAttribute('hidden')).toBe(true)
+    expect(page(root, 'view')?.hasAttribute('hidden')).toBe(false)
   })
 
   test('the Keyboard shortcuts row appears only for a fine pointer and calls back', () => {

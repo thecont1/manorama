@@ -9,8 +9,9 @@ import type { Child } from 'hono/jsx'
 /** The Settings popover: a "View" group (layout, canvas, arrows,
  *  fullscreen) then one role-bound slot — the member's Add to Library, a
  *  visitor's Sign in, or, for an owner with a `galleryPanel`, a single
- *  "Gallery settings" row that drills into the gallery's own page (the
- *  hoisted head plus the panel). Changes apply immediately and the
+ *  "More Settings" row that drills into the gallery's own page (the
+ *  hoisted head plus the panel's remaining rows). Changes apply
+ *  immediately and the
  *  popover stays open; persistence is the caller's. Keyboard shortcuts
  *  left the popover — the foot row opens ShortcutsSheet. */
 
@@ -29,11 +30,15 @@ export type SettingsSheetProps = {
   /** (pointer: fine) only — the shortcuts row means nothing on touch. */
   showShortcuts: boolean
   /** The role-bound ActionGroup rendered beside the view controls —
-   *  ignored while `galleryPanel` is present (the Gallery settings row
+   *  ignored while `galleryPanel` is present (the More Settings row
    *  takes the slot instead). */
   actions?: Child
-  /** The owner's gallery panel (OwnerGalleryPanel, headless) — its
-   *  presence turns the role slot into the Gallery settings drill-in. */
+  /** The front layer's quick rows (OwnerGalleryPanel, layer="quick") —
+   *  share, reorder, refresh — rendered above the More Settings row. */
+  quickPanel?: Child
+  /** The owner's remaining gallery rows (OwnerGalleryPanel,
+   *  layer="rest") — its presence turns the role slot into the
+   *  More Settings drill-in. */
   galleryPanel?: Child
   /** The gallery's identity header (OwnerGalleryHead), rendered at the
    *  top of the gallery page under its heading. */
@@ -46,7 +51,7 @@ export type SettingsSheetProps = {
 export default function SettingsSheet({
   open, onClose, mode, onMode, background, onBackground, arrowsOn, onArrows,
   fullscreenAvailable, fullscreenActive, onFullscreen, showShortcuts,
-  actions, galleryPanel, galleryIntro, onOpenShortcuts, panelStyle,
+  actions, quickPanel, galleryPanel, galleryIntro, onOpenShortcuts, panelStyle,
 }: SettingsSheetProps) {
   const arrowsDescId = `m-desc-${useId()}`
   const fsDescId = `m-desc-${useId()}`
@@ -61,7 +66,7 @@ export default function SettingsSheet({
   }, [open])
 
   // Focus follows the drill: the gallery page's heading on push, the
-  // "Gallery settings" row on the way back — never the sheet's own title,
+  // "More Settings" row on the way back — never the sheet's own title,
   // which stays put across both pages.
   useEffect(() => {
     if (page === 'gallery' && wasPageRef.current !== 'gallery') {
@@ -93,97 +98,99 @@ export default function SettingsSheet({
 
   return (
     <div class="m-dark">
-      <Sheet open={open} onClose={handleClose} title="Settings" popover panelStyle={panelStyle}>
-        {page === 'gallery' ? (
-          <>
-            <Button variant="quiet" onClick={goBack} class="m-backbtn" aria-label="Back to Settings">
-              <svg viewBox="0 0 24 24" aria-hidden="true" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M15 6l-6 6 6 6"/></svg>
-              Settings
-            </Button>
-            <h3 class="m-actiongroup-label" tabIndex={-1} ref={galleryHeadingRef}>Gallery settings</h3>
-            {galleryIntro ? <div class="m-sheet-intro">{galleryIntro}</div> : null}
-            {galleryPanel}
-          </>
-        ) : (
-          <>
-            <div class="m-sheet-cols">
-              <div class="m-sheet-col" data-settings-view>
-                <h3 class="m-actiongroup-label">View</h3>
-                <section class="m-sheet-section">
+      <Sheet open={open} onClose={handleClose} title="Gallery Settings" popover panelStyle={panelStyle}>
+        {/* Both pages stay mounted under `hidden`: drilling into More
+            Settings must not discard the quick panel's in-flight refresh
+            (elapsed count, disabled row, failure note) — the inactive
+            page leaves the a11y tree and tab order but keeps its state. */}
+        <div data-settings-page="view" hidden={page === 'gallery'}>
+          <div class="m-sheet-cols">
+            <div class="m-sheet-col" data-settings-view>
+              <h3 class="m-actiongroup-label">View</h3>
+              <section class="m-sheet-section">
+                <div class="m-sheet-field">
+                  <h3 class="m-sheet-label">Layout</h3>
+                  <span class="m-sheet-hint">{layoutHint}</span>
+                  <Segmented
+                    label="Layout"
+                    value={mode}
+                    onChange={(v) => onMode(v as 'strip' | 'vertical' | 'single')}
+                    options={[
+                      { value: 'strip', label: 'Strip' },
+                      { value: 'vertical', label: 'Scroll' },
+                      { value: 'single', label: 'One by one' },
+                    ]}
+                  />
+                </div>
+              </section>
+              <section class="m-sheet-section">
+                <div class="m-sheet-field">
+                  <h3 class="m-sheet-label">Canvas</h3>
+                  <span class="m-sheet-hint">{canvasHint}</span>
+                  <Segmented
+                    label="Canvas"
+                    value={background}
+                    onChange={(v) => onBackground(v as 'none' | 'dark' | 'light')}
+                    options={[
+                      { value: 'none', label: 'Blank' },
+                      { value: 'dark', label: 'Dark' },
+                      { value: 'light', label: 'Light' },
+                    ]}
+                  />
+                </div>
+              </section>
+              <section class="m-sheet-section">
+                <div class="m-sheet-field">
+                  <Switch
+                    checked={arrowsOn}
+                    onChange={onArrows}
+                    label="Arrows"
+                    describedBy={arrowsDescId}
+                  />
+                  <span class="m-sheet-hint" id={arrowsDescId}>Show next and previous buttons</span>
+                </div>
+                {fullscreenAvailable ? (
                   <div class="m-sheet-field">
-                    <h3 class="m-sheet-label">Layout</h3>
-                    <span class="m-sheet-hint">{layoutHint}</span>
-                    <Segmented
-                      label="Layout"
-                      value={mode}
-                      onChange={(v) => onMode(v as 'strip' | 'vertical' | 'single')}
-                      options={[
-                        { value: 'strip', label: 'Strip' },
-                        { value: 'vertical', label: 'Scroll' },
-                        { value: 'single', label: 'One by one' },
-                      ]}
-                    />
+                    <Switch checked={fullscreenActive} onChange={() => onFullscreen()} label="Fullscreen" describedBy={fsDescId} />
+                    <span class="m-sheet-hint" id={fsDescId}>Fill the screen</span>
                   </div>
-                </section>
-                <section class="m-sheet-section">
-                  <div class="m-sheet-field">
-                    <h3 class="m-sheet-label">Canvas</h3>
-                    <span class="m-sheet-hint">{canvasHint}</span>
-                    <Segmented
-                      label="Canvas"
-                      value={background}
-                      onChange={(v) => onBackground(v as 'none' | 'dark' | 'light')}
-                      options={[
-                        { value: 'none', label: 'Blank' },
-                        { value: 'dark', label: 'Dark' },
-                        { value: 'light', label: 'Light' },
-                      ]}
-                    />
-                  </div>
-                </section>
-                <section class="m-sheet-section">
-                  <div class="m-sheet-field">
-                    <Switch
-                      checked={arrowsOn}
-                      onChange={onArrows}
-                      label="Arrows"
-                      describedBy={arrowsDescId}
-                    />
-                    <span class="m-sheet-hint" id={arrowsDescId}>Show next and previous buttons</span>
-                  </div>
-                  {fullscreenAvailable ? (
-                    <div class="m-sheet-field">
-                      <Switch checked={fullscreenActive} onChange={() => onFullscreen()} label="Fullscreen" describedBy={fsDescId} />
-                      <span class="m-sheet-hint" id={fsDescId}>Fill the screen</span>
+                ) : null}
+              </section>
+            </div>
+            {galleryPanel ? (
+              <div class="m-sheet-col" data-settings-role>
+                <section class="m-sheet-section m-sheet-actions" data-settings-actions>
+                  {quickPanel}
+                  <ActionGroup>
+                    <div data-gallery-settings-row ref={galleryRowWrapRef}>
+                      <ActionRow label="More Settings" onClick={() => setPage('gallery')} />
                     </div>
-                  ) : null}
+                  </ActionGroup>
                 </section>
               </div>
-              {galleryPanel ? (
-                <div class="m-sheet-col" data-settings-role>
-                  <section class="m-sheet-section m-sheet-actions" data-settings-actions>
-                    <ActionGroup>
-                      <div data-gallery-settings-row ref={galleryRowWrapRef}>
-                        <ActionRow label="Gallery settings" onClick={() => setPage('gallery')} />
-                      </div>
-                    </ActionGroup>
-                  </section>
-                </div>
-              ) : actions ? (
-                <div class="m-sheet-col" data-settings-role>
-                  <section class="m-sheet-section m-sheet-actions" data-settings-actions>{actions}</section>
-                </div>
-              ) : null}
-            </div>
-            {showShortcuts && onOpenShortcuts ? (
-              <section class="m-sheet-section">
-                <ActionGroup>
-                  <ActionRow label="Keyboard shortcuts" onClick={onOpenShortcuts} />
-                </ActionGroup>
-              </section>
+            ) : actions ? (
+              <div class="m-sheet-col" data-settings-role>
+                <section class="m-sheet-section m-sheet-actions" data-settings-actions>{actions}</section>
+              </div>
             ) : null}
-          </>
-        )}
+          </div>
+          {showShortcuts && onOpenShortcuts ? (
+            <section class="m-sheet-section">
+              <ActionGroup>
+                <ActionRow label="Keyboard shortcuts" onClick={onOpenShortcuts} />
+              </ActionGroup>
+            </section>
+          ) : null}
+        </div>
+        <div data-settings-page="gallery" hidden={page !== 'gallery'}>
+          <Button variant="quiet" onClick={goBack} class="m-backbtn" aria-label="Back to Gallery Settings">
+            <svg viewBox="0 0 24 24" aria-hidden="true" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M15 6l-6 6 6 6"/></svg>
+            Gallery Settings
+          </Button>
+          <h3 class="m-actiongroup-label" tabIndex={-1} ref={galleryHeadingRef}>More Settings</h3>
+          {galleryIntro ? <div class="m-sheet-intro">{galleryIntro}</div> : null}
+          {galleryPanel}
+        </div>
       </Sheet>
     </div>
   )
