@@ -18,7 +18,7 @@ import { HeicImg } from '../components/ui/HeicImg'
 import { Sheet } from '../components/ui/Sheet'
 import { WebSettings, type AccountIdentityWeb } from '../components/WebSettings'
 import { SettingsIcon } from '../components/admin-icons'
-import OwnerGalleryPanel from '../components/viewer/OwnerGalleryPanel'
+import GallerySettingsSheet from '../components/GallerySettingsSheet'
 import { copyText } from '../lib/gallery-share'
 import { cardCountSource, formatMediaCount, summaryMediaCount } from '../lib/imagesource'
 import { houseAdFrameFor, type AdFrame } from '../lib/adframe'
@@ -1100,9 +1100,9 @@ export default function Admin({ galleries: initialGalleries, owner, ownerName, p
               onClick={() => { void togglePin(menuGallery) }}
             >{effectivePinned(menuGallery) ? 'Unpin gallery' : 'Pin gallery'}</button>
             <button type="button" onClick={() => { setShareSlug(menuGallery.slug); setMenuSlug(null) }}>Share link</button>
-            {/* The gallery's own Settings — the same panel the viewer's
-                Settings popover hosts, so the owner edits in place. */}
-            <button type="button" onClick={() => { setGalSettingsSlug(menuGallery.slug); setMenuSlug(null) }}>Gallery settings</button>
+            {/* The gallery's own Settings — the same two-layer dialog the
+                viewer's Settings popover hosts, so the owner edits in place. */}
+            <button type="button" onClick={() => { setGalSettingsSlug(menuGallery.slug); setMenuSlug(null) }}>Gallery Settings</button>
             {menuGallery.hiddenAt ? (
               <button type="button" disabled={busy} onClick={() => { void unhideGallery(menuGallery) }}>Unhide gallery</button>
             ) : null}
@@ -1111,54 +1111,52 @@ export default function Admin({ galleries: initialGalleries, owner, ownerName, p
       ) : null}
 
       {galSettingsGallery ? (
-        <Sheet open onClose={() => setGalSettingsSlug(null)} title="Gallery settings">
-          <div class="m-dark">
-            <OwnerGalleryPanel
-              owner={owner}
-              slug={galSettingsGallery.slug}
-              title={galSettingsGallery.title}
-              caption={galSettingsGallery.caption}
-              sourceLabel={sourceLabelFor(galSettingsGallery.sourceUrl)}
-              galleryId={galSettingsGallery.id}
-              sourceUrl={galSettingsGallery.sourceUrl}
-              temporary={isLocked(galSettingsGallery)}
-              expiresAt={galSettingsGallery.expiresAt}
-              mediaCount={summaryMediaCount(galSettingsGallery)}
-              libraryHref={`/${owner}`}
-              upgradeHref={upgradeHref}
-              onOpen={blockedProviderFor(galSettingsGallery) === 'proton' ? undefined : () => { openGallery(galSettingsGallery) }}
-              onOpenSource={galSettingsGallery.sourceUrl ? () => {
-                // The menu's old Open source row: an encrypted v2 gallery
-                // resolves its real URL through the key store first;
-                // every other source opens the stored link directly.
-                if (galSettingsGallery.manifestVersion === 2 && galSettingsGallery.id && isEncryptedSourceUrl(galSettingsGallery.sourceUrl!)) {
-                  openSource(galSettingsGallery)
-                } else {
-                  window.open(galSettingsGallery.sourceUrl!, '_blank', 'noopener,noreferrer')
-                }
-              } : undefined}
-              onReorder={blockedProviderFor(galSettingsGallery) === 'proton' ? undefined : () => { openGallery(galSettingsGallery, '?edit=1') }}
-              // The share sheet's address: the key fragment rides along
-              // when this tab holds custody, and the row refuses to copy
-              // a keyless link that would only open locked.
-              shareHref={`https://${galleryAddressWithKey(galSettingsGallery)}`}
-              shareDisabled={Boolean(galSettingsGallery.manifestVersion === 2 && galSettingsGallery.id && !galleryHashes[galSettingsGallery.id])}
-              shareNote="This tab does not hold the key. Open the full gallery link before sharing; a keyless address opens locked."
-              currentPhotoId={() => ''}
-              onTitleSaved={(next) => setGalleries((previous) => previous.map((item) => item.slug === galSettingsGallery.slug ? { ...item, title: next } : item))}
-              onCaptionSaved={(next) => setGalleries((previous) => previous.map((item) => item.slug === galSettingsGallery.slug ? { ...item, caption: next } : item))}
-              onRemoved={() => {
-                // The D1 row is gone; this tab's custody copy of the key
-                // goes with it — the cleanup the retired card-confirm ran.
-                if (galSettingsGallery.id) {
-                  void webGalleryKeyStore().remove(galSettingsGallery.id).catch(() => {})
-                  releaseEncryptedGallery(galSettingsGallery.id)
-                }
-                window.location.assign(`/${owner}`)
-              }}
-            />
-          </div>
-        </Sheet>
+        <GallerySettingsSheet
+          open
+          onClose={() => setGalSettingsSlug(null)}
+          owner={owner}
+          slug={galSettingsGallery.slug}
+          title={galSettingsGallery.title}
+          caption={galSettingsGallery.caption}
+          sourceLabel={sourceLabelFor(galSettingsGallery.sourceUrl)}
+          galleryId={galSettingsGallery.id}
+          sourceUrl={galSettingsGallery.sourceUrl}
+          temporary={isLocked(galSettingsGallery)}
+          expiresAt={galSettingsGallery.expiresAt}
+          mediaCount={summaryMediaCount(galSettingsGallery)}
+          libraryHref={`/${owner}`}
+          upgradeHref={upgradeHref}
+          onOpen={blockedProviderFor(galSettingsGallery) === 'proton' ? undefined : () => { openGallery(galSettingsGallery) }}
+          onOpenSource={galSettingsGallery.sourceUrl ? () => {
+            // The menu's old Open source row: an encrypted v2 gallery
+            // resolves its real URL through the key store first;
+            // every other source opens the stored link directly.
+            if (galSettingsGallery.manifestVersion === 2 && galSettingsGallery.id && isEncryptedSourceUrl(galSettingsGallery.sourceUrl!)) {
+              openSource(galSettingsGallery)
+            } else {
+              window.open(galSettingsGallery.sourceUrl!, '_blank', 'noopener,noreferrer')
+            }
+          } : undefined}
+          onReorder={blockedProviderFor(galSettingsGallery) === 'proton' ? undefined : () => { openGallery(galSettingsGallery, '?edit=1') }}
+          // The share sheet's address: the key fragment rides along
+          // when this tab holds custody, and the row refuses to copy
+          // a keyless link that would only open locked.
+          shareHref={`https://${galleryAddressWithKey(galSettingsGallery)}`}
+          shareDisabled={Boolean(galSettingsGallery.manifestVersion === 2 && galSettingsGallery.id && !galleryHashes[galSettingsGallery.id])}
+          shareNote="This tab does not hold the key. Open the full gallery link before sharing; a keyless address opens locked."
+          currentPhotoId={() => ''}
+          onTitleSaved={(next) => setGalleries((previous) => previous.map((item) => item.slug === galSettingsGallery.slug ? { ...item, title: next } : item))}
+          onCaptionSaved={(next) => setGalleries((previous) => previous.map((item) => item.slug === galSettingsGallery.slug ? { ...item, caption: next } : item))}
+          onRemoved={() => {
+            // The D1 row is gone; this tab's custody copy of the key
+            // goes with it — the cleanup the retired card-confirm ran.
+            if (galSettingsGallery.id) {
+              void webGalleryKeyStore().remove(galSettingsGallery.id).catch(() => {})
+              releaseEncryptedGallery(galSettingsGallery.id)
+            }
+            window.location.assign(`/${owner}`)
+          }}
+        />
       ) : null}
 
       {pinChoiceGallery ? (

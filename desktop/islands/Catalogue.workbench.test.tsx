@@ -487,7 +487,7 @@ describe('desktop catalogue workbench', () => {
       // live inside Gallery settings now.
       card.querySelector<HTMLButtonElement>(`[aria-label="kashmir, in winter actions"]`)!.click()
       await settle()
-      for (const item of ['Pin gallery', 'Share link', 'Gallery settings']) {
+      for (const item of ['Pin gallery', 'Share link', 'Gallery Settings']) {
         expect(menuItem(container, item)).toBeDefined()
       }
       for (const item of ['Reorder photographs', 'Open source', 'Refresh gallery contents', 'Remove gallery']) {
@@ -1566,10 +1566,16 @@ describe('desktop catalogue workbench', () => {
       expect(pin?.body).toBe('{"pinned":true}')
 
       // Remove left the quick menu — it is the account card's Gallery
-      // settings panel's last row, behind its own inline confirm.
+      // Settings panel's last row, behind its own inline confirm.
       container.querySelector<HTMLButtonElement>('[aria-label="kashmir, in winter actions"]')!.click()
       await settle()
-      menuItem(container, 'Gallery settings')!.click()
+      menuItem(container, 'Gallery Settings')!.click()
+      await settle()
+      // Removal lives one layer deeper — More Settings holds the rest.
+      const moreRow = [...container.querySelectorAll<HTMLElement>('.m-actionrow')]
+        .find((el) => el.textContent?.includes('More Settings')) as HTMLElement
+      expect(moreRow).toBeTruthy()
+      moreRow.click()
       await settle()
       const removeRow = [...container.querySelectorAll<HTMLElement>('.m-actionrow')]
         .find((el) => el.textContent?.includes('Remove from Library')) as HTMLElement
@@ -1606,7 +1612,7 @@ describe('desktop catalogue workbench', () => {
 
       container.querySelector<HTMLButtonElement>('[aria-label="kashmir, in winter actions"]')!.click()
       await settle()
-      menuItem(container, 'Gallery settings')!.click()
+      menuItem(container, 'Gallery Settings')!.click()
       await settle()
       // The shared owner panel mounts — the same rows the web sheet hosts.
       expect(container.querySelector('.m-owner-panel')).not.toBeNull()

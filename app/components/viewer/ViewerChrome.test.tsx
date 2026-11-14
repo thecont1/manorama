@@ -52,7 +52,7 @@ describe('the viewer chrome bars', () => {
   // the bottom bar no longer varies by viewer. The position pill joined
   // it so the count reads as the picker's button.
   test('the bottom row is position, Settings, Info', () => {
-    expect(pills(mounted({}))).toEqual(['1 of 4', 'Settings', 'Info'])
+    expect(pills(mounted({}))).toEqual(['1 of 4', 'Gallery Settings', 'Info'])
   })
 
   test('the top bar carries only the Library exit', () => {
@@ -81,7 +81,7 @@ describe('the viewer chrome bars', () => {
     let pill: HTMLButtonElement | null = null
     const root = mounted({ onOpenSettings: () => { opened += 1 }, settingsRef: (el) => { pill = el } })
     const settings = [...root.querySelectorAll<HTMLButtonElement>('[data-chrome-bottom] .m-chrome-pill')]
-      .find((node) => node.textContent === 'Settings')!
+      .find((node) => node.textContent === 'Gallery Settings')!
     settings.click()
     expect(opened).toBe(1)
     expect(pill).toBe(settings)

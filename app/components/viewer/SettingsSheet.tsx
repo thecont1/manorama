@@ -9,8 +9,9 @@ import type { Child } from 'hono/jsx'
 /** The Settings popover: a "View" group (layout, canvas, arrows,
  *  fullscreen) then one role-bound slot — the member's Add to Library, a
  *  visitor's Sign in, or, for an owner with a `galleryPanel`, a single
- *  "Gallery settings" row that drills into the gallery's own page (the
- *  hoisted head plus the panel). Changes apply immediately and the
+ *  "More Settings" row that drills into the gallery's own page (the
+ *  hoisted head plus the panel's remaining rows). Changes apply
+ *  immediately and the
  *  popover stays open; persistence is the caller's. Keyboard shortcuts
  *  left the popover — the foot row opens ShortcutsSheet. */
 
@@ -29,11 +30,15 @@ export type SettingsSheetProps = {
   /** (pointer: fine) only — the shortcuts row means nothing on touch. */
   showShortcuts: boolean
   /** The role-bound ActionGroup rendered beside the view controls —
-   *  ignored while `galleryPanel` is present (the Gallery settings row
+   *  ignored while `galleryPanel` is present (the More Settings row
    *  takes the slot instead). */
   actions?: Child
-  /** The owner's gallery panel (OwnerGalleryPanel, headless) — its
-   *  presence turns the role slot into the Gallery settings drill-in. */
+  /** The front layer's quick rows (OwnerGalleryPanel, layer="quick") —
+   *  share, reorder, refresh — rendered above the More Settings row. */
+  quickPanel?: Child
+  /** The owner's remaining gallery rows (OwnerGalleryPanel,
+   *  layer="rest") — its presence turns the role slot into the
+   *  More Settings drill-in. */
   galleryPanel?: Child
   /** The gallery's identity header (OwnerGalleryHead), rendered at the
    *  top of the gallery page under its heading. */
@@ -46,7 +51,7 @@ export type SettingsSheetProps = {
 export default function SettingsSheet({
   open, onClose, mode, onMode, background, onBackground, arrowsOn, onArrows,
   fullscreenAvailable, fullscreenActive, onFullscreen, showShortcuts,
-  actions, galleryPanel, galleryIntro, onOpenShortcuts, panelStyle,
+  actions, quickPanel, galleryPanel, galleryIntro, onOpenShortcuts, panelStyle,
 }: SettingsSheetProps) {
   const arrowsDescId = `m-desc-${useId()}`
   const fsDescId = `m-desc-${useId()}`
@@ -61,7 +66,7 @@ export default function SettingsSheet({
   }, [open])
 
   // Focus follows the drill: the gallery page's heading on push, the
-  // "Gallery settings" row on the way back — never the sheet's own title,
+  // "More Settings" row on the way back — never the sheet's own title,
   // which stays put across both pages.
   useEffect(() => {
     if (page === 'gallery' && wasPageRef.current !== 'gallery') {
@@ -93,14 +98,14 @@ export default function SettingsSheet({
 
   return (
     <div class="m-dark">
-      <Sheet open={open} onClose={handleClose} title="Settings" popover panelStyle={panelStyle}>
+      <Sheet open={open} onClose={handleClose} title="Gallery Settings" popover panelStyle={panelStyle}>
         {page === 'gallery' ? (
           <>
-            <Button variant="quiet" onClick={goBack} class="m-backbtn" aria-label="Back to Settings">
+            <Button variant="quiet" onClick={goBack} class="m-backbtn" aria-label="Back to Gallery Settings">
               <svg viewBox="0 0 24 24" aria-hidden="true" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M15 6l-6 6 6 6"/></svg>
-              Settings
+              Gallery Settings
             </Button>
-            <h3 class="m-actiongroup-label" tabIndex={-1} ref={galleryHeadingRef}>Gallery settings</h3>
+            <h3 class="m-actiongroup-label" tabIndex={-1} ref={galleryHeadingRef}>More Settings</h3>
             {galleryIntro ? <div class="m-sheet-intro">{galleryIntro}</div> : null}
             {galleryPanel}
           </>
@@ -162,9 +167,10 @@ export default function SettingsSheet({
               {galleryPanel ? (
                 <div class="m-sheet-col" data-settings-role>
                   <section class="m-sheet-section m-sheet-actions" data-settings-actions>
+                    {quickPanel}
                     <ActionGroup>
                       <div data-gallery-settings-row ref={galleryRowWrapRef}>
-                        <ActionRow label="Gallery settings" onClick={() => setPage('gallery')} />
+                        <ActionRow label="More Settings" onClick={() => setPage('gallery')} />
                       </div>
                     </ActionGroup>
                   </section>

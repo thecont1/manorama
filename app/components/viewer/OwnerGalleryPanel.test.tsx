@@ -171,6 +171,34 @@ describe('the web owner panel', () => {
     expect(refresh[0].init?.body).toBeUndefined()
   })
 
+  test('a pending refresh counts elapsed seconds so a long scan reads as work', async () => {
+    const realFetch = globals.fetch
+    let release!: (response: Response) => void
+    const gate = new Promise<Response>((resolve) => { release = resolve })
+    globals.fetch = (async (url: unknown, init?: RequestInit) => {
+      calls.push({ url: String(url), init })
+      if (String(url).includes('/refresh')) return gate
+      return new Response('{}', { status: 200 })
+    }) as unknown as typeof fetch
+    try {
+      const root = mounted()
+      flushSync(() => row(root, 'Refresh gallery contents')?.click())
+      await settle()
+      expect(row(root, 'Refreshing')?.textContent).toContain('Refreshing…')
+      await new Promise((resolve) => setTimeout(resolve, 1100))
+      flushSync(() => {})
+      expect(row(root, 'Refreshing')?.textContent).toMatch(/Refreshing… \d+s/)
+      // A failed scan lands on the error state — which also retires the
+      // elapsed ticker, proving the busy UI cannot linger after settle.
+      release(new Response(JSON.stringify({ error: 'scan failed' }), { status: 500 }))
+      await settle()
+      expect(row(root, 'Refresh gallery contents')).toBeTruthy()
+      expect(root.querySelector('[role="alert"]')?.textContent).toBe('scan failed')
+    } finally {
+      globals.fetch = realFetch
+    }
+  })
+
   test('an encrypted source without the key explains instead of fetching', async () => {
     calls = []
     // No fragment — the manifest URL is keyless, so the key must come from

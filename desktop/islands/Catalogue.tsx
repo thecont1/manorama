@@ -50,7 +50,7 @@ import { Sheet } from '../../app/components/ui/Sheet'
 import { SettingsIcon, LinkIcon, SourceIcon } from '../../app/components/admin-icons'
 import { AddGallerySheet } from '../../app/components/AddGallerySheet'
 import { GalleryShareSheet } from '../../app/components/GalleryShareSheet'
-import OwnerGalleryPanel from '../../app/components/viewer/OwnerGalleryPanel'
+import GallerySettingsSheet from '../../app/components/GallerySettingsSheet'
 import type { PickerEditItem } from '../../app/components/viewer/PickerEditor'
 import { HeicImg } from '../../app/components/ui/HeicImg'
 import { useMasonry } from '../../app/components/library/useMasonry'
@@ -2804,9 +2804,9 @@ export default function Catalogue({ apiBase }: { apiBase: string }) {
                 </button>
               ) : null}
               <button type="button" onClick={() => { setShareGallery(cardMenu.gallery); setCardMenu(null) }}>Share link</button>
-              {/* The gallery's own Settings — the same panel the viewer's
-                  Settings popover hosts, so the owner edits in place. */}
-              <button type="button" onClick={() => { setGalSettingsSlug(cardMenu.gallery.slug); setCardMenu(null) }}>Gallery settings</button>
+              {/* The gallery's own Settings — the same two-layer dialog the
+                  viewer's Settings popover hosts, so the owner edits in place. */}
+              <button type="button" onClick={() => { setGalSettingsSlug(cardMenu.gallery.slug); setCardMenu(null) }}>Gallery Settings</button>
             </>) : cardMenu.kind === 'device' ? (<>
               {accountTier === 'pro' ? (
                 <button type="button" disabled={busy} onClick={() => { void setGalleryHidden(cardMenu, !cardMenu.gallery.hidden) }}>
@@ -2898,10 +2898,11 @@ export default function Catalogue({ apiBase }: { apiBase: string }) {
         </div>
       ) : null}
       {galSettingsGallery ? (
-        <Sheet open onClose={() => setGalSettingsSlug(null)} title="Gallery settings">
-          <div class="m-dark" onClick={interceptSettingsLink}>
-            <OwnerGalleryPanel
-              owner={ownerSlug ?? session?.ownerSlug ?? ''}
+        <GallerySettingsSheet
+          open
+          onClose={() => setGalSettingsSlug(null)}
+          onClick={interceptSettingsLink}
+          owner={ownerSlug ?? session?.ownerSlug ?? ''}
               slug={galSettingsGallery.slug}
               title={galSettingsGallery.title}
               caption={galSettingsGallery.caption}
@@ -2977,9 +2978,7 @@ export default function Catalogue({ apiBase }: { apiBase: string }) {
                   )}
                 </ActionGroup>
               )}
-            />
-          </div>
-        </Sheet>
+        />
       ) : null}
       {/* The shared Settings surface — the same groups and options the
           web dashboard shows. Its anchors (privacy, connect links, the

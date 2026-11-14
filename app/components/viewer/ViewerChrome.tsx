@@ -94,7 +94,7 @@ export default function ViewerChrome({
         <button ref={positionRef} type="button" class="m-chrome-pill" onClick={onOpenPicker} aria-label={pickerAriaLabel} data-chrome-position data-demo-position={demo ? '' : undefined}>
           {positionLabel ?? `${position.index + 1} of ${position.total}`}
         </button>
-        <button ref={settingsRef} type="button" class="m-chrome-pill" onClick={onOpenSettings}>Settings</button>
+        <button ref={settingsRef} type="button" class="m-chrome-pill" onClick={onOpenSettings}>Gallery Settings</button>
         <button type="button" class="m-chrome-pill" onClick={onOpenInfo}>Info</button>
       </nav>
     </>
