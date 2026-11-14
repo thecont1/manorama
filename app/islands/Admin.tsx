@@ -791,18 +791,21 @@ export default function Admin({ galleries: initialGalleries, owner, ownerName, p
     const title = gallery.title || gallery.slug
     const locked = isLocked(gallery)
     const blocked = blockedProviderFor(gallery)
+    // A Proton gallery is a dead end on the web — the card explains that
+    // in place rather than navigating to the app-only interstitial.
+    const deadEnd = blocked === 'proton'
     // One visible cover item is all the card needs — a state
     // summary carrying more never leaks past the render slice.
     const cover = gallery.images.find((image) => !image.hidden)
     return <li key={gallery.slug} class="lib-compact-card" data-gallery-card={gallery.slug} data-retention={gallery.retention}>
-      <a class="lib-compact-cover" href={galleryPath(gallery.slug)} draggable="false" aria-label={`${title} cover`}>
+      <a class="lib-compact-cover" href={deadEnd ? undefined : galleryPath(gallery.slug)} draggable="false" aria-label={`${title} cover`}>
         {blocked
           ? <EncryptedCoverPlaceholder provider={blocked} label={sourceLabelFor(gallery.sourceUrl)} note={blockedNoteFor(blocked)} storedWidth={cover?.width} storedHeight={cover?.height} />
           : cover ? <CompactCoverImg src={cover.src} preview={cover.variants?.[0]?.src} media={cover.media} previewMedia={cover.variants?.[0]?.media} galleryId={gallery.id} filename={cover.filename} storedWidth={cover.width} storedHeight={cover.height} /> : null}
       </a>
       <div class="lib-compact-body">
         <div class="lib-compact-main">
-          <a class="lib-card-title" href={galleryPath(gallery.slug)} draggable="false">{title}{gallery.pinnedAt ? <span class="lib-pin" role="img" aria-label="Pinned"><svg viewBox="0 0 24 24" aria-hidden="true" width="14" height="14" fill="currentColor"><path d="M16 12V4h1V2H7v2h1v8l-2 2v2h5.2v6l.8 2 .8-2v-6H18v-2l-2-2z"/></svg></span> : null}</a>
+          <a class="lib-card-title" href={deadEnd ? undefined : galleryPath(gallery.slug)} draggable="false">{title}{gallery.pinnedAt ? <span class="lib-pin" role="img" aria-label="Pinned"><svg viewBox="0 0 24 24" aria-hidden="true" width="14" height="14" fill="currentColor"><path d="M16 12V4h1V2H7v2h1v8l-2 2v2h5.2v6l.8 2 .8-2v-6H18v-2l-2-2z"/></svg></span> : null}</a>
           {locked ? (
             <button type="button" class="lib-temp-flag" aria-label={`Temporary gallery${gallery.expiresAt ? ` — expires in ${expiryCountdownText(gallery.expiresAt, now)}` : ''}`} onClick={() => setPinChoiceSlug(gallery.slug)}>
               <svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="10" x2="14" y1="2" y2="2"/><line x1="12" x2="15" y1="14" y2="11"/><circle cx="12" cy="14" r="8"/></svg>
@@ -904,6 +907,7 @@ export default function Admin({ galleries: initialGalleries, owner, ownerName, p
           const title = gallery.title || gallery.slug
           const locked = isLocked(gallery)
           const blocked = blockedProviderFor(gallery)
+          const deadEnd = blocked === 'proton'
           return <li key={gallery.slug}><article class="lib-card" data-gallery-card={gallery.slug} data-retention={gallery.retention}>
             <div class="admin-gallery-strip-frame" aria-label={`${title} images`} onPointerDownCapture={trackTouchPointer} onPointerDown={startStripPan} onPointerMove={moveStripPan} onPointerUp={finishStripPan} onPointerCancel={finishStripPan} onClickCapture={suppressDraggedClick} onWheel={(event) => { const frame = event.currentTarget as HTMLDivElement; const delta = Math.abs(event.deltaY) >= Math.abs(event.deltaX) ? event.deltaY : event.deltaX; frame.scrollLeft += delta; event.preventDefault() }}>
               {blocked
@@ -946,7 +950,7 @@ export default function Admin({ galleries: initialGalleries, owner, ownerName, p
               </ul>}
             </div>
             <div class="lib-card-head">
-              <a class="lib-card-title" href={galleryPath(gallery.slug)} draggable="false">{title}{gallery.pinnedAt ? <span class="lib-pin" role="img" aria-label="Pinned"><svg viewBox="0 0 24 24" aria-hidden="true" width="14" height="14" fill="currentColor"><path d="M16 12V4h1V2H7v2h1v8l-2 2v2h5.2v6l.8 2 .8-2v-6H18v-2l-2-2z"/></svg></span> : null}</a>
+              <a class="lib-card-title" href={deadEnd ? undefined : galleryPath(gallery.slug)} draggable="false">{title}{gallery.pinnedAt ? <span class="lib-pin" role="img" aria-label="Pinned"><svg viewBox="0 0 24 24" aria-hidden="true" width="14" height="14" fill="currentColor"><path d="M16 12V4h1V2H7v2h1v8l-2 2v2h5.2v6l.8 2 .8-2v-6H18v-2l-2-2z"/></svg></span> : null}</a>
               {locked ? (
                 <button type="button" class="lib-temp-flag" aria-label={`Temporary gallery${gallery.expiresAt ? ` — expires in ${expiryCountdownText(gallery.expiresAt, now)}` : ''}`} onClick={() => setPinChoiceSlug(gallery.slug)}>
                   <svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="10" x2="14" y1="2" y2="2"/><line x1="12" x2="15" y1="14" y2="11"/><circle cx="12" cy="14" r="8"/></svg>
@@ -1060,7 +1064,7 @@ export default function Admin({ galleries: initialGalleries, owner, ownerName, p
               mediaCount={summaryMediaCount(galSettingsGallery)}
               libraryHref={`/${owner}`}
               upgradeHref={upgradeHref}
-              onOpen={() => { openGallery(galSettingsGallery) }}
+              onOpen={blockedProviderFor(galSettingsGallery) === 'proton' ? undefined : () => { openGallery(galSettingsGallery) }}
               onOpenSource={galSettingsGallery.sourceUrl ? () => {
                 // The menu's old Open source row: an encrypted v2 gallery
                 // resolves its real URL through the key store first;
@@ -1071,7 +1075,7 @@ export default function Admin({ galleries: initialGalleries, owner, ownerName, p
                   window.open(galSettingsGallery.sourceUrl!, '_blank', 'noopener,noreferrer')
                 }
               } : undefined}
-              onReorder={() => { openGallery(galSettingsGallery, '?edit=1') }}
+              onReorder={blockedProviderFor(galSettingsGallery) === 'proton' ? undefined : () => { openGallery(galSettingsGallery, '?edit=1') }}
               // The share sheet's address: the key fragment rides along
               // when this tab holds custody, and the row refuses to copy
               // a keyless link that would only open locked.

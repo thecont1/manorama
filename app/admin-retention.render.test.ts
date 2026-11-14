@@ -431,6 +431,8 @@ describe('encrypted-source covers', () => {
     expect(card).toContain('MEGA')
     expect(card).toContain('your link holds the key')
     expect(card).not.toContain('<img')
+    // The card still links out — the gallery page is how the key arrives.
+    expect(card).toContain('href="/test-owner/mega-panos"')
   })
 
   test('a Proton gallery renders the app-only placeholder — web transport never works', async () => {
@@ -446,6 +448,9 @@ describe('encrypted-source covers', () => {
     expect(card).toContain('Proton Drive')
     expect(card).toContain('in the manorama app')
     expect(card).not.toContain('<img')
+    // A Proton gallery is a dead end on the web — cover and title carry
+    // no link, so the card explains in place instead of navigating away.
+    expect(card).not.toContain('href="/test-owner/proton-guinea"')
   })
 
   test('a pinned encrypted gallery fills its strip frame with the placeholder', async () => {
