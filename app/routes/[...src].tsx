@@ -53,6 +53,7 @@ const PROVIDER_LABEL: Record<string, string> = {
   dropbox: 'Dropbox',
   gdrive: 'Google Drive',
   icloud: 'iCloud',
+  gphotos: 'Google Photos',
   mega: 'MEGA',
   local: 'local folder',
 }

@@ -13,6 +13,9 @@ export const friendlySourceError = (error: unknown) => {
   if (/Use a public Dropbox folder link/i.test(message)) return 'Paste a public Dropbox folder link, not a file link.'
   if (/Use a public Google Drive folder link/i.test(message)) return 'Paste a Google Drive folder link, not a file link.'
   if (/Use a public iCloud shared album link/i.test(message)) return 'Paste a public iCloud Shared Album link (icloud.com/sharedalbum or share.icloud.com/photos).'
+  if (/Use a public Google Photos shared album link/i.test(message)) return 'Paste a public Google Photos shared album link (photos.google.com/share/… or photos.app.goo.gl/…).'
+  if (/only contains videos/i.test(message)) return message
+  if (/could not read that Google Photos/i.test(message)) return 'Manorama could not read that Google Photos album. Check that it is shared with "Anyone with the link".'
   if (/Google Drive folder was not found|could not read that Google Drive/i.test(message)) return 'Manorama could not read that Google Drive folder. Check that it is shared with "Anyone with the link".'
   if (/could not read that iCloud|could not locate that shared album/i.test(message)) return 'Manorama could not read that iCloud album. Check that it is a public Shared Album link.'
   if (/iCloud Drive links cannot be read/i.test(message)) return 'That is an iCloud Drive link, which Apple keeps behind sign-in. In Photos, share a Shared Album instead and paste its public link.'

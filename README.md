@@ -20,6 +20,7 @@ What you can share:
 | Dropbox | A public shared folder with downloading enabled | Photos |
 | Google Drive | A folder shared with "Anyone with the link" | Photos |
 | iCloud | A Photos Shared Album link | Photos **and video** |
+| Google Photos | A public shared-album link (`photos.google.com/share/…` or `photos.app.goo.gl/…`) | Photos |
 | MEGA | A folder or collection ("Sets") link | Photos |
 
 Manorama detects the provider from the link, ignores files it can't display, and lets you arrange the gallery before it's added. Quick-add galleries get a three-word name like `ember-tide-fern` so the public URL reads like a title; dashboard galleries keep the folder's own name.

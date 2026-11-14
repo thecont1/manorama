@@ -103,6 +103,7 @@ const sourceLabelFor = (url?: string): string => {
     if (host.includes('dropbox.com')) return 'Dropbox'
     if (host.includes('drive.google.com')) return 'Google Drive'
     if (host.includes('icloud.com')) return 'iCloud'
+    if (host === 'photos.google.com' || host === 'photos.app.goo.gl') return 'Google Photos'
     if (host.includes('mega.nz')) return 'MEGA'
     if (host.includes('drive.proton.me')) return 'Proton Drive'
   } catch {

@@ -104,6 +104,70 @@ describe('the Dropbox thumbnail size', () => {
   })
 })
 
+describe('the Google Photos image proxy', () => {
+  const LH3 = 'https://lh3.googleusercontent.com/pw/AP1GczTestKey0123456789'
+
+  test('an lh3 reference streams through pinned to the sniffed image type', async () => {
+    await withFetch(
+      () => new Response(JPEG_PREFIX, { status: 200, headers: { 'Content-Type': 'application/octet-stream' } }),
+      async () => {
+        const response = await api.request(`/api/gphotos/image?u=${encodeURIComponent(LH3)}&r=w400`, {})
+        expect(response.status).toBe(200)
+        expect(response.headers.get('Content-Type')).toBe('image/jpeg')
+        expect(response.headers.get('X-Content-Type-Options')).toBe('nosniff')
+      },
+    )
+  })
+
+  test('foreign hosts, video renditions and malformed params never reach upstream', async () => {
+    const upstreamUrls: string[] = []
+    await withFetch(
+      (url) => {
+        upstreamUrls.push(url)
+        return new Response(JPEG_PREFIX, { status: 200 })
+      },
+      async () => {
+        for (const path of [
+          `/api/gphotos/image?u=${encodeURIComponent('https://lh3.googleusercontent.com.evil.com/pw/x')}&r=w400`,
+          `/api/gphotos/image?u=${encodeURIComponent('https://photos.google.com/share/x')}&r=w400`,
+          `/api/gphotos/image?u=${encodeURIComponent('http://lh3.googleusercontent.com/pw/x')}&r=w400`,
+          `/api/gphotos/image?u=${encodeURIComponent(LH3)}&r=m18`,
+          `/api/gphotos/image?u=${encodeURIComponent(LH3)}&r=d`,
+          `/api/gphotos/image?u=${encodeURIComponent('not a url')}&r=w400`,
+          `/api/gphotos/image?u=${encodeURIComponent(LH3)}`,
+          '/api/gphotos/image',
+        ]) {
+          expect((await api.request(path, {})).status).toBe(400)
+        }
+      },
+    )
+    expect(upstreamUrls).toHaveLength(0)
+  })
+
+  test('upstream HTML is never served as a scriptable document', async () => {
+    await withFetch(
+      () => new Response(HTML_BYTES, { status: 200, headers: { 'Content-Type': 'text/html' } }),
+      async () => {
+        const response = await api.request(`/api/gphotos/image?u=${encodeURIComponent(LH3)}&r=w400`, {})
+        expect(response.headers.get('Content-Type')).toBe('application/octet-stream')
+      },
+    )
+  })
+
+  test('an upstream stream that fails on first read answers 503, not an unhandled 500', async () => {
+    await withFetch(
+      () => new Response(new ReadableStream<Uint8Array>({
+        start: (controller) => controller.error(new Error('reset')),
+      }), { status: 200 }),
+      async () => {
+        const response = await api.request(`/api/gphotos/image?u=${encodeURIComponent(LH3)}&r=w400`, {})
+        expect(response.status).toBe(503)
+        expect((await response.json() as { error: string }).error).toContain('Google Photos image')
+      },
+    )
+  })
+})
+
 describe('proxy coalescing', () => {
   /**
    * Shared caching was considered and declined: invariant 1 keeps provider
