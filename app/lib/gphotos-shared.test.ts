@@ -167,6 +167,14 @@ describe('scanGPhotosAlbum', () => {
     expect(first.variants?.[0]?.src).toBe(`/api/gphotos/image?u=${encodeURIComponent('https://lh3.googleusercontent.com/pw/AF1QipItem000000001key')}&r=h256`)
     // Portrait item keeps its thumbnail under intrinsic height.
     expect(scan.images[1].variants?.[0]?.width).toBe(192)
+
+    // A source wider than the proxy's rendition bound gets the largest
+    // supported rendition; intrinsic dimensions still report the source.
+    const wide = stubScan(sharePage([item('AF1QipItemWide000001', 20000, 10000)]))
+    const wideScan = await scanGPhotosAlbum(SHARE_URL, wide.impl)
+    expect(wideScan.images[0].src).toContain('r=w16384')
+    expect(wideScan.images[0].width).toBe(20000)
+    expect(wideScan.images[0].fidelity).toBe('display-derivative')
     // No token in the page → no batchexecute calls at all.
     expect(stub.calls.filter((c) => c.url.includes('batchexecute'))).toHaveLength(0)
   })
@@ -220,7 +228,7 @@ describe('scanGPhotosAlbum', () => {
     ])
   })
 
-  test('stops paging when the same token answers twice', async () => {
+  test('stops paging when the same token answers twice, and reports the listing partial', async () => {
     const token = 'AH_stuckToken0123456789abcdefghijklmnopqrs'
     const stub = stubScan(
       sharePage([item('AF1QipItem000000001')], { token }),
@@ -228,6 +236,35 @@ describe('scanGPhotosAlbum', () => {
     )
     const scan = await scanGPhotosAlbum(SHARE_URL, stub.impl)
     expect(scan.images).toHaveLength(2)
+    expect(stub.calls.filter((c) => c.url.includes('batchexecute'))).toHaveLength(1)
+    // The token was still live when the loop gave up — not a complete album.
+    expect(scan.partial).toBe(true)
+  })
+
+  test('does not mark a fully-enumerated album partial, and never marks the cap itself partial', async () => {
+    const complete = stubScan(sharePage([item('AF1QipItem000000001')]))
+    expect((await scanGPhotosAlbum(SHARE_URL, complete.impl)).partial).toBeUndefined()
+
+    const capped = stubScan(sharePage(
+      Array.from({ length: MAX_GALLERY_ITEMS + 4 }, (_, i) => item(`AF1QipItem${String(i).padStart(8, '0')}`)),
+      { token: 'AH_moreToken0123456789abcdefghijklmnopqrs' },
+    ), { pages: [batchResponse([], 'AH_moreToken0123456789abcdefghijklmnopqrs')] })
+    const scan = await scanGPhotosAlbum(SHARE_URL, capped.impl)
+    expect(scan.images).toHaveLength(MAX_GALLERY_ITEMS)
+    expect(scan.partial).toBeUndefined()
+  })
+
+  test('duplicates and videos do not consume the photo enumeration bound', async () => {
+    const dupes = Array.from({ length: MAX_GALLERY_ITEMS }, () => item('AF1QipItem000000001'))
+    const video = item('AF1QipItemVideo00001', 1920, 1080, [[[['https://lh3.googleusercontent.com/pw/k=m18']]]])
+    const stub = stubScan(
+      sharePage([...dupes, video], { token: 'AH_pageTwoToken0123456789abcdefghijklmnopqr' }),
+      { pages: [batchResponse([item('AF1QipItem000000002'), item('AF1QipItem000000003')])] },
+    )
+    const scan = await scanGPhotosAlbum(SHARE_URL, stub.impl)
+    expect(scan.images.map((image) => image.ref)).toEqual([
+      'AF1QipItem000000001', 'AF1QipItem000000002', 'AF1QipItem000000003',
+    ])
     expect(stub.calls.filter((c) => c.url.includes('batchexecute'))).toHaveLength(1)
   })
 

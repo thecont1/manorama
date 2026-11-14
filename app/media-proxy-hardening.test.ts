@@ -153,6 +153,19 @@ describe('the Google Photos image proxy', () => {
       },
     )
   })
+
+  test('an upstream stream that fails on first read answers 503, not an unhandled 500', async () => {
+    await withFetch(
+      () => new Response(new ReadableStream<Uint8Array>({
+        start: (controller) => controller.error(new Error('reset')),
+      }), { status: 200 }),
+      async () => {
+        const response = await api.request(`/api/gphotos/image?u=${encodeURIComponent(LH3)}&r=w400`, {})
+        expect(response.status).toBe(503)
+        expect((await response.json() as { error: string }).error).toContain('Google Photos image')
+      },
+    )
+  })
 })
 
 describe('proxy coalescing', () => {

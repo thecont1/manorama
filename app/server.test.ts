@@ -228,6 +228,12 @@ describe('the homepage is the marketing page', () => {
     expect(response.headers.get('location')).toBe('/test-owner')
   })
 
+  test('a signed-in visitor who explicitly asked for the homepage still gets it', async () => {
+    const response = await page().request('/?home=1', authed(), env)
+    expect(response.status).toBe(200)
+    expect(await response.text()).toContain('manorama')
+  })
+
   test('every other page stays noindex', async () => {
     const app = new Hono()
     app.use(honoxContext)

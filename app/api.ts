@@ -1244,7 +1244,9 @@ export const createManoramaApi = () => {
     const r = c.req.query('r')
     if (!u || !r) return c.json({ error: 'Missing Google Photos image reference' }, 400)
     try {
-      return streamMediaResponse(await fetchGPhotosImage(u, r, fetch), 'private, max-age=300')
+      // Await the stream build too: a first-chunk read failure has to land
+      // in proxyFailure's mapping, not escape as an unhandled rejection.
+      return await streamMediaResponse(await fetchGPhotosImage(u, r, fetch), 'private, max-age=300')
     } catch (error) {
       // The tail identifies which asset failed without echoing a complete
       // working media URL into the sampled failure log.

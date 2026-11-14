@@ -51,6 +51,9 @@ export type GPhotosScan = {
   images: GalleryMediaItem[]
   /** Item count over MAX_GALLERY_ITEMS that was dropped, if any. */
   truncated?: number
+  /** Enumeration stopped with a live continuation token unread — the
+   *  listing is not the whole album. */
+  partial?: boolean
 }
 
 export const canonicalGPhotosUrl = (albumId: string, key?: string | null) =>
@@ -361,23 +364,40 @@ export const scanGPhotosAlbum = async (input: string, fetchImpl: typeof fetch = 
   if (!resolved) throw new Error('Manorama could not read that Google Photos album — check that it is shared with "Anyone with the link"')
 
   const first = parseSharePage(html)
-  const rawItems = [...first.items]
+  // Dedupe and video filtering run as pages arrive so the enumeration bound
+  // counts qualifying photos, not raw nodes — a page of duplicates or videos
+  // must not stop the walk early and leave fetchable photos behind.
+  const seen = new Set<string>()
+  const found: MediaItemNode[] = []
+  const photoItems: MediaItemNode[] = []
+  const collect = (items: MediaItemNode[]) => {
+    for (const item of items) {
+      if (seen.has(item[0])) continue
+      seen.add(item[0])
+      found.push(item)
+      if (!hasVideoMarker(item)) photoItems.push(item)
+    }
+  }
+  collect(first.items)
   let token = first.token
   const seenTokens = new Set<string>()
   let pages = 0
-  while (token && !seenTokens.has(token) && rawItems.length < MAX_GALLERY_ITEMS && pages < MAX_PAGES) {
+  while (token && !seenTokens.has(token) && photoItems.length < MAX_GALLERY_ITEMS && pages < MAX_PAGES) {
     seenTokens.add(token)
     const { inner, raw } = await retryOnceOnTransient(() =>
       fetchAlbumPage(resolved.albumId, resolved.key, token!, canonicalGPhotosUrl(resolved.albumId, resolved.key), fetchImpl))
-    walkItems(inner, rawItems)
+    const pageItems: MediaItemNode[] = []
+    walkItems(inner, pageItems)
+    collect(pageItems)
     const positional = inner[2]
     token = (typeof positional === 'string' && positional) || lastAhToken(raw)
     pages += 1
   }
-
-  const seen = new Set<string>()
-  const found = rawItems.filter((item) => (seen.has(item[0]) ? false : (seen.add(item[0]), true)))
-  const photoItems = found.filter((item) => !hasVideoMarker(item))
+  // A live token left unread below the cap means the enumeration stopped
+  // early — the listing is partial, and the scan endpoint refuses to
+  // persist one of those. Reaching the cap is not partial: the cap is the
+  // deliberate bound, and `truncated` reports what it dropped.
+  const partial = Boolean(token) && photoItems.length < MAX_GALLERY_ITEMS
   if (found.length === 0) {
     throw new Error(first.albumFound
       ? 'No photos or videos were found in that public Google Photos album'
@@ -404,16 +424,20 @@ export const scanGPhotosAlbum = async (input: string, fetchImpl: typeof fetch = 
     const w = Math.max(1, Math.round(width))
     const h = Math.max(1, Math.round(height))
     const thumb = Math.min(256, h)
+    // The proxy only serves renditions up to MAX_RENDITION_DIM — a wider
+    // source gets the largest supported rendition (below intrinsic), while
+    // width/height still report the source honestly.
+    const srcW = Math.min(w, MAX_RENDITION_DIM)
     return [{
       id: `gphotos-${uid.replace(/[^a-zA-Z0-9]+/g, '').slice(-18) || position}`,
       ref: uid,
       filename: `Photo ${position + 1}`,
-      src: imageProxy(cleanBase, `w${w}`),
+      src: imageProxy(cleanBase, `w${srcW}`),
       width: w,
       height: h,
       alt: `Photo ${position + 1}`,
       c2pa: false,
-      fidelity: 'full-resolution-render' as const,
+      fidelity: srcW === w ? 'full-resolution-render' as const : 'display-derivative' as const,
       thumbnailFidelity: 'display-derivative' as const,
       placeholder: placeholderFor(w, h),
       // Height-bound rendition, never upscaled — h{256} on a shorter side
@@ -428,6 +452,7 @@ export const scanGPhotosAlbum = async (input: string, fetchImpl: typeof fetch = 
     title: first.title ?? pageTitleFallback(html) ?? 'Shared album',
     images,
     truncated: photoItems.length > MAX_GALLERY_ITEMS ? photoItems.length : undefined,
+    ...(partial ? { partial: true } : {}),
   }
 }
 
