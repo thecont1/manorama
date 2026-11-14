@@ -1,0 +1,268 @@
+# Signed Android builds on a v* tag (or by hand against an existing tag).
+#
+# The app is a shell around the web bundle, so the bundle is rebuilt here from
+# the commit being built and copied into the Gradle project before assembling —
+# the shipped APK is never a stale copy of the web app.
+#
+# Distribution is direct: the APK lands in the manorama-downloads bucket beside
+# the desktop installers, latest.json's mobile.android slot tells the downloads
+# page and the shells' update check it exists, and /android on the downloads
+# host is the permanlink that resolves through the slot. The signed AAB rides
+# along on the GitHub release so a future Play submission already has its
+# artifact — the upload key stays what CI signs with either way.
+#
+# Required repository secrets (Settings → Secrets and variables → Actions):
+#   ANDROID_KEYSTORE_BASE64       base64 of the upload-key .keystore/.jks
+#   ANDROID_KEYSTORE_PASSWORD     its store password
+#   ANDROID_KEY_ALIAS             the key's alias inside the store
+#   ANDROID_KEY_PASSWORD          the key password (PKCS12: same as the store's)
+#   CLOUDFLARE_API_TOKEN          R2 write access for manorama-downloads
+#   CLOUDFLARE_ACCOUNT_ID
+# Optional repository variable (Variables tab — it is printed in the binary):
+#   ADMOB_ANDROID_APP_ID          the real AdMob app id; absent builds keep
+#                                 Google's published test id and serve no
+#                                 real ads.
+#
+# Until the keystore secrets exist the job warns and stops rather than
+# failing, so a tag still ships the desktop release while Android waits for
+# its credentials — the same posture ios.yml took before submission.
+#
+# The keystore file itself must never enter the repository: losing it means
+# no build can ever update in.thecontrarian.manorama again, so it also lives
+# in the owner's password manager.
+
+name: Android release
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Existing release tag to build (e.g. v0.1.0)'
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: android-release-${{ inputs.tag || github.ref_name }}
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    outputs:
+      ready: ${{ steps.keys.outputs.ready }}
+    steps:
+      - name: Validate the release tag
+        if: github.event_name == 'workflow_dispatch'
+        env:
+          TAG: ${{ inputs.tag }}
+        run: |
+          case "$TAG" in
+            v[0-9]*) ;;
+            *) echo "::error::tag must be a version tag like v0.1.0"; exit 1 ;;
+          esac
+
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          # refs/tags/… fails the job on a missing tag, long before the
+          # release job can run.
+          ref: ${{ inputs.tag && format('refs/tags/{0}', inputs.tag) || github.ref }}
+          persist-credentials: false
+
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+
+      # AGP 8.13 wants JDK 17; pinning it keeps the build independent of the
+      # runner image's default-JDK drift.
+      - uses: actions/setup-java@d1374f8ac74474200d16ef8ecee22c7ae7a51880 # v6
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - run: bun install --frozen-lockfile
+
+      # Names what the run can actually see, without printing any value, so a
+      # missing secret is diagnosed from the run page instead of guessed at.
+      - name: Report which credentials this run can see
+        id: keys
+        env:
+          ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          ADMOB_ANDROID_APP_ID: ${{ vars.ADMOB_ANDROID_APP_ID }}
+        run: |
+          set -uo pipefail
+          ready=true
+          for name in ANDROID_KEYSTORE_BASE64 ANDROID_KEYSTORE_PASSWORD ANDROID_KEY_ALIAS ANDROID_KEY_PASSWORD \
+                      CLOUDFLARE_API_TOKEN CLOUDFLARE_ACCOUNT_ID; do
+            value="${!name:-}"
+            if [ -n "$value" ]; then
+              printf '%-28s set (%s characters)\n' "$name" "${#value}"
+            else
+              printf '%-28s MISSING\n' "$name"
+              echo "::warning::$name is not set for this repository, so the workflow cannot see it. Check the spelling, and that it sits under Settings -> Secrets and variables -> Actions in this repo (not another repo, an environment, or the Variables tab)."
+              ready=false
+            fi
+          done
+          # The AdMob app id is a repo variable, not a secret — optional:
+          # absent builds keep Google's test id and never serve real ads.
+          if [ -n "${ADMOB_ANDROID_APP_ID:-}" ]; then
+            printf '%-28s set (%s characters)\n' ADMOB_ANDROID_APP_ID "${#ADMOB_ANDROID_APP_ID}"
+          else
+            printf '%-28s unset — test ads only\n' ADMOB_ANDROID_APP_ID
+          fi
+          echo "ready=$ready" >> "$GITHUB_OUTPUT"
+
+      - name: Decode the upload keystore
+        if: steps.keys.outputs.ready == 'true'
+        env:
+          ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+        run: |
+          printf '%s' "$ANDROID_KEYSTORE_BASE64" | base64 --decode > "$RUNNER_TEMP/upload.keystore"
+          echo "MANORAMA_UPLOAD_KEYSTORE=$RUNNER_TEMP/upload.keystore" >> "$GITHUB_ENV"
+
+      - name: Build the web bundle the app loads
+        if: steps.keys.outputs.ready == 'true'
+        run: bun run build:native
+
+      - name: Copy the bundle into the Gradle project
+        if: steps.keys.outputs.ready == 'true'
+        run: bunx cap sync android
+
+      # ubuntu-latest carries an Android SDK but not necessarily the platform
+      # this project compiles against — installing is a no-op when it does.
+      - name: Install the Android 36 SDK pieces
+        if: steps.keys.outputs.ready == 'true'
+        run: |
+          sdkmanager=sdkmanager
+          command -v sdkmanager >/dev/null || sdkmanager="$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager"
+          yes | "$sdkmanager" "platforms;android-36" "build-tools;36.0.0" >/dev/null
+          echo "build-tools: $(ls "$ANDROID_HOME/build-tools" | tr '\n' ' ')"
+
+      - name: Build the signed release APK and AAB
+        if: steps.keys.outputs.ready == 'true'
+        working-directory: android
+        env:
+          MANORAMA_UPLOAD_STORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          MANORAMA_UPLOAD_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          MANORAMA_UPLOAD_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+          TAG: ${{ inputs.tag || github.ref_name }}
+          ADMOB: ${{ vars.ADMOB_ANDROID_APP_ID }}
+        run: |
+          set -euo pipefail
+          version="${TAG#v}"
+          # versionCode is derived, not stored: major·10000 + minor·100 +
+          # patch keeps it monotonic with semver while each field < 100.
+          # The 10# prefix stops a "08"-style segment reading as octal.
+          if ! [[ "$version" =~ ^([0-9]+)\.([0-9]+)\.([0-9]+)$ ]]; then
+            echo "::error::tag $TAG is not a semver like v0.4.0 — cannot derive versionCode"
+            exit 1
+          fi
+          code=$(( 10#${BASH_REMATCH[1]} * 10000 + 10#${BASH_REMATCH[2]} * 100 + 10#${BASH_REMATCH[3]} ))
+          args=( -PMANORAMA_VERSION_NAME="$version" -PMANORAMA_VERSION_CODE="$code" )
+          if [ -n "${ADMOB:-}" ]; then args+=( -PADMOB_ANDROID_APP_ID="$ADMOB" ); fi
+          ./gradlew --no-daemon assembleRelease bundleRelease "${args[@]}"
+
+      - name: Verify the signature and stage the artifacts
+        if: steps.keys.outputs.ready == 'true'
+        env:
+          TAG: ${{ inputs.tag || github.ref_name }}
+        run: |
+          set -euo pipefail
+          version="${TAG#v}"
+          build_tools="$(dirname "$(ls -d "$ANDROID_HOME"/build-tools/*/apksigner | sort -V | tail -1)")"
+          apk="android/app/build/outputs/apk/release/app-release.apk"
+          aab="android/app/build/outputs/bundle/release/app-release.aab"
+          # Unsigned or wrongly-versioned artifacts fail here, not on a
+          # device or in the bucket.
+          "$build_tools/apksigner" verify --print-certs "$apk"
+          badge="$("$build_tools/aapt" dump badging "$apk")"
+          echo "$badge" | grep -q "versionName='$version'" || {
+            echo "::error::APK versionName does not match the tag"; echo "$badge" | head -3; exit 1
+          }
+          mkdir -p dist
+          mv "$apk" "dist/manorama_${version}_android.apk"
+          mv "$aab" "dist/manorama_${version}_android.aab"
+
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        if: steps.keys.outputs.ready == 'true'
+        with:
+          name: manorama-android
+          path: dist/*
+          if-no-files-found: error
+
+  release:
+    needs: build
+    if: needs.build.outputs.ready == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          name: manorama-android
+          path: dist
+
+      # Both mobile artifacts ride the same draft the desktop pipeline
+      # creates — whichever workflow lands first wins the create, the loser
+      # just uploads into it.
+      - name: Attach the Android artifacts to the draft release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+          TAG: ${{ inputs.tag || github.ref_name }}
+        run: |
+          set -euo pipefail
+          if ! gh release view "$TAG" >/dev/null 2>&1; then
+            gh release create "$TAG" --draft --title "manorama $TAG" --generate-notes || true
+          fi
+          if [ "$(gh release view "$TAG" --json isDraft --jq .isDraft)" != "true" ]; then
+            echo "::error::$TAG is already published; cut a new tag instead"
+            exit 1
+          fi
+          mapfile -d '' -t assets < <(find dist -type f -print0)
+          if [ ${#assets[@]} -eq 0 ]; then echo "::error::no artifacts to upload"; exit 1; fi
+          gh release upload "$TAG" --clobber "${assets[@]}"
+
+  publish-downloads:
+    needs: release
+    runs-on: ubuntu-latest
+    steps:
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          name: manorama-android
+          path: dist
+
+      # The APK lands beside the desktop installers under v<ver>/ so the
+      # release's asset list picks it up, then latest.json's mobile.android
+      # slot points at it — read-modify-write, because the desktop pipeline
+      # owns version+assets and may publish on the same tag.
+      - name: Publish the APK and update latest.json
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          TAG: ${{ inputs.tag || github.ref_name }}
+        run: |
+          set -euo pipefail
+          version="${TAG#v}"
+          apk="$(basename dist/*.apk)"
+          bunx wrangler r2 object put "manorama-downloads/v${version}/${apk}" \
+            --file "dist/${apk}" --content-type application/vnd.android.package-archive --remote
+          bunx wrangler r2 object get manorama-downloads/latest.json --pipe --remote > latest.json || echo '{}' > latest.json
+          VERSION="$version" APK_URL="https://downloads.manorama.xyz/v${version}/${apk}" bun -e '
+            let manifest = {}
+            try { manifest = JSON.parse(await Bun.file("latest.json").text()) } catch {}
+            if (typeof manifest !== "object" || manifest === null) manifest = {}
+            manifest.mobile = { ...(manifest.mobile ?? {}), android: { version: process.env.VERSION, url: process.env.APK_URL } }
+            await Bun.write("latest.json", JSON.stringify(manifest, null, 2) + "\n")
+          '
+          bunx wrangler r2 object put manorama-downloads/latest.json --file latest.json --content-type application/json --remote

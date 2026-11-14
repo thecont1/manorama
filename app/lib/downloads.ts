@@ -568,6 +568,18 @@ const routeDownloads = async (env: DownloadsEnv, url: URL, head: boolean): Promi
     return Response.redirect(new URL(`/${key}`, url).toString(), 302)
   }
 
+  // Mobile permanlinks. /android and /ios resolve through latest.json's
+  // mobile slot rather than an object key, so the link survives whatever it
+  // points at — the sideloaded APK under v<ver>/ today, a store listing
+  // later. 404 until that platform's release is published.
+  if (path === 'android' || path === 'ios') {
+    const target = manifest?.mobile?.[path]?.url
+    if (typeof target !== 'string' || !target) {
+      return new Response('unknown platform or no release published', { status: 404 })
+    }
+    return Response.redirect(new URL(target, url).toString(), 302)
+  }
+
   const versionMatch = /^v(\d+\.\d+\.\d+)$/.exec(path)
   if (versionMatch) {
     const page = await versionPage(env, manifest, versionMatch[1]!)
