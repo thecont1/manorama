@@ -272,7 +272,15 @@ final class LocalSchemeHandler: NSObject, WKURLSchemeHandler {
     /// One ephemeral session for every proxied API call — creating a
     /// URLSession per request discards its connection pool and pays the
     /// setup cost on each photograph-adjacent API round-trip.
-    private static let apiSession = URLSession(configuration: .ephemeral)
+    /// `timeoutIntervalForRequest` is an inactivity timeout: the refresh
+    /// endpoint's server-side scan has a 90s deadline and sends nothing
+    /// until it finishes, so the 60s default would cut a legitimate long
+    /// scan that the web app (direct fetch) lets complete.
+    private static let apiSession: URLSession = {
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.timeoutIntervalForRequest = 150
+        return URLSession(configuration: configuration)
+    }()
 
     /// When launched with `--config <dir>` (an isolated test run), never
     /// forward non-GET `/api/device-galleries` mutations to the live server so
