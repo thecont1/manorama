@@ -240,7 +240,10 @@ jobs:
           set -euo pipefail
           version="${TAG#v}"
           mac=""; win=""; linux=""
-          for f in dist/*; do
+          # Artifacts keep their bundle subdirectories (msi/, nsis/, deb/,
+          # appimage/) — a plain dist/* glob sees only the mac DMG at the root.
+          shopt -s globstar nullglob
+          for f in dist/**/*; do
             [ -f "$f" ] || continue
             name="$(basename "$f")"
             type="application/octet-stream"
