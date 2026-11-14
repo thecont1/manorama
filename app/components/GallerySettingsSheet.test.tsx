@@ -17,6 +17,11 @@ const globals = globalThis as Record<string, unknown>
 let dom: Window
 let prev: Record<string, unknown>
 
+const REPLACED_GLOBALS = [
+  'window', 'document', 'fetch', 'SVGElement', 'HTMLElement',
+  'MutationObserver', 'requestAnimationFrame', 'cancelAnimationFrame',
+] as const
+
 type Call = { url: string; init?: RequestInit }
 let calls: Call[] = []
 
@@ -52,9 +57,7 @@ const row = (root: HTMLElement, label: string) =>
 const settle = async () => { await new Promise((resolve) => setTimeout(resolve, 0)); flushSync(() => {}) }
 
 beforeAll(() => {
-  prev = {
-    window: globals.window, document: globals.document, fetch: globals.fetch,
-  }
+  prev = Object.fromEntries(REPLACED_GLOBALS.map((key) => [key, globals[key]]))
   dom = new Window({ url: 'http://localhost/thecontrarian' })
   globals.window = dom
   globals.document = dom.document
@@ -70,9 +73,7 @@ beforeAll(() => {
 })
 
 afterAll(() => {
-  globals.window = prev.window
-  globals.document = prev.document
-  globals.fetch = prev.fetch
+  for (const key of REPLACED_GLOBALS) globals[key] = prev[key]
 })
 
 afterEach(() => {
