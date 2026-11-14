@@ -27,9 +27,11 @@ export type DownloadsEnv = { DOWNLOADS?: R2Bucket }
 type MobileRelease = { version?: string; url?: string }
 
 type LatestManifest = {
-  version: string
+  // Both are absent on a mobile-only manifest — the Android pipeline can
+  // publish mobile.android before any desktop release has shipped.
+  version?: string
   released?: string
-  assets: { mac?: string; windows?: string; linux?: string; all?: string[] }
+  assets?: { mac?: string; windows?: string; linux?: string; all?: string[] }
   mobile?: { ios?: MobileRelease | null; android?: MobileRelease | null }
 }
 
@@ -466,7 +468,7 @@ const indexPage = async (env: DownloadsEnv, manifest: LatestManifest | null): Pr
   const rows = manifest
     ? (['mac', 'windows', 'linux'] as const)
         .map((platform) => {
-          const key = manifest.assets[platform]
+          const key = manifest.assets?.[platform]
           const name = key ? key.split('/').pop() : null
           return key && name
             ? `<span class="dl-shortcuts"><a href="/${escapeHtml(key)}">${platform}</a> · ${escapeHtml(name)}</span><br>`
@@ -475,13 +477,13 @@ const indexPage = async (env: DownloadsEnv, manifest: LatestManifest | null): Pr
         .join('')
     : '<span class="dl-empty">No release published yet.</span>'
   const hero = `<section class="dl-hero">
-<h1 class="dl-title">${manifest ? `manorama v${escapeHtml(manifest.version)}` : 'manorama downloads'}</h1>
+<h1 class="dl-title">${manifest?.version ? `manorama v${escapeHtml(manifest.version)}` : 'manorama downloads'}</h1>
 <p class="dl-lede">Native apps for macOS, Windows and Linux — the same gallery, on your desk. Every release stays here, with its notes.</p>
 <p class="dl-eyebrow">desktop downloads</p>
 <div class="dl-platforms">
 ${(['mac', 'windows', 'linux'] as const)
   .map((platform) => {
-    const key = manifest?.assets[platform]
+    const key = manifest?.assets?.[platform]
     return typeof key === 'string' && OBJECT_KEY.test(key)
       ? `<a class="home-btn${platform === 'mac' ? '' : ' home-btn-quiet'}" href="/${escapeHtml(key)}">${platform === 'mac' ? 'Download for macOS' : platform === 'windows' ? 'Download for Windows' : 'Download for Linux'}</a>`
       : ''
@@ -504,7 +506,7 @@ ${current?.highlights.length ? `<p class="dl-latest-line">Latest: ${escapeHtml(c
 <p class="dl-history-sub">Every tagged build, newest first — what changed, and the installers it shipped. The full record lives on <a href="${REPO}/releases" style="color:var(--home-ink-soft)">GitHub</a>.</p>
 ${releases.map(releaseHtml).join('')}</section>`
     : ''
-  return page(`manorama downloads${manifest ? ` ${manifest.version}` : ''}`, hero + history)
+  return page(`manorama downloads${manifest?.version ? ` ${manifest.version}` : ''}`, hero + history)
 }
 
 const versionPage = async (env: DownloadsEnv, manifest: LatestManifest | null, version: string): Promise<Response | null> => {
@@ -561,7 +563,7 @@ const routeDownloads = async (env: DownloadsEnv, url: URL, head: boolean): Promi
   if (path === '') return indexPage(env, manifest)
 
   if (PLATFORMS.has(path)) {
-    const key = manifest?.assets[path as keyof LatestManifest['assets']]
+    const key = manifest?.assets?.[path as keyof LatestManifest['assets']]
     if (typeof key !== 'string' || !OBJECT_KEY.test(key)) {
       return new Response('unknown platform or no release published', { status: 404 })
     }
