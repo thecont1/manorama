@@ -391,6 +391,13 @@ describe('desktop catalogue workbench', () => {
     expect(dom.document.documentElement.classList.contains('light')).toBe(true)
   })
 
+  test('the sign-in surface always launches dark, even with a stored light choice', async () => {
+    dom.localStorage.setItem('manorama:theme', 'light')
+    await mount(false)
+    expect(dom.document.documentElement.classList.contains('light')).toBe(false)
+    expect(dom.localStorage.getItem('manorama:theme')).toBe('light')
+  })
+
   test('a gallery card shows one Details action, thumbnails, and no local paths', async () => {
     const container = await mount(true)
     const card = container.querySelector<HTMLElement>(`[data-gallery-card="${GALLERY_ID}"]`)!

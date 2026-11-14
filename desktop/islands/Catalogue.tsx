@@ -319,6 +319,9 @@ export default function Catalogue({ apiBase }: { apiBase: string }) {
   const [accountAd, setAccountAd] = useState<AdFrame | null>(null)
   const [adsShow, setAdsShow] = useState(true)
   const [session, setSession] = useState<DesktopSession | null>(null)
+  // Resolved once the stored session has been read — until then "no session"
+  // means "still looking", not "signed out".
+  const [sessionResolved, setSessionResolved] = useState(false)
   const [accountGalleries, setAccountGalleries] = useState<GallerySummary[] | null>(null)
   const [deviceRows, setDeviceRows] = useState<DeviceGallery[]>([])
   const [galleriesFailed, setGalleriesFailed] = useState(false)
@@ -760,6 +763,7 @@ export default function Catalogue({ apiBase }: { apiBase: string }) {
     void (async () => {
       const storedSession = await getSession()
       if (storedSession && active) setSession(storedSession)
+      if (active) setSessionResolved(true)
       const deviceLabel = await resolveDeviceLabel()
       let next: LocalCatalogue
       try {
@@ -901,18 +905,20 @@ export default function Catalogue({ apiBase }: { apiBase: string }) {
     return () => controller.abort()
   }, [base, session, syncState, runSync])
 
-  // The theme belongs to the catalogue, not to the stage. While a photograph is
-  // in view the class is held off: the stage is a neutral near-black by
-  // contract, and a light `--ink` over that ground would leave the curtain copy
-  // unreadable. The choice itself is remembered either way.
+  // The theme belongs to the catalogue, not to the stage — and not to the
+  // sign-in surface either. While a photograph is in view the class is held
+  // off: the stage is a neutral near-black by contract, and a light `--ink`
+  // over that ground would leave the curtain copy unreadable. Signed out, the
+  // login page always launches dark; the stored choice only applies once an
+  // owner is actually signed in. The choice itself is remembered either way.
   useEffect(() => {
-    if (viewerState) {
+    if (viewerState || (sessionResolved && !session)) {
       applyTheme('dark', document.documentElement)
       return
     }
     applyTheme(theme, document.documentElement)
     storeTheme(typeof localStorage === 'undefined' ? null : localStorage, theme)
-  }, [theme, viewerState])
+  }, [theme, viewerState, session, sessionResolved])
 
   // The pane is a modal dialog: focus enters it, Tab stays inside it, and
   // Escape or a backdrop click hands the caret back to the tab that opened it.
