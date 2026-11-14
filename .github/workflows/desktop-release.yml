@@ -187,15 +187,17 @@ jobs:
           GH_REPO: ${{ github.repository }}
           TAG: ${{ inputs.tag || github.ref_name }}
         run: |
-          if gh release view "$TAG" >/dev/null 2>&1; then
-            # A rerun must never rewrite a release that already went out —
-            # only drafts accept uploads.
-            if [ "$(gh release view "$TAG" --json isDraft --jq .isDraft)" != "true" ]; then
-              echo "::error::$TAG is already published; cut a new tag instead"
-              exit 1
-            fi
-          else
-            gh release create "$TAG" --draft --title "manorama $TAG" --generate-notes
+          if ! gh release view "$TAG" >/dev/null 2>&1; then
+            # A concurrent pipeline may win the draft create — re-read so its
+            # release satisfies this step instead of failing the whole release.
+            gh release create "$TAG" --draft --title "manorama $TAG" --generate-notes || gh release view "$TAG" >/dev/null
+          fi
+          # A rerun must never rewrite a release that already went out —
+          # only drafts accept uploads. Checked after resolution so the
+          # create/fallback path is held to the same bar.
+          if [ "$(gh release view "$TAG" --json isDraft --jq .isDraft)" != "true" ]; then
+            echo "::error::$TAG is already published; cut a new tag instead"
+            exit 1
           fi
           mapfile -d '' -t assets < <(find dist -type f -print0)
           if [ ${#assets[@]} -eq 0 ]; then echo "::error::no bundles to upload"; exit 1; fi
@@ -209,6 +211,13 @@ jobs:
     # every build and needs no manual sync.
     needs: release
     runs-on: ubuntu-latest
+    # Shares the manifest lock with android-release's publish job — both
+    # rewrite latest.json and must not interleave read-modify-write. queue:max
+    # keeps every pending publish; the default single slot would cancel one.
+    concurrency:
+      group: downloads-manifest
+      queue: max
+      cancel-in-progress: false
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
@@ -246,18 +255,67 @@ jobs:
             bunx wrangler r2 object put "manorama-downloads/v${version}/${name}" --file "$f" --content-type "$type" --remote
           done
           bun scripts/build-download-history.mjs history.json
-          VERSION="$version" MAC="$mac" WIN="$win" LINUX="$linux" bun -e '
+          # latest.json is shared with the Android pipeline, which owns the
+          # mobile slot — carry it across instead of clobbering the field on
+          # every desktop tag. A missing manifest just means no mobile
+          # release has shipped yet; an unparseable one aborts below.
+          # Only a confirmed-missing object earns the empty baseline — any
+          # other read failure aborts rather than publishing over the mobile
+          # fields this job does not own.
+          if ! bunx wrangler r2 object get manorama-downloads/latest.json --pipe --remote > current-latest.json 2> current-latest.err; then
+            if grep -qiE 'does not exist|NoSuchKey' current-latest.err; then
+              echo '{}' > current-latest.json
+            else
+              cat current-latest.err >&2
+              exit 1
+            fi
+          fi
+          rm -f current-latest.err
+          # Out-of-order tag runs can finish publishing backwards; an older
+          # release must never regress the pointer. history.json still
+          # publishes — it is rebuilt from every tag, not this run's.
+          update="$(VERSION="$version" MAC="$mac" WIN="$win" LINUX="$linux" bun -e '
             if (!process.env.MAC || !process.env.WIN || !process.env.LINUX) {
               console.error("missing platform asset", { mac: process.env.MAC, win: process.env.WIN, linux: process.env.LINUX })
               process.exit(1)
             }
-            const key = (name) => `v${process.env.VERSION}/${name}`
-            const manifest = {
-              version: process.env.VERSION,
-              released: new Date().toISOString().slice(0, 10),
-              assets: { mac: key(process.env.MAC), windows: key(process.env.WIN), linux: key(process.env.LINUX), all: [key(process.env.MAC)] },
+            let mobile, existingVersion
+            const raw = (await Bun.file("current-latest.json").text()).trim()
+            if (raw) {
+              let current
+              try { current = JSON.parse(raw) } catch (e) {
+                console.error("latest.json is not valid JSON:", e.message); process.exit(1)
+              }
+              if (current && typeof current.mobile === "object" && current.mobile !== null) mobile = current.mobile
+              if (current && typeof current.version === "string") existingVersion = current.version
             }
-            await Bun.write("latest.json", JSON.stringify(manifest, null, 2) + "\n")
-          '
+            const dotted = (v) => /^\d+(\.\d+)*$/.test(String(v)) ? String(v).split(".").map(Number) : null
+            const cmp = (a, b) => {
+              const pa = dotted(a), pb = dotted(b)
+              if (!pa || !pb) return 0
+              for (let i = 0; i < Math.max(pa.length, pb.length); i++) {
+                const d = (pa[i] ?? 0) - (pb[i] ?? 0)
+                if (d) return d
+              }
+              return 0
+            }
+            if (existingVersion && cmp(existingVersion, process.env.VERSION) > 0) {
+              console.log("skip")
+            } else {
+              const key = (name) => `v${process.env.VERSION}/${name}`
+              const manifest = {
+                version: process.env.VERSION,
+                released: new Date().toISOString().slice(0, 10),
+                assets: { mac: key(process.env.MAC), windows: key(process.env.WIN), linux: key(process.env.LINUX), all: [key(process.env.MAC)] },
+              }
+              if (mobile) manifest.mobile = mobile
+              await Bun.write("latest.json", JSON.stringify(manifest, null, 2) + "\n")
+              console.log("write")
+            }
+          ')"
           bunx wrangler r2 object put manorama-downloads/history.json --file history.json --content-type application/json --remote
-          bunx wrangler r2 object put manorama-downloads/latest.json --file latest.json --content-type application/json --remote
+          if [ "$update" = "write" ]; then
+            bunx wrangler r2 object put manorama-downloads/latest.json --file latest.json --content-type application/json --remote
+          else
+            echo "latest.json already points at a newer release — pointer untouched"
+          fi

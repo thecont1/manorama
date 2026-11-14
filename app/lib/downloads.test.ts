@@ -193,6 +193,27 @@ describe('handleDownloads', () => {
     }
   })
 
+  test('a mobile-only manifest renders without desktop assets', async () => {
+    // The Android pipeline can publish mobile.android before any desktop
+    // release exists — latest.json then has no version/assets at all.
+    const mobileOnly = {
+      mobile: { android: { version: '1.0', url: 'https://downloads.manorama.xyz/v1.0/manorama_1.0_android.apk' } },
+    }
+    const mobileEnv = envWith({
+      'latest.json': fakeObject('latest.json', JSON.stringify(mobileOnly), 'application/json'),
+    })
+    const res = await handleDownloads(req('/'), mobileEnv)
+    expect(res.status).toBe(200)
+    const body = await res.text()
+    expect(body).not.toContain('vundefined')
+    expect(body).toContain('>Android</a>')
+    expect(body).toContain('iPhone &amp; iPad — coming soon')
+    expect((await handleDownloads(req('/mac'), mobileEnv)).status).toBe(404)
+    const android = await handleDownloads(req('/android'), mobileEnv)
+    expect(android.status).toBe(302)
+    expect(android.headers.get('location')).toBe('https://downloads.manorama.xyz/v1.0/manorama_1.0_android.apk')
+  })
+
   test('serves versioned objects with immutable caching', async () => {
     const res = await handleDownloads(req('/v0.3.0/manorama_0.3.0_aarch64.dmg'), env)
     expect(res.status).toBe(200)
