@@ -248,7 +248,7 @@ const footerHtml = () => `<footer class="home-footer"><div class="home-wrap home
 const page = (title: string, body: string): Response =>
   new Response(`<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${escapeHtml(title)}</title>
 <meta name="robots" content="noindex"><meta name="theme-color" content="#0a0a0a"><style>${STYLE}</style>${THEME_INIT}</head>
-<body><div class="home">${headerHtml()}${accountPanelHtml()}<main class="home-wrap">${body}</main>${footerHtml()}</div>${THEME_WIRE}</body></html>`,
+<body><div class="home">${headerHtml()}${accountPanelHtml()}<main class="home-wrap dl-main">${body}</main>${footerHtml()}</div>${THEME_WIRE}</body></html>`,
     { headers: { 'content-type': 'text/html; charset=utf-8' } })
 
 /* ── the data ────────────────────────────────────────────────────────── */
