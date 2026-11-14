@@ -326,6 +326,21 @@ body.manorama-desktop .admin-rail .account-ad {
    so it takes the help cursor its tooltip explains. */
 body.manorama-desktop .lib-temp-flag[role="img"] { cursor: help; }
 
+/* Inside a native window the web rail's viewport pinning reads as an
+   iframe — a pane with its own clipped scroll beside an unmoving page.
+   On desktop the rail is a plain column in the page instead: one
+   document, one scroll, the rail travelling with the galleries. The
+   sponsored slot and copyright lose their bottom anchor with the height —
+   an auto margin on a natural-height column is a quiet no-op, which is
+   the honest outcome for a flow column. */
+@media (min-width: 860px) {
+  body.manorama-desktop .admin-page--selector .admin-rail {
+    position: static;
+    height: auto;
+    overflow-y: visible;
+  }
+}
+
 /* The rail's vault tracker sits under the account line. When the sponsored
    slot is suppressed the copyright keeps its bottom anchor — the tracker
    must not break the `+` sibling rule that pins it. */
