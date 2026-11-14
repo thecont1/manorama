@@ -493,15 +493,17 @@ const DRIVER = (which: number) => `
       return
     }
 
-    // Chrome stays visible for three seconds after entry. Open the redesigned
-    // Display sheet through its actual chrome control, not the retired logo
-    // button and controls-modal.
+    // Chrome stays visible for three seconds after entry. Open the settings
+    // sheet through its actual chrome control — the bottom row leads with the
+    // position pill now, so the settings pill is found by its label, not by
+    // being the first button.
     await new Promise((r) => setTimeout(r, 2200))
-    const display = document.querySelector('[data-chrome-bottom] button')
-    log('opening settings:', click(display))
+    const settings = [...document.querySelectorAll('[data-chrome-bottom] button')]
+      .find((b) => b.textContent.includes('Gallery Settings'))
+    log('opening settings:', click(settings))
     const modal = await waitFor('.m-sheet-host .m-sheet')
     await new Promise((r) => setTimeout(r, 1000))
-    await report(Boolean(modal && modal.querySelector('.m-sheet-body') && modal.querySelector('.m-sheet-title')?.textContent === 'Display'))
+    await report(Boolean(modal && modal.querySelector('.m-sheet-body') && modal.querySelector('.m-sheet-title')?.textContent === 'Gallery Settings'))
   })().catch(async (error) => {
     window.__captureErrors.push(String(error))
     await report(false)
