@@ -1324,6 +1324,117 @@
         ]
       }
     },
+    "/api/galleries/{slug}/probe": {
+      "parameters": [
+        {
+          "description": "Gallery URL slug to probe",
+          "in": "path",
+          "name": "slug",
+          "required": true,
+          "schema": {
+            "type": "string"
+          }
+        }
+      ],
+      "post": {
+        "description": "Cheap metadata-only source check behind Library-load freshness. Compares a live provider listing against the stored manifest and answers whether a refresh is warranted. Throttled to once per 24h per gallery via lastSourceCheckAt (stamped on every probe and on refresh); pass force to bypass. Encrypted sources answer 'device' — only a key-holding shell can list them — and the device reports its verdict back via reported.",
+        "operationId": "probe_gallery",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "additionalProperties": false,
+                "properties": {
+                  "force": {
+                    "description": "Bypass the 24-hour freshness throttle",
+                    "type": "boolean"
+                  },
+                  "reported": {
+                    "description": "A device-side verdict for an encrypted source, recorded as this gallery's source check",
+                    "enum": [
+                      "changed",
+                      "unchanged",
+                      "unknown"
+                    ],
+                    "type": "string"
+                  }
+                },
+                "type": "object"
+              }
+            }
+          },
+          "required": false
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "lastSourceCheckAt": {
+                      "description": "When this gallery's source was last checked; null when nothing was recorded",
+                      "format": "date-time",
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "reason": {
+                      "description": "Why the probe answered as it did (e.g. recent, no-source, encrypted-source, listing-incomplete, legacy-manifest)",
+                      "type": "string"
+                    },
+                    "recorded": {
+                      "description": "The device-side verdict that was recorded when reported was sent",
+                      "enum": [
+                        "changed",
+                        "unchanged",
+                        "unknown"
+                      ],
+                      "type": "string"
+                    },
+                    "status": {
+                      "description": "changed → run the refresh; unchanged → nothing to do; unknown → the listing could not prove either way; device → only a key-holding shell can probe; skipped → nothing to probe (includes throttled 'recent')",
+                      "enum": [
+                        "changed",
+                        "unchanged",
+                        "unknown",
+                        "device",
+                        "skipped"
+                      ],
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "status"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "The probe outcome"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          }
+        },
+        "security": [
+          {
+            "cloudflareAccess": []
+          }
+        ],
+        "summary": "Probe a gallery's source for changes",
+        "tags": [
+          "galleries"
+        ]
+      }
+    },
     "/api/galleries/{slug}/migrate": {
       "parameters": [
         {

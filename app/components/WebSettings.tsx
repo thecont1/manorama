@@ -62,6 +62,9 @@ type Props = {
   /** A device's own controls (catalogue sync on the desktop) — the web has
    *  none, so the slot is absent there by design. */
   deviceSection?: Child
+  /** A newer published app version — native shells show the row, the web
+   *  (always current) never passes it. */
+  appUpdate?: { version: string; url: string } | null
 }
 
 /** Web owner Settings — one full-screen surface holding every account,
@@ -165,6 +168,7 @@ export function WebSettings(props: Props) {
         {props.deviceSection ?? null}
 
         <ActionGroup label="About">
+          {props.appUpdate ? <ActionRow label="App update" value={`v${props.appUpdate.version} available`} href={props.appUpdate.url} /> : null}
           <ActionRow label="Privacy Policy" href="/privacy" />
           <p class="m-note m-panel-note">© 2026 Mahesh Shantaram / thecontrarian.in</p>
         </ActionGroup>

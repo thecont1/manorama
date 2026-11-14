@@ -6,9 +6,9 @@ import { fetchDropboxFile, fetchDropboxThumbnail } from './lib/dropbox-public'
 import { fetchDriveFile, fetchDriveThumbnail } from './lib/gdrive-public'
 import { fetchICloudCkImage, fetchICloudCkVideo, fetchICloudImage, fetchICloudVideo, isAlbumToken } from './lib/icloud-shared'
 import { fetchGPhotosImage } from './lib/gphotos-shared'
-import { canonicalSourceMatches, scanSource, UNRECOGNIZED_LINK_MESSAGE } from './lib/sources'
+import { canonicalSourceMatches, detectSource, scanSource, UNRECOGNIZED_LINK_MESSAGE } from './lib/sources'
 import { localSourcesEnabled, serveLocalMedia } from './lib/local-source'
-import { createGalleryWithinLimit, deleteGallery, getGallery, getStoredGallery, listGalleries, setGalleryHidden, setGalleryPinned, setGalleryRetained, swapGalleryRetention, toLibrarySummaries, toSummary, updateGalleryHidden, updateGalleryImages, updateGalleryMetadata, updateGalleryOrder, updateGalleryRecord, updateGallerySlug, type GalleryEnv, type GalleryRecord } from './lib/gallery-repository'
+import { createGalleryWithinLimit, deleteGallery, getGallery, getStoredGallery, listGalleries, markGallerySourceChecked, setGalleryHidden, setGalleryPinned, setGalleryRetained, swapGalleryRetention, toLibrarySummaries, toSummary, updateGalleryHidden, updateGalleryImages, updateGalleryMetadata, updateGalleryOrder, updateGalleryRecord, updateGallerySlug, type GalleryEnv, type GalleryRecord } from './lib/gallery-repository'
 import { assertGalleryEditable, FREE_RETAINED_LIMIT, GalleryPolicyError, isGalleryExpired, PAID_RETAINED_LIMIT, paidGalleryLimitError, pinLimitError, pipelineGalleryLimitError } from './lib/gallery-policy'
 import { createLinkHandoffToken, createSessionToken, requireMasterSession, requireSession, resolveManoramaSession, SESSION_COOKIE, type HonoSessionEnv, verifyNativeHandoffToken } from './lib/session'
 import { deleteAccount, getUserByAccountId, listUsersForAdmin, OwnerSlugError, setUserDisabled, setUserTier, updateOwnerSlug, getUserByOwnerSlug } from './lib/user-repository'
@@ -26,6 +26,9 @@ import { ENCRYPTED_MANIFEST_VERSION, encryptedGalleryGate, isEncryptedSourceUrl,
 import { stripLegacyDeliveryCapabilities } from './lib/encrypted-public'
 import { validateEncryptedManifest, type EncryptedManifestInput } from './lib/encrypted-manifest'
 import { mergeMigratedImages } from './lib/encrypted-migration'
+import { probeSource } from './lib/source-probe'
+import { sourceCheckDue } from './lib/source-freshness'
+import { isAppOrigin } from './lib/app-origin'
 
 type RequestBody = { url?: string; manifest?: unknown; order?: string[]; quick?: boolean; title?: string; caption?: string }
 
@@ -226,23 +229,15 @@ export const createManoramaApi = () => {
 
   api.use('/api/*', async (c, next) => {
     const origin = c.req.header('Origin')
-    let allowed = false
     // https://localhost is the Android WebView origin under Capacitor's default
     // androidScheme; it is the same trust class as the capacitor:// and tauri://
     // shell origins — API calls authenticate with an explicit bearer token, so
     // allowing it grants nothing an ambient-cookie origin could exploit.
     // manorama://localhost is the SwiftUI shell's origin: the native Mac shell
     // serves the app's own bundle from there and calls this API with the same
-    // explicit bearer token.
-    if (origin === 'capacitor://localhost' || origin === 'tauri://localhost' || origin === 'manorama://localhost' || origin === 'https://localhost') allowed = true
-    if (origin) {
-      try {
-        const url = new URL(origin)
-        allowed ||= url.protocol === 'http:' && url.hostname === 'localhost'
-      } catch {
-        allowed = false
-      }
-    }
+    // explicit bearer token. The downloads host applies the same isAppOrigin
+    // rule so the shells' update check can read latest.json.
+    const allowed = isAppOrigin(origin)
     if (allowed) {
       c.header('Access-Control-Allow-Origin', origin!)
       c.header('Access-Control-Allow-Headers', 'Authorization, Content-Type')
@@ -953,6 +948,53 @@ export const createManoramaApi = () => {
     }
   })
 
+  /** The cheap change probe behind Library-load freshness. One POST lists
+   *  the gallery's provider source metadata-only and compares it with the
+   *  stored manifest: 'changed' means the client should run the full
+   *  refresh; 'unchanged' and the throttle stamps the check so the next
+   *  Library load skips the source entirely. 'unknown' is the honest
+   *  failure mode — an incomplete listing or a manifest too old to carry
+   *  per-item change tokens — and still stamps the check (the provider
+   *  call was spent either way; 'legacy-manifest' additionally invites a
+   *  refresh, which writes the token baseline). Encrypted sources answer
+   *  'device': only a shell holding the key can list them, and it reports
+   *  its verdict back via { reported: 'changed' | 'unchanged' | 'unknown' }.
+   *  { force: true } bypasses the 24-hour throttle for a manual check. */
+  api.post('/api/galleries/:slug/probe', bodyLimit({ maxSize: 16 * 1024 }), requireEditableGallery(), async (c) => {
+    const session = c.get('manoramaSession')
+    const payload = await c.req.json<{ force?: boolean; reported?: string }>().catch((): { force?: boolean; reported?: string } => ({}))
+    try {
+      const gallery = await getGallery(session.accountId, c.req.param('slug'), dbEnv(c))
+      if (!gallery) return c.json({ error: 'That gallery was not found' }, 404)
+      if (!gallery.sourceUrl) return c.json({ status: 'skipped', reason: 'no-source' })
+      const reported = payload.reported === 'changed' || payload.reported === 'unchanged' || payload.reported === 'unknown' ? payload.reported : null
+      if (reported) {
+        const checked = await markGallerySourceChecked(session.accountId, gallery.slug, dbEnv(c))
+        return c.json({ status: 'device', recorded: reported, lastSourceCheckAt: checked?.lastSourceCheckAt ?? null })
+      }
+      const provider = detectSource(gallery.sourceUrl)
+      // Encrypted sources answer 'device' WITHOUT stamping the check — no
+      // provider call was spent, and an un-keyed device must not suppress
+      // another device's listing. The reported verdict is what stamps it.
+      if (provider === 'mega' || provider === 'ente' || provider === 'proton') {
+        return c.json({ status: 'device', reason: 'encrypted-source' })
+      }
+      if (provider !== 'dropbox' && provider !== 'gdrive' && provider !== 'icloud' && provider !== 'gphotos') {
+        return c.json({ status: 'skipped', reason: provider === 'local' ? 'local-source' : 'unrecognized-source' })
+      }
+      if (!payload.force && !sourceCheckDue(gallery.lastSourceCheckAt)) {
+        return c.json({ status: 'skipped', reason: 'recent', lastSourceCheckAt: gallery.lastSourceCheckAt })
+      }
+      // Stamp before listing: a failed probe still spent the provider
+      // call the throttle exists to limit.
+      const checked = await markGallerySourceChecked(session.accountId, gallery.slug, dbEnv(c))
+      const outcome = await probeSource(gallery, envOf(c))
+      return c.json({ ...outcome, lastSourceCheckAt: checked?.lastSourceCheckAt ?? null })
+    } catch (error) {
+      return c.json({ status: 'unknown', reason: error instanceof Error ? error.message : 'listing-incomplete' })
+    }
+  })
+
   api.post('/api/galleries/:slug/refresh', bodyLimit({ maxSize: 8 * 1024 * 1024 }), requireEditableGallery(), async (c) => {
     const session = c.get('manoramaSession')
     const payload = await c.req.json<RequestBody>().catch((): RequestBody => ({}))
@@ -992,6 +1034,9 @@ export const createManoramaApi = () => {
       // keyless media refs can never render through the legacy path again.
       const updated = await updateGalleryImages(session.accountId, gallery.slug, refreshed, dbEnv(c), submitted ? ENCRYPTED_MANIFEST_VERSION : undefined)
       if (!updated) return c.json({ error: 'That gallery was not found' }, 404)
+      // A refresh is itself a source read — stamp the freshness check so
+      // the next Library load does not immediately re-probe.
+      await markGallerySourceChecked(session.accountId, gallery.slug, dbEnv(c))
       return c.json({ gallery: toSummary(updated) })
     } catch (error) {
       if (error instanceof GalleryPolicyError) return c.json({ code: error.code, error: error.message }, error.code === 'MANIFEST_TOO_LARGE' ? 422 : 403)

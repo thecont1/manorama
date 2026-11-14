@@ -47,6 +47,7 @@ beforeAll(async () => {
   await applyMigration(db, '0014_encrypted_key_retirement.sql')
   await applyMigration(db, '0016_gallery_hidden.sql')
   await applyMigration(db, '0017_device_gallery_hidden.sql')
+  await applyMigration(db, '0020_gallery_source_check.sql')
 }, 15_000)
 
 afterAll(async () => {

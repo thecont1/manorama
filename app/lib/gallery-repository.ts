@@ -44,6 +44,9 @@ export type GalleryRecord = GalleryManifest & {
   hiddenAt?: string | null
   keyRetiredAt?: string | null
   migrationDevices?: string[]
+  /** The last completed source-freshness probe. Drives the Library-load
+   *  check throttle — a manual refresh stamps it too (a rescan IS a read). */
+  lastSourceCheckAt?: string | null
 }
 
 type GalleryRow = {
@@ -62,6 +65,7 @@ type GalleryRow = {
   hidden_at: string | null
   key_retired_at: string | null
   migration_devices: string | null
+  last_source_check_at: string | null
 }
 
 export type GalleryEnv = { DB?: D1Database }
@@ -91,6 +95,7 @@ const normalizeRecord = (gallery: GalleryRecord): GalleryRecord => ({
   hiddenAt: gallery.hiddenAt ?? null,
   keyRetiredAt: gallery.keyRetiredAt ?? null,
   migrationDevices: gallery.migrationDevices ?? [],
+  lastSourceCheckAt: gallery.lastSourceCheckAt ?? null,
 })
 
 const rowToRecord = (row: GalleryRow | null): GalleryRecord | null => {
@@ -110,6 +115,7 @@ const rowToRecord = (row: GalleryRow | null): GalleryRecord | null => {
     hiddenAt: row.hidden_at ?? null,
     keyRetiredAt: row.key_retired_at ?? null,
     migrationDevices: JSON.parse(row.migration_devices || '[]') as string[],
+    lastSourceCheckAt: row.last_source_check_at ?? null,
     images: [],
   }
   if (row.images_json) {
@@ -123,7 +129,7 @@ const rowToRecord = (row: GalleryRow | null): GalleryRecord | null => {
   return gallery
 }
 
-const GALLERY_COLUMNS = 'id, manifest_version, slug, title, caption, date, source_url, images_json, created_at, retention, expires_at, pinned_at, hidden_at, key_retired_at, migration_devices'
+const GALLERY_COLUMNS = 'id, manifest_version, slug, title, caption, date, source_url, images_json, created_at, retention, expires_at, pinned_at, hidden_at, key_retired_at, migration_devices, last_source_check_at'
 
 type GalleryInsertRow = {
   id: string
@@ -494,6 +500,28 @@ export const setGalleryHidden = async (ownerId: string, slug: string, hidden: bo
   return updated
 }
 
+/** Stamps the source-freshness probe: the gallery's provider source was
+ *  checked at `at` (now by default). Written on every real probe attempt —
+ *  including inconclusive ones, since a failed listing still spent the
+ *  provider call the throttle exists to limit — and on a manual refresh,
+ *  which is itself a full source read. Returns null like the other
+ *  single-flag writers when no row matches. */
+export const markGallerySourceChecked = async (ownerId: string, slug: string, env?: GalleryEnv, at = new Date().toISOString()): Promise<GalleryRecord | null> => {
+  if (d1Configured(env)) {
+    const result = await env.DB
+      .prepare(`UPDATE galleries SET last_source_check_at = ? WHERE owner_id = ? AND slug = ?`)
+      .bind(at, ownerId, slug).run()
+    if ((result.meta.changes ?? 0) === 0) return null
+    return getGallery(ownerId, slug, env)
+  }
+  const store = ownerStore(ownerId)
+  const current = store.get(slug)
+  if (!current) return null
+  const updated = { ...normalizeRecord(current), lastSourceCheckAt: at }
+  store.set(slug, updated)
+  return updated
+}
+
 /** Promotes a pipeline gallery into a permanent slot on its own — used
  *  when the owner's permanent set has room and no swap is needed. The
  *  slot check rides inside the same UPDATE (a count-and-write pre-check
@@ -793,7 +821,7 @@ export const toSummary = (gallery: GalleryRecord) => {
   // vault's "Saving n of imageCount" progress reads it.
   const visible = gallery.images.filter((image) => !image.hidden)
   const { stills, videos } = mediaCountOf(visible)
-  return { id: gallery.id, manifestVersion: gallery.manifestVersion ?? 1, slug: gallery.slug, title: gallery.title, caption: gallery.caption, date: gallery.date, imageCount: gallery.images.length, mediaCount: { stills, videos, hidden: gallery.images.length - visible.length }, sourceUrl: gallery.sourceUrl, createdAt: gallery.createdAt, retention: retentionOf(gallery), expiresAt: gallery.expiresAt ?? null, pinnedAt: gallery.pinnedAt ?? null, hiddenAt: gallery.hiddenAt ?? null, keyRetiredAt: gallery.keyRetiredAt ?? null, images: previewImages(gallery.images) }
+  return { id: gallery.id, manifestVersion: gallery.manifestVersion ?? 1, slug: gallery.slug, title: gallery.title, caption: gallery.caption, date: gallery.date, imageCount: gallery.images.length, mediaCount: { stills, videos, hidden: gallery.images.length - visible.length }, sourceUrl: gallery.sourceUrl, createdAt: gallery.createdAt, retention: retentionOf(gallery), expiresAt: gallery.expiresAt ?? null, pinnedAt: gallery.pinnedAt ?? null, hiddenAt: gallery.hiddenAt ?? null, keyRetiredAt: gallery.keyRetiredAt ?? null, lastSourceCheckAt: gallery.lastSourceCheckAt ?? null, images: previewImages(gallery.images) }
 }
 export type GallerySummary = ReturnType<typeof toSummary>
 

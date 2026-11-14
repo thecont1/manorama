@@ -29,6 +29,8 @@ import { webGalleryKeyStore } from '../lib/key-store'
 import { rewriteGalleryHistory } from '../lib/gallery-url'
 import type { EncryptedClientSession } from '../lib/encrypted-resolver'
 import { releaseAllEncryptedDisplays, releaseEncryptedGallery } from '../lib/encrypted-display'
+import { deviceListingOutcome, sourceCheckDue } from '../lib/source-freshness'
+import { refreshRequestInit } from '../lib/encrypted-refresh'
 
 type Props = {
   galleries: readonly GallerySummary[]
@@ -194,6 +196,71 @@ export default function Admin({ galleries: initialGalleries, owner, ownerName, p
   useEffect(() => {
     const tick = setInterval(() => setNow(Date.now()), 60_000)
     return () => clearInterval(tick)
+  }, [])
+
+  // Library-load source freshness (#208): quietly probe each retained
+  // source gallery whose last check is older than a day and refresh the
+  // ones that moved — the product notices instead of the owner pressing
+  // Refresh. Server-probeable sources answer changed/unchanged directly;
+  // encrypted sources answer 'device' and this browser does the compare
+  // when it holds the key, reporting the verdict back. Everything is
+  // sequential and every failure is swallowed — a source check must
+  // never make the Library slower or louder.
+  useEffect(() => {
+    const due = initialGalleries.filter((gallery) =>
+      gallery.sourceUrl && gallery.retention === 'retained' && sourceCheckDue(gallery.lastSourceCheckAt))
+    if (!due.length) return
+    let cancelled = false
+    const probePost = (slug: string, body: string) =>
+      fetch(`/api/galleries/${encodeURIComponent(slug)}/probe`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body })
+    const probeEncrypted = async (gallery: GallerySummary): Promise<boolean> => {
+      if (!gallery.id) return false
+      const source = await webGalleryKeyStore().get(gallery.id)
+      // This device holds no key — the honest skip, nothing is reported.
+      if (!source) return false
+      // The library summary may be cover-only; the compare needs the
+      // whole manifest, so fetch the full one first.
+      const full = await fetch(`/api/galleries/${encodeURIComponent(gallery.slug)}`)
+      const payload = await full.json().catch(() => ({})) as { gallery?: GallerySummary }
+      if (!full.ok || !payload.gallery) return false
+      const { openEncryptedSource } = await import('../lib/encrypted-client')
+      const session = await openEncryptedSource(source)
+      try {
+        const listing = await session.listing
+        const outcome = deviceListingOutcome(payload.gallery.images, listing)
+        await probePost(gallery.slug, JSON.stringify({ reported: outcome })).catch(() => undefined)
+        if (outcome !== 'changed') return false
+        const refresh = await fetch(`/api/galleries/${encodeURIComponent(gallery.slug)}/refresh`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ manifest: { provider: session.provider, sourceUrl: session.sourceUrl, ...listing } }),
+        })
+        return refresh.ok
+      } finally {
+        session.dispose()
+      }
+    }
+    const probeOne = async (gallery: GallerySummary): Promise<boolean> => {
+      const response = await probePost(gallery.slug, '{}')
+      const probe = await response.json().catch(() => ({})) as { status?: string }
+      if (!response.ok || !probe.status) return false
+      if (probe.status === 'device') return probeEncrypted(gallery)
+      if (probe.status !== 'changed') return false
+      const refresh = await fetch(
+        `/api/galleries/${encodeURIComponent(gallery.slug)}/refresh`,
+        await refreshRequestInit({ id: gallery.id, sourceUrl: gallery.sourceUrl }),
+      )
+      return refresh.ok
+    }
+    void (async () => {
+      let touched = false
+      for (const gallery of due) {
+        if (cancelled) return
+        try { touched = (await probeOne(gallery)) || touched } catch { /* one gallery's failure never stalls the rest */ }
+      }
+      if (touched && !cancelled) await refetchLibrary().catch(() => {})
+    })()
+    return () => { cancelled = true }
   }, [])
 
   const refreshIdentities = async () => {

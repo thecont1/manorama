@@ -1,4 +1,5 @@
 import { MAX_GALLERY_ITEMS, SourceFetchError, type GalleryImage, type GalleryMediaItem, type VideoItem } from './imagesource'
+import { manifestKeyOf, versionedListingDiffers, type FreshnessItem, type ProbeOutcome } from './source-freshness'
 import { MAX_RETRY_WAIT_MS, PROBE_RETRY_WAIT_MS, retryAfterMs } from './transient-retry'
 
 /**
@@ -188,6 +189,13 @@ const looksLikeVideoDerivative = (derivative: Derivative) => {
  *  of 'video' is the reliable per-photo signal (the poster/video split
  *  lives one level down, in the derivatives). */
 const isVideoEntry = (photo: StreamPhoto) => photo.mediaAssetType === 'video'
+
+/** The change token a manifest stores per legacy-album item: its caption
+ *  plus the sorted derivative checksums. A replace or a caption edit at
+ *  the source shifts it; the freshness probe re-derives it from the same
+ *  webstream listing and compares. */
+const streamPhotoVersion = (photo: StreamPhoto) =>
+  `${photo.caption?.trim() ?? ''}|${Object.values(photo.derivatives ?? {}).map((d) => d.checksum).filter(Boolean).sort().join(',')}`
 
 const durationOf = (photo: StreamPhoto, derivative?: Derivative) => {
   const seconds = num(derivative?.duration) ?? num(photo.duration) ?? num(photo.videoDuration)
@@ -389,6 +397,7 @@ export const scanICloudAlbum = async (input: string, fetchImpl: typeof fetch = f
         // The poster doubles as the rail/strip thumbnail, so every
         // `variants?.[0]?.src` consumer keeps working untouched.
         variants: [{ width: num(poster.width) || width, src: imageProxy(token, photo.photoGuid, poster.checksum!), format: 'jpeg' }],
+        contentVersion: streamPhotoVersion(photo),
       }
       const durationSeconds = durationOf(photo, video)
       if (durationSeconds !== undefined) item.durationSeconds = durationSeconds
@@ -417,6 +426,7 @@ export const scanICloudAlbum = async (input: string, fetchImpl: typeof fetch = f
       thumbnailFidelity: 'display-derivative',
       placeholder: placeholderFor(width, height),
       variants: [{ width: num(smallest.width) || 256, src: imageProxy(token, photo.photoGuid, smallest.checksum!), format: 'jpeg' }],
+      contentVersion: streamPhotoVersion(photo),
     }
     items.push(image)
     index += 1
@@ -605,7 +615,7 @@ const CK_MAX_PAGES = 50 // hard stop so a huge zone cannot page forever
 type CkZoneID = { zoneName: string; ownerRecordName?: string; zoneType?: string }
 type CkShare = { zoneID: CkZoneID; partition: string; authToken: string; title?: string }
 type CkFieldValue = { value?: unknown; type?: string }
-type CkRecord = { recordName?: string; recordType?: string; fields?: Record<string, CkFieldValue> }
+type CkRecord = { recordName?: string; recordType?: string; recordChangeTag?: string; fields?: Record<string, CkFieldValue> }
 
 const ckNumber = (field: CkFieldValue | undefined) =>
   typeof field?.value === 'number' && Number.isFinite(field.value) ? field.value : undefined
@@ -737,6 +747,7 @@ const scanICloudCloudKitAlbum = async (input: string, fetchImpl: typeof fetch = 
       const frames = stills.filter((d) => d.name !== 'resOriginalRes')
       const poster = pickArea(frames.length ? frames : stills)
       if (!video || !frames.length) continue
+      const ckChangeTag = master.recordChangeTag
       const width = originalWidth ?? num(poster.width) ?? 16
       const height = originalHeight ?? num(poster.height) ?? 9
       const item: VideoItem = {
@@ -755,6 +766,7 @@ const scanICloudCloudKitAlbum = async (input: string, fetchImpl: typeof fetch = 
         thumbnailFidelity: 'display-derivative',
         placeholder: placeholderFor(width, height),
         variants: [{ width: num(poster.width) || 256, src: ckImageProxy(token, recordName, poster.name), format: 'jpeg' }],
+        ...(ckChangeTag ? { contentVersion: ckChangeTag } : {}),
       }
       items.push(item)
       index += 1
@@ -785,6 +797,7 @@ const scanICloudCloudKitAlbum = async (input: string, fetchImpl: typeof fetch = 
       c2pa: primary === original,
       placeholder: placeholderFor(width, height),
       variants: [{ width: num(thumb.width) || 256, src: ckImageProxy(token, recordName, thumb.name), format: 'jpeg' }],
+      ...(master.recordChangeTag ? { contentVersion: master.recordChangeTag } : {}),
     })
     index += 1
   }
@@ -795,6 +808,102 @@ const scanICloudCloudKitAlbum = async (input: string, fetchImpl: typeof fetch = 
     title: share.title?.trim() || 'Shared album',
     images: items,
     ...(found.length > MAX_GALLERY_ITEMS ? { truncated: found.length } : {}),
+  }
+}
+
+/** The same slide-eligibility the CK scan applies, minus the slide it
+ *  builds: a master counts toward the listing only when it can produce
+ *  at least one still, and a movie master additionally needs a playable
+ *  rendition plus a poster frame — matching the scan's own skip rules. */
+const ckMasterSlideEligible = (fields: Record<string, CkFieldValue>) => {
+  const derivatives = ckDerivativeFields(fields)
+  const stills = derivatives.filter((d) => !d.video)
+  if (!stills.length) return false
+  if (CK_VIDEO_TYPE.test(ckString(fields.itemType) ?? '')) {
+    const hasVideo = derivatives.some((d) => d.video) || stills.some((d) => d.name === 'resOriginalRes')
+    return hasVideo && stills.some((d) => d.name !== 'resOriginalRes')
+  }
+  return true
+}
+
+/**
+ * The freshness probe, both iCloud backends.
+ *
+ * Legacy sharedstreams: the album answers one `webstream` listing and the
+ * probe compares each photo's (guid, caption+checksums) token against the
+ * manifest — same shape as the Dropbox/Drive probes. (The `streamCtag`
+ * the response also carries is an album-level token, but there is nowhere
+ * server-side to store it between checks; the per-item compare is free
+ * once the listing is in hand and self-baselines from the manifest.)
+ * Video entries get the same split eligibility the scan uses, including
+ * the webasseturls metadata probe — still no media bytes.
+ *
+ * CloudKit: an anonymous resolve plus the same paged CPLMaster query;
+ * recordChangeTag is the per-item token. Paging stops once the zone
+ * outgrows the manifest; a page cap hit while the marker is still live
+ * is a partial listing and answers 'unknown'.
+ *
+ * Any provider failure answers 'unknown' — an unprovable check is never
+ * 'unchanged'.
+ */
+export const probeICloudAlbum = async (
+  input: string,
+  images: readonly FreshnessItem[],
+  fetchImpl: typeof fetch = fetch,
+): Promise<ProbeOutcome> => {
+  if (icloudLinkKind(input) === 'cloudkit') {
+    const token = extractAlbumToken(input)
+    if (!token) return { status: 'unknown', reason: 'unrecognized-source' }
+    try {
+      const share = await retryOnceOnTransient(() => resolveCkShare(token, fetchImpl))
+      const zoneJson = { zoneName: share.zoneID.zoneName, ownerRecordName: share.zoneID.ownerRecordName, zoneType: share.zoneID.zoneType }
+      const queryUrl = `${share.partition}/database/1/${CK_CONTAINER}/production/shared/records/query?${CK_PARAMS}&publicAccessAuthToken=${encodeURIComponent(share.authToken)}`
+      const expected = new Map(images.map((image) => [manifestKeyOf(image), image.contentVersion]))
+      const found = new Map<string, string | undefined>()
+      let marker: string | undefined
+      let pages = 0
+      do {
+        const page = await retryOnceOnTransient(() => ckPost<{ records?: CkRecord[]; continuationMarker?: string }>(fetchImpl, queryUrl, {
+          query: {
+            recordType: CK_RECORD_TYPE,
+            filterBy: [{ fieldName: 'direction', comparator: 'EQUALS', fieldValue: { value: 'DESCENDING', type: 'STRING' } }],
+          },
+          zoneID: zoneJson,
+          resultsLimit: CK_PAGE_SIZE,
+          ...(marker ? { continuationMarker: marker } : {}),
+        }))
+        for (const record of page.records ?? []) {
+          if (record.recordType === 'CPLMaster' && record.recordName && record.fields && ckMasterSlideEligible(record.fields)) {
+            found.set(record.recordName, record.recordChangeTag)
+          }
+        }
+        marker = page.continuationMarker || undefined
+        pages += 1
+      } while (marker && pages < CK_MAX_PAGES && found.size <= expected.size)
+      if (marker && found.size <= expected.size) return { status: 'unknown', reason: 'listing-incomplete' }
+      return { status: versionedListingDiffers(images, [...found].map(([key, version]) => ({ key, version }))) }
+    } catch {
+      return { status: 'unknown', reason: 'listing-incomplete' }
+    }
+  }
+  const token = extractAlbumToken(input)
+  if (!token) return { status: 'unknown', reason: 'unrecognized-source' }
+  try {
+    const stream = await retryOnceOnTransient(() => postSharedstreams<StreamResponse>(token, 'webstream', { streamCtag: null }, fetchImpl))
+    const found = (stream.photos ?? []).filter((photo) => photo.derivatives && Object.keys(photo.derivatives).length)
+    const fresh: { key: string; version: string }[] = []
+    for (const photo of found) {
+      if (isVideoEntry(photo)) {
+        const split = await splitVideoDerivatives(photo.derivatives!, probeDerivativeIsVideo(token, photo.photoGuid, fetchImpl))
+        if (!split) continue
+      } else if (!pickDerivative(photo.derivatives!, 'largest') || !pickDerivative(photo.derivatives!, 'smallest')) {
+        continue
+      }
+      fresh.push({ key: photo.photoGuid, version: streamPhotoVersion(photo) })
+    }
+    return { status: versionedListingDiffers(images, fresh) }
+  } catch {
+    return { status: 'unknown', reason: 'listing-incomplete' }
   }
 }
 

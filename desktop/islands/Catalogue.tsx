@@ -34,7 +34,7 @@ import { assetUrl, isDesktopRuntime, pathExists, pickGalleryFolder, readDirEntri
 import { invoke } from '@tauri-apps/api/core'
 import { removeDeviceGallery, syncDeviceGalleries } from '../lib/sync'
 import { copyText, shareGalleryOnWeb } from '../../app/lib/gallery-share'
-import { AccountApiError, createAccountGallery, deleteAccount, deleteDeviceGalleryRecord, fetchAccountGalleries, fetchAccountGallery, fetchAccountIdentities, fetchAccountProfile, fetchDeviceGalleries, mintLinkHandoff, patchAccountOwnerSlug, scanGalleryLink, setAccountGalleryHidden, setAccountGalleryPin, setDeviceGalleryHidden, standaloneDeviceGalleries, unlinkAccountIdentity } from '../lib/account'
+import { AccountApiError, createAccountGallery, deleteAccount, deleteDeviceGalleryRecord, fetchAccountGalleries, fetchAccountGallery, fetchAccountIdentities, fetchAccountProfile, fetchDeviceGalleries, mintLinkHandoff, patchAccountOwnerSlug, probeAccountGallery, refreshAccountGallery, scanGalleryLink, setAccountGalleryHidden, setAccountGalleryPin, setDeviceGalleryHidden, standaloneDeviceGalleries, unlinkAccountIdentity } from '../lib/account'
 import { previewSrcFor, sourceLabelFor } from '../../native/lib/library-media'
 import type { GallerySummary } from '../../app/lib/gallery-repository'
 import type { DeviceGallery } from '../../packages/core/device-gallery'
@@ -73,6 +73,9 @@ import { Button } from '../../app/components/ui/Button'
 import { friendlySourceError } from '../../app/lib/source-errors'
 import type { EncryptedClientSession } from '../../app/lib/encrypted-resolver'
 import { applyTheme, readStoredTheme, storeTheme, type Theme } from '../lib/theme'
+import { deviceListingOutcome, sourceCheckDue } from '../../app/lib/source-freshness'
+import { refreshRequestInit } from '../../app/lib/encrypted-refresh'
+import { checkDesktopAppUpdate, updateStillPending, type AppUpdate } from '../lib/app-update'
 import {
   beginDesktopSignIn,
   clearSession,
@@ -1214,6 +1217,80 @@ export default function Catalogue({ apiBase }: { apiBase: string }) {
   const refreshAccountGalleries = async (token: string) => {
     const galleries = await fetchAccountGalleries(base, token).catch(() => null)
     if (galleries) setAccountGalleries(galleries)
+  }
+
+  // Library-load source freshness (#208): probe each retained source
+  // gallery whose check is older than a day and refresh the ones that
+  // moved — the same contract the web Library runs. 'device' answers run
+  // the compare here when this shell holds the source key and report the
+  // verdict back, stamping the shared check. Sequential, every failure
+  // swallowed — the list landing again is what re-arms the loop, and the
+  // server stamp keeps a refetch from re-probing.
+  useEffect(() => {
+    if (!session || !accountGalleries?.length) return
+    const due = accountGalleries.filter((gallery) =>
+      gallery.sourceUrl && gallery.retention === 'retained' && sourceCheckDue(gallery.lastSourceCheckAt))
+    if (!due.length) return
+    let live = true
+    const probeEncrypted = async (gallery: GallerySummary): Promise<boolean> => {
+      if (!gallery.id) return false
+      const source = await desktopKeyStore().get(gallery.id)
+      // This device holds no key — the honest skip, nothing is reported.
+      if (!source) return false
+      const { openEncryptedSource } = await import('../../app/lib/encrypted-client')
+      const enc = await openEncryptedSource(source)
+      try {
+        const listing = await enc.listing
+        const outcome = deviceListingOutcome(gallery.images, listing)
+        await probeAccountGallery(base, session.token, gallery.slug, { reported: outcome }).catch(() => null)
+        if (outcome !== 'changed') return false
+        await refreshAccountGallery(base, session.token, gallery.slug, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ manifest: { provider: enc.provider, sourceUrl: enc.sourceUrl, ...listing } }),
+        })
+        return true
+      } finally {
+        enc.dispose()
+      }
+    }
+    const probeOne = async (gallery: GallerySummary): Promise<boolean> => {
+      const probe = await probeAccountGallery(base, session.token, gallery.slug)
+      if (!probe) return false
+      if (probe.status === 'device') return probeEncrypted(gallery)
+      if (probe.status !== 'changed') return false
+      await refreshAccountGallery(
+        base, session.token, gallery.slug,
+        await refreshRequestInit({ id: gallery.id, sourceUrl: gallery.sourceUrl, keyStore: desktopKeyStore() }),
+      )
+      return true
+    }
+    void (async () => {
+      let touched = false
+      for (const gallery of due) {
+        if (!live) return
+        try { touched = (await probeOne(gallery)) || touched } catch { /* one gallery's failure never stalls the rest */ }
+      }
+      if (touched && live) await refreshAccountGalleries(session.token)
+    })()
+    return () => { live = false }
+  }, [accountGalleries, session, base])
+
+  // App freshness: the release pointer is checked once the Library is up.
+  // A newer published version becomes the dismissible banner and the
+  // Settings row; dismissal is per-version, so the next release re-arms.
+  const [appUpdate, setAppUpdate] = useState<AppUpdate | null>(null)
+  useEffect(() => {
+    let live = true
+    void checkDesktopAppUpdate()
+      .then((update) => { if (live) setAppUpdate(update) })
+      .catch(() => {})
+    return () => { live = false }
+  }, [])
+  const pendingUpdate = updateStillPending(appUpdate, prefs.dismissedUpdateVersion)
+  const dismissUpdate = () => {
+    if (!appUpdate) return
+    void persistPrefs({ ...prefs, dismissedUpdateVersion: appUpdate.version }).catch(() => {})
   }
 
   // Encrypted cards only produce a full link — the shareable form with the
@@ -2532,6 +2609,13 @@ export default function Catalogue({ apiBase }: { apiBase: string }) {
           <p class="admin-copyright">© 2026 Mahesh Shantaram.<br />Photographs in galleries belong to their respective owners.</p>
         </aside>
         <section class="gallery-list" aria-labelledby="galleries-heading">
+          {pendingUpdate ? (
+            <div class="app-update-banner" role="status">
+              <span class="app-update-text">manorama <strong>v{pendingUpdate.version}</strong> is available.</span>
+              <button type="button" class="admin-button admin-button--solid" onClick={() => openExternal(pendingUpdate.url)}>Download</button>
+              <button type="button" class="app-update-dismiss" aria-label="Dismiss this update notice" onClick={dismissUpdate}>×</button>
+            </div>
+          ) : null}
           {pinnedStrips.length ? (
             <section aria-labelledby="pinned-galleries-title">
               <button
@@ -3056,6 +3140,7 @@ export default function Catalogue({ apiBase }: { apiBase: string }) {
             onDeleteAccount={() => void removeAccount()}
             onBack={() => setSettingsOpen(false)}
             onSignOut={signOut}
+            appUpdate={appUpdate}
             deviceSection={(
               <>
                 <ActionGroup label="This Mac">

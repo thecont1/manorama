@@ -331,6 +331,36 @@ export const updateGalleryMetadata = async (
 export const updateGalleryCaption = async (apiBase: string, slug: string, caption: string): Promise<string> =>
   (await updateGalleryMetadata(apiBase, slug, { caption })).caption ?? ''
 
+/** The probe endpoint's answer — 'device' means only a key-holding shell
+ *  can list the source; this device runs the compare and reports the
+ *  verdict back via { reported }. */
+export type GalleryProbeResult = {
+  status: 'changed' | 'unchanged' | 'unknown' | 'device' | 'skipped'
+  reason?: string
+  lastSourceCheckAt?: string | null
+}
+
+/** POST {apiBase}/api/galleries/{slug}/probe — the once-a-day metadata
+ *  check behind Library-load freshness (#208). A non-200 or shapeless
+ *  answer returns null — callers treat that like 'unknown' and move on. */
+export const probeAccountGallery = async (
+  apiBase: string,
+  slug: string,
+  body: { force?: boolean; reported?: 'changed' | 'unchanged' | 'unknown' } = {},
+): Promise<GalleryProbeResult | null> => {
+  const response = await fetch(`${normalizeApiBase(apiBase)}/api/galleries/${encodeURIComponent(slug)}/probe`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...(await bearerHeaders()) },
+    body: JSON.stringify(body),
+  })
+  const payload = await response.json().catch(() => null) as ({ status?: string } & Omit<GalleryProbeResult, 'status'>) | null
+  if (!response.ok || !payload) return null
+  const status = payload.status
+  return status === 'changed' || status === 'unchanged' || status === 'unknown' || status === 'device' || status === 'skipped'
+    ? { ...payload, status }
+    : null
+}
+
 export const refreshGallery = async (apiBase: string, slug: string): Promise<GallerySummary> => {
   const response = await fetch(`${normalizeApiBase(apiBase)}/api/galleries/${encodeURIComponent(slug)}/refresh`, {
     method: 'POST',

@@ -105,6 +105,7 @@ const sharedD1Database = async () => {
     // Deletes also clear gallery_keys — same fixture rule as device links.
     await applyMigration(proxy.env.DB, '0015_gallery_key_vault.sql')
     await applyMigration(proxy.env.DB, '0016_gallery_hidden.sql')
+    await applyMigration(proxy.env.DB, '0020_gallery_source_check.sql')
     sharedD1 = { proxy }
   }
   return sharedD1.proxy.env.DB
@@ -187,6 +188,7 @@ describe('migration 0002 on a legacy database', () => {
     await applyMigration(db, '0014_encrypted_key_retirement.sql')
     await applyMigration(db, '0015_gallery_key_vault.sql')
     await applyMigration(db, '0016_gallery_hidden.sql')
+    await applyMigration(db, '0020_gallery_source_check.sql')
   }, 15_000)
 
   afterAll(async () => {

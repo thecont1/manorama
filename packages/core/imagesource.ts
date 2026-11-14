@@ -96,6 +96,10 @@ export type VideoItem = {
   id: string
   ref?: string
   filename: string
+  /** Opaque provider-change detector, same role as on GalleryImage —
+   *  a video entry's derivative set or record tag shifts when the
+   *  source video is replaced. */
+  contentVersion?: string
   /** Proxy URL for the H.264 MP4 derivative — Range-capable. */
   src: string
   fidelity?: 'original' | 'full-resolution-render' | 'display-derivative' | 'unknown'
