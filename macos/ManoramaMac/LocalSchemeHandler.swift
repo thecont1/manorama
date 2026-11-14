@@ -340,8 +340,24 @@ final class LocalSchemeHandler: NSObject, WKURLSchemeHandler {
         // body arrives on `httpBodyStream` instead, so a PATCH that copied
         // only `httpBody` would reach the API empty. Read the stream off
         // the caller's queue, then send.
-        Self.requestBody(from: request) { [weak self] body in
+        Self.requestBody(from: request) { [weak self] result in
             guard let self else { return }
+            if case .failure(let error) = result {
+                // A body that cannot be read is never forwarded partial —
+                // the task fails on the main queue, where a stop and the
+                // answer can never interleave.
+                DispatchQueue.main.async { [weak self] in
+                    guard let self else { return }
+                    if self.wasStopped(taskID) {
+                        self.clearStopped(taskID)
+                        return
+                    }
+                    self.clearStopped(taskID)
+                    task.didFailWithError(error)
+                }
+                return
+            }
+            guard case .success(let body) = result else { return }
             // A task stopped while its body was being read owes nothing.
             if self.wasStopped(taskID) {
                 self.clearStopped(taskID)
@@ -431,14 +447,16 @@ final class LocalSchemeHandler: NSObject, WKURLSchemeHandler {
     ///
     /// `httpBody` is populated for some requests and `httpBodyStream` for
     /// others — the stream is the reliable carrier on a custom scheme, and
-    /// it blocks, so it is drained on a background queue.
-    private static func requestBody(from request: URLRequest, completion: @escaping (Data?) -> Void) {
+    /// it blocks, so it is drained on a background queue. A zero read is
+    /// the end of the stream; a negative one is a failure, and the bytes
+    /// gathered so far must not pass for a complete body.
+    private static func requestBody(from request: URLRequest, completion: @escaping (Result<Data?, Error>) -> Void) {
         if let body = request.httpBody {
-            completion(body)
+            completion(.success(body))
             return
         }
         guard let stream = request.httpBodyStream else {
-            completion(nil)
+            completion(.success(nil))
             return
         }
         DispatchQueue.global(qos: .userInitiated).async {
@@ -446,12 +464,24 @@ final class LocalSchemeHandler: NSObject, WKURLSchemeHandler {
             defer { stream.close() }
             var data = Data()
             var buffer = [UInt8](repeating: 0, count: 64 * 1024)
+            var failure: Error?
             while stream.hasBytesAvailable {
                 let read = stream.read(&buffer, maxLength: buffer.count)
-                if read <= 0 { break }
+                if read == 0 { break }
+                if read < 0 {
+                    failure = stream.streamError ?? URLError(.cannotDecodeContentData)
+                    break
+                }
                 data.append(buffer, count: read)
             }
-            completion(data.isEmpty ? nil : data)
+            if failure == nil, let streamError = stream.streamError {
+                failure = streamError
+            }
+            if let failure {
+                completion(.failure(failure))
+            } else {
+                completion(.success(data.isEmpty ? nil : data))
+            }
         }
     }
 
