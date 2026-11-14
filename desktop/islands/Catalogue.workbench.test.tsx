@@ -2085,13 +2085,13 @@ describe('desktop catalogue workbench', () => {
 
   test('a synced row naming this Mac is a ghost — it says so, offers Link folder, and linking reuses the row id', async () => {
     // The row an earlier install synced before its catalogue was rebuilt:
-    // a deviceId that is not this catalogue's, under this Mac's own label.
+    // this device's own deviceId, with no local record left to stand for it.
     const ghost = {
       id: 'eeeeeeee-1111-4222-8333-555555555555',
       title: 'UGANDA',
       sourceKind: 'folder',
       itemCount: 28,
-      deviceId: '99999999-1111-4222-8333-444444444444',
+      deviceId: DEVICE_ID,
       deviceLabel: 'This Mac',
       updatedAt: '2026-11-14T13:50:00.000Z',
     }

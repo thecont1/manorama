@@ -556,13 +556,19 @@ export default function Catalogue({ apiBase }: { apiBase: string }) {
     return () => window.removeEventListener('popstate', followHistory)
   }, [])
 
-  const persistCatalogue = useCallback(async (next: LocalCatalogue) => {
-    setCatalogue(next)
+  const persistCatalogue = useCallback(async (next: LocalCatalogue): Promise<boolean> => {
+    // The write lands before the state does — a failed save answers
+    // false so the caller can stop before deleting a synced row or
+    // announcing a change the disk never took.
     try {
       await writeCatalogueFile(serializeLocalCatalogue(next))
     } catch {
       setNotice('The catalogue could not be saved locally')
+      return false
     }
+    catalogueRef.current = next
+    setCatalogue(next)
+    return true
   }, [])
 
   const hiddenPasswordSet = Boolean(prefs.hiddenPassword)
@@ -1010,13 +1016,17 @@ export default function Catalogue({ apiBase }: { apiBase: string }) {
       }
       // Re-picking an existing root replaces its record — same source,
       // fresh scan, new id (the old remote row goes stale and is deleted).
-      const replaced = catalogue.galleries.find((g) => g.rootPath === root)
+      // The scan took a while — build on the catalogue as it is NOW, not
+      // the one this handler was created with, so edits that landed
+      // during the wait are never overwritten.
+      const latest = catalogueRef.current ?? catalogue
+      const replaced = latest.galleries.find((g) => g.rootPath === root)
       const next = {
-        ...catalogue,
-        galleries: [...catalogue.galleries.filter((g) => g.rootPath !== root), record],
+        ...latest,
+        galleries: [...latest.galleries.filter((g) => g.rootPath !== root), record],
       }
       setAvailability((previous) => ({ ...previous, [record.id]: 'available' }))
-      await persistCatalogue(next)
+      if (!(await persistCatalogue(next))) return
       if (session && replaced) void removeDeviceGallery(base, session.token, replaced)
       setNotice(`${record.title} added.`)
       scrollToGalleryCard(record.id)
@@ -1058,14 +1068,20 @@ export default function Catalogue({ apiBase }: { apiBase: string }) {
         items: scan.items,
         addedAt: now,
         lastSeenAt: now,
+        // The row was hidden account-wide — the relinked record must keep
+        // that flag or the next sync PUTs it back visible.
+        ...(ghost.hidden ? { hiddenAt: now } : {}),
       }
-      const replaced = catalogue.galleries.find((g) => g.rootPath === root && g.id !== ghost.id)
+      // Same staleness rule as addFolder: merge into the catalogue as it
+      // is after the scan, not the snapshot this handler opened with.
+      const latest = catalogueRef.current ?? catalogue
+      const replaced = latest.galleries.find((g) => g.rootPath === root && g.id !== ghost.id)
       const next = {
-        ...catalogue,
-        galleries: [...catalogue.galleries.filter((g) => g.rootPath !== root && g.id !== ghost.id), record],
+        ...latest,
+        galleries: [...latest.galleries.filter((g) => g.rootPath !== root && g.id !== ghost.id), record],
       }
       setAvailability((previous) => ({ ...previous, [record.id]: 'available' }))
-      await persistCatalogue(next)
+      if (!(await persistCatalogue(next))) return
       if (session && replaced) void removeDeviceGallery(base, session.token, replaced)
       setNotice(`“${record.title}” is linked to this Mac again.`)
       scrollToGalleryCard(record.id)
@@ -2196,7 +2212,7 @@ export default function Catalogue({ apiBase }: { apiBase: string }) {
   // device row published as a cloud gallery collapses the moment the account
   // read arrives, without waiting on the slower call.
   const localRecordIds = new Set(galleries.map((record) => record.id))
-  const remoteDeviceGalleries = standaloneDeviceGalleries(deviceRows, accountGalleries ?? [], catalogue.deviceId, catalogue.deviceLabel, localRecordIds)
+  const remoteDeviceGalleries = standaloneDeviceGalleries(deviceRows, accountGalleries ?? [], catalogue.deviceId, localRecordIds)
   // Partition the account galleries into pinned strips and compact cards,
   // mirroring the web Library's shared layout rule. Pinned rows lead by
   // pinnedAt; everything else collapses to a compact cover card.

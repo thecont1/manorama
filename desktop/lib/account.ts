@@ -382,24 +382,26 @@ export const deleteDeviceGalleryRecord = async (
 }
 
 /** A synced row with no local record behind it, classified for the card it
- *  earns. `ghost` means the row almost certainly came from this Mac — same
- *  deviceId, or same device label under an identity a catalogue reset
- *  regenerated — so "open it on that device" would send the owner looking
- *  for a machine that does not exist. Foreign rows stay honest mirrors. */
+ *  earns. `ghost` means the row came from this Mac — the deviceId is the
+ *  identity (hardware-anchored or persisted across catalogue resets), so
+ *  "open it on that device" would send the owner looking for a machine
+ *  that does not exist. Foreign rows stay honest mirrors. The label is
+ *  deliberately NOT consulted: two of the owner's Macs can share a
+ *  ComputerName, and a label match would offer to relink — and then
+ *  overwrite — a row that belongs to the other machine. */
 export type StandaloneDeviceGallery = { gallery: DeviceGallery; ghost: boolean }
 
 /** A synced record earns its own card only while nothing else already
  *  represents it: a local catalogue record stands for its own synced row,
  *  and a folder published as a cloud gallery collapses into that gallery's
  *  card — the same dedupe the iOS library applies. Rows that survive are
- *  flagged `ghost` when they name this Mac — a catalogue that lost its
- *  records (or an earlier install that generated a new deviceId) leaves
- *  rows that look foreign but live on the disk in front of the owner. */
+ *  flagged `ghost` when they name this Mac's deviceId — a catalogue that
+ *  lost its records leaves rows that look foreign but live on the disk in
+ *  front of the owner. */
 export const standaloneDeviceGalleries = (
   deviceGalleries: readonly DeviceGallery[],
   accountGalleries: readonly GallerySummary[],
   ownDeviceId: string | undefined,
-  ownDeviceLabel: string | undefined,
   localIds: ReadonlySet<string>,
 ): StandaloneDeviceGallery[] =>
   deviceGalleries
@@ -408,5 +410,5 @@ export const standaloneDeviceGalleries = (
       (!gallery.publicGallerySlug || !accountGalleries.some((published) => published.slug === gallery.publicGallerySlug)))
     .map((gallery) => ({
       gallery,
-      ghost: gallery.deviceId === ownDeviceId || gallery.deviceLabel === ownDeviceLabel,
+      ghost: gallery.deviceId === ownDeviceId,
     }))
