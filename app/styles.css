@@ -688,8 +688,10 @@ body:has(.policy-page) { overflow: auto; background: #111312; color: rgb(var(--i
 body:has(.admin-page) { overflow: auto; overflow-x: clip; background: #111312; }
 /* The desktop Library keeps its page scroll invisible — the catalogue is a
    reading surface, and the cards' rails already hide their own bars. */
-body:has(.desktop-catalogue) { scrollbar-width: none; }
-body:has(.desktop-catalogue)::-webkit-scrollbar { display: none; }
+html:has(.admin-page) { scrollbar-width: none; }
+html:has(.admin-page)::-webkit-scrollbar { display: none; }
+body:has(.admin-page) { scrollbar-width: none; }
+body:has(.admin-page)::-webkit-scrollbar { display: none; }
 .admin-page { position: relative; z-index: 1; min-height: 100dvh; display: flex; flex-direction: column; padding: clamp(28px, 6vw, 88px) clamp(20px, 7vw, 112px) 0; color: rgb(var(--ink)); background: radial-gradient(circle at 85% 0%, rgba(86, 99, 90, .2), transparent 35rem), #111312; font-family: var(--m-font); }
 /* The toast is a quiet pill docked at the bottom edge — a status note,
    not a banner. */
@@ -1777,11 +1779,9 @@ body:has(.ops-page) { overflow: auto; overflow-x: clip; background: #111312; }
     min-width: 0;
     display: flex;
     flex-direction: column;
-    /* The rail claims the full viewport height so the sponsored card
-       anchors to the bottom of the page; a column that outgrows it
-       scrolls inside itself instead of pinning an unreachable bottom. */
-    height: calc(100dvh - 32px);
-    overflow-y: auto;
+    /* Pinned at the top of the viewport while the gallery cards scroll —
+       the column keeps its natural height and never scrolls inside
+       itself, so it stays on-screen without a trapped scroll pane. */
     scrollbar-width: none;
   }
   .admin-page--selector .admin-rail > * { flex-shrink: 0; }
@@ -2170,9 +2170,9 @@ button.lib-card-title {
    page itself — "Cloud galleries" and "More galleries" are headings in
    the "Library" voice, not captions. */
 .lib-section-title { margin: 0 0 18px; color: rgb(var(--ink)); font-size: 32px; font-weight: 600; letter-spacing: -.03em; }
-/* The count wears the gallery title's own weight — a heading in the
-   Library voice, not a quieter caption. */
-.lib-section-count { font-weight: 650; }
+/* The count wears the title's own font — size, weight and tracking all
+   inherit from the section header; only the ink is quieted to grey. */
+.lib-section-count, .lib-hidden-count { color: rgba(var(--ink), .45); }
 .gallery-list section + section { margin-top: clamp(44px, 6vw, 72px); }
 /* The section's one-line contract: permanent, strips, downloaded whole. */
 .lib-section-sub { margin: -10px 0 18px; color: rgba(var(--ink), .55); font-size: 13px; }
@@ -2181,9 +2181,26 @@ button.lib-card-title {
    toggle wears the section-title look but is a button, so it resets the
    button chrome; the chevron and count are quiet by design — the section
    should read as storage, not a feature billboard. */
-.lib-hidden-toggle { display: flex; align-items: baseline; gap: 10px; width: 100%; padding: 0; background: none; border: 0; cursor: pointer; text-align: left; font-family: inherit; }
-.lib-hidden-chevron { font-size: 18px; color: rgba(var(--ink), .5); }
-.lib-hidden-count { font-size: 14px; font-weight: 500; letter-spacing: 0; color: rgba(var(--ink), .45); }
+.lib-hidden-toggle { display: flex; align-items: center; gap: 10px; width: 100%; padding: 0; background: none; border: 0; cursor: pointer; text-align: left; font-family: inherit; }
+.lib-hidden-chevron { flex-shrink: 0; font-size: 30px; line-height: 1; color: rgba(var(--ink), .5); }
+.lib-hidden-chevron svg { display: block; }
+/* On the two-column Library the chevron leaves the text flow and hangs in
+   the page margin just left of the button — every section title then sits
+   flush with the column's other headings. Below the split the margin is
+   too thin to lend, so the glyph stays inline. */
+@media (min-width: 860px) {
+  .lib-hidden-toggle { position: relative; }
+  .lib-hidden-chevron {
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    right: calc(100% + 4px);
+    display: flex;
+    align-items: center;
+  }
+}
+/* The count wears the title's own font — size, weight and tracking all
+   inherit from the section header; only the ink is quieted. */
 .lib-menu-input { width: 100%; padding: 10px 12px; border: 1px solid rgba(var(--ink), .18); border-radius: 10px; background: var(--admin-surface, transparent); color: rgb(var(--ink)); font: inherit; }
 
 /* The Free pin-cap chooser: pick a permanent gallery to give up, or the
@@ -2208,18 +2225,20 @@ button.lib-card-title {
   grid-auto-rows: auto;
   row-gap: 14px;
 }
-/* Three across fills the card column — a fourth column made the covers
-   read as thumbnails instead of galleries. --cols is the pre-hydration
-   default; the hook rewrites it from the same 640px query. */
+/* Pre-hydration column counts only — useMasonry measures the list's own
+   width and rewrites --cols on every layout, so these steps just keep the
+   first paint close to the settled grid. */
 @media (min-width: 640px) { .lib-compact-grid { --cols: 3; } }
+@media (min-width: 1400px) { .lib-compact-grid { --cols: 4; } }
+@media (min-width: 1700px) { .lib-compact-grid { --cols: 5; } }
 .lib-compact-grid[data-masonry='on'] { grid-auto-rows: 4px; row-gap: 0; }
 .lib-compact-card { display: block; width: 100%; margin: 0; align-self: start; }
 /* The img's own aspect-ratio owns the cover's slot — seeded from stored
    dims, corrected to the decoded frame after load, so the anchor hugs it
    and flex centring floats a rendition narrower than the column at its
    honest size — invariant 13. */
-.lib-compact-cover { display: flex; align-items: center; justify-content: center; overflow: hidden; border-radius: 10px; background: rgba(var(--ink), .06); text-decoration: none; }
-.lib-compact-cover img { display: block; width: 100%; max-width: 100%; max-height: 100%; height: auto; margin: auto; opacity: 0; transition: opacity .32s ease; }
+.lib-compact-cover { display: flex; align-items: center; justify-content: flex-start; overflow: hidden; border-radius: 10px; text-decoration: none; }
+.lib-compact-cover img { display: block; width: 100%; max-width: 100%; max-height: 100%; height: auto; margin: 0 auto 0 0; border-radius: inherit; opacity: 0; transition: opacity .32s ease; }
 .lib-compact-cover img.is-loaded { opacity: 1; }
 
 /* An encrypted-source cover this tab cannot paint: Proton refuses web

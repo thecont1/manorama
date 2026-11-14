@@ -1,4 +1,5 @@
 import type { DeviceGallery } from '../../../packages/core/device-gallery'
+import { SectionChevron } from './SectionChevron'
 
 /** The web form of a synced device gallery — title, count and the device
  *  the folder lives on, deliberately no thumbnail: the synced row carries
@@ -40,7 +41,7 @@ export const DeviceGalleriesSection = ({ galleries, open = true, onToggle }: {
         aria-expanded={open}
         onClick={onToggle}
       >
-        <span class="lib-hidden-chevron" aria-hidden="true">{open ? '▾' : '▸'}</span>
+        <SectionChevron open={open} />
         Local galleries <span class="lib-hidden-count">({galleries.length})</span>
       </button>
       {open ? (

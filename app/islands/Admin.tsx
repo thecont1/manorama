@@ -12,6 +12,7 @@ import { AddGallerySheet } from '../components/AddGallerySheet'
 import { useMasonry } from '../components/library/useMasonry'
 import { CompactCoverImg } from '../components/library/CompactCoverImg'
 import { DeviceGalleriesRows, DeviceGalleriesSection } from '../components/library/DeviceGalleriesSection'
+import { SectionChevron } from '../components/library/SectionChevron'
 import { GalleryShareSheet } from '../components/GalleryShareSheet'
 import { HeicImg } from '../components/ui/HeicImg'
 import { Sheet } from '../components/ui/Sheet'
@@ -167,6 +168,7 @@ export default function Admin({ galleries: initialGalleries, owner, ownerName, p
   // not persisted: the Library opens with every section showing.
   const [cloudOpen, setCloudOpen] = useState(true)
   const [localOpen, setLocalOpen] = useState(true)
+  const [pinnedOpen, setPinnedOpen] = useState(true)
   // `?details=` opens the sheet once per page load. The marker lives on
   // documentElement rather than in state because hono/jsx can remount the
   // island when an update races a sheet's unmount — a remount replays this
@@ -933,7 +935,17 @@ export default function Admin({ galleries: initialGalleries, owner, ownerName, p
       </aside>
       <section class="gallery-list" aria-labelledby="galleries-heading">
         {stripGalleries.length ? <section aria-labelledby="lib-strips-title">
-          <h2 id="lib-strips-title" class="lib-section-title">Pinned galleries <span class="lib-section-count">({stripGalleries.length})</span></h2>
+          <button
+            type="button"
+            id="lib-strips-title"
+            class="lib-section-title lib-compact-title lib-hidden-toggle"
+            aria-expanded={pinnedOpen}
+            onClick={() => setPinnedOpen((open) => !open)}
+          >
+            <SectionChevron open={pinnedOpen} />
+            Pinned galleries <span class="lib-hidden-count">({stripGalleries.length})</span>
+          </button>
+          {pinnedOpen ? (<>
           <p class="lib-section-sub">Pinned galleries show up as strips and download entirely — pinning is a display choice, not permanence.</p>
           <ul class="lib-list">{stripGalleries.map((gallery) => {
           const title = gallery.title || gallery.slug
@@ -996,7 +1008,7 @@ export default function Admin({ galleries: initialGalleries, owner, ownerName, p
             </p>
             {gallery.caption?.trim() ? <p class="lib-card-caption">{gallery.caption}</p> : null}
           </article></li>
-        })}</ul></section> : null}
+        })}</ul></>) : null}</section> : null}
         {compactGalleries.length ? (
           <section aria-labelledby="lib-compact-title">
             <button
@@ -1006,7 +1018,7 @@ export default function Admin({ galleries: initialGalleries, owner, ownerName, p
               aria-expanded={cloudOpen}
               onClick={() => setCloudOpen((open) => !open)}
             >
-              <span class="lib-hidden-chevron" aria-hidden="true">{cloudOpen ? '▾' : '▸'}</span>
+              <SectionChevron open={cloudOpen} />
               Cloud galleries <span class="lib-hidden-count">({compactGalleries.length})</span>
             </button>
             {/* A masonry feed of cover cards — the cover keeps its own
@@ -1034,7 +1046,7 @@ export default function Admin({ galleries: initialGalleries, owner, ownerName, p
               aria-expanded={hiddenOpen}
               onClick={() => setHiddenOpen((open) => !open)}
             >
-              <span class="lib-hidden-chevron" aria-hidden="true">{hiddenOpen ? '▾' : '▸'}</span>
+              <SectionChevron open={hiddenOpen} />
               Hidden galleries <span class="lib-hidden-count">({hiddenGalleries.length + hiddenDeviceRows.length})</span>
             </button>
             {hiddenOpen ? (

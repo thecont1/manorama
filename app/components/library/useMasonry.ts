@@ -2,7 +2,14 @@ import { useEffect } from 'hono/jsx'
 import type { RefObject } from 'hono/jsx'
 import { placeMasonry } from '../../lib/masonry'
 
-const WIDE_QUERY = '(min-width: 640px)'
+/** The narrowest a cover card may read before the grid adds a column —
+ *  below this the photograph stops being a gallery and becomes a thumbnail.
+ *  Paired with the 14px column-gap in `.lib-compact-grid`. */
+const MIN_CARD_WIDTH = 240
+const GRID_GAP = 14
+/** Past this the feed is a contact sheet, not a Library. */
+const MAX_COLUMNS = 6
+const MIN_COLUMNS = 2
 
 /**
  * Row-ordered masonry for a .lib-compact-grid. CSS columns would fill
@@ -18,10 +25,15 @@ export function useMasonry(listRef: RefObject<HTMLUListElement | null>) {
     const list = listRef.current
     if (!list?.isConnected || typeof window === 'undefined') return
 
-    /** Measures card heights and writes each card's grid row/column. */
+    /** Measures card heights and writes each card's grid row/column. The
+     *  column count follows the list's own width — the rail already took
+     *  its share — so a fullscreen window simply earns more columns. */
     const layout = () => {
-      const columns =
-        typeof window.matchMedia === 'function' && window.matchMedia(WIDE_QUERY).matches ? 3 : 2
+      const width = list.getBoundingClientRect().width
+      const columns = Math.min(
+        MAX_COLUMNS,
+        Math.max(MIN_COLUMNS, Math.floor((width + GRID_GAP) / (MIN_CARD_WIDTH + GRID_GAP))),
+      )
       list.style.setProperty('--cols', String(columns))
       const cards = Array.from(list.querySelectorAll<HTMLElement>('.lib-compact-card'))
       const placements = placeMasonry(
@@ -59,12 +71,6 @@ export function useMasonry(listRef: RefObject<HTMLUListElement | null>) {
     // still sees every cover inside it.
     list.addEventListener('load', schedule, true)
 
-    const media =
-      typeof window.matchMedia === 'function' ? window.matchMedia(WIDE_QUERY) : null
-    if (media && typeof media.addEventListener === 'function') {
-      media.addEventListener('change', schedule)
-    }
-
     schedule()
 
     return () => {
@@ -74,9 +80,6 @@ export function useMasonry(listRef: RefObject<HTMLUListElement | null>) {
       }
       resize?.disconnect()
       list.removeEventListener('load', schedule, true)
-      if (media && typeof media.removeEventListener === 'function') {
-        media.removeEventListener('change', schedule)
-      }
     }
   })
 }

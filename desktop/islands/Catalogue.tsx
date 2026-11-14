@@ -55,6 +55,7 @@ import type { PickerEditItem } from '../../app/components/viewer/PickerEditor'
 import { HeicImg } from '../../app/components/ui/HeicImg'
 import { useMasonry } from '../../app/components/library/useMasonry'
 import { CompactCoverImg } from '../../app/components/library/CompactCoverImg'
+import { SectionChevron } from '../../app/components/library/SectionChevron'
 import { configureEncryptedDisplayKeyStore } from '../../app/lib/encrypted-display'
 import { desktopKeyStore } from '../lib/key-store'
 import { desktopOfflineStore, desktopVaultPersistence, openDesktopEncryptedSession, createDesktopVaultSettings } from '../lib/offline-gallery'
@@ -380,6 +381,7 @@ export default function Catalogue({ apiBase }: { apiBase: string }) {
   // the Library opens with every section showing.
   const [cloudOpen, setCloudOpen] = useState(true)
   const [localOpen, setLocalOpen] = useState(true)
+  const [pinnedOpen, setPinnedOpen] = useState(true)
   const [hiddenUnlocked, setHiddenUnlocked] = useState(false)
   const [passwordPrompt, setPasswordPrompt] = useState<'unlock' | 'set' | 'disable' | null>(null)
   const [passwordDraft, setPasswordDraft] = useState('')
@@ -2490,7 +2492,17 @@ export default function Catalogue({ apiBase }: { apiBase: string }) {
         <section class="gallery-list" aria-labelledby="galleries-heading">
           {pinnedStrips.length ? (
             <section aria-labelledby="pinned-galleries-title">
-              <h2 id="pinned-galleries-title" class="lib-section-title">Pinned galleries <span class="lib-section-count">({pinnedStrips.length})</span></h2>
+              <button
+                type="button"
+                id="pinned-galleries-title"
+                class="lib-section-title lib-compact-title lib-hidden-toggle"
+                aria-expanded={pinnedOpen}
+                onClick={() => setPinnedOpen((open) => !open)}
+              >
+                <SectionChevron open={pinnedOpen} />
+                Pinned galleries <span class="lib-hidden-count">({pinnedStrips.length})</span>
+              </button>
+              {pinnedOpen ? (
               <ul class="lib-list">
                 {pinnedStrips.map((entry) => {
                   if (entry.kind === 'local') return localStripCard(entry.record)
@@ -2563,6 +2575,7 @@ export default function Catalogue({ apiBase }: { apiBase: string }) {
                   </article></li>
                 })}
               </ul>
+              ) : null}
             </section>
           ) : null}
           {accountTier === 'pro' && (visibleDeviceGalleries.length || compactLocalGalleries.length) ? (
@@ -2574,7 +2587,7 @@ export default function Catalogue({ apiBase }: { apiBase: string }) {
                 aria-expanded={localOpen}
                 onClick={() => setLocalOpen((open) => !open)}
               >
-                <span class="lib-hidden-chevron" aria-hidden="true">{localOpen ? '▾' : '▸'}</span>
+                <SectionChevron open={localOpen} />
                 Local galleries <span class="lib-hidden-count">({visibleDeviceGalleries.length + compactLocalGalleries.length})</span>
               </button>
               {localOpen ? (
@@ -2603,7 +2616,7 @@ export default function Catalogue({ apiBase }: { apiBase: string }) {
                 aria-expanded={cloudOpen}
                 onClick={() => setCloudOpen((open) => !open)}
               >
-                <span class="lib-hidden-chevron" aria-hidden="true">{cloudOpen ? '▾' : '▸'}</span>
+                <SectionChevron open={cloudOpen} />
                 Cloud galleries <span class="lib-hidden-count">({compactAccountGalleries.length})</span>
               </button>
               {cloudOpen ? (
@@ -2662,7 +2675,7 @@ export default function Catalogue({ apiBase }: { apiBase: string }) {
                 aria-expanded={hiddenOpen}
                 onClick={toggleHiddenSection}
               >
-                <span class="lib-hidden-chevron" aria-hidden="true">{hiddenOpen ? '▾' : '▸'}</span>
+                <SectionChevron open={hiddenOpen} />
                 Hidden galleries
                 <span class="lib-hidden-count">({hiddenCount})</span>
               </button>
