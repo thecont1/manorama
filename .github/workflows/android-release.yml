@@ -182,7 +182,7 @@ jobs:
           aab="android/app/build/outputs/bundle/release/app-release.aab"
           # Unsigned or wrongly-versioned artifacts fail here, not on a
           # device or in the bucket.
-          "$build_tools/apksigner" verify --print-certs "$apk" | head -4
+          "$build_tools/apksigner" verify --print-certs "$apk"
           badge="$("$build_tools/aapt" dump badging "$apk")"
           echo "$badge" | grep -q "versionName='$version'" || {
             echo "::error::APK versionName does not match the tag"; echo "$badge" | head -3; exit 1
