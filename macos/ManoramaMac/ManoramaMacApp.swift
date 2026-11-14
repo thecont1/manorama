@@ -61,6 +61,11 @@ struct ManoramaMacApp: App {
 final class AppDelegate: NSObject, NSApplicationDelegate {
     var model: AppModel?
     var pendingOpenURLs: [String] = []
+    /// A same-bundle-id sibling that is already running. Two installed copies
+    /// claim one URL scheme, so LaunchServices can wake the copy that did not
+    /// begin sign-in — this instance then exists only to relay its launch
+    /// URLs to the running one, which holds the in-memory PKCE verifier.
+    private var handoffTarget: NSRunningApplication?
 
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { false }
 
@@ -93,8 +98,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             if let running = others.first {
                 running.unhide()
                 running.activate(options: [.activateAllWindows])
-                NSApp.terminate(nil)
-                return
+                // No terminate here — a launch can exist only to carry a
+                // custom-scheme URL, and the GURL arrives after launch
+                // finishes. Dying now drops a sign-in handoff minted for the
+                // running copy's in-memory verifier.
+                handoffTarget = running
             }
         }
         NSAppleEventManager.shared().setEventHandler(
@@ -106,6 +114,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        if handoffTarget != nil {
+            // A relay, not an app: no Dock presence and no window, just long
+            // enough for the launch's GURL to reach application(_:open:).
+            // A duplicate launched with no URL exits on the same timer.
+            NSApp.setActivationPolicy(.prohibited)
+            DispatchQueue.main.asyncAfter(deadline: .now() + .seconds(2)) {
+                NSApp.terminate(nil)
+            }
+            return
+        }
         NSApp.setActivationPolicy(.regular)
         NSApp.activate(ignoringOtherApps: true)
     }
@@ -132,6 +150,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     @MainActor
     private func deliverURLs(_ urls: [String]) {
+        if let target = handoffTarget, let bundleURL = target.bundleURL {
+            // The running sibling may hold the verifier this handoff was
+            // minted for — bounce the URL through LaunchServices to it. The
+            // didFinishLaunching timer retires this copy; LaunchServices
+            // delivers the GURL regardless of this process's lifetime.
+            let config = NSWorkspace.OpenConfiguration()
+            config.activates = true
+            for urlString in urls where urlString.contains("://") {
+                guard let url = URL(string: urlString) else { continue }
+                Trace.log("deep-link relay → \(bundleURL.path) : \(url.host ?? urlString)")
+                NSWorkspace.shared.open([url], withApplicationAt: bundleURL, configuration: config) { _, error in
+                    if let error { Trace.log("deep-link relay failed: \(error.localizedDescription)") }
+                }
+            }
+            return
+        }
         NSApp.activate(ignoringOtherApps: true)
         if let window = model?.window ?? NSApp.windows.first {
             if window.isMiniaturized {
@@ -140,6 +174,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             window.makeKeyAndOrderFront(nil)
         }
         for urlString in urls where urlString.contains("://") {
+            Trace.log("deep-link received: \(URL(string: urlString)?.host ?? urlString)")
             if let model = self.model {
                 model.bridge.deliverDeepLink(urlString)
             } else if !pendingOpenURLs.contains(urlString) {

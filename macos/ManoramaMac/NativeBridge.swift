@@ -186,13 +186,17 @@ final class NativeBridge {
 
     /// Record and forward a custom-scheme URL opened on the application.
     func deliverDeepLink(_ urlString: String) {
+        Trace.log("deliverDeepLink ready=\(pageReadyForDeepLinks) host=\(URL(string: urlString)?.host ?? urlString)")
         if !currentDeepLinks.contains(urlString) {
             currentDeepLinks.append(urlString)
         }
         guard pageReadyForDeepLinks,
               let data = try? JSONSerialization.data(withJSONObject: [urlString]),
               let arrayJson = String(data: data, encoding: .utf8),
-              let singleData = try? JSONSerialization.data(withJSONObject: urlString),
+              // Top-level fragments need the flag — a bare String throws
+              // without it, and a thrown single literal used to take the
+              // array emit down with it.
+              let singleData = try? JSONSerialization.data(withJSONObject: urlString, options: [.fragmentsAllowed]),
               let singleJson = String(data: singleData, encoding: .utf8) else { return }
         let script = """
         window.__manoramaShellEmit && (
@@ -287,7 +291,11 @@ final class NativeBridge {
 
         case "plugin:deep-link|get_current":
             pageReadyForDeepLinks = true
-            return currentDeepLinks.isEmpty ? NSNull() : currentDeepLinks
+            // Read-once: a handoff that failed (no in-memory verifier, an
+            // expired token) must not replay its error on every launch.
+            let buffered = currentDeepLinks
+            currentDeepLinks.removeAll()
+            return buffered.isEmpty ? NSNull() : buffered
 
         case "plugin:event|listen":
             pageReadyForDeepLinks = true
