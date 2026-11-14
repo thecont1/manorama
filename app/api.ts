@@ -5,6 +5,7 @@ import { SourceFetchError, isVideoItem, stillSourceOf, MAX_GALLERY_ITEMS, type G
 import { fetchDropboxFile, fetchDropboxThumbnail } from './lib/dropbox-public'
 import { fetchDriveFile, fetchDriveThumbnail } from './lib/gdrive-public'
 import { fetchICloudCkImage, fetchICloudCkVideo, fetchICloudImage, fetchICloudVideo, isAlbumToken } from './lib/icloud-shared'
+import { fetchGPhotosImage } from './lib/gphotos-shared'
 import { canonicalSourceMatches, scanSource, UNRECOGNIZED_LINK_MESSAGE } from './lib/sources'
 import { localSourcesEnabled, serveLocalMedia } from './lib/local-source'
 import { createGalleryWithinLimit, deleteGallery, getGallery, getStoredGallery, listGalleries, setGalleryHidden, setGalleryPinned, setGalleryRetained, swapGalleryRetention, toLibrarySummaries, toSummary, updateGalleryHidden, updateGalleryImages, updateGalleryMetadata, updateGalleryOrder, updateGalleryRecord, updateGallerySlug, type GalleryEnv, type GalleryRecord } from './lib/gallery-repository'
@@ -1230,6 +1231,24 @@ export const createManoramaApi = () => {
       return streamMediaResponse(media, 'private, no-store')
     } catch (error) {
       return proxyFailure(c, 'iCloud video', `${photo} in ${album.slice(0, 6)}…`, error)
+    }
+  })
+
+  /** Google Photos renditions. `u` is the lh3 base URL the share page
+   *  emitted and `r` the scaling rendition — fetchGPhotosImage validates
+   *  both (strict lh3 host, w/h dims only) so this route can never become
+   *  an open fetcher. Public like the other image proxies: the rendition
+   *  URL names an asset in a public album, no credential of ours rides it. */
+  api.get('/api/gphotos/image', async (c) => {
+    const u = c.req.query('u')
+    const r = c.req.query('r')
+    if (!u || !r) return c.json({ error: 'Missing Google Photos image reference' }, 400)
+    try {
+      return streamMediaResponse(await fetchGPhotosImage(u, r, fetch), 'private, max-age=300')
+    } catch (error) {
+      // The tail identifies which asset failed without echoing a complete
+      // working media URL into the sampled failure log.
+      return proxyFailure(c, 'Google Photos image', `…${u.slice(-24)}`, error)
     }
   })
 

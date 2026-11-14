@@ -15,6 +15,7 @@ export const sourceLabelFor = (sourceUrl: string | null | undefined): string => 
   if (host === 'dropbox.com') return 'Dropbox'
   if (host === 'drive.google.com') return 'Google Drive'
   if (host === 'icloud.com' || host === 'share.icloud.com') return 'iCloud'
+  if (host === 'photos.google.com' || host === 'photos.app.goo.gl') return 'Google Photos'
   if (host === 'mega.nz' || host === 'mega.co.nz') return 'MEGA'
   if (host === 'albums.ente.io' || host === 'albums.ente.com') return 'Ente'
   if (host === 'drive.proton.me') return 'Proton Drive'

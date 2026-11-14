@@ -20,6 +20,11 @@ describe('detectSource', () => {
     expect(detectSource('https://share.icloud.com/photos/B0z5qAGN1JIFd3y')).toBe('icloud')
   })
 
+  test('recognizes Google Photos shared album links in both spellings', () => {
+    expect(detectSource('https://photos.google.com/share/AF1QipAlbumId0123456789abcdef?key=k3y')).toBe('gphotos')
+    expect(detectSource('https://photos.app.goo.gl/o9RAqWymhNRetMTW7')).toBe('gphotos')
+  })
+
   test('recognizes MEGA shared folder links in both spellings', () => {
     expect(detectSource('https://mega.nz/folder/AbCdEf12#a2V5LXNlY3JldA')).toBe('mega')
     expect(detectSource('https://mega.co.nz/#F!AbCdEf12!a2V5LXNlY3JldA')).toBe('mega')
@@ -40,10 +45,10 @@ describe('detectSource', () => {
     expect(detectSource('https://www.dropbox.com/scl/fi/abc/file.jpg')).toBe('dropbox')
     expect(detectSource('https://drive.google.com/file/d/1AbCdEf/view')).toBe('gdrive')
     expect(detectSource('https://mega.nz/file/AbCdEf#key')).toBe('mega')
+    expect(detectSource('https://photos.google.com/u/0/')).toBe('gphotos')
   })
 
   test('rejects everything else', () => {
-    expect(detectSource('https://photos.google.com/share/abc')).toBeNull()
     expect(detectSource('https://onedrive.live.com/?id=abc')).toBeNull()
     expect(detectSource('https://icloud.com/photos')).toBeNull()
     expect(detectSource('https://www.icloud.com/iclouddrive/03c_T_Sxo0bE6AecC8_Ol21tw#Moral_Polis')).toBeNull()
@@ -65,6 +70,10 @@ describe('scanSource', () => {
   test('refuses server-side Proton Drive scans', async () => {
     await expect(scanSource('https://drive.proton.me/urls/AbCdEf12_Gh#secretpassword', {})).rejects.toThrow('scanned on your device')
     await expect(scanSource('https://drive.proton.me/urls/AbCdEf12_Gh#secretpassword', {})).rejects.toThrow('Proton Drive')
+  })
+
+  test('names Google Photos in the unrecognized-link guidance', () => {
+    expect(UNRECOGNIZED_LINK_MESSAGE).toContain('Google Photos')
   })
 
   test('rejects iCloud Drive links with the Shared Album guidance', async () => {
@@ -155,6 +164,18 @@ describe('canonicalSourceMatches', () => {
     expect(canonicalSourceMatches('https://www.dropbox.com/scl/fo/abc/x?rlkey=K1', 'https://www.dropbox.com/scl/fo/abc/x/?rlkey=K1')).toBe(true)
     expect(canonicalSourceMatches('https://www.dropbox.com/scl/fo/abc/x?rlkey=K1', 'https://www.dropbox.com/scl/fo/abc/x?rlkey=K2')).toBe(false)
   })
+
+  test('Google Photos matches on album id regardless of key, never across albums', () => {
+    const album = 'https://photos.google.com/share/AF1QipAlbumId0123456789abcdef'
+    expect(canonicalSourceMatches(`${album}?key=K1`, `${album}?key=K1`)).toBe(true)
+    // The ?key= is access, not identity: a rotated or keyless link still
+    // names the same album and must reopen the same gallery (MEGA rule).
+    expect(canonicalSourceMatches(`${album}?key=K1`, `${album}?key=K2`)).toBe(true)
+    expect(canonicalSourceMatches(`${album}?key=K1`, album)).toBe(true)
+    expect(canonicalSourceMatches(`${album}?key=K1`, 'https://photos.google.com/share/AF1QipDifferentId0123456789?key=K1')).toBe(false)
+    // A short link carries no extractable id — it rescans rather than guessing.
+    expect(canonicalSourceMatches(`${album}?key=K1`, 'https://photos.app.goo.gl/o9RAqWymhNRetMTW7')).toBe(false)
+  })
 })
 
 describe('embeddedSourceCandidate', () => {
@@ -192,6 +213,8 @@ describe('embeddedSourceCandidate', () => {
     expect(embeddedSourceCandidate('/https://mega.nz/folder/AbCdEf12')?.provider).toBe('mega')
     expect(embeddedSourceCandidate('/https://drive.google.com/drive/folders/1Ab')?.provider).toBe('gdrive')
     expect(embeddedSourceCandidate('/https://drive.proton.me/urls/AbCdEf12_Gh')?.provider).toBe('proton')
+    expect(embeddedSourceCandidate('/https://photos.google.com/share/AF1QipAlbumId0123456789abcdef?key=k3y')?.provider).toBe('gphotos')
+    expect(embeddedSourceCandidate('/https://photos.app.goo.gl/o9RAqWymhNRetMTW7')?.provider).toBe('gphotos')
   })
 
   test('recognizes an iCloud Drive link so the page can explain the difference', () => {
@@ -233,6 +256,9 @@ describe('embeddedSourceCandidate', () => {
     expect(embeddedSourceCandidate('/https://mega.nz/file/AbCdEf')).toBeNull()
     expect(embeddedSourceCandidate('/https://drive.proton.me/')).toBeNull()
     expect(embeddedSourceCandidate('/https://drive.proton.me/u/0/folders/xyz')).toBeNull()
+    expect(embeddedSourceCandidate('/https://photos.google.com/')).toBeNull()
+    expect(embeddedSourceCandidate('/https://photos.google.com/u/0/')).toBeNull()
+    expect(embeddedSourceCandidate('/https://photos.app.goo.gl/')).toBeNull()
   })
 
   test('accepts every folder spelling the providers actually emit', () => {
@@ -257,6 +283,7 @@ describe('a file link still earns its provider-specific guidance', () => {
     ['https://www.dropbox.com/scl/fi/abc/file.jpg?rlkey=k', /not a file link/i],
     ['https://drive.google.com/file/d/1AbCdEf/view', /not a file link/i],
     ['https://mega.nz/file/AbCdEf#key', /folder or collection link/i],
+    ['https://photos.google.com/u/0/', /public Google Photos shared album link/i],
   ] as const
 
   for (const [url, expected] of cases) {

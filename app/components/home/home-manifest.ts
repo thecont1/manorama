@@ -236,6 +236,12 @@ export const SOURCES: Source[] = [
     where: 'Web and the apps',
   },
   {
+    id: 'gphotos',
+    name: 'Google Photos',
+    detail: 'Public shared-album links — photos.google.com/share/… or photos.app.goo.gl/…, photos only.',
+    where: 'Web and the apps',
+  },
+  {
     id: 'mega',
     name: 'MEGA',
     detail: 'Public folder or collection links, with the key.',

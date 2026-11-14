@@ -1,6 +1,7 @@
 import { scanDropboxFolder } from './dropbox-public'
 import { extractDriveFolderId, scanDriveFolder } from './gdrive-public'
 import { extractAlbumToken, isICloudDriveLink, scanICloudAlbum } from './icloud-shared'
+import { gphotosAlbumIdOf, gphotosIsShareResource, scanGPhotosAlbum } from './gphotos-shared'
 import { isLocalPathInput, localSourcesEnabled, normalizeLocalPathString, scanLocalFolder } from './local-source'
 import { enteIdentityFromUrl, megaIdentityFromUrl, protonIdentityFromUrl } from '../../packages/core/encrypted-source'
 import type { GalleryMediaItem } from './imagesource'
@@ -19,7 +20,7 @@ import type { GalleryMediaItem } from './imagesource'
  * the link fragment). There are no per-user source tokens.
  */
 
-export type SourceProvider = 'dropbox' | 'gdrive' | 'icloud' | 'mega' | 'ente' | 'proton' | 'local'
+export type SourceProvider = 'dropbox' | 'gdrive' | 'icloud' | 'gphotos' | 'mega' | 'ente' | 'proton' | 'local'
 
 export type SourceScan = { provider: SourceProvider; sourceUrl: string; title: string; images: GalleryMediaItem[]; truncated?: number; partial?: boolean }
 
@@ -30,7 +31,7 @@ export type SourceEnv = {
 }
 
 export const UNRECOGNIZED_LINK_MESSAGE =
-  'Paste a public Dropbox folder, Google Drive folder, iCloud shared album, MEGA folder/collection, Ente album, or Proton Drive link'
+  'Paste a public Dropbox folder, Google Drive folder, iCloud shared album, Google Photos shared album, MEGA folder/collection, Ente album, or Proton Drive link'
 
 export const detectSource = (input: string): SourceProvider | null => {
   // Dev-only local folders: absolute paths and file:// URLs. The flag is
@@ -49,6 +50,7 @@ export const detectSource = (input: string): SourceProvider | null => {
   if (host === 'icloud.com' && url.pathname.startsWith('/sharedalbum/')) return 'icloud'
   if (host === 'share.icloud.com' && url.pathname.startsWith('/photos/')) return 'icloud'
   if (host === 'photos.icloud.com' && url.pathname.startsWith('/shared/album/')) return 'icloud'
+  if (host === 'photos.google.com' || host === 'photos.app.goo.gl') return 'gphotos'
   if (host === 'mega.nz' || host === 'mega.co.nz') return 'mega'
   if (host === 'albums.ente.io' || host === 'albums.ente.com') return 'ente'
   if (host === 'drive.proton.me') return 'proton'
@@ -83,6 +85,12 @@ const isShareResource = (url: URL, provider: SourceProvider): boolean => {
     case 'icloud':
       // Reaching here already means a /sharedalbum/ or /photos/ path.
       return true
+    case 'gphotos':
+      // detectSource is deliberately permissive (any photos.google.com
+      // path claims the provider), but quick-add must only claim a real
+      // /share/{albumId} or app.goo.gl token — a bare Photos landing page
+      // or /u/0/ path can never scan.
+      return gphotosIsShareResource(url)
     case 'mega':
       // The folder/collection key lives in the fragment, which the server
       // never receives — so validate the resource path only. The stricter
@@ -194,6 +202,14 @@ export const canonicalSourceMatches = (storedSourceUrl: string, candidateUrl: st
       const candidateToken = extractAlbumToken(candidateUrl)
       return Boolean(storedToken && candidateToken && storedToken === candidateToken)
     }
+    case 'gphotos': {
+      const stored = gphotosAlbumIdOf(storedSourceUrl)
+      const candidate = gphotosAlbumIdOf(candidateUrl)
+      // The album id is the share's identity; the ?key= is access-only —
+      // a rotated or keyless link still names the same album (MEGA rule).
+      // Short links carry no extractable id and fall through to a rescan.
+      return Boolean(stored && candidate && stored === candidate)
+    }
     case 'mega': {
       const stored = megaIdentityFromUrl(storedSourceUrl)
       const candidate = megaIdentityFromUrl(candidateUrl)
@@ -281,9 +297,10 @@ export const scanSource = (input: string, env: SourceEnv, fetchImpl: typeof fetc
  * refresh merge's appended tail. Owners change it afterwards only by
  * hand, through the admin reorder.
  *
- * iCloud is the exception: shared albums carry no filenames at all (the
- * scanner synthesizes `Photo N`/captions), so the album's own curated
- * order is the canonical one there — sorting it would scramble it.
+ * iCloud and Google Photos are the exceptions: shared albums carry no
+ * filenames at all (the scanners synthesize `Photo N`/captions), so the
+ * album's own curated order is the canonical one there — sorting it
+ * would scramble it.
  */
 const byFilename = (a: GalleryMediaItem, b: GalleryMediaItem) =>
   a.filename.localeCompare(b.filename, undefined, { numeric: true })
@@ -305,6 +322,8 @@ const scanSourceUnbounded = async (input: string, env: SourceEnv, fetchImpl: typ
         return scanDriveFolder(input, env, fetchImpl)
       case 'icloud':
         return scanICloudAlbum(input, fetchImpl)
+      case 'gphotos':
+        return scanGPhotosAlbum(input, fetchImpl)
       case 'mega':
         if (/\/file\//i.test(new URL(input).pathname)) throw new Error('Use a public MEGA folder or collection link')
         throw new Error('MEGA sources are scanned on your device, never by the server')
@@ -316,6 +335,6 @@ const scanSourceUnbounded = async (input: string, env: SourceEnv, fetchImpl: typ
         return scanLocalFolder(input)
     }
   })()
-  if (provider !== 'icloud') scan.images.sort(byFilename)
+  if (provider !== 'icloud' && provider !== 'gphotos') scan.images.sort(byFilename)
   return { provider, ...scan }
 }
