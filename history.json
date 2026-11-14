@@ -1,0 +1,333 @@
+{
+  "generated": "2026-11-14",
+  "repo": "https://github.com/thecont1/manorama",
+  "releases": [
+    {
+      "version": "0.3.1",
+      "tag": "v0.3.1",
+      "date": "2026-11-14",
+      "commits": 39,
+      "highlights": [
+        {
+          "sha": "77931ed",
+          "subject": "fix(desktop): launch the sign-in surface dark",
+          "url": "https://github.com/thecont1/manorama/commit/77931ed"
+        },
+        {
+          "sha": "78c7c54",
+          "subject": "fix(desktop): deliver the sign-in handoff to the copy holding the verifier",
+          "url": "https://github.com/thecont1/manorama/commit/78c7c54"
+        },
+        {
+          "sha": "49fcfb3",
+          "subject": "feat(library): keep Proton galleries inside the Library",
+          "url": "https://github.com/thecont1/manorama/commit/49fcfb3"
+        },
+        {
+          "sha": "3970bd0",
+          "subject": "feat(library): render encrypted-source placeholders in admin",
+          "url": "https://github.com/thecont1/manorama/commit/3970bd0"
+        },
+        {
+          "sha": "ef6c193",
+          "subject": "feat(home): open the sample gallery in a new tab",
+          "url": "https://github.com/thecont1/manorama/commit/ef6c193"
+        },
+        {
+          "sha": "0c6ac11",
+          "subject": "fix(dropbox): request the largest real thumbnail size",
+          "url": "https://github.com/thecont1/manorama/commit/0c6ac11"
+        },
+        {
+          "sha": "685cd55",
+          "subject": "fix(home-demo): remove identifying metadata from the published renditions",
+          "url": "https://github.com/thecont1/manorama/commit/685cd55"
+        },
+        {
+          "sha": "33203fc",
+          "subject": "fix(home): show the sign-in retry note and keep focus when a menu closes",
+          "url": "https://github.com/thecont1/manorama/commit/33203fc"
+        }
+      ]
+    },
+    {
+      "version": "0.3.0",
+      "tag": "v0.3.0",
+      "date": "2026-11-12",
+      "commits": 154,
+      "highlights": [
+        {
+          "sha": "7d325d2",
+          "subject": "fix(macos): route mailto through the opener, cancel subframes in place",
+          "url": "https://github.com/thecont1/manorama/commit/7d325d2"
+        },
+        {
+          "sha": "98756b0",
+          "subject": "fix(viewer): bind cached-key unwraps to the gallery album",
+          "url": "https://github.com/thecont1/manorama/commit/98756b0"
+        },
+        {
+          "sha": "53953f8",
+          "subject": "fix(auth): sweep the verifier on every non-pause completion",
+          "url": "https://github.com/thecont1/manorama/commit/53953f8"
+        },
+        {
+          "sha": "720cc71",
+          "subject": "fix(api): serve pre-CAS escrow clients with a server-side read",
+          "url": "https://github.com/thecont1/manorama/commit/720cc71"
+        },
+        {
+          "sha": "6f5b72b",
+          "subject": "fix(macos): route gestured _blank clicks at the policy seam",
+          "url": "https://github.com/thecont1/manorama/commit/6f5b72b"
+        },
+        {
+          "sha": "af9a76c",
+          "subject": "fix(privacy): split TestFlight crash reporting from device settings",
+          "url": "https://github.com/thecont1/manorama/commit/af9a76c"
+        },
+        {
+          "sha": "af95340",
+          "subject": "fix(viewer): keep the key-sync prompt open on escrow conflicts",
+          "url": "https://github.com/thecont1/manorama/commit/af95340"
+        },
+        {
+          "sha": "afeb2c2",
+          "subject": "fix(users): close the rename race and cap derived slugs",
+          "url": "https://github.com/thecont1/manorama/commit/afeb2c2"
+        }
+      ]
+    },
+    {
+      "version": "0.2.5",
+      "tag": "v0.2.5",
+      "date": "2026-11-06",
+      "commits": 426,
+      "highlights": [
+        {
+          "sha": "d28f339e",
+          "subject": "fix(admin): anchor the build tag inside the mark's dead space",
+          "url": "https://github.com/thecont1/manorama/commit/d28f339e"
+        },
+        {
+          "sha": "39c0b84e",
+          "subject": "fix(admin): tuck the build tag to 2px under the mark",
+          "url": "https://github.com/thecont1/manorama/commit/39c0b84e"
+        },
+        {
+          "sha": "f12bf46d",
+          "subject": "fix(proton): route native requests through CapacitorHttp, refuse browsers honestly",
+          "url": "https://github.com/thecont1/manorama/commit/f12bf46d"
+        },
+        {
+          "sha": "4874406d",
+          "subject": "fix(admin): label the Library build tag and split the copyright line",
+          "url": "https://github.com/thecont1/manorama/commit/4874406d"
+        },
+        {
+          "sha": "f96b3709",
+          "subject": "feat(admin): show the build commit, copyright, and a safer delete flow",
+          "url": "https://github.com/thecont1/manorama/commit/f96b3709"
+        },
+        {
+          "sha": "e865ec0e",
+          "subject": "fix(picker): seat both controls together under the portrait title",
+          "url": "https://github.com/thecont1/manorama/commit/e865ec0e"
+        },
+        {
+          "sha": "6d91f015",
+          "subject": "fix(proton): give binary media requests their own request budget",
+          "url": "https://github.com/thecont1/manorama/commit/6d91f015"
+        },
+        {
+          "sha": "7974e5cf",
+          "subject": "fix(encrypted): fail gallery-key reads instead of conflating them with not-escrowed",
+          "url": "https://github.com/thecont1/manorama/commit/7974e5cf"
+        }
+      ]
+    },
+    {
+      "version": "0.2.4",
+      "tag": "v0.2.4",
+      "date": "2026-10-25",
+      "commits": 1,
+      "highlights": [
+        {
+          "sha": "e7707e1d",
+          "subject": "fix(desktop): pin rust-ini 0.21.1 for deep-link Linux build (#138)",
+          "url": "https://github.com/thecont1/manorama/commit/e7707e1d"
+        }
+      ]
+    },
+    {
+      "version": "0.2.3",
+      "tag": "v0.2.3",
+      "date": "2026-10-25",
+      "commits": 1,
+      "highlights": [
+        {
+          "sha": "857a9838",
+          "subject": "fix(desktop): align Tauri plugin crates with their npm packages (#137)",
+          "url": "https://github.com/thecont1/manorama/commit/857a9838"
+        }
+      ]
+    },
+    {
+      "version": "0.2.2",
+      "tag": "v0.2.2",
+      "date": "2026-10-25",
+      "commits": 120,
+      "highlights": [
+        {
+          "sha": "cfee655a",
+          "subject": "feat(vault): store original image bytes for offline viewing (#131) (#132)",
+          "url": "https://github.com/thecont1/manorama/commit/cfee655a"
+        },
+        {
+          "sha": "20f96dc4",
+          "subject": "fix(api): apply shell CORS headers to streaming media responses (#129) (#130)",
+          "url": "https://github.com/thecont1/manorama/commit/20f96dc4"
+        },
+        {
+          "sha": "c952afd0",
+          "subject": "fix(native): let the gallery card's cover open the viewer (#124)",
+          "url": "https://github.com/thecont1/manorama/commit/c952afd0"
+        },
+        {
+          "sha": "967dc45a",
+          "subject": "fix(ios): declare required-reason APIs and the full AdMob SKAdNetwork list",
+          "url": "https://github.com/thecont1/manorama/commit/967dc45a"
+        },
+        {
+          "sha": "d4765172",
+          "subject": "fix(api): allow the Android shell's https://localhost origin in the CORS allowlist",
+          "url": "https://github.com/thecont1/manorama/commit/d4765172"
+        },
+        {
+          "sha": "9aac89dc",
+          "subject": "fix(android): declare the AdMob application id the Mobile Ads provider requires at launch",
+          "url": "https://github.com/thecont1/manorama/commit/9aac89dc"
+        },
+        {
+          "sha": "0e9a62c5",
+          "subject": "fix(native): measure the segmented grid inset from the overview's real left edge",
+          "url": "https://github.com/thecont1/manorama/commit/0e9a62c5"
+        },
+        {
+          "sha": "58bab2fc",
+          "subject": "fix(native): keep the admin right pane out of the hinge zone",
+          "url": "https://github.com/thecont1/manorama/commit/58bab2fc"
+        }
+      ]
+    },
+    {
+      "version": "0.2.1",
+      "tag": "v0.2.1",
+      "date": "2026-10-01",
+      "commits": 5,
+      "highlights": [
+        {
+          "sha": "1f1404c8",
+          "subject": "feat(preview): choreograph and cut the App Store preview from the app itself",
+          "url": "https://github.com/thecont1/manorama/commit/1f1404c8"
+        }
+      ]
+    },
+    {
+      "version": "0.2.0",
+      "tag": "v0.2.0",
+      "date": "2026-10-01",
+      "commits": 70,
+      "highlights": [
+        {
+          "sha": "36e00966",
+          "subject": "fix(viewer): lead the background choices with None",
+          "url": "https://github.com/thecont1/manorama/commit/36e00966"
+        },
+        {
+          "sha": "60081610",
+          "subject": "fix(admin): call gallery placements cards, not plates",
+          "url": "https://github.com/thecont1/manorama/commit/60081610"
+        },
+        {
+          "sha": "ce1b170e",
+          "subject": "fix(desktop): call the local catalogue source a folder on this device",
+          "url": "https://github.com/thecont1/manorama/commit/ce1b170e"
+        },
+        {
+          "sha": "6d17a752",
+          "subject": "fix(native): keep the gallery chrome row phone-sized on wider screens",
+          "url": "https://github.com/thecont1/manorama/commit/6d17a752"
+        },
+        {
+          "sha": "5bc9b9e3",
+          "subject": "feat(native): give every account gallery a cover row and one vocabulary",
+          "url": "https://github.com/thecont1/manorama/commit/5bc9b9e3"
+        },
+        {
+          "sha": "e854300f",
+          "subject": "fix(native): open legal links in the in-app browser sheet",
+          "url": "https://github.com/thecont1/manorama/commit/e854300f"
+        },
+        {
+          "sha": "5019e6ba",
+          "subject": "fix(native): even the provider row and match the footer across shells",
+          "url": "https://github.com/thecont1/manorama/commit/5019e6ba"
+        },
+        {
+          "sha": "ebcbf58e",
+          "subject": "fix(native): bound the gallery chrome and make the opening screen a sign-in door",
+          "url": "https://github.com/thecont1/manorama/commit/ebcbf58e"
+        }
+      ]
+    },
+    {
+      "version": "0.1.0",
+      "tag": "v0.1.0",
+      "date": "2026-09-29",
+      "commits": 516,
+      "highlights": [
+        {
+          "sha": "de7c844",
+          "subject": "feat(account): give each dashboard column its own scroll on wide screens",
+          "url": "https://github.com/thecont1/manorama/commit/de7c844"
+        },
+        {
+          "sha": "f201a6c",
+          "subject": "feat(account): split the dashboard into a brand column and controls on wide screens",
+          "url": "https://github.com/thecont1/manorama/commit/f201a6c"
+        },
+        {
+          "sha": "d8fa109",
+          "subject": "feat(landing): split the door on wide screens — brand left, sign-in right",
+          "url": "https://github.com/thecont1/manorama/commit/d8fa109"
+        },
+        {
+          "sha": "ca1c700",
+          "subject": "feat(native): share the landing door with the web",
+          "url": "https://github.com/thecont1/manorama/commit/ca1c700"
+        },
+        {
+          "sha": "d1a98ec",
+          "subject": "fix(native): stop the sign-in handoff replaying after reload",
+          "url": "https://github.com/thecont1/manorama/commit/d1a98ec"
+        },
+        {
+          "sha": "dcfb3b4",
+          "subject": "fix(native): satisfy GalleryImage shape in the showcase test",
+          "url": "https://github.com/thecont1/manorama/commit/dcfb3b4"
+        },
+        {
+          "sha": "adf320a",
+          "subject": "fix(desktop): hold a loading screen until restore, keep viewer draggable",
+          "url": "https://github.com/thecont1/manorama/commit/adf320a"
+        },
+        {
+          "sha": "2b0d901",
+          "subject": "fix(native): declare MEGA preview cache, widen legal hit areas",
+          "url": "https://github.com/thecont1/manorama/commit/2b0d901"
+        }
+      ]
+    }
+  ]
+}
