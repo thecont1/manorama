@@ -8,6 +8,15 @@ const buildCommit = (() => {
   try { return execSync('git rev-parse --short HEAD').toString().trim() } catch { return 'dev' }
 })()
 
+/** Same version define the Tauri bundle gets — the shimmed shell has no
+ *  Tauri API in process, so the define is the update check's only source. */
+const appVersion = (() => {
+  try {
+    const config = JSON.parse(readFileSync(new URL('./src-tauri/tauri.conf.json', import.meta.url), 'utf8')) as { version?: string }
+    return config.version ?? null
+  } catch { return null }
+})()
+
 /**
  * The Library bundle for the native macOS shell.
  *
@@ -52,7 +61,10 @@ export default defineConfig({
   // does for the web app and the Tauri build.
   envDir: '..',
   envPrefix: ['VITE_', 'MANORAMA_DESKTOP_'],
-  define: { __MANORAMA_COMMIT__: JSON.stringify(buildCommit) },
+  define: {
+    __MANORAMA_COMMIT__: JSON.stringify(buildCommit),
+    __MANORAMA_APP_VERSION__: JSON.stringify(appVersion),
+  },
   plugins: [nativeShellShim()],
   build: {
     outDir: 'dist',

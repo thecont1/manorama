@@ -43,6 +43,10 @@ type Props = {
   onOpenVisionary: () => void
   onOpenPrivacy: () => void
   onOpenAuthor: () => void
+  /** A newer published app version — the row stays until it is installed;
+   *  absent means the build is current or the check has not landed. */
+  appUpdate?: { version: string; url: string } | null
+  onOpenUpdate: () => void
   onSignOut: () => void
   deleteConfirming: boolean
   deleting: boolean
@@ -165,6 +169,7 @@ export default function Settings(props: Props) {
         </ActionGroup> : null}
 
         <ActionGroup label="About">
+          {props.appUpdate ? <ActionRow label="App update" value={`v${props.appUpdate.version} available`} onClick={props.onOpenUpdate} /> : null}
           <ActionRow label="Privacy Policy" onClick={props.onOpenPrivacy} />
           <ActionRow label="Mahesh Shantaram · thecontrarian.in" onClick={props.onOpenAuthor} />
           <ActionRow label="Sign out" onClick={props.onSignOut} />

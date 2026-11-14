@@ -19,7 +19,7 @@ import { CloseIcon } from '../../app/components/admin-icons'
 import { Sheet } from '../../app/components/ui/Sheet'
 import { BundledSource } from '../../app/lib/imagesource'
 import type { AdFrame } from '../../app/lib/adframe'
-import { adoptGallery, createGalleryFromQuickAdd, createGalleryFromSource, deleteAccount, fetchAccountGalleries, fetchAccountIdentities, fetchAccountOwnerSlug, fetchDeviceGalleries, fetchGallery, normalizeApiBase, renameOwnerSlug, scanSourceUrl, unlinkAccountIdentity, type AccountIdentity } from '../lib/api'
+import { adoptGallery, createGalleryFromQuickAdd, createGalleryFromSource, deleteAccount, fetchAccountGalleries, fetchAccountIdentities, fetchAccountOwnerSlug, fetchDeviceGalleries, fetchGallery, normalizeApiBase, probeAccountGallery, refreshGallery, refreshGalleryWithManifest, renameOwnerSlug, scanSourceUrl, unlinkAccountIdentity, type AccountIdentity } from '../lib/api'
 import { isEncryptedSourceUrl, manifestIsEncryptedSource, galleryHashForSource } from '../../packages/core/encrypted-source'
 import type { GallerySummary } from '../../app/lib/gallery-repository'
 import type { DeviceGallery } from '../../packages/core/device-gallery'
@@ -46,6 +46,8 @@ import { productionVault } from '../lib/vault'
 import { adFrameFor, fetchAdVisibility, HOUSE_AD_FRAME, type AdPolicyInput, type AdVisibility } from '../lib/ads'
 import { createAccountAdAdapter } from '../lib/admob-account-adapter'
 import { createEncryptedGallery, clearAllEncryptedSources, refreshEncryptedGallery, removeEncryptedSourceForSelection, resolveEncryptedSourceForSelection, EncryptedSourceLockedError, EncryptedSourceMismatchError } from '../lib/encrypted-gallery'
+import { deviceListingOutcome, sourceCheckDue } from '../../app/lib/source-freshness'
+import { checkAppUpdate, dismissAppUpdate, dismissedUpdateVersion, type AppUpdate } from '../lib/app-update'
 import { loadGlobalViewEnabled, saveGlobalViewEnabled } from '../lib/global-view'
 import { beginProviderSignIn, clearPendingQuickAdd, clearSessionToken, getOwnerSlug, getPendingQuickAdd, getSessionToken, setOwnerSlug as persistOwnerSlug, type AuthProvider, type NativeGallerySelection } from '../lib/session'
 import { requestReorderClose } from '../lib/reorder-close-guard'
@@ -619,6 +621,79 @@ export default function GalleryList({ apiBase, owner, slug, deepLinkSelection, o
       controller.abort()
     }
   }, [base, accountRevision])
+
+  // Library-load source freshness (#208): probe each retained source
+  // gallery whose check is older than a day and refresh the ones that
+  // moved — the same contract the web and desktop Libraries run. 'device'
+  // answers run the compare on this shell when it holds the source key
+  // and report the verdict back, stamping the shared check. Sequential,
+  // every failure swallowed; the server stamp keeps the refetch the loop
+  // triggers from re-probing.
+  useEffect(() => {
+    if (!accountGalleries?.length) return
+    const due = accountGalleries.filter((gallery) =>
+      gallery.sourceUrl && gallery.retention === 'retained' && sourceCheckDue(gallery.lastSourceCheckAt))
+    if (!due.length) return
+    let live = true
+    const probeEncrypted = async (gallery: GallerySummary): Promise<boolean> => {
+      if (!gallery.id) return false
+      const source = await resolveEncryptedSourceForSelection(gallery.id)
+      // This device holds no key — the honest skip, nothing is reported.
+      if (!source) return false
+      const { openEncryptedSource } = await import('../../app/lib/encrypted-client')
+      const enc = await openEncryptedSource(source)
+      try {
+        const listing = await enc.listing
+        const outcome = deviceListingOutcome(gallery.images, listing)
+        await probeAccountGallery(base, gallery.slug, { reported: outcome }).catch(() => null)
+        if (outcome !== 'changed') return false
+        await refreshGalleryWithManifest(base, gallery.slug, { provider: enc.provider, sourceUrl: enc.sourceUrl, ...listing })
+        const galleryId = galleryIds[gallery.slug]
+        if (galleryId) libraryLoader.invalidate(galleryId)
+        return true
+      } finally {
+        enc.dispose()
+      }
+    }
+    const probeOne = async (gallery: GallerySummary): Promise<boolean> => {
+      const probe = await probeAccountGallery(base, gallery.slug)
+      if (!probe?.status) return false
+      if (probe.status === 'device') return probeEncrypted(gallery)
+      if (probe.status !== 'changed') return false
+      await refreshGallery(base, gallery.slug)
+      const galleryId = galleryIds[gallery.slug]
+      if (galleryId) libraryLoader.invalidate(galleryId)
+      return true
+    }
+    void (async () => {
+      let touched = false
+      for (const gallery of due) {
+        if (!live) return
+        try { touched = (await probeOne(gallery)) || touched } catch { /* one gallery's failure never stalls the rest */ }
+      }
+      if (touched && live) setAccountRevision((revision) => revision + 1)
+    })()
+    return () => { live = false }
+  }, [accountGalleries])
+
+  // App freshness: one release-pointer check on launch — a newer published
+  // version becomes the dismissible banner and the Settings row. Dismissal
+  // is per-version, so the next release re-arms the notice.
+  const [appUpdate, setAppUpdate] = useState<AppUpdate | null>(null)
+  const [updateDismissed, setUpdateDismissed] = useState<string | null>(null)
+  useEffect(() => {
+    let live = true
+    void Promise.all([checkAppUpdate(), dismissedUpdateVersion()])
+      .then(([update, dismissed]) => { if (live) { setAppUpdate(update); setUpdateDismissed(dismissed) } })
+      .catch(() => {})
+    return () => { live = false }
+  }, [])
+  const pendingUpdate = appUpdate && appUpdate.version !== updateDismissed ? appUpdate : null
+  const dismissUpdate = () => {
+    if (!appUpdate) return
+    setUpdateDismissed(appUpdate.version)
+    void dismissAppUpdate(appUpdate.version)
+  }
 
   // The encrypted catalog arrives independently of the account request: known
   // saved galleries can paint while the network list is pending or failed.
@@ -1649,6 +1724,8 @@ export default function GalleryList({ apiBase, owner, slug, deepLinkSelection, o
       onOpenVisionary={() => dispatchNav({ type: 'open-visionary', from: 'settings' })}
       onOpenPrivacy={() => dispatchNav({ type: 'open-privacy', from: 'settings' })}
       onOpenAuthor={() => openExternal(AUTHOR_URL)}
+      appUpdate={appUpdate}
+      onOpenUpdate={() => { if (appUpdate) openExternal(appUpdate.url) }}
       onSignOut={() => { void signOut() }}
       deleteConfirming={deleteConfirming}
       deleting={deleting}
@@ -1694,6 +1771,13 @@ export default function GalleryList({ apiBase, owner, slug, deepLinkSelection, o
         {/* The status line under the title reports vault activity first,
             then how many galleries live on the device. */}
         <p class="native-library-finding">{libraryFinding}</p>
+        {pendingUpdate ? (
+          <div class="app-update-banner" role="status">
+            <span class="app-update-text">manorama <strong>v{pendingUpdate.version}</strong> is available.</span>
+            <button type="button" class="m-btn m-btn--primary" onClick={() => openExternal(pendingUpdate.url)}>Update</button>
+            <button type="button" class="app-update-dismiss" aria-label="Dismiss this update notice" onClick={dismissUpdate}>×</button>
+          </div>
+        ) : null}
         {galleryActionNote ? <p role="status">{galleryActionNote}</p> : null}
         {authError ? <p role="alert">{authError}</p> : null}
         {/* A link result can arrive on a cold start, before Settings has

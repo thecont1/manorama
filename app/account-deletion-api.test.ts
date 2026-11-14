@@ -55,6 +55,7 @@ describe('deleteAccount', () => {
       '0016_gallery_hidden.sql',
       '0017_device_gallery_hidden.sql',
       '0019_owner_slug_reservations.sql',
+      '0020_gallery_source_check.sql',
     ]) {
       await applyMigration(db, migration)
     }

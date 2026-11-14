@@ -362,3 +362,20 @@ body.manorama-desktop .admin-page--selector .admin-content { width: 100%; }
    on the fullscreen window it reads as a hole. Match the between-galleries
    rhythm instead (the documented 40px of card padding either side). */
 body.manorama-desktop .gallery-list section + section { margin-top: 40px; }
+
+/* The Library-load app-update notice — a quiet strip atop the gallery
+   list, dismissible per version; the Settings row stays until installed. */
+body.manorama-desktop .app-update-banner {
+  display: flex; align-items: center; gap: 14px;
+  margin: 0 0 24px; padding: 12px 16px;
+  box-shadow: inset 0 0 0 1px rgba(var(--ink), .28);
+  font-size: 14px; line-height: 1.4;
+}
+body.manorama-desktop .app-update-banner .admin-button { flex: none; min-height: 36px; padding: 6px 16px; font-size: 13px; }
+body.manorama-desktop .app-update-text { flex: 1; min-width: 0; }
+body.manorama-desktop .app-update-dismiss {
+  flex: none; width: 36px; height: 36px; border: 0; padding: 0;
+  background: none; color: rgba(var(--ink), .62); font: inherit; font-size: 20px;
+  cursor: pointer; border-radius: 50%;
+}
+body.manorama-desktop .app-update-dismiss:hover { color: rgba(var(--ink), 1); }
