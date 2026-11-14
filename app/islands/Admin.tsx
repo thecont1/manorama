@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'hono/jsx'
 import { applyTheme, readStoredTheme, storeTheme, type Theme } from '../lib/owner-theme'
 import type { GallerySummary } from '../lib/gallery-repository'
 import type { AccountTier } from '../../packages/core/account'
+import type { DeviceGallery } from '../../packages/core/device-gallery'
 import { friendlySourceError } from '../lib/source-errors'
 import { FREE_RETAINED_LIMIT, PAID_RETAINED_LIMIT, isGalleryExpired, expiryCountdownText } from '../lib/gallery-policy'
 import type { AuthProvider } from '../lib/identity-repository'
@@ -10,6 +11,7 @@ import { readRuntimeFoldLayout, subscribeToRuntimeFoldLayout } from '../../nativ
 import { AddGallerySheet } from '../components/AddGallerySheet'
 import { useMasonry } from '../components/library/useMasonry'
 import { CompactCoverImg } from '../components/library/CompactCoverImg'
+import { DeviceGalleriesRows, DeviceGalleriesSection } from '../components/library/DeviceGalleriesSection'
 import { GalleryShareSheet } from '../components/GalleryShareSheet'
 import { HeicImg } from '../components/ui/HeicImg'
 import { Sheet } from '../components/ui/Sheet'
@@ -191,6 +193,24 @@ export default function Admin({ galleries: initialGalleries, owner, ownerName, p
 
   // The OAuth link callback lands back here on `?linked=` / `?link=conflict`;
   // the params become a one-line note and are stripped so a refresh is quiet.
+  // The synced device feed is account metadata — the same rows the desktops
+  // mirror, deliberately carrying no paths. The web lists them compact and
+  // thumbnail-less; writes stay bound to the devices that own the folders.
+  const [deviceGalleries, setDeviceGalleries] = useState<DeviceGallery[]>([])
+  useEffect(() => {
+    let active = true
+    void (async () => {
+      try {
+        const response = await fetch('/api/device-galleries')
+        const payload = await response.json() as { galleries?: DeviceGallery[] }
+        if (active && response.ok && payload.galleries) setDeviceGalleries(payload.galleries)
+      } catch {
+        // A failed read leaves the section hidden.
+      }
+    })()
+    return () => { active = false }
+  }, [])
+
   useEffect(() => {
     let active = true
     void (async () => {
@@ -763,6 +783,12 @@ export default function Admin({ galleries: initialGalleries, owner, ownerName, p
   const stripGalleries = layout.strips.map((slug) => bySlug.get(slug)).filter((gallery): gallery is GallerySummary => Boolean(gallery))
   const compactGalleries = layout.compact.map((slug) => bySlug.get(slug)).filter((gallery): gallery is GallerySummary => Boolean(gallery))
   const hiddenGalleries = liveGalleries.filter((gallery) => gallery.hiddenAt)
+  // A device row published as a cloud gallery collapses into that card —
+  // the same dedupe the desktop Library applies to its synced mirrors.
+  const publishedSlugs = new Set(liveGalleries.map((gallery) => gallery.slug))
+  const standaloneDeviceRows = deviceGalleries.filter((gallery) => !gallery.publicGallerySlug || !publishedSlugs.has(gallery.publicGallerySlug))
+  const visibleDeviceRows = standaloneDeviceRows.filter((gallery) => !gallery.hidden)
+  const hiddenDeviceRows = standaloneDeviceRows.filter((gallery) => gallery.hidden)
 
   /** Proton's API answers CORS only to drive.proton.me itself, so a real
    *  browser can never reach it — the same verdict `protonTransport`
@@ -821,6 +847,7 @@ export default function Admin({ galleries: initialGalleries, owner, ownerName, p
       </div>
     </li>
   }
+
   const pinnedCount = liveGalleries.filter((gallery) => gallery.pinnedAt).length
   const retainedCount = liveGalleries.filter((gallery) => gallery.retention !== 'pipeline').length
   const retainedLimit = tier === 'pro' ? PAID_RETAINED_LIMIT : FREE_RETAINED_LIMIT
@@ -975,11 +1002,15 @@ export default function Admin({ galleries: initialGalleries, owner, ownerName, p
             <ul class="lib-compact-grid" ref={compactGridRef}>{compactGalleries.map(compactCard)}</ul>
           </section>
         ) : null}
+        {/* The synced device feed in compact form — titles, counts and the
+            device each folder lives on, no covers: the rows carry no paths
+            and the web keeps them that way. */}
+        <DeviceGalleriesSection galleries={visibleDeviceRows} />
         {/* Concealed galleries stay reachable — the flag is account-wide,
             so a gallery hidden on a device can be restored from the
             browser too. Collapsed by default: hidden means out of sight,
             not gone. */}
-        {hiddenGalleries.length ? (
+        {hiddenGalleries.length || hiddenDeviceRows.length ? (
           <section aria-labelledby="lib-hidden-title" class="lib-hidden-section">
             <button
               type="button"
@@ -989,10 +1020,13 @@ export default function Admin({ galleries: initialGalleries, owner, ownerName, p
               onClick={() => setHiddenOpen((open) => !open)}
             >
               <span class="lib-hidden-chevron" aria-hidden="true">{hiddenOpen ? '▾' : '▸'}</span>
-              Hidden galleries <span class="lib-hidden-count">({hiddenGalleries.length})</span>
+              Hidden galleries <span class="lib-hidden-count">({hiddenGalleries.length + hiddenDeviceRows.length})</span>
             </button>
             {hiddenOpen ? (
-              <ul class="lib-compact-grid" ref={hiddenGridRef}>{hiddenGalleries.map(compactCard)}</ul>
+              <>
+                <ul class="lib-compact-grid" ref={hiddenGridRef}>{hiddenGalleries.map(compactCard)}</ul>
+                {hiddenDeviceRows.length ? <DeviceGalleriesRows galleries={hiddenDeviceRows} /> : null}
+              </>
             ) : null}
           </section>
         ) : null}

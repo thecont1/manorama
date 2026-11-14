@@ -105,15 +105,41 @@ type ListedGallery = { id: string; title: string } & Record<string, unknown>
 const galleriesOf = async (response: Response) => (await response.json() as { galleries?: ListedGallery[] }).galleries ?? []
 
 describe('device catalogue session gate', () => {
-  test('anonymous, cookie-only, and handoff-bearer requests are all refused', async () => {
+  test('anonymous and handoff-bearer requests are refused; an account cookie reads the feed', async () => {
     const owner = await seedOwner()
     expect((await api.request('/api/device-galleries', {}, env())).status).toBe(401)
-    expect((await api.request('/api/device-galleries', { headers: { Cookie: owner.cookie } }, env())).status).toBe(401)
     const handoff = await createNativeHandoffToken(owner.id, TEST_SESSION_SECRET)
     expect((await api.request('/api/device-galleries', {
       headers: { Authorization: `Bearer ${handoff}` },
     }, env())).status).toBe(401)
     expect((await deleteAs(`Bearer ${handoff}`, crypto.randomUUID())).status).toBe(401)
+    // The collection read is session-shaped like every other account read —
+    // the web Library lists the same metadata-only mirrors the desktops do.
+    const cookieRead = await api.request('/api/device-galleries', { headers: { Cookie: owner.cookie } }, env())
+    expect(cookieRead.status).toBe(200)
+    expect(await galleriesOf(cookieRead)).toEqual([])
+  })
+
+  test('a cookie session still cannot write the device feed', async () => {
+    const owner = await seedOwner()
+    const id = crypto.randomUUID()
+    const cookieWrite = await api.request(`/api/device-galleries/${id}`, {
+      method: 'PUT',
+      headers: { Cookie: owner.cookie, 'Content-Type': 'application/json' },
+      body: JSON.stringify(deviceInput({ title: 'Written as a cookie' })),
+    }, env())
+    expect(cookieWrite.status).toBe(401)
+    const cookieDelete = await api.request(`/api/device-galleries/${id}`, {
+      method: 'DELETE',
+      headers: { Cookie: owner.cookie },
+    }, env())
+    expect(cookieDelete.status).toBe(401)
+    const cookiePatch = await api.request(`/api/device-galleries/${id}`, {
+      method: 'PATCH',
+      headers: { Cookie: owner.cookie, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ hidden: true }),
+    }, env())
+    expect(cookiePatch.status).toBe(401)
   })
 
   test('a supplied bearer wins over an ambient session cookie', async () => {
@@ -139,9 +165,13 @@ describe('device catalogue session gate', () => {
     expect((await api.request('/api/device-galleries', {
       headers: { Authorization: 'Bearer not-a-jwt', Cookie: a.cookie },
     }, env())).status).toBe(401)
-    expect((await api.request('/api/device-galleries', {
+    // The same cookie that once answered 401 reads the feed now — the
+    // account cookie is a full session everywhere else in the API.
+    const cookieOnly = await api.request('/api/device-galleries', {
       headers: { Cookie: a.cookie },
-    }, env())).status).toBe(401)
+    }, env())
+    expect(cookieOnly.status).toBe(200)
+    expect((await galleriesOf(cookieOnly)).map((gallery) => gallery.id)).toEqual([id])
   })
 
   test('a write under bearer A cannot be steered by an ambient cookie for B', async () => {

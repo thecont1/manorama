@@ -5,7 +5,7 @@ import { deleteDeviceGallery, listDeviceGalleries, putDeviceGallery, setDeviceGa
 import { getStoredGallery } from './lib/gallery-repository'
 import { isGalleryExpired } from './lib/gallery-policy'
 import { getUserByAccountId } from './lib/user-repository'
-import { accessEnvOf, resolveManoramaSession, type HonoSessionEnv } from './lib/session'
+import { accessEnvOf, requireSession, resolveManoramaSession, type HonoSessionEnv } from './lib/session'
 
 const dbEnv = (c: { env: unknown }) => c.env as DeviceGalleryEnv
 
@@ -34,10 +34,13 @@ export const createDeviceGalleryApi = () => {
 
   api.use('/api/device-galleries', privateNoStore)
   api.use('/api/device-galleries/*', privateNoStore)
-  api.use('/api/device-galleries', requireBearerSession())
-  api.use('/api/device-galleries/*', requireBearerSession())
-
-  api.get('/api/device-galleries', async (c) => {
+  // The collection read answers any account session — the web Library lists
+  // the same metadata-only mirrors the desktops do, and the feed carries no
+  // paths by design. Writes stay bound to a device token: the catalogue on
+  // the device is the only thing allowed to say what it holds. (The auth
+  // lives on the routes, not `use` — a `/*` wildcard middleware matches the
+  // bare collection path too, which would bearer-gate the read.)
+  api.get('/api/device-galleries', requireSession(), async (c) => {
     const session = c.get('manoramaSession')
     try {
       // The listing runs first so a broken database still answers 503; the
@@ -51,7 +54,7 @@ export const createDeviceGalleryApi = () => {
     }
   })
 
-  api.put('/api/device-galleries/:id', bodyLimit({ maxSize: 8192 }), async (c) => {
+  api.put('/api/device-galleries/:id', requireBearerSession(), bodyLimit({ maxSize: 8192 }), async (c) => {
     const session = c.get('manoramaSession')
     // Syncing is a Visionary feature. The gate only applies when the account
     // record could be read — a missing binding falls through to the store,
@@ -94,7 +97,7 @@ export const createDeviceGalleryApi = () => {
    *  the row, so hiding a mirror propagates to every device that lists it.
    *  Open to Free accounts for the same reason DELETE is: cleanup must never
    *  be gated by a plan that already left. */
-  api.patch('/api/device-galleries/:id', bodyLimit({ maxSize: 2048 }), async (c) => {
+  api.patch('/api/device-galleries/:id', requireBearerSession(), bodyLimit({ maxSize: 2048 }), async (c) => {
     const session = c.get('manoramaSession')
     const id = c.req.param('id')
     if (!DEVICE_GALLERY_ID_PATTERN.test(id)) return c.json({ error: 'That device gallery was not found' }, 404)
@@ -109,7 +112,7 @@ export const createDeviceGalleryApi = () => {
     }
   })
 
-  api.delete('/api/device-galleries/:id', async (c) => {
+  api.delete('/api/device-galleries/:id', requireBearerSession(), async (c) => {
     const session = c.get('manoramaSession')
     const id = c.req.param('id')
     if (!DEVICE_GALLERY_ID_PATTERN.test(id)) return c.json({ error: 'That device gallery was not found' }, 404)
