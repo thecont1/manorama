@@ -17,7 +17,10 @@ export const pageSecurityHeaders = (opts: { dev: boolean }): Record<string, stri
     "style-src 'self' 'unsafe-inline'",
     "font-src 'self' data:",
     "img-src 'self' data: blob:",
-    "media-src 'self' blob:",
+    // Google Photos clips play from lh3 directly — the =m-rendition 302s to
+    // a googlevideo URL bound to the visitor's own IP, and the policy is
+    // checked at every hop of that chain.
+    "media-src 'self' blob: https://lh3.googleusercontent.com https://*.googlevideo.com",
     // Dev adds ws:/wss: for Vite HMR.
     // MEGA's public API/CDN permit direct ciphertext access. Only their
     // exact API hosts and rotating storage suffix join the gallery allowlist.
