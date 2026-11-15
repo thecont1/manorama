@@ -679,6 +679,23 @@ body:has(.policy-page) { overflow: auto; background: #111312; color: rgb(var(--i
 .policy-document th { color: rgb(var(--ink)); font-weight: 700; }
 .policy-document td { color: rgba(var(--ink), .9); }
 .policy-document hr { border: none; border-top: 1px solid rgba(255,255,255,.2); margin: 32px 0; }
+/* The document pages stay dark whatever the header's theme toggle does —
+   the .home wrapper would otherwise repaint them in the light palette
+   while the prose keeps its light ink. */
+body:has(.policy-page) .home { background: #111312; }
+/* /techspecs frames the spec as FAQ-style disclosures: the section headers
+   list one after the other on the homepage FAQ's card chrome, and each
+   reveals its own prose in the document's measure and type. The card
+   colours are pinned to the document's dark surface so an html.light
+   flip cannot turn them beige under light ink. */
+.doc-section-list { margin-top: 8px; }
+.doc-section-body { padding: 0 20px 20px; }
+.policy-document .doc-section { background: rgba(255,255,255,.05); }
+.policy-document .doc-section > summary { color: rgba(var(--ink), .9); }
+.policy-document .doc-section > summary::after { color: rgba(var(--ink), .45); }
+.policy-document .doc-section[open] > summary,
+.policy-document .doc-section[open] > summary::after { color: #fc0fc0; }
+.doc-section--h3 > summary, .doc-section--h4 > summary, .doc-section--h5 > summary, .doc-section--h6 > summary { padding-left: 44px; }
 /* The persona entries are subsections of continuous prose — a flat column,
    not nested cards on a tinted grid. */
 .policy-personas { display: grid; gap: 20px; margin: 0 0 16px; }

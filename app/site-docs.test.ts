@@ -77,10 +77,28 @@ describe('/techspecs renders TECH-SPEC.md', () => {
     expect(html).toContain('<title>Tech Specs — manorama</title>')
     expectSiteChrome(html)
     expect(html).toContain('technical specification')
-    expect(html).toContain('<h2>')
     expect(html).toContain('<table>')
     // Fenced code blocks render as pre/code, not literal backticks.
     expect(html).toContain('<pre><code')
+  })
+
+  test('sections render as FAQ-style disclosures in document order', async () => {
+    const html = await get('/techspecs', techSpecsRoute)
+    // Every spec heading became a <summary> on the homepage FAQ's card
+    // chrome — the headers list one after the other, closed by default.
+    expect(html).toContain('<details class="home-faq-item doc-section')
+    expect(html).toContain('<summary>Provider ingestion</summary>')
+    expect(html).toContain('<summary>Dropbox</summary>')
+    expect(html).toContain('<summary>Licensing</summary>')
+    const first = html.indexOf('<summary>Stack</summary>')
+    const last = html.indexOf('<summary>Known limitations</summary>')
+    expect(first).toBeGreaterThan(-1)
+    expect(last).toBeGreaterThan(first)
+    // The document's own headings no longer render as bare h2/h3 elements.
+    expect(html).not.toContain('<h2>')
+    // Inline markup in a heading still renders — the quick-add title
+    // carries a code span.
+    expect(html).toContain('<summary>Quick-add: <code>manorama.xyz/&lt;share-url&gt;</code></summary>')
   })
 
   test('markup mentioned inside code spans stays escaped', async () => {
