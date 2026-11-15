@@ -41,24 +41,24 @@ export default function Header({
         <details class="home-nav-menu">
           <summary>Menu</summary>
           <div class="home-nav-menu-list">
+            <a href="https://downloads.manorama.xyz/">Downloads</a>
             {sections.map((link) => (
               <a key={link.href} href={link.href}>
                 {link.label}
               </a>
             ))}
-            <a href="https://downloads.manorama.xyz/">Downloads</a>
             <button type="button" class="home-nav-signin" popovertarget="home-account-panel" popovertargetaction="show">Sign in</button>
             <p class="home-nav-menu-label">View</p>
             <ThemeToggle />
           </div>
         </details>
         <nav class="home-nav" aria-label="Sections">
+          <DownloadMenu />
           {sections.map((link) => (
             <a key={link.href} href={link.href}>
               {link.label}
             </a>
           ))}
-          <DownloadMenu />
         </nav>
         <ThemeToggle />
         <SignInMenu class="home-signin-header" returning={returning} next={next} failed={failed} />

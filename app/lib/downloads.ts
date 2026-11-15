@@ -124,9 +124,9 @@ html.light .home .home-logo-light{display:block}
 .home .home-theme-toggle{display:inline-grid;place-items:center;width:44px;height:44px;padding:0;border:0;border-radius:50%;background:none;color:var(--home-ink-muted);cursor:pointer;transition:color 120ms ease-out,background-color 120ms ease-out}
 .home .home-theme-toggle[hidden]{display:none}
 .home .home-theme-toggle:hover{background:var(--home-surface);color:var(--home-ink)}
-.home-theme-sun{display:none}
-html.light .home-theme-sun{display:block}
-html.light .home-theme-moon{display:none}
+.home-theme-moon{display:none}
+html.light .home-theme-sun{display:none}
+html.light .home-theme-moon{display:block}
 .home-signin-trigger,.home-nav-signin{display:inline-flex;align-items:center;min-height:44px;padding:0 6px;border:0;background:none;color:var(--home-ink-muted);font:inherit;font-size:15px;cursor:pointer;text-decoration:none;transition:color 120ms ease-out}
 .home-signin-trigger:hover,.home-nav-signin:hover{color:var(--home-ink)}
 .home-account-panel{position:fixed;inset:calc(var(--home-header-h) + 8px) clamp(20px,4.5vw,64px) auto auto;width:min(320px,calc(100vw - 40px));max-height:calc(100svh - var(--home-header-h) - 24px);margin:0;padding:14px;overflow-y:auto;border:2px solid var(--home-ink);border-radius:0;background:var(--home-surface-raised);color:var(--home-ink);box-shadow:4px 4px 0 var(--home-accent)}
@@ -300,12 +300,12 @@ const accountPanelHtml = () => `<div id="home-account-panel" class="home-account
 
 const headerHtml = () => `<header class="home-header"><div class="home-header-inner">
 <a class="home-wordmark" href="${SITE}/?home=1" aria-label="manorama, home"><img class="home-logo-dark" src="${SITE}/manorama-merged-logo.png" alt="manorama" width="2027" height="688"><img class="home-logo-light" src="${SITE}/manorama-merged-logo-light.png" alt="" aria-hidden="true" width="2027" height="688"></a>
-<nav class="home-nav" aria-label="Sections"><a href="${SITE}/?home=1#unify">Features</a><a href="${SITE}/?home=1#pricing">Pricing</a><a href="${SITE}/?home=1#faq">FAQ</a><a href="${SITE}/?home=1">Home</a></nav>
+<nav class="home-nav" aria-label="Sections"><a href="${SITE}/?home=1">Home</a><a href="${SITE}/?home=1#unify">Features</a><a href="${SITE}/?home=1#pricing">Pricing</a><a href="${SITE}/?home=1#faq">FAQ</a></nav>
 ${THEME_TOGGLE}
 <button type="button" class="home-signin-trigger" popovertarget="home-account-panel" popovertargetaction="show">Sign in</button>
 <button type="button" class="home-btn" popovertarget="home-account-panel" popovertargetaction="show">Start free</button>
 <details class="home-nav-menu"><summary>Menu</summary><div class="home-nav-menu-list">
-<a href="${SITE}/?home=1#unify">Features</a><a href="${SITE}/?home=1#pricing">Pricing</a><a href="${SITE}/?home=1#faq">FAQ</a><a href="${SITE}/?home=1">Home</a>
+<a href="${SITE}/?home=1">Home</a><a href="${SITE}/?home=1#unify">Features</a><a href="${SITE}/?home=1#pricing">Pricing</a><a href="${SITE}/?home=1#faq">FAQ</a>
 <button type="button" class="home-nav-signin" popovertarget="home-account-panel" popovertargetaction="show">Sign in</button>
 <p class="home-nav-menu-label">View</p>${THEME_TOGGLE}
 </div></details>

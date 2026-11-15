@@ -147,6 +147,8 @@ describe('the navigation', () => {
     expect(html).toContain('class="home-downloads"')
     expect(html).toContain('class="home-downloads-trigger" href="https://downloads.manorama.xyz/"')
     expect(html).toContain('>Downloads</a>')
+    // Downloads leads the nav, ahead of the section anchors.
+    expect(html.indexOf('home-downloads"')).toBeLessThan(html.indexOf('href="#unify"'))
   })
 
   test('has a skip link and one h1', () => {

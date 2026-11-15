@@ -219,6 +219,8 @@ describe('handleDownloads', () => {
     const res = await handleDownloads(req('/'), envWith({}))
     const body = await res.text()
     expect(body).toContain('href="https://manorama.xyz/?home=1">Home</a>')
+    // Home leads the nav, ahead of the homepage section anchors.
+    expect(body.indexOf('>Home</a>')).toBeLessThan(body.indexOf('manorama.xyz/?home=1#unify'))
     expect(body).not.toContain('home-downloads-trigger')
     expect(body).not.toContain('Get the app')
   })
@@ -228,6 +230,9 @@ describe('handleDownloads', () => {
     const body = await res.text()
     expect(body).toContain('manorama-theme=(light|dark)')
     expect(body).toContain('domain=.manorama.xyz')
+    // Icon parity with the homepage: dark shows the sun, light the moon.
+    expect(body).toContain('html.light .home-theme-moon{display:block}')
+    expect(body).toContain('html.light .home-theme-sun{display:none}')
   })
 
   test('serves versioned objects with immutable caching', async () => {
