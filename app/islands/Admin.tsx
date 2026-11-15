@@ -19,7 +19,8 @@ import { GalleryShareSheet } from '../components/GalleryShareSheet'
 import { HeicImg } from '../components/ui/HeicImg'
 import { Sheet } from '../components/ui/Sheet'
 import { WebSettings, type AccountIdentityWeb } from '../components/WebSettings'
-import { SettingsIcon } from '../components/admin-icons'
+import { QuietIcon, SettingsIcon } from '../components/admin-icons'
+import { curtainStagger } from '../components/library/quiet'
 import GallerySettingsSheet from '../components/GallerySettingsSheet'
 import { copyText } from '../lib/gallery-share'
 import { cardCountSource, formatMediaCount, summaryMediaCount } from '../lib/imagesource'
@@ -175,6 +176,10 @@ export default function Admin({ galleries: initialGalleries, owner, ownerName, p
   const [cloudOpen, setCloudOpen] = useState(true)
   const [localOpen, setLocalOpen] = useState(true)
   const [pinnedOpen, setPinnedOpen] = useState(true)
+  // Quiet view: a rail toggle that sinks the gallery list's words to a
+  // whisper, leaving only the photographs. Session-level — nothing to
+  // persist, the Library forgets it like everything else the web holds.
+  const [quiet, setQuiet] = useState(false)
   // A card only mounts inside an open section — a collapsed Pinned, Cloud
   // or Hidden list would leave the post-add scroll with nothing to find.
   const revealGallerySection = (gallery: GallerySummary) => {
@@ -461,7 +466,11 @@ export default function Admin({ galleries: initialGalleries, owner, ownerName, p
       document.documentElement.dataset.detailsConsumed = slug
       setGalSettingsSlug(slug)
     } else if (params.get('settings') === '1') {
-      setSettingsOpen(true)
+      // Settings is session chrome, not a destination — a reload lands on
+      // the Library. Rewriting the entry drops the param so a stale Forward
+      // can't reopen the pane either; popstate still owns Back/Forward.
+      params.delete('settings')
+      rewriteGalleryHistory(window, 'replace', null, `${window.location.pathname}${params.size ? `?${params}` : ''}`)
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
@@ -931,7 +940,7 @@ export default function Admin({ galleries: initialGalleries, owner, ownerName, p
       </a>
       <div class="lib-compact-body">
         <div class="lib-compact-main">
-          <a class="lib-card-title" href={deadEnd ? undefined : galleryPath(gallery.slug)} draggable="false">{title}{gallery.pinnedAt ? <span class="lib-pin" role="img" aria-label="Pinned"><svg viewBox="0 0 24 24" aria-hidden="true" width="14" height="14" fill="currentColor"><path d="M16 12V4h1V2H7v2h1v8l-2 2v2h5.2v6l.8 2 .8-2v-6H18v-2l-2-2z"/></svg></span> : null}</a>
+          <a class="lib-card-title" href={deadEnd ? undefined : galleryPath(gallery.slug)} draggable="false">{title}</a>
           {locked ? (
             <button type="button" class="lib-temp-flag" aria-label={`Temporary gallery${gallery.expiresAt ? ` — expires in ${expiryCountdownText(gallery.expiresAt, now)}` : ''}`} onClick={() => setPinChoiceSlug(gallery.slug)}>
               <svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="10" x2="14" y1="2" y2="2"/><line x1="12" x2="15" y1="14" y2="11"/><circle cx="12" cy="14" r="8"/></svg>
@@ -989,7 +998,20 @@ export default function Admin({ galleries: initialGalleries, owner, ownerName, p
           <h1 class="admin-galleries-heading" id="galleries-heading">Library</h1>
           <div class="admin-heading-actions">
             <button type="button" class="admin-button admin-button--solid admin-add-pill" onClick={() => { setAddError(null); setAddOpen(true) }} disabled={busy}><span aria-hidden="true">+</span> Add Gallery</button>
-            <button type="button" class="admin-button admin-settings-pill" aria-label="Settings" onClick={openSettings}>
+            {/* Quiet view: sinks every word in the gallery list to a whisper
+                so only the photographs remain. The toggle lives on the rail,
+                which stays untouched — it is the way back. */}
+            <button
+              type="button"
+              class="admin-button lib-quiet-toggle"
+              aria-pressed={quiet ? 'true' : 'false'}
+              aria-label={quiet ? 'Show the words' : 'Quiet view — hide the words'}
+              title={quiet ? 'Show the words' : 'Quiet view — hide the words'}
+              onClick={() => { curtainStagger(document.querySelector('.gallery-list')); setQuiet((on) => !on) }}
+            >
+              <QuietIcon />
+            </button>
+            <button type="button" class="admin-button admin-settings-pill" aria-label="Settings" aria-expanded={settingsOpen ? 'true' : 'false'} onClick={() => { settingsOpen ? closeSettings() : openSettings() }}>
               <SettingsIcon />
             </button>
           </div>
@@ -1027,7 +1049,7 @@ export default function Admin({ galleries: initialGalleries, owner, ownerName, p
         ) : null}
         <p class="admin-copyright">© 2026 Mahesh Shantaram / <a href="https://thecontrarian.in" target="_blank" rel="noopener">thecontrarian.in</a><br />Photographs in galleries belong to their respective owners.</p>
       </aside>
-      <section class="gallery-list" aria-labelledby="galleries-heading">
+      <section class={quiet ? 'gallery-list lib-quiet' : 'gallery-list'} aria-labelledby="galleries-heading" hidden={settingsOpen || undefined}>
         {stripGalleries.length ? <section aria-labelledby="lib-strips-title">
           <button
             type="button"
@@ -1088,7 +1110,7 @@ export default function Admin({ galleries: initialGalleries, owner, ownerName, p
               </ul>}
             </div>
             <div class="lib-card-head">
-              <a class="lib-card-title" href={deadEnd ? undefined : galleryPath(gallery.slug)} draggable="false">{title}{gallery.pinnedAt ? <span class="lib-pin" role="img" aria-label="Pinned"><svg viewBox="0 0 24 24" aria-hidden="true" width="14" height="14" fill="currentColor"><path d="M16 12V4h1V2H7v2h1v8l-2 2v2h5.2v6l.8 2 .8-2v-6H18v-2l-2-2z"/></svg></span> : null}</a>
+              <a class="lib-card-title" href={deadEnd ? undefined : galleryPath(gallery.slug)} draggable="false">{title}</a>
               {locked ? (
                 <button type="button" class="lib-temp-flag" aria-label={`Temporary gallery${gallery.expiresAt ? ` — expires in ${expiryCountdownText(gallery.expiresAt, now)}` : ''}`} onClick={() => setPinChoiceSlug(gallery.slug)}>
                   <svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="10" x2="14" y1="2" y2="2"/><line x1="12" x2="15" y1="14" y2="11"/><circle cx="12" cy="14" r="8"/></svg>
@@ -1159,6 +1181,39 @@ export default function Admin({ galleries: initialGalleries, owner, ownerName, p
           </div>
         ) : null}
       </section>
+      {/* Settings takes over the galleries column itself — the rail stays
+          mounted beside it and the gear becomes the way back. */}
+      {settingsOpen ? (
+        <WebSettings
+          presentation="pane"
+          ownerName={ownerName}
+          ownerSlug={owner}
+          ownerSlugDraft={ownerSlugDraft}
+          onOwnerSlugDraft={(value) => { setOwnerSlugDraft(value); setSettingsNote('') }}
+          onSaveOwnerSlug={() => void saveOwnerSlug()}
+          ownerSlugBusy={busy}
+          ownerSlugNote={settingsNote}
+          identities={identities}
+          identityNote={identityNote}
+          onUnlinkIdentity={(provider) => void removeIdentity(provider)}
+          tier={tier}
+          retainedCount={retainedCount}
+          retainedLimit={retainedLimit}
+          temporaryCount={temporaryCount}
+          upgradeHref={upgradeHref}
+          theme={theme}
+          onTheme={setTheme}
+          deleteConfirm={deleteConfirm}
+          onDeleteConfirmChange={setDeleteConfirm}
+          deleteOpen={deleteOpen}
+          onRequestDelete={() => { setDeleteOpen(true); setDeleteNote('') }}
+          onCancelDelete={() => { setDeleteOpen(false); setDeleteConfirm(''); setDeleteNote('') }}
+          deleteBusy={deleteBusy}
+          deleteNote={deleteNote}
+          onDeleteAccount={() => void removeAccount()}
+          onBack={closeSettings}
+        />
+      ) : null}
       </div>
 
       {status ? <div class="admin-toast" role="status" aria-live="polite">{status}</div> : null}
@@ -1299,36 +1354,6 @@ export default function Admin({ galleries: initialGalleries, owner, ownerName, p
         />
       ) : null}
 
-      {settingsOpen ? (
-        <WebSettings
-          ownerName={ownerName}
-          ownerSlug={owner}
-          ownerSlugDraft={ownerSlugDraft}
-          onOwnerSlugDraft={(value) => { setOwnerSlugDraft(value); setSettingsNote('') }}
-          onSaveOwnerSlug={() => void saveOwnerSlug()}
-          ownerSlugBusy={busy}
-          ownerSlugNote={settingsNote}
-          identities={identities}
-          identityNote={identityNote}
-          onUnlinkIdentity={(provider) => void removeIdentity(provider)}
-          tier={tier}
-          retainedCount={retainedCount}
-          retainedLimit={retainedLimit}
-          temporaryCount={temporaryCount}
-          upgradeHref={upgradeHref}
-          theme={theme}
-          onTheme={setTheme}
-          deleteConfirm={deleteConfirm}
-          onDeleteConfirmChange={setDeleteConfirm}
-          deleteOpen={deleteOpen}
-          onRequestDelete={() => { setDeleteOpen(true); setDeleteNote('') }}
-          onCancelDelete={() => { setDeleteOpen(false); setDeleteConfirm(''); setDeleteNote('') }}
-          deleteBusy={deleteBusy}
-          deleteNote={deleteNote}
-          onDeleteAccount={() => void removeAccount()}
-          onBack={closeSettings}
-        />
-      ) : null}
     </>
   )
 }

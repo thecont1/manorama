@@ -390,7 +390,7 @@ describe('the lean library layout', () => {
     expect(html).not.toContain('more in Big')
   })
 
-  test('a pinned gallery leads its strips with the pin glyph', async () => {
+  test('a pinned gallery leads its strips without a redundant pin glyph', async () => {
     const html = await renderDashboard(async () => {
       const { setGalleryPinned } = await import('./lib/gallery-repository')
       await setUserTier(TEST_OWNER.accountId, 'pro')
@@ -403,8 +403,9 @@ describe('the lean library layout', () => {
       }
       await setGalleryPinned(TEST_OWNER.accountId, 'sort-11', true)
     })
-    // The oldest gallery pins into the first strip position.
-    expect(html.indexOf('aria-label="Pinned"')).toBeGreaterThan(-1)
+    // The oldest gallery pins into the first strip position — the section
+    // says "pinned", so the title carries no pin glyph of its own.
+    expect(html.indexOf('aria-label="Pinned"')).toBe(-1)
     const firstCard = html.indexOf('data-gallery-card="sort-11"')
     const secondCard = html.indexOf('data-gallery-card="sort-0"')
     expect(firstCard).toBeGreaterThan(-1)

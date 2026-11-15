@@ -762,10 +762,16 @@ html.light body.manorama-native :is(.native-welcome, .native-list-shell, .native
   line-height: 1.45;
 }
 .native-lib-foot .num { color: rgb(var(--ink)); }
+/* `hidden` on the foot loses to its own display:flex — Settings needs the
+   attribute to actually hide it while the pane is up. */
+.native-lib-foot[hidden] { display: none; }
 
 /* Settings keeps the shared owner grammar while embedding the live vault
    controls rather than mounting a second settings shell. */
 .native-settings { background: var(--m-ground); color: var(--m-ink); }
+/* As a Library pane it takes over the list column under the shared topbar —
+   the same gentle enter the web/desktop pane uses. */
+.native-settings--pane { min-width: 0; animation: lib-pane-in .38s cubic-bezier(.4, 0, .2, 1) both; }
 .native-settings-content { padding-top: 16px; padding-bottom: calc(40px + var(--native-safe-bottom)); }
 .native-settings .m-settings-address,
 .native-settings .m-settings-control,

@@ -1830,6 +1830,39 @@ body:has(.ops-page) { overflow: auto; overflow-x: clip; background: #111312; }
 .admin-upgrade-link { color: rgb(var(--ink)); text-underline-offset: 3px; }
 .admin-add-pill { border-radius: 999px; padding: 9px 18px; margin: 0; min-height: var(--m-touch); font-family: var(--m-font); font-size: 15px; font-weight: 650; }
 .admin-settings-pill { border-radius: 999px; width: var(--m-touch); height: var(--m-touch); padding: 0; margin: 0; display: inline-flex; align-items: center; justify-content: center; }
+.lib-quiet-toggle { border-radius: 999px; width: var(--m-touch); height: var(--m-touch); padding: 0; margin: 0; display: inline-flex; align-items: center; justify-content: center; }
+.lib-quiet-toggle[aria-pressed="true"] { border-color: rgb(var(--ink)); background: rgb(var(--ink)); color: #161817; }
+html.light .lib-quiet-toggle[aria-pressed="true"] { color: #e9e5dc; }
+
+/* Quiet view — the toggle on the rail sinks the gallery list to a whisper:
+   every word to alpha 0.05 so only the photographs stay at full strength.
+   `color` (and -webkit-text-fill-color for engines that honour it)
+   inherits, so the fade lands once on every descendant rather than
+   compounding the way nested opacity would. The rail itself — and the
+   way back — is deliberately untouched. */
+.lib-quiet, .lib-quiet * {
+  color: rgba(var(--ink), .05) !important;
+  -webkit-text-fill-color: rgba(var(--ink), .05) !important;
+}
+/* The curtain: the transition lives on the un-quieted elements so the fade
+   eases in AND back out — the same bezier the viewer's curtain uses. The
+   per-card delay that makes it fall is written inline by curtainStagger.
+   Only the img decode crossfades carry transitions inside these containers;
+   they keep their .32s lane and gain the slower brightness lane beside it. */
+.gallery-list :not(img), .native-list-card :not(img), .native-lib-foot :not(img) {
+  transition: color .7s cubic-bezier(.4, 0, .2, 1), -webkit-text-fill-color .7s cubic-bezier(.4, 0, .2, 1), opacity .7s cubic-bezier(.4, 0, .2, 1);
+}
+.gallery-list :is(.lib-card, .admin-gallery-strip-item, .lib-compact-cover) img,
+.native-list-card :is(.lib-card, .admin-gallery-strip-item, .lib-compact-cover) img {
+  transition: opacity .32s ease, filter .7s cubic-bezier(.4, 0, .2, 1);
+}
+/* Chrome that is not text — icons, pills, badges, the update banner —
+   sinks by opacity instead. Nothing that holds a photograph is touched.
+   The primary buttons and the native sponsored slot are the only bright
+   solids inside a quieted card, so they sink whole. */
+.lib-quiet :where(svg, .device-pill, .lib-temp-flag, .admin-strip-badge, .app-update-banner, .m-btn--primary, [data-account-ad]) { opacity: .05; }
+/* And the photographs step a touch forward while the words step back. */
+.lib-quiet img { filter: brightness(1.12); }
 
 /* Account surface sponsored slot: one labelled panel under the Library
    heading, above every gallery — its own surface shaped for a vertical
@@ -2080,6 +2113,15 @@ a.m-btn { text-decoration: none; }
   .m-owner-content { padding-top: 24px; }
 }
 
+/* The settings pane takes over the galleries column while the rail stays —
+   it eases in gently like a sheet would, and its head carries the way back. */
+.web-settings--pane { min-width: 0; animation: lib-pane-in .38s cubic-bezier(.4, 0, .2, 1) both; }
+@keyframes lib-pane-in {
+  from { opacity: 0; transform: translateY(10px); }
+  to { opacity: 1; transform: none; }
+}
+.lib-settings-head { display: grid; gap: 6px; justify-items: start; }
+.lib-settings-head h1 { margin: 0; font-size: var(--m-fs-title); line-height: 1.15; }
 .web-settings .m-settings-address { display: grid; gap: 12px; padding: 16px; }
 .web-settings .m-settings-address > label { color: var(--m-secondary); font-size: 13px; }
 .web-settings .m-settings-address > div { display: grid; grid-template-columns: auto minmax(0, 1fr); align-items: center; gap: 8px; }
@@ -2474,7 +2516,7 @@ html.light {
 
 /* A pinned card carries the pin beside its title — presentation only,
    the pin itself lives in the ··· menu. */
-.lib-pin { display: inline-flex; align-items: center; margin-left: 6px; color: rgba(var(--ink), .55); }
+
 /* The stopwatch on a temporary card opens the keep/swap popover — an
    icon the same size as the pin glyph, amber so the clock reads as
    running out rather than decorative. */
