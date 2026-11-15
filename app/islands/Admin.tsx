@@ -1225,6 +1225,9 @@ export default function Admin({ galleries: initialGalleries, owner, ownerName, p
           currentPhotoId={() => ''}
           onTitleSaved={(next) => setGalleries((previous) => previous.map((item) => item.slug === galSettingsGallery.slug ? { ...item, title: next } : item))}
           onCaptionSaved={(next) => setGalleries((previous) => previous.map((item) => item.slug === galSettingsGallery.slug ? { ...item, caption: next } : item))}
+          // The sheet stays open on a refresh — refetch the list in place
+          // instead of relying on a same-URL navigation to reload counts.
+          onRefreshed={() => { void refetchLibrary().catch(() => {}) }}
           onRemoved={() => {
             // The D1 row is gone; this tab's custody copy of the key
             // goes with it — the cleanup the retired card-confirm ran.
