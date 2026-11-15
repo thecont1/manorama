@@ -2261,6 +2261,51 @@ button.lib-card-title {
 .lib-compact-body .lib-card-title { min-height: 0; font-size: 15px; }
 .lib-compact-card > .lib-remove-confirm { padding-bottom: 6px; }
 
+/* Local galleries — synced device rows carry no paths, so each tile is a
+   compact mark-and-metadata index rather than a cover card. The auto-fill
+   track's 150px floor is ~2/3 of a cover card's 240px, so six tiles land
+   across wherever the thumbnail feed fits four. */
+.lib-device-grid {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+  column-gap: 14px;
+  row-gap: 18px;
+}
+.lib-device-card { display: flex; align-items: flex-start; gap: 10px; min-width: 0; }
+/* The local folder mark at a smaller scale than the home source row —
+   the tile is an index entry, not a provider card. */
+.lib-device-mark {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 32px;
+  height: 32px;
+  border-radius: 8px;
+  background: rgba(var(--ink), .08);
+  color: rgba(var(--ink), .55);
+}
+.lib-device-mark svg { display: block; width: 15px; height: 15px; }
+.lib-device-text { flex: 1; min-width: 0; }
+/* Titles clamp to two lines; the count and device lines are single-line
+   ellipsized — a long folder name or machine label never reflows the row. */
+.lib-device-title {
+  margin: 0;
+  color: var(--m-ink);
+  font-size: 15px;
+  font-weight: 650;
+  letter-spacing: -.01em;
+  line-height: 1.35;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  overflow-wrap: anywhere;
+}
+.lib-device-sub { margin: 2px 0 0; color: var(--m-secondary); font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
 /* A pinned card carries the pin beside its title — presentation only,
    the pin itself lives in the ··· menu. */
 .lib-pin { display: inline-flex; align-items: center; margin-left: 6px; color: rgba(var(--ink), .55); }

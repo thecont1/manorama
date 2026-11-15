@@ -11,7 +11,7 @@ import { readRuntimeFoldLayout, subscribeToRuntimeFoldLayout } from '../../nativ
 import { AddGallerySheet } from '../components/AddGallerySheet'
 import { useMasonry } from '../components/library/useMasonry'
 import { CompactCoverImg } from '../components/library/CompactCoverImg'
-import { DeviceGalleriesRows, DeviceGalleriesSection } from '../components/library/DeviceGalleriesSection'
+import { DeviceGalleriesGrid, DeviceGalleriesSection } from '../components/library/DeviceGalleriesSection'
 import { SectionChevron } from '../components/library/SectionChevron'
 import { GalleryShareSheet } from '../components/GalleryShareSheet'
 import { HeicImg } from '../components/ui/HeicImg'
@@ -1130,7 +1130,7 @@ export default function Admin({ galleries: initialGalleries, owner, ownerName, p
             {hiddenOpen ? (
               <>
                 <ul class="lib-compact-grid" ref={hiddenGridRef}>{hiddenGalleries.map(compactCard)}</ul>
-                {hiddenDeviceRows.length ? <DeviceGalleriesRows galleries={hiddenDeviceRows} /> : null}
+                {hiddenDeviceRows.length ? <DeviceGalleriesGrid galleries={hiddenDeviceRows} /> : null}
               </>
             ) : null}
           </section>
