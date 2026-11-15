@@ -2,6 +2,7 @@ import type { GalleryManifest, GalleryMediaItem, ImageVariant, VideoCaptionTrack
 import type { GallerySettings } from '../../app/lib/gallery-settings'
 import type { GallerySummary } from '../../app/lib/gallery-repository'
 import type { DeviceGallery } from '../../packages/core/device-gallery'
+import type { Device, DeviceKind } from '../../packages/core/devices'
 import { getSessionToken } from './session'
 
 export type NativeGalleryResponse = {
@@ -252,6 +253,49 @@ export const fetchDeviceGalleries = async (
   if (!response.ok) throw new NativeGalleryHttpError(response.status, payload.error || `Device gallery list request failed (${response.status})`)
   if (!Array.isArray(payload.galleries)) throw new Error('Device gallery list response was incomplete')
   return payload.galleries
+}
+
+/** The account's device list — random ids, kinds, numbers and pill colours.
+ *  The phone reads it so it can name the device a Local gallery lives on,
+ *  and never sends a device name of its own. */
+export const fetchDevices = async (apiBase: string, signal?: AbortSignal): Promise<Device[]> => {
+  const response = await fetch(`${normalizeApiBase(apiBase)}/api/devices`, {
+    headers: await bearerHeaders(),
+    signal,
+  })
+  const payload = await response.json().catch(() => ({})) as { devices?: Device[]; error?: string }
+  if (!response.ok) throw new NativeGalleryHttpError(response.status, payload.error || `Device list request failed (${response.status})`)
+  if (!Array.isArray(payload.devices)) throw new Error('Device list response was incomplete')
+  return payload.devices
+}
+
+/** Records this phone against the account. Only the bearer token is
+ *  accepted, so a browser session can never register as a device. */
+export const registerDevice = async (apiBase: string, id: string, kind: DeviceKind): Promise<Device> => {
+  const response = await fetch(`${normalizeApiBase(apiBase)}/api/devices/${encodeURIComponent(id)}`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json', ...(await bearerHeaders()) },
+    body: JSON.stringify({ kind }),
+  })
+  const payload = await response.json().catch(() => ({})) as { device?: Device; error?: string }
+  if (!response.ok || !payload.device) {
+    throw new NativeGalleryHttpError(response.status, payload.error || 'This device could not be added')
+  }
+  return payload.device
+}
+
+/** Forgets a device and every Local gallery row it published. A 404 means it
+ *  was already gone. */
+export const forgetDevice = async (apiBase: string, id: string): Promise<void> => {
+  const response = await fetch(`${normalizeApiBase(apiBase)}/api/devices/${encodeURIComponent(id)}`, {
+    method: 'DELETE',
+    headers: await bearerHeaders(),
+  })
+  if (response.status === 404) return
+  if (!response.ok) {
+    const payload = await response.json().catch(() => ({})) as { error?: string }
+    throw new NativeGalleryHttpError(response.status, payload.error || 'That device could not be forgotten')
+  }
 }
 
 /** Deletes the signed-in account and every Manorama row it owns. `confirm`

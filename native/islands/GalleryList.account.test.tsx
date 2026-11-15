@@ -420,6 +420,7 @@ describe('signed-in account area', () => {
   type ApiStubs = {
     galleries?: Response | Promise<Response>
     deviceGalleries?: Response
+    devices?: Response | (() => Response)
     scan?: Response | (() => Response)
     import?: () => Response
     mutation?: (url: string, init?: RequestInit) => Response | undefined
@@ -443,6 +444,14 @@ describe('signed-in account area', () => {
         if (response) return response
       }
       if (url.includes('/api/device-galleries')) return stubs.deviceGalleries ?? json({ galleries: [] })
+      // Registering this phone is a PUT; answer it without consuming the list
+      // stub, which the GET below still needs.
+      if (init?.method === 'PUT' && url.includes('/api/devices/')) {
+        const kind = (JSON.parse(String(init.body ?? '{}')) as { kind?: string }).kind ?? 'iphone'
+        return json({ device: { id: url.split('/').pop(), kind, ordinal: 1, colour: 0, firstSeenAt: '2026-10-01T00:00:00.000Z', lastSeenAt: '2026-10-02T00:00:00.000Z' } })
+      }
+      if (init?.method === 'DELETE' && url.includes('/api/devices/')) return json({ ok: true })
+      if (url.includes('/api/devices')) return typeof stubs.devices === 'function' ? stubs.devices() : stubs.devices ?? json({ devices: [] })
       if (url.includes('/api/galleries')) return (await stubs.galleries)?.clone() ?? json({ galleries: [] })
       if (url.includes('/api/ads/visibility')) return stubs.visibility ?? json({ show: true, day: '2026-10-01' })
       // The suppression list is session-gated: an unanswered list leaves the
@@ -473,7 +482,6 @@ describe('signed-in account area', () => {
     sourceKind: 'folder',
     itemCount: 34,
     deviceId: '87654321-4321-4321-4321-ba0987654321',
-    deviceLabel: "Mahesh's Mac Studio",
     updatedAt: '2026-10-01T00:00:00Z',
     ...overrides,
   })
@@ -676,7 +684,7 @@ describe('signed-in account area', () => {
     expect(container.innerHTML).toContain('Your address is now manorama.xyz/fieldnotes')
   })
 
-  test('renders the device catalogue; only a public slug is tappable', async () => {
+  test('Local galleries from other devices are pill tiles in the Library — no cover, no path', async () => {
     installLocalStorage()
     signInStorage()
     stubFetch({
@@ -690,6 +698,42 @@ describe('signed-in account area', () => {
             itemCount: 9,
             deviceId: 'fedcba98-4321-4321-4321-ba0987654321',
           }),
+        ],
+      }),
+      devices: json({
+        devices: [
+          { id: '87654321-4321-4321-4321-ba0987654321', kind: 'mac', ordinal: 1, colour: 0, firstSeenAt: '2026-10-01T00:00:00.000Z', lastSeenAt: '2026-10-02T00:00:00.000Z' },
+          { id: 'fedcba98-4321-4321-4321-ba0987654321', kind: 'mac', ordinal: 2, colour: 1, firstSeenAt: '2026-10-01T00:00:00.000Z', lastSeenAt: '2026-10-02T00:00:00.000Z' },
+        ],
+      }),
+    })
+    const { container } = mountAccount({ billing: entitlement('pro') })
+    await settle()
+
+    const section = container.querySelector('[data-local-galleries]') as HTMLElement | null
+    expect(section).not.toBeNull()
+    const tiles = [...section!.querySelectorAll<HTMLElement>('.lib-device-card')]
+    expect(tiles).toHaveLength(2)
+    expect(tiles[0]!.textContent).toContain('Living room folder')
+    expect(tiles[1]!.textContent).toContain('Field card')
+    // The count and the pill — never a cover: the row carries no bytes.
+    expect(tiles[0]!.textContent).toContain('34 photographs')
+    expect(tiles[0]!.querySelector('.device-pill')?.getAttribute('data-colour')).toBe('0')
+    expect(tiles[0]!.textContent).toContain('Mac 1')
+    expect(tiles[1]!.querySelector('.device-pill')?.getAttribute('data-colour')).toBe('1')
+    expect(tiles[1]!.textContent).toContain('Mac 2')
+    expect(section!.querySelector('img')).toBeNull()
+    // The id is an attribute the client already holds; the visible text is
+    // the pill's name, never an identifier.
+    expect(section!.textContent).not.toContain('87654321')
+  })
+
+  test('a published row opens its cloud gallery from the tile', async () => {
+    installLocalStorage()
+    signInStorage()
+    stubFetch({
+      deviceGalleries: json({
+        galleries: [
           deviceGallery({
             id: 'aaaabbbb-1234-1234-1234-1234567890ab',
             title: 'Published selects',
@@ -701,36 +745,48 @@ describe('signed-in account area', () => {
         ],
       }),
     })
+    const { container } = mountAccount({ billing: entitlement('pro') })
+    await settle()
+
+    const opener = [...container.querySelectorAll<HTMLButtonElement>('.lib-device-open')]
+      .find((button) => button.textContent === 'Published selects')
+    expect(opener).not.toBeUndefined()
+    opener!.click()
+    await settle()
+    expect(galleryCalls().some((call) => call.url === 'https://manorama.xyz/api/gallery/quiet-owner/mac-light')).toBe(true)
+  })
+
+  test('Settings carries the device legend — the pill, this phone named, Forget on the others', async () => {
+    installLocalStorage()
+    signInStorage()
+    // This phone's id is minted at launch, so the list is built from the
+    // registration call the island just made.
+    stubFetch({
+      devices: () => {
+        const own = calls.find((call) => call.init?.method === 'PUT' && call.url.includes('/api/devices/'))?.url.split('/').pop() ?? 'own-device'
+        return json({
+          devices: [
+            { id: own, kind: 'iphone', ordinal: 1, colour: 0, firstSeenAt: '2026-10-01T00:00:00.000Z', lastSeenAt: '2026-10-02T00:00:00.000Z' },
+            { id: 'fedcba98-4321-4321-4321-ba0987654321', kind: 'mac', ordinal: 1, colour: 1, firstSeenAt: '2026-10-01T00:00:00.000Z', lastSeenAt: '2026-10-02T00:00:00.000Z' },
+          ],
+        })
+      },
+    })
     const { container } = mountAccount()
     await settle()
 
     await openSettings(container)
-    const html = container.innerHTML
-    expect(html).toContain('This iPhone')
-    // The web dashboard's "Mac" is the wrong word in an iOS app, and the list
-    // is whatever device the account last published from.
-    expect(html).not.toContain('On your Mac')
-    expect(html).toContain('Living room folder')
-    expect(html).toContain('Field card')
-    expect(html).toContain('Published selects')
-    // Raw device metadata never reaches the DOM.
-    expect(html).not.toContain('87654321')
-    expect(html).not.toContain('fedcba98')
-
-    const items = [...container.querySelectorAll('.m-actionrow')]
-    const rowsFor = (title: string) => items.find((item) => item.textContent?.includes(title))
-    expect(rowsFor('Living room folder')?.textContent).toContain('34 photographs')
-    expect(rowsFor('Field card')?.textContent).toContain('9 photographs')
-    // Naked rows stay static; a published slug turns the row itself into the
-    // button that opens the gallery.
-    expect(rowsFor('Living room folder')?.tagName).not.toBe('BUTTON')
-    expect(rowsFor('Field card')?.tagName).not.toBe('BUTTON')
-    const tappable = rowsFor('Published selects') as HTMLElement | null
-    expect(tappable?.tagName).toBe('BUTTON')
-
-    tappable!.click()
-    await settle()
-    expect(galleryCalls().some((call) => call.url === 'https://manorama.xyz/api/gallery/quiet-owner/mac-light')).toBe(true)
+    const headings = [...container.querySelectorAll('.m-actiongroup-label')].map((heading) => heading.textContent)
+    expect(headings).toContain('Your devices')
+    const legend = container.querySelector('.lib-devices-legend') as HTMLElement | null
+    expect(legend).not.toBeNull()
+    expect(legend!.textContent).toContain('iPhone')
+    expect(legend!.textContent).toContain('Mac')
+    expect(legend!.querySelectorAll('.device-pill')).toHaveLength(2)
+    // Forget is offered for the other device only.
+    expect(legend!.querySelectorAll('.lib-devices-legend-forget')).toHaveLength(1)
+    // The old per-gallery rows are gone from Settings — they live in the Library.
+    expect(container.textContent).not.toContain('Living room folder')
   })
 
   test('groups the account preferences and names what each switch hides', async () => {

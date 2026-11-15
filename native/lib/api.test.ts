@@ -224,7 +224,6 @@ describe('fetchDeviceGalleries', () => {
     sourceKind: 'folder',
     itemCount: 34,
     deviceId: '87654321-4321-4321-4321-ba0987654321',
-    deviceLabel: "Mahesh's Mac Studio",
     publicGallerySlug: 'mac-light',
     updatedAt: '2026-10-01T00:00:00Z',
   }

@@ -6,7 +6,8 @@ import { Segmented } from '../../app/components/ui/Segmented'
 import { Switch } from '../../app/components/ui/Switch'
 import type { Theme } from '../../app/lib/owner-theme'
 import { nativeDeviceLabel, nativeDeviceTitle } from '../lib/device-label'
-import type { DeviceGallery } from '../../packages/core/device-gallery'
+import type { Device } from '../../packages/core/devices'
+import { DeviceLegend } from '../../app/components/library/DeviceLegend'
 import type { AccountIdentity } from '../lib/api'
 import type { NativeTier } from '../lib/billing'
 import type { VaultLoadPolicy, VaultSettingsController } from '../lib/vault-settings'
@@ -35,8 +36,11 @@ type Props = {
   globalViewBusy: boolean
   onGlobalView: (enabled: boolean) => void
   onOpenPicker: () => void
-  deviceGalleries: readonly DeviceGallery[]
-  onOpenDeviceGallery: (gallery: DeviceGallery) => void
+  /** The account's device list and this phone's own id. */
+  devices: readonly Device[]
+  deviceId: string | null
+  onForgetDevice: (device: Device) => void
+  forgetDeviceBusy: boolean
   theme: Theme
   onTheme: (theme: Theme) => void
   houseCards?: { status: string; actions: HouseCardAction[] }
@@ -65,7 +69,7 @@ const providerName = (provider: string) => ({ apple: 'Apple', google: 'Google', 
 export default function Settings(props: Props) {
   const {
     accountName, ownerSlugDraft, identities, identityNote, tier, retainedCount, galleryLimit,
-    loadPolicy, globalViewEnabled, deviceGalleries, theme, houseCards,
+    loadPolicy, globalViewEnabled, devices, deviceId, theme, houseCards,
     deleteConfirming, deleting, deleteError,
   } = props
   const linked = new Set((identities ?? []).map((identity) => identity.provider))
@@ -159,9 +163,25 @@ export default function Settings(props: Props) {
           />
           {globalViewEnabled ? <ActionRow label="Open photo picker" onClick={props.onOpenPicker} /> : null}
           <p class="m-note m-panel-note">Everything stays encrypted and on the device. The picker lets galleries show photographs already saved on {nativeDeviceLabel()}.</p>
-          {deviceGalleries.map((gallery) => <ActionRow label={gallery.title} value={`${gallery.itemCount} photographs`} chevron={Boolean(gallery.publicGallerySlug)} onClick={gallery.publicGallerySlug ? () => props.onOpenDeviceGallery(gallery) : undefined} />)}
           <VaultSettings controller={props.controller} tier={tier} embedded />
         </ActionGroup>
+
+        {/* The account's device list. Local galleries now live in the
+            Library, where each one wears its device's pill; this group is
+            the legend, and where a device the owner no longer uses is
+            forgotten. No device name is ever stored. */}
+        {devices.length ? (
+          <ActionGroup label="Your devices" note="No device name is stored — only a random identifier and its type.">
+            <div class="m-panel">
+              <DeviceLegend
+                devices={devices}
+                selfId={deviceId}
+                onForget={props.onForgetDevice}
+                onForgetPending={props.forgetDeviceBusy}
+              />
+            </div>
+          </ActionGroup>
+        ) : null}
 
         {houseCards ? <ActionGroup label="House cards">
           <p class="m-note m-panel-note">{houseCards.status}</p>

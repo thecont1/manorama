@@ -19,10 +19,13 @@ import { CloseIcon } from '../../app/components/admin-icons'
 import { Sheet } from '../../app/components/ui/Sheet'
 import { BundledSource } from '../../app/lib/imagesource'
 import type { AdFrame } from '../../app/lib/adframe'
-import { adoptGallery, createGalleryFromQuickAdd, createGalleryFromSource, deleteAccount, fetchAccountGalleries, fetchAccountIdentities, fetchAccountOwnerSlug, fetchDeviceGalleries, fetchGallery, normalizeApiBase, probeAccountGallery, refreshGallery, refreshGalleryWithManifest, renameOwnerSlug, scanSourceUrl, unlinkAccountIdentity, type AccountIdentity } from '../lib/api'
+import { adoptGallery, createGalleryFromQuickAdd, createGalleryFromSource, deleteAccount, fetchAccountGalleries, fetchAccountIdentities, fetchAccountOwnerSlug, fetchDeviceGalleries, fetchDevices, fetchGallery, forgetDevice, normalizeApiBase, probeAccountGallery, refreshGallery, refreshGalleryWithManifest, registerDevice, renameOwnerSlug, scanSourceUrl, unlinkAccountIdentity, type AccountIdentity } from '../lib/api'
+import { nativeDeviceId, nativeDeviceKindFor } from '../lib/device-identity'
 import { isEncryptedSourceUrl, manifestIsEncryptedSource, galleryHashForSource } from '../../packages/core/encrypted-source'
 import type { GallerySummary } from '../../app/lib/gallery-repository'
 import type { DeviceGallery } from '../../packages/core/device-gallery'
+import type { Device } from '../../packages/core/devices'
+import { DeviceGalleriesGrid } from '../../app/components/library/DeviceGalleriesSection'
 import type { BillingState, RevenueCatBilling } from '../lib/billing'
 import {
   OfflineGalleryUnavailableError,
@@ -300,6 +303,11 @@ export default function GalleryList({ apiBase, owner, slug, deepLinkSelection, o
   const [accountGalleries, setAccountGalleries] = useState<GallerySummary[] | null>(null)
   const [accountListFailed, setAccountListFailed] = useState(false)
   const [deviceGalleries, setDeviceGalleries] = useState<DeviceGallery[] | null>(null)
+  // The account's device list — anonymous ids, kinds, numbers and pill
+  // colours. This phone's own row is the one whose id the secure store holds.
+  const [devices, setDevices] = useState<Device[]>([])
+  const [deviceId, setDeviceId] = useState<string | null>(null)
+  const [forgetDeviceBusy, setForgetDeviceBusy] = useState(false)
   const [deviceListFailed, setDeviceListFailed] = useState(false)
   const [accountRevision, setAccountRevision] = useState(0)
   const [billingNote, setBillingNote] = useState<string | null>(null)
@@ -597,16 +605,26 @@ export default function GalleryList({ apiBase, owner, slug, deepLinkSelection, o
       setOwnerSlugDraft(slug ?? '')
       setSignedIn(Boolean(token))
       if (!token) return
-      const [account, device, identities] = await Promise.allSettled([
+      // Register this phone before reading the list, so the response already
+      // carries its own pill. Only a device token can register, so a web
+      // sign-in never records a device.
+      const ownId = await nativeDeviceId()
+      if (!active) return
+      setDeviceId(ownId)
+      await registerDevice(base, ownId, nativeDeviceKindFor()).catch(() => null)
+      if (!active) return
+      const [account, device, identities, deviceList] = await Promise.allSettled([
         fetchAccountGalleries(base, controller.signal),
         fetchDeviceGalleries(base, controller.signal),
         fetchAccountIdentities(base, controller.signal),
+        fetchDevices(base, controller.signal),
       ])
       if (!active) return
       setAccountGalleries(account.status === 'fulfilled' ? account.value : null)
       setAccountListFailed(account.status === 'rejected')
       setDeviceGalleries(device.status === 'fulfilled' ? device.value : null)
       setDeviceListFailed(device.status === 'rejected')
+      setDevices(deviceList.status === 'fulfilled' ? deviceList.value : [])
       // The greeting borrows the first name the providers handed over; when
       // none came back the URL name stands in.
       if (identities.status === 'fulfilled') {
@@ -1056,6 +1074,23 @@ export default function GalleryList({ apiBase, owner, slug, deepLinkSelection, o
       }}
     />
   ) : null
+
+  /** Forget a device: the account drops it and so do the Local gallery rows
+   *  it published — they are the same fact. A device still in use registers
+   *  again on its next launch with a fresh number and colour. */
+  const forgetDeviceRow = async (device: Device) => {
+    if (forgetDeviceBusy) return
+    setForgetDeviceBusy(true)
+    try {
+      await forgetDevice(base, device.id)
+      setDevices((current) => current.filter((row) => row.id !== device.id))
+      setDeviceGalleries((current) => current ? current.filter((row) => row.deviceId !== device.id) : current)
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : 'That device could not be forgotten.')
+    } finally {
+      setForgetDeviceBusy(false)
+    }
+  }
 
   const unlinkIdentity = async (provider: string) => {
     if (identityBusy) return
@@ -1690,10 +1725,10 @@ export default function GalleryList({ apiBase, owner, slug, deepLinkSelection, o
       globalViewBusy={globalViewSaving}
       onGlobalView={(enabled) => { void changeGlobalView(enabled) }}
       onOpenPicker={() => { dispatchNav({ type: 'back' }); setGlobalViewOpen(true) }}
-      deviceGalleries={standaloneDeviceGalleries}
-      onOpenDeviceGallery={(gallery) => {
-        if (gallery.publicGallerySlug && ownerSlug) enterGallery({ owner: ownerSlug, slug: gallery.publicGallerySlug })
-      }}
+      devices={devices}
+      deviceId={deviceId}
+      onForgetDevice={(device) => { void forgetDeviceRow(device) }}
+      forgetDeviceBusy={forgetDeviceBusy}
       theme={ownerTheme}
       onTheme={onOwnerThemeChange}
       houseCards={suppressions ? {
@@ -1817,6 +1852,22 @@ export default function GalleryList({ apiBase, owner, slug, deepLinkSelection, o
                 <button type="button" class="m-btn m-btn--primary" onClick={() => { setError(null); setAddOpen(true) }}>Add a gallery</button>
               </div>
             ) : null}
+          </div>
+        ) : null}
+        {billingState?.isPro && standaloneDeviceGalleries.length > 0 ? (
+          /* A phone cannot add a Local gallery, so every row here lives on
+             another device: title, count and that device's pill. Visionary
+             only, like the feature itself (invariant 12). */
+          <div class="native-account" data-local-galleries>
+            <h2>Local galleries</h2>
+            <p class="m-note">Folders on your other devices. The originals stay there; open one where it is published.</p>
+            <DeviceGalleriesGrid
+              galleries={standaloneDeviceGalleries}
+              devices={devices}
+              onOpen={(gallery) => {
+                if (gallery.publicGallerySlug && ownerSlug) enterGallery({ owner: ownerSlug, slug: gallery.publicGallerySlug })
+              }}
+            />
           </div>
         ) : null}
         {cachedOnlyGalleries.length > 0 ? (
