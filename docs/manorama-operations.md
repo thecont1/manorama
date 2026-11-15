@@ -36,7 +36,7 @@ Free-tier owners keep at most 3 `retained` galleries; creates beyond that insert
 
 - Files that are not images are ignored, not deleted.
 
-- **Video: iCloud shared albums only.** A shared album containing video produces a mixed gallery — photographs and video slides in one ordered sequence. Apple already transcodes shared-album video to H.264 MP4 derivatives with poster stills, so Manorama stores and transcodes nothing; the clip is proxied through `/api/icloud/video` with byte-range forwarding so seeking does not pull the whole file. A video entry missing either its MP4 or its poster derivative is skipped, exactly like a preview-less image.
+- **Video: iCloud and Google Photos shared albums.** A shared album containing video produces a mixed gallery — photographs and video slides in one ordered sequence. Apple already transcodes shared-album video to H.264 MP4 derivatives with poster stills, so Manorama stores and transcodes nothing; the clip is proxied through `/api/icloud/video` with byte-range forwarding so seeking does not pull the whole file. A video entry missing either its MP4 or its poster derivative is skipped, exactly like a preview-less image. Google Photos marks video items with a descriptor field (no URL embedded); the same lh3 base serves MP4 transcodes (`=m18`/`=m22`/`=m28`/`=m37`) and the original (`=dv`), proxied through `/api/gphotos/video` — lh3 302s to a signed googlevideo URL the Worker follows, with byte-range forwarding.
 
 - Dropbox, Google Drive, and MEGA remain image-only. Video in those folders is still ignored — do not promise it.
 

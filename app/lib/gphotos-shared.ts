@@ -1,4 +1,4 @@
-import { MAX_GALLERY_ITEMS, SourceFetchError, type GalleryImage, type GalleryMediaItem } from './imagesource'
+import { MAX_GALLERY_ITEMS, SourceFetchError, type GalleryMediaItem, type VideoItem } from './imagesource'
 import { keyListingDiffers, manifestKeyOf, type FreshnessItem, type ProbeOutcome } from './source-freshness'
 import { MAX_RETRY_WAIT_MS, retryAfterMs } from './transient-retry'
 
@@ -10,8 +10,9 @@ import { MAX_RETRY_WAIT_MS, retryAfterMs } from './transient-retry'
  *
  * Same risk class as the iCloud sharedstreams scanner: undocumented, and
  * Google can change the shapes without notice. Scan failures surface as
- * friendly errors. Videos in shared albums are out of scope for v1 — items
- * that carry video renditions are skipped rather than treated as photos.
+ * friendly errors. Videos are emitted as VideoItems — the same lh3 base
+ * serves an MP4 transcode under =m18/=m22/=m28/=m37 and the original under
+ * =dv, so no extra fetch is needed to tell a clip from a still.
  */
 
 // A desktop UA keeps Google on the web share-page path; Photos answers other
@@ -34,11 +35,28 @@ const TOKEN_ID = /^[A-Za-z0-9_-]{8,}$/
 const AH_TOKEN = /AH_[A-Za-z0-9_-]{40,}/g
 
 // Rendition params that mark an item as carrying video, not a still photo.
-// Google serves video as =m18/=m22/=m28/=m37 or =dv/=vv suffixes on the media
-// key — the item also keeps a photo-shaped base URL that renders the poster
-// frame, so the marker has to be checked across the whole item subtree.
+// Older payloads embedded the video URLs themselves — =m18/=m22/=m28/=m37
+// or =dv/=vv suffixes on the media key — while current payloads carry a
+// descriptor field instead (below). The item also keeps a photo-shaped
+// base URL that renders the poster frame, so the marker has to be checked
+// across the whole item subtree.
 const VIDEO_RENDITION = /=(?:m18|m22|m28|m37|dv|vv)(?:\?.*)?$/
 const VIDEO_HOST = /googlevideo|videoplayback/i
+
+// The field that marks a video in current payloads: the item's trailing
+// metadata object maps this key to a descriptor of the shape
+// [durationMs, null, frameW, frameH, …, [posterBaseUrl]]. No video URL is
+// embedded — the marker has to be read by key, not by string.
+const VIDEO_DESCRIPTOR_KEY = '76647426'
+
+// Rendition suffixes the video proxy may request: the mp4 transcodes and
+// the original download. =d stays with the image route — it answers the
+// JPEG poster still, not a clip.
+const ALLOWED_VIDEO_RENDITION = /^(?:m18|m22|m28|m37|dv)$/
+
+// The derivative a gallery slide plays: 720p H.264 MP4, the same tier
+// iCloud shared-album derivatives stream at.
+const VIDEO_PLAY_RENDITION = 'm22'
 
 // Renditions the image proxy may request from lh3: width-bound and
 // height-bound scaling only — never crops (safety against wrong reported
@@ -137,6 +155,30 @@ const hasVideoMarker = (node: unknown, depth = 0): boolean => {
   if (typeof node === 'object' && node !== null) return Object.values(node).some((child) => hasVideoMarker(child, depth + 1))
   return false
 }
+
+/** The video descriptor current payloads carry — duration and frame size,
+ *  read from the item's trailing metadata object by key rather than
+ *  position, since the tail drifts like everything else in these payloads.
+ *  Null for stills. */
+const videoDescriptorOf = (item: MediaItemNode): { durationMs?: number; width?: number; height?: number } | null => {
+  for (const field of item) {
+    if (!field || typeof field !== 'object' || Array.isArray(field)) continue
+    const desc = (field as Record<string, unknown>)[VIDEO_DESCRIPTOR_KEY]
+    if (!Array.isArray(desc)) continue
+    const [ms, , w, h] = desc
+    return {
+      ...(typeof ms === 'number' && ms > 0 ? { durationMs: ms } : {}),
+      ...(typeof w === 'number' && w > 0 ? { width: w } : {}),
+      ...(typeof h === 'number' && h > 0 ? { height: h } : {}),
+    }
+  }
+  return null
+}
+
+/** A video either way the payload marks one: descriptor on current shape,
+ *  an embedded video URL on the older one the marker check was written
+ *  for. */
+const isVideoMediaItem = (item: MediaItemNode) => videoDescriptorOf(item) !== null || hasVideoMarker(item)
 
 const lastAhToken = (text: string): string | null => {
   AH_TOKEN.lastIndex = 0
@@ -329,6 +371,9 @@ const placeholderFor = (width: number, height: number) =>
 const imageProxy = (baseUrl: string, rendition: string) =>
   `/api/gphotos/image?u=${encodeURIComponent(baseUrl)}&r=${rendition}`
 
+const videoProxy = (baseUrl: string, rendition: string) =>
+  `/api/gphotos/video?u=${encodeURIComponent(baseUrl)}&r=${rendition}`
+
 export const scanGPhotosAlbum = async (input: string, fetchImpl: typeof fetch = fetch): Promise<GPhotosScan> => {
   const share = extractGPhotosShare(input)
   if (!share) throw new Error('Use a public Google Photos shared album link')
@@ -365,25 +410,25 @@ export const scanGPhotosAlbum = async (input: string, fetchImpl: typeof fetch = 
   if (!resolved) throw new Error('Manorama could not read that Google Photos album — check that it is shared with "Anyone with the link"')
 
   const first = parseSharePage(html)
-  // Dedupe and video filtering run as pages arrive so the enumeration bound
-  // counts qualifying photos, not raw nodes — a page of duplicates or videos
-  // must not stop the walk early and leave fetchable photos behind.
+  // Dedupe runs as pages arrive so the enumeration bound counts qualifying
+  // items, not raw nodes — a page of duplicates must not stop the walk
+  // early and leave fetchable media behind.
   const seen = new Set<string>()
   const found: MediaItemNode[] = []
-  const photoItems: MediaItemNode[] = []
+  const mediaItems: MediaItemNode[] = []
   const collect = (items: MediaItemNode[]) => {
     for (const item of items) {
       if (seen.has(item[0])) continue
       seen.add(item[0])
       found.push(item)
-      if (!hasVideoMarker(item)) photoItems.push(item)
+      mediaItems.push(item)
     }
   }
   collect(first.items)
   let token = first.token
   const seenTokens = new Set<string>()
   let pages = 0
-  while (token && !seenTokens.has(token) && photoItems.length < MAX_GALLERY_ITEMS && pages < MAX_PAGES) {
+  while (token && !seenTokens.has(token) && mediaItems.length < MAX_GALLERY_ITEMS && pages < MAX_PAGES) {
     seenTokens.add(token)
     const { inner, raw } = await retryOnceOnTransient(() =>
       fetchAlbumPage(resolved.albumId, resolved.key, token!, canonicalGPhotosUrl(resolved.albumId, resolved.key), fetchImpl))
@@ -398,18 +443,15 @@ export const scanGPhotosAlbum = async (input: string, fetchImpl: typeof fetch = 
   // early — the listing is partial, and the scan endpoint refuses to
   // persist one of those. Reaching the cap is not partial: the cap is the
   // deliberate bound, and `truncated` reports what it dropped.
-  const partial = Boolean(token) && photoItems.length < MAX_GALLERY_ITEMS
+  const partial = Boolean(token) && mediaItems.length < MAX_GALLERY_ITEMS
   if (found.length === 0) {
     throw new Error(first.albumFound
       ? 'No photos or videos were found in that public Google Photos album'
       : 'Manorama could not read that Google Photos album — check that it is shared with "Anyone with the link"')
   }
-  if (photoItems.length === 0) {
-    throw new Error('That Google Photos album only contains videos — Google Photos videos are not supported yet')
-  }
 
-  const entries = photoItems.slice(0, MAX_GALLERY_ITEMS)
-  const images: GalleryImage[] = entries.flatMap((item, position) => {
+  const entries = mediaItems.slice(0, MAX_GALLERY_ITEMS)
+  const images = entries.flatMap((item, position): GalleryMediaItem[] => {
     const [uid, rendition] = item
     const [baseUrl, width, height] = rendition
     // Only lh3 references can pass through the image proxy — anything else in
@@ -429,6 +471,34 @@ export const scanGPhotosAlbum = async (input: string, fetchImpl: typeof fetch = 
     // source gets the largest supported rendition (below intrinsic), while
     // width/height still report the source honestly.
     const srcW = Math.min(w, MAX_RENDITION_DIM)
+    const video = isVideoMediaItem(item) ? (videoDescriptorOf(item) ?? {}) : null
+    if (video) {
+      // The clip's frame size comes from the descriptor when present —
+      // the rendition array reports the still, which can disagree with
+      // the transcode's box. The poster is the same base's w-rendition.
+      const vw = video.width ?? w
+      const vh = video.height ?? h
+      const posterW = Math.min(vw, MAX_RENDITION_DIM)
+      const item: VideoItem = {
+        type: 'video',
+        id: `gphotos-${uid.replace(/[^a-zA-Z0-9]+/g, '').slice(-18) || position}`,
+        ref: uid,
+        filename: `Video ${position + 1}`,
+        src: videoProxy(cleanBase, VIDEO_PLAY_RENDITION),
+        mimeType: 'video/mp4',
+        width: vw,
+        height: vh,
+        ...(video.durationMs ? { durationSeconds: video.durationMs / 1000 } : {}),
+        poster: { src: imageProxy(cleanBase, `w${posterW}`), width: vw, height: vh },
+        alt: `Video ${position + 1}`,
+        c2pa: false,
+        fidelity: 'display-derivative',
+        thumbnailFidelity: 'display-derivative',
+        placeholder: placeholderFor(vw, vh),
+        variants: [{ width: Math.max(1, Math.round(vw * Math.min(256, vh) / vh)), src: imageProxy(cleanBase, `h${Math.min(256, vh)}`), format: 'jpeg' }],
+      }
+      return [item]
+    }
     return [{
       id: `gphotos-${uid.replace(/[^a-zA-Z0-9]+/g, '').slice(-18) || position}`,
       ref: uid,
@@ -452,7 +522,7 @@ export const scanGPhotosAlbum = async (input: string, fetchImpl: typeof fetch = 
     sourceUrl: canonicalGPhotosUrl(resolved.albumId, resolved.key),
     title: first.title ?? pageTitleFallback(html) ?? 'Shared album',
     images,
-    truncated: photoItems.length > MAX_GALLERY_ITEMS ? photoItems.length : undefined,
+    truncated: mediaItems.length > MAX_GALLERY_ITEMS ? mediaItems.length : undefined,
     ...(partial ? { partial: true } : {}),
   }
 }
@@ -479,10 +549,10 @@ export const probeGPhotosAlbum = async (
   }
 }
 
-/** Fetch an lh3 rendition for the proxy. `u` must be an lh3.googleusercontent
- *  URL — the share page itself emits them, and the check keeps the route from
- *  becoming an open fetcher. `r` is a whitelisted rendition shape. */
-export const fetchGPhotosImage = async (u: string, rendition: string, fetchImpl: typeof fetch = fetch) => {
+/** The base of an lh3 rendition URL — strict host check so the proxy
+ *  routes can never become open fetchers, suffix/query/hash stripped so
+ *  the caller's rendition is the only one applied. */
+const lh3BaseUrl = (u: string) => {
   let url: URL
   try {
     url = new URL(u)
@@ -492,16 +562,58 @@ export const fetchGPhotosImage = async (u: string, rendition: string, fetchImpl:
   if (url.protocol !== 'https:' || url.hostname !== 'lh3.googleusercontent.com' || url.username || url.password) {
     throw new SourceFetchError('That Google Photos image reference is invalid', 400)
   }
+  url.search = ''
+  url.hash = ''
+  return url.href.replace(/=[^/]*$/, '')
+}
+
+/** Fetch an lh3 rendition for the proxy. `u` must be an lh3.googleusercontent
+ *  URL — the share page itself emits them, and the check keeps the route from
+ *  becoming an open fetcher. `r` is a whitelisted rendition shape. */
+export const fetchGPhotosImage = async (u: string, rendition: string, fetchImpl: typeof fetch = fetch) => {
   const dim = /^(?:w|h)(\d{1,5})$/.exec(rendition)
   if (!dim || !ALLOWED_RENDITION.test(rendition) || Number(dim[1]) > MAX_RENDITION_DIM || Number(dim[1]) === 0) {
     throw new SourceFetchError('That Google Photos rendition is not supported', 400)
   }
-  url.search = ''
-  url.hash = ''
-  const target = `${url.href.replace(/=[^/]*$/, '')}=${rendition}`
+  const target = `${lh3BaseUrl(u)}=${rendition}`
   return retryOnceOnTransient(async () => {
     const response = await request(fetchImpl, target)
     if (!response.ok) throw transientError('Google Photos image fetch failed', response)
+    return response
+  })
+}
+
+/** Hosts a video rendition may 302 to: the signed googlevideo playback
+ *  endpoints and the download host. Anything else means the route is being
+ *  aimed somewhere Google never pointed — refuse rather than follow. */
+const VIDEO_REDIRECT_HOST = /^(?:[a-z0-9-]+\.)*(?:googlevideo\.com|googleusercontent\.com)$/
+
+/** Fetch a video rendition for the proxy. lh3 answers =m18/=m22/=m28/=m37
+ *  and =dv with a 302 to a signed playback URL, so the hop is followed by
+ *  hand inside the Worker — the visitor's Range header rides both requests
+ *  and the redirect target is host-checked before it is fetched. */
+export const fetchGPhotosVideo = async (u: string, rendition: string, range: string | null, fetchImpl: typeof fetch = fetch) => {
+  if (!ALLOWED_VIDEO_RENDITION.test(rendition)) {
+    throw new SourceFetchError('That Google Photos video rendition is not supported', 400)
+  }
+  const target = `${lh3BaseUrl(u)}=${rendition}`
+  return retryOnceOnTransient(async () => {
+    const headers = range ? { Range: range } : undefined
+    let response = await request(fetchImpl, target, { headers, redirect: 'manual' })
+    if (response.status >= 300 && response.status < 400) {
+      const location = response.headers.get('location')
+      let host: string | null = null
+      try {
+        host = location ? new URL(location).hostname : null
+      } catch {
+        host = null
+      }
+      if (!location || !host || !VIDEO_REDIRECT_HOST.test(host)) {
+        throw new SourceFetchError('Google Photos video fetch failed (502)', 502)
+      }
+      response = await request(fetchImpl, location, { headers, redirect: 'manual' })
+    }
+    if (!response.ok) throw transientError('Google Photos video fetch failed', response)
     return response
   })
 }
