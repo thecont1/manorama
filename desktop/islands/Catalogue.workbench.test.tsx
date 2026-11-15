@@ -47,6 +47,15 @@ const settle = async () => {
 }
 
 const DEVICE_ID = '11111111-2222-3333-4444-555555555555'
+/** This Mac's row in the account's device list — anonymous, slot 0. */
+const selfDevice = {
+  id: DEVICE_ID,
+  kind: 'mac',
+  ordinal: 1,
+  colour: 0,
+  firstSeenAt: '2026-10-01T00:00:00.000Z',
+  lastSeenAt: '2026-10-11T00:00:00.000Z',
+}
 const GALLERY_ID = 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee'
 const TITLE = 'italy, amore mio'
 const ROOT_PATH = `/Users/home/Pictures/${TITLE}`
@@ -265,11 +274,18 @@ beforeAll(() => {
   process.env.MANORAMA_DESKTOP_GOOGLE_CLIENT_ID = 'google-client-id'
   // Sync is fire-and-forget at launch: answer it locally instead of reaching
   // the real API.
-  globals.fetch = (async () =>
-    new Response(JSON.stringify({ galleries: [] }), {
+  globals.fetch = (async (url: string, init?: RequestInit) => {
+    const path = String(url)
+    const json = (body: unknown) => new Response(JSON.stringify(body), {
       status: 200,
       headers: { 'content-type': 'application/json' },
-    })) as unknown as typeof fetch
+    })
+    // The account's device list: this Mac registered, alone, in slot 0.
+    if (path.endsWith('/api/devices')) return json({ devices: [selfDevice] })
+    if (init?.method === 'PUT' && /\/api\/devices\/[^/]+$/.test(path)) return json({ device: selfDevice })
+    if (init?.method === 'DELETE' && /\/api\/devices\/[^/]+$/.test(path)) return json({ ok: true })
+    return json({ galleries: [] })
+  }) as unknown as typeof fetch
   globals.requestAnimationFrame = ((callback: FrameRequestCallback) => {
     nextFrameId += 1
     frames.push({ id: nextFrameId, callback })
@@ -403,12 +419,12 @@ describe('desktop catalogue workbench', () => {
     const card = container.querySelector<HTMLElement>(`[data-gallery-card="${GALLERY_ID}"]`)!
     expect(card.getAttribute('data-availability')).toBe('available')
     expect(card.querySelector('.lib-card-title')?.textContent).toBe(TITLE)
-    expect(card.querySelector('.lib-card-sub')?.textContent).toBe('2 photographs · Folder on this Mac')
+    expect(card.querySelector('.lib-card-sub')?.textContent).toBe('2 photographs · Mac')
 
     // The sub-line names the source kind only — the root path never renders as
     // metadata (the thumbnail src is the asset protocol referencing originals
     // in place, which is separate and intended).
-    expect(card.querySelector('.lib-card-sub')?.textContent).toContain('Folder on this Mac')
+    expect(card.querySelector('.lib-card-sub')?.textContent).toContain('Mac')
     expect(card.textContent).not.toContain(ROOT_PATH)
 
     // Unpinned, the local card is the compact cover form — the same shape
@@ -933,7 +949,7 @@ describe('desktop catalogue workbench', () => {
     container.querySelector<HTMLButtonElement>('button[aria-label="Close"]')!.click()
     await settle()
     const card = container.querySelector<HTMLElement>(`[data-gallery-card="${GALLERY_ID}"]`)!
-    expect(card.querySelector('.lib-card-sub')?.textContent).toBe('3 photographs · Folder on this Mac')
+    expect(card.querySelector('.lib-card-sub')?.textContent).toBe('3 photographs · Mac')
     const saved = JSON.parse(files['catalogue.json']) as { galleries: { itemCount: number }[] }
     expect(saved.galleries[0]?.itemCount).toBe(3)
   })
@@ -2135,6 +2151,129 @@ describe('desktop catalogue workbench', () => {
       // And the ghost card is a real local card now.
       expect(container.querySelector(`[data-gallery-card="device:${ghost.id}"]`)).toBeNull()
       expect(container.querySelector(`.lib-compact-card[data-gallery-card="${ghost.id}"]`)).not.toBeNull()
+    } finally {
+      globals.fetch = defaultFetch
+    }
+  })
+})
+
+/** The account's second Mac — same kind, its own number and colour. */
+const otherDevice = {
+  id: '99999999-1111-4222-8333-444444444444',
+  kind: 'mac',
+  ordinal: 2,
+  colour: 1,
+  firstSeenAt: '2026-10-02T00:00:00.000Z',
+  lastSeenAt: '2026-11-09T18:00:00.000Z',
+}
+
+const remoteRow = {
+  id: 'dddddddd-1111-4222-8333-444444444444',
+  title: 'manorama-boundary-disposable',
+  sourceKind: 'folder' as const,
+  itemCount: 12,
+  deviceId: otherDevice.id,
+  updatedAt: '2026-11-09T18:00:00.000Z',
+}
+
+/** A fetch stub that answers the device list, the mirrors, the account and
+ *  the gallery feed — the four reads the Library makes. */
+const accountFetch = (options: {
+  devices?: unknown[]
+  mirrors?: unknown[]
+  onPut?: (url: string, body: string) => void
+  onDelete?: (url: string) => void
+} = {}) => (async (url: string, init?: RequestInit) => {
+  const path = String(url)
+  const json = (body: unknown) => new Response(JSON.stringify(body), {
+    status: 200,
+    headers: { 'content-type': 'application/json' },
+  })
+  if (init?.method === 'PUT' && /\/api\/devices\/[^/]+$/.test(path)) {
+    options.onPut?.(path, String(init.body ?? ''))
+    return json({ device: selfDevice })
+  }
+  if (init?.method === 'DELETE' && /\/api\/devices\/[^/]+$/.test(path)) {
+    options.onDelete?.(path)
+    return json({ ok: true })
+  }
+  if (path.endsWith('/api/devices')) return json({ devices: options.devices ?? [selfDevice] })
+  if (path.endsWith('/api/device-galleries')) return json({ galleries: options.mirrors ?? [] })
+  if (path.endsWith('/api/account')) return json({ ownerSlug: 'thecontrarian', tier: 'pro' })
+  if (path.endsWith('/api/galleries')) return json({ galleries: [] })
+  return json({})
+}) as unknown as typeof fetch
+
+describe('desktop device legend', () => {
+  test('the rail lists the account’s devices under the vault meter, one colour each', async () => {
+    const defaultFetch = globals.fetch
+    globals.fetch = accountFetch({ devices: [selfDevice, otherDevice] })
+    try {
+      const container = await mount(true)
+      const rail = container.querySelector<HTMLElement>('.admin-rail')!
+      const legend = rail.querySelector<HTMLElement>('.lib-devices-legend')!
+      expect(legend).not.toBeNull()
+      const html = container.innerHTML
+      expect(html.indexOf('lib-vault-tracker')).toBeLessThan(html.indexOf('lib-devices-legend'))
+      expect(html.indexOf('lib-devices-legend')).toBeLessThan(html.indexOf('admin-copyright'))
+      // Two Macs, two colours — never the same pill twice.
+      const colours = [...legend.querySelectorAll('.device-pill')].map((pill) => pill.getAttribute('data-colour'))
+      expect(colours).toEqual(['0', '1'])
+      expect(legend.textContent).toContain('Mac 1')
+      expect(legend.textContent).toContain('Mac 2')
+      expect(legend.textContent).toContain('this Mac')
+      // Forget is offered for the other Mac only.
+      expect(legend.querySelectorAll('.lib-devices-legend-forget')).toHaveLength(1)
+    } finally {
+      globals.fetch = defaultFetch
+    }
+  })
+
+  test('Forget DELETEs the device and drops it from the legend', async () => {
+    const deleted: string[] = []
+    const defaultFetch = globals.fetch
+    globals.fetch = accountFetch({ devices: [selfDevice, otherDevice], onDelete: (url) => deleted.push(url) })
+    try {
+      const container = await mount(true)
+      container.querySelector<HTMLButtonElement>('.lib-devices-legend-forget')!.click()
+      await settle()
+      expect(deleted).toEqual([`https://manorama.xyz/api/devices/${otherDevice.id}`])
+      const legend = container.querySelector<HTMLElement>('.lib-devices-legend')!
+      expect(legend.textContent).not.toContain('Mac 2')
+      expect(legend.textContent).toContain('this Mac')
+    } finally {
+      globals.fetch = defaultFetch
+    }
+  })
+
+  test('launch registers this Mac with its kind and nothing else', async () => {
+    const puts: { url: string; body: string }[] = []
+    const defaultFetch = globals.fetch
+    globals.fetch = accountFetch({ onPut: (url, body) => puts.push({ url, body }) })
+    try {
+      await mount(true)
+      expect(puts).toHaveLength(1)
+      expect(puts[0]!.url).toBe(`https://manorama.xyz/api/devices/${DEVICE_ID}`)
+      expect(JSON.parse(puts[0]!.body)).toEqual({ kind: 'mac' })
+    } finally {
+      globals.fetch = defaultFetch
+    }
+  })
+
+  test('a Local gallery on another device is a super-compact tile with its pill and no cover', async () => {
+    const defaultFetch = globals.fetch
+    globals.fetch = accountFetch({ devices: [selfDevice, otherDevice], mirrors: [remoteRow] })
+    try {
+      const container = await mount(true)
+      const tile = container.querySelector<HTMLElement>(`[data-gallery-card="device:${remoteRow.id}"]`)!
+      expect(tile.classList.contains('lib-device-card')).toBe(true)
+      expect(tile.classList.contains('lib-card')).toBe(false)
+      expect(tile.querySelector('img')).toBeNull()
+      expect(tile.textContent).toContain('12 photographs')
+      expect(tile.querySelector('.device-pill')?.getAttribute('data-colour')).toBe('1')
+      expect(tile.textContent).toContain('Mac 2')
+      // The tile keeps the ··· menu so a remote row stays removable here.
+      expect(tile.querySelector(`[aria-label="${remoteRow.title} actions"]`)).not.toBeNull()
     } finally {
       globals.fetch = defaultFetch
     }

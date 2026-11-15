@@ -93,10 +93,11 @@ fn oauth_target_from(request_line: &str) -> Option<&str> {
         .then_some(target)
 }
 
-/// The name the Mac's owner gave the machine ("Mahesh's MacBook Air") —
-/// synced as the device label so two of the owner's Macs stop reading
-/// identically. It is their own chosen name, sent only to their own
-/// account; no serial, MAC address or hardware UUID is ever read.
+/// The name the Mac's owner gave the machine ("Mahesh's MacBook Air"). It
+/// stays on this Mac: the catalogue shows it in Settings, and the account's
+/// device list deliberately holds no name at all — only the random device id
+/// and the generic kind below. No serial, MAC address or hardware UUID is
+/// ever read.
 #[tauri::command]
 fn device_label() -> String {
     let run = |program: &str, args: &[&str]| {
@@ -116,6 +117,21 @@ fn device_label() -> String {
         .map(|s| s.trim_end_matches(".local").to_string())
         .filter(|s| !s.is_empty())
         .unwrap_or_else(|| "This Mac".to_string())
+}
+
+/// The generic kind the account's device list records. Never the model, the
+/// name or anything identifying — just the platform family, so the owner's
+/// pills can read "Mac" or "Windows".
+#[tauri::command]
+fn device_kind() -> String {
+    match std::env::consts::OS {
+        "macos" => "mac",
+        "windows" => "windows",
+        "linux" => "linux",
+        // iOS and Android are reported by the Capacitor shells, never here.
+        _ => "mac",
+    }
+    .to_string()
 }
 
 /// Vault ciphertext lives under the app's own Application Support directory.
@@ -537,6 +553,7 @@ pub fn run() {
         .manage(LoopbackState(Mutex::new(None)))
         .invoke_handler(tauri::generate_handler![
             device_label,
+            device_kind,
             device_id,
             pick_gallery_root,
             register_saved_gallery_roots,

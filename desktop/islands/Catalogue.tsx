@@ -34,10 +34,14 @@ import { assetUrl, isDesktopRuntime, pathExists, pickGalleryFolder, readDirEntri
 import { invoke } from '@tauri-apps/api/core'
 import { removeDeviceGallery, syncDeviceGalleries } from '../lib/sync'
 import { copyText, shareGalleryOnWeb } from '../../app/lib/gallery-share'
-import { AccountApiError, createAccountGallery, deleteAccount, deleteDeviceGalleryRecord, fetchAccountGalleries, fetchAccountGallery, fetchAccountIdentities, fetchAccountProfile, fetchDeviceGalleries, mintLinkHandoff, patchAccountOwnerSlug, probeAccountGallery, refreshAccountGallery, scanGalleryLink, setAccountGalleryHidden, setAccountGalleryPin, setDeviceGalleryHidden, standaloneDeviceGalleries, unlinkAccountIdentity } from '../lib/account'
+import { AccountApiError, createAccountGallery, deleteAccount, deleteDeviceGalleryRecord, fetchAccountGalleries, fetchAccountGallery, fetchAccountIdentities, fetchAccountProfile, fetchDeviceGalleries, fetchDevices, forgetDevice, mintLinkHandoff, patchAccountOwnerSlug, probeAccountGallery, refreshAccountGallery, registerDevice, scanGalleryLink, setAccountGalleryHidden, setAccountGalleryPin, setDeviceGalleryHidden, standaloneDeviceGalleries, unlinkAccountIdentity } from '../lib/account'
 import { previewSrcFor, sourceLabelFor } from '../../native/lib/library-media'
 import type { GallerySummary } from '../../app/lib/gallery-repository'
 import type { DeviceGallery } from '../../packages/core/device-gallery'
+import { DEVICE_KIND_NAME, UNKNOWN_DEVICE_LABEL, deviceShortName, findDevice, isDeviceKind, sortDevices, type Device, type DeviceKind } from '../../packages/core/devices'
+import { DeviceLegend } from '../../app/components/library/DeviceLegend'
+import { DevicePill } from '../../app/components/library/DevicePill'
+import { DeviceGalleriesGrid } from '../../app/components/library/DeviceGalleriesSection'
 import type { StandaloneDeviceGallery } from '../lib/account'
 import { cancelProviderConnect, handleProviderDeepLink } from '../lib/providers/oauth'
 import { encryptedProviderForUrl, encryptedSourceFromGalleryHash, galleryHashForSource, isEncryptedSourceUrl, keylessSourceUrl } from '../../packages/core/encrypted-source'
@@ -96,12 +100,35 @@ const PREFS_FILE = LIBRARY_PREFS_FILE
 // launch. Two of the owner's Macs stop reading identically.
 const FALLBACK_DEVICE_LABEL = 'This Mac'
 const resolveDeviceLabel = () => invoke<string>('device_label').then((label) => label || FALLBACK_DEVICE_LABEL).catch(() => FALLBACK_DEVICE_LABEL)
+// The generic kind the account records — never the model or the name. The
+// shell reports its own platform; a browser preview falls back to Mac, which
+// is the only surface this catalogue has ever run on.
+const resolveDeviceKind = () => invoke<string>('device_kind')
+  .then((kind) => isDeviceKind(kind) ? kind : 'mac')
+  .catch(() => 'mac' as DeviceKind)
 
 // The build tag under the rail mark — injected by vite's define, 'dev' under
 // tests and scripts which never see it.
 const buildCommit = typeof __MANORAMA_COMMIT__ === 'string' ? __MANORAMA_COMMIT__ : 'dev'
-const sourceLabel = (record: LocalGalleryRecord): string =>
-  record.sourceKind === 'card' ? 'Memory card' : 'Folder on this Mac'
+
+/** The device indicator that never lies. A registered device wears its pill;
+ *  this Mac falls back to its own name while registration is in flight; any
+ *  other id is honestly "Another device" rather than a name the server no
+ *  longer keeps. */
+const DeviceIndicator = ({ id, devices, selfId, selfKind }: {
+  id: string | undefined
+  devices: readonly Device[]
+  selfId: string | undefined
+  selfKind: DeviceKind
+}) => {
+  const device = findDevice(devices, id)
+  if (device) return <DevicePill device={device} devices={devices} />
+  return (
+    <span class="device-pill" data-colour="none">
+      {id && id === selfId ? `This ${DEVICE_KIND_NAME[selfKind]}` : UNKNOWN_DEVICE_LABEL}
+    </span>
+  )
+}
 
 const openExternal = (url: string) => {
   // External links leave the app for the system browser via the opener
@@ -350,6 +377,12 @@ export default function Catalogue({ apiBase }: { apiBase: string }) {
   const [sessionResolved, setSessionResolved] = useState(false)
   const [accountGalleries, setAccountGalleries] = useState<GallerySummary[] | null>(null)
   const [deviceRows, setDeviceRows] = useState<DeviceGallery[]>([])
+  // The account's device list — anonymous ids, kinds, numbers and pill
+  // colours. This Mac's own row is the one whose id matches the catalogue.
+  const [devices, setDevices] = useState<Device[]>([])
+  // What this shell reports it is (Mac, Windows, Linux). Used only for the
+  // fallback wording before the device list lands.
+  const [deviceKind, setDeviceKind] = useState<DeviceKind>('mac')
   const [galleriesFailed, setGalleriesFailed] = useState(false)
   const [devicesFailed, setDevicesFailed] = useState(false)
   const [slugFailed, setSlugFailed] = useState(false)
@@ -947,6 +980,7 @@ export default function Catalogue({ apiBase }: { apiBase: string }) {
     if (!session) {
       setAccountGalleries(null)
       setDeviceRows([])
+      setDevices([])
       setGalleriesFailed(false)
       setDevicesFailed(false)
       setSlugFailed(false)
@@ -962,6 +996,10 @@ export default function Catalogue({ apiBase }: { apiBase: string }) {
     void fetchDeviceGalleries(base, session.token, fetch, controller.signal).then(
       (rows) => { if (alive()) { setDeviceRows(rows); setDevicesFailed(false) } },
       () => { if (alive()) setDevicesFailed(true) },
+    )
+    void fetchDevices(base, session.token, fetch, controller.signal).then(
+      (rows) => { if (alive()) setDevices(rows) },
+      () => { if (alive()) setDevices([]) },
     )
     void fetchAccountProfile(base, session.token, fetch, controller.signal).then(
       (account) => {
@@ -984,6 +1022,33 @@ export default function Catalogue({ apiBase }: { apiBase: string }) {
     )
     return () => controller.abort()
   }, [base, session, syncState, runSync])
+
+  // Registering is what earns this Mac its pill ("Mac 1") and colour, and
+  // the account's device list is read back so the legend already carries this
+  // Mac's own row. It waits for the catalogue because the device id lives
+  // there; a failed register only costs the pill until the next launch.
+  const deviceId = catalogue?.deviceId
+  // One register per launch is enough: the server keeps the kind, number and
+  // colour, and only the last-seen stamp moves. The ref keeps a re-render
+  // (the session or the catalogue landing in stages) from re-sending it.
+  const registeredRef = useRef<string | null>(null)
+  useEffect(() => {
+    if (!session || !deviceId) return
+    const key = `${session.token}:${deviceId}`
+    if (registeredRef.current === key) return
+    registeredRef.current = key
+    let active = true
+    void (async () => {
+      const kind = await resolveDeviceKind()
+      if (!active) return
+      setDeviceKind(kind)
+      await registerDevice(base, session.token, deviceId, kind).catch(() => null)
+      if (!active) return
+      const rows = await fetchDevices(base, session.token).catch(() => null)
+      if (active && rows) setDevices(rows)
+    })()
+    return () => { active = false }
+  }, [base, session?.token, deviceId])
 
   // The theme belongs to the catalogue, not to the stage — and not to the
   // sign-in surface either. While a photograph is in view the class is held
@@ -1357,6 +1422,24 @@ export default function Catalogue({ apiBase }: { apiBase: string }) {
       setNotice(pinning ? `“${record.title}” pinned` : `“${record.title}” unpinned`)
     } catch {
       setNotice('That gallery could not be pinned')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  /** Forget a device: the account drops it, and the Local gallery rows it
+   *  published go with it — they are the same fact. A device still in use
+   *  re-registers on its next launch with a new number and colour. */
+  const forgetDeviceConfirmed = async (device: Device) => {
+    if (!session) return
+    setBusy(true)
+    try {
+      await forgetDevice(base, session.token, device.id)
+      setDevices((current) => current.filter((row) => row.id !== device.id))
+      setDeviceRows((current) => current.filter((row) => row.deviceId !== device.id))
+      setNotice(`Forgot that ${DEVICE_KIND_NAME[device.kind]} — its Local galleries are off the list`)
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : 'That device could not be forgotten')
     } finally {
       setBusy(false)
     }
@@ -2362,6 +2445,11 @@ export default function Catalogue({ apiBase }: { apiBase: string }) {
   const hiddenLocalGalleries = galleries.filter((r) => r.hiddenAt)
   const hiddenDeviceGalleries = remoteDeviceGalleries.filter((entry) => entry.gallery.hidden)
   const visibleDeviceGalleries = remoteDeviceGalleries.filter((entry) => !entry.gallery.hidden)
+  // A visible row splits by whose device it is: this Mac's own unlinked row
+  // keeps its "Link folder…" card, every other device's row collapses to a
+  // super-compact tile (it has no paths and no bytes to render a cover from).
+  const ghostDeviceGalleries = visibleDeviceGalleries.filter((entry) => entry.ghost)
+  const foreignDeviceGalleries = visibleDeviceGalleries.filter((entry) => !entry.ghost)
   const hiddenCount = hiddenAccountGalleries.length + hiddenLocalGalleries.length + hiddenDeviceGalleries.length
 
   // Saved copies are a device fact, not an account fact — a gallery whose
@@ -2421,7 +2509,8 @@ export default function Catalogue({ apiBase }: { apiBase: string }) {
         <button type="button" class="lib-card-menu" aria-label={`${record.title} actions`} aria-haspopup="dialog" onClick={() => setCardMenu({ kind: 'local', record })}>···</button>
       </div>
       <p class="lib-card-sub">
-        {record.itemCount} {record.itemCount === 1 ? 'photograph' : 'photographs'} · {sourceLabel(record)}
+        {record.itemCount} {record.itemCount === 1 ? 'photograph' : 'photographs'}
+        {record.sourceKind === 'card' ? ' · Memory card' : ''} · <DeviceIndicator id={catalogue?.deviceId} devices={devices} selfId={catalogue?.deviceId} selfKind={deviceKind} />
       </p>
       {unavailable ? <p class="desktop-badge-unavailable">Unavailable — reconnect the source, then rescan.</p> : null}
     </article></li>
@@ -2460,7 +2549,8 @@ export default function Catalogue({ apiBase }: { apiBase: string }) {
             onClick={() => unavailable ? openDetails(record) : openViewer(record.id, 0)}
           >{record.title}{pinGlyph(record)}</button>
           <p class="lib-card-sub">
-            {record.itemCount} {record.itemCount === 1 ? 'photograph' : 'photographs'} · {sourceLabel(record)}
+            {record.itemCount} {record.itemCount === 1 ? 'photograph' : 'photographs'}
+            {record.sourceKind === 'card' ? ' · Memory card' : ''} · <DeviceIndicator id={catalogue?.deviceId} devices={devices} selfId={catalogue?.deviceId} selfKind={deviceKind} />
           </p>
           {unavailable ? <p class="desktop-badge-unavailable">Unavailable — reconnect the source, then rescan.</p> : null}
         </div>
@@ -2469,26 +2559,31 @@ export default function Catalogue({ apiBase }: { apiBase: string }) {
     </li>
   }
 
-  /** A synced row with no local record on this device. A `ghost` row names
-   *  this Mac — its catalogue reset or an earlier install changed the
-   *  deviceId, so "open it on that device" would lie about a machine that
-   *  doesn't exist; the card offers to link the folder instead. A foreign
-   *  row is an honest mirror of another device. Either way the row carries
-   *  no paths, so there is deliberately no thumbnail. */
-  const deviceMirrorCard = (entry: StandaloneDeviceGallery) => {
-    const { gallery, ghost } = entry
+  /** The tile's own control — the same ··· menu the full mirror card
+   *  carried, so a remote row stays removable from the device that lists
+   *  it. */
+  const deviceTileMenu = (gallery: DeviceGallery) => (
+    <button type="button" class="lib-card-menu lib-device-menu" aria-label={`${gallery.title} actions`} aria-haspopup="dialog" onClick={() => setCardMenu({ kind: 'device', gallery })}>···</button>
+  )
+
+  /** A synced row this Mac owns but no longer has a local record for — its
+   *  catalogue reset, or an earlier install changed the deviceId. It gets a
+   *  full card rather than a tile because it belongs to this device: the
+   *  card offers to link the folder back. Rows from other devices carry no
+   *  paths and no thumbnails, so they collapse to super-compact tiles. */
+  const deviceGhostCard = (entry: StandaloneDeviceGallery) => {
+    const { gallery } = entry
     return <li key={`device-${gallery.id}`}><article class="lib-card" data-gallery-card={`device:${gallery.id}`}>
       <div class="lib-card-head">
         <span class="lib-card-title">{gallery.title}</span>
         <button type="button" class="lib-card-menu" aria-label={`${gallery.title} actions`} aria-haspopup="dialog" onClick={() => setCardMenu({ kind: 'device', gallery })}>···</button>
       </div>
       <p class="lib-card-sub">
-        {gallery.itemCount} {gallery.itemCount === 1 ? 'photograph' : 'photographs'} · {gallery.deviceLabel}
-        {ghost ? ' · on this Mac — the folder isn’t linked' : ' · synced — open it on that device'}
+        {gallery.itemCount} {gallery.itemCount === 1 ? 'photograph' : 'photographs'} ·{' '}
+        <DeviceIndicator id={gallery.deviceId} devices={devices} selfId={catalogue?.deviceId} selfKind={deviceKind} />
+        {' · on this Mac — the folder isn’t linked'}
       </p>
-      {ghost ? (
-        <button type="button" class="lib-card-action" disabled={busy} onClick={() => void linkGhostFolder(gallery)}>Link folder…</button>
-      ) : null}
+      <button type="button" class="lib-card-action" disabled={busy} onClick={() => void linkGhostFolder(gallery)}>Link folder…</button>
     </article></li>
   }
   const accountCompactCard = (gallery: GallerySummary) => {
@@ -2583,6 +2678,12 @@ export default function Catalogue({ apiBase }: { apiBase: string }) {
               </div>
             )
           })() : null}
+          <DeviceLegend
+            devices={devices}
+            selfId={catalogue?.deviceId}
+            onForget={(device) => void forgetDeviceConfirmed(device)}
+            onForgetPending={busy}
+          />
           {adsShow && accountAd ? (
             <aside class="account-ad" aria-label={`${accountAd.badge}: ${accountAd.advertiser}`}>
               <span class="account-ad-badge">{accountAd.badge}</span>
@@ -2718,16 +2819,19 @@ export default function Catalogue({ apiBase }: { apiBase: string }) {
               </button>
               {localOpen ? (
                 <>
-                  <p class="lib-section-sub">Folders on this Mac — the originals stay where they are, referenced in place.</p>
-                  {visibleDeviceGalleries.length ? (
+                  <p class="lib-section-sub">Folders on your devices — the originals stay where they are, referenced in place. This Mac’s folders show covers; the others list a count and their pill.</p>
+                  {ghostDeviceGalleries.length ? (
                     <ul class="lib-list">
-                      {visibleDeviceGalleries.map(deviceMirrorCard)}
+                      {ghostDeviceGalleries.map(deviceGhostCard)}
                     </ul>
                   ) : null}
                   {compactLocalGalleries.length ? (
                     <ul class="lib-compact-grid" ref={localGridRef}>
                       {compactLocalGalleries.map(localCompactCard)}
                     </ul>
+                  ) : null}
+                  {foreignDeviceGalleries.length ? (
+                    <DeviceGalleriesGrid galleries={foreignDeviceGalleries.map((entry) => entry.gallery)} devices={devices} action={deviceTileMenu} />
                   ) : null}
                 </>
               ) : null}
@@ -2812,9 +2916,7 @@ export default function Catalogue({ apiBase }: { apiBase: string }) {
                     {hiddenLocalGalleries.map(localCompactCard)}
                   </ul>
                   {hiddenDeviceGalleries.length ? (
-                    <ul class="lib-list">
-                      {hiddenDeviceGalleries.map(deviceMirrorCard)}
-                    </ul>
+                    <DeviceGalleriesGrid galleries={hiddenDeviceGalleries.map((entry) => entry.gallery)} devices={devices} action={deviceTileMenu} />
                   ) : null}
                 </>
               ) : null}
@@ -2912,7 +3014,7 @@ export default function Catalogue({ apiBase }: { apiBase: string }) {
               account and local removes live inside Gallery settings. */}
           {menuRemove && cardMenu.kind === 'device' ? (
             <div class="lib-menu">
-              <p>Remove “{cardMenu.gallery.title}” from manorama? The folder on {cardMenu.gallery.deviceLabel} is untouched.</p>
+              <p>Remove “{cardMenu.gallery.title}” from manorama? The folder on that device is untouched.</p>
               <button type="button" class="lib-menu-danger" disabled={busy} onClick={() => void removeDeviceGalleryConfirmed(cardMenu.gallery)}>Remove gallery</button>
               <button type="button" disabled={busy} onClick={() => setMenuRemove(false)}>Cancel</button>
             </div>

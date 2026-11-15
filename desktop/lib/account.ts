@@ -2,6 +2,7 @@ import type { GalleryManifest, ImageVariant } from '../../app/lib/imagesource'
 import type { GallerySummary } from '../../app/lib/gallery-repository'
 import { defaultGallerySettings, type GallerySettings } from '../../app/lib/gallery-settings'
 import type { DeviceGallery } from '../../packages/core/device-gallery'
+import type { Device, DeviceKind } from '../../packages/core/devices'
 import { normalizeApiBase } from './session'
 import type { AuthProvider } from '../../app/lib/identity-repository'
 
@@ -419,10 +420,7 @@ export const deleteDeviceGalleryRecord = async (
  *  earns. `ghost` means the row came from this Mac — the deviceId is the
  *  identity (hardware-anchored or persisted across catalogue resets), so
  *  "open it on that device" would send the owner looking for a machine
- *  that does not exist. Foreign rows stay honest mirrors. The label is
- *  deliberately NOT consulted: two of the owner's Macs can share a
- *  ComputerName, and a label match would offer to relink — and then
- *  overwrite — a row that belongs to the other machine. */
+ *  that does not exist. Foreign rows stay honest mirrors. */
 export type StandaloneDeviceGallery = { gallery: DeviceGallery; ghost: boolean }
 
 /** A synced record earns its own card only while nothing else already
@@ -446,3 +444,63 @@ export const standaloneDeviceGalleries = (
       gallery,
       ghost: gallery.deviceId === ownDeviceId,
     }))
+
+/** GET {apiBase}/api/devices — the account's device list. Anonymous by
+ *  design: a random id, its kind, its number and its pill colour. */
+export const fetchDevices = async (
+  apiBase: string,
+  token: string,
+  fetcher: typeof fetch = fetch,
+  signal?: AbortSignal,
+): Promise<Device[]> => {
+  const response = await fetcher(`${normalizeApiBase(apiBase)}/api/devices`, {
+    headers: bearer(token),
+    signal,
+  })
+  const payload = await response.json().catch(() => ({})) as { devices?: Device[]; error?: string }
+  if (!response.ok) throw new AccountApiError(response.status, payload.error || `Device list request failed (${response.status})`)
+  if (!Array.isArray(payload.devices)) throw new Error('Device list response was incomplete')
+  return payload.devices
+}
+
+/** PUT {apiBase}/api/devices/{id} — records this Mac against the account.
+ *  A device token is the only credential accepted, so a web session can
+ *  never register a browser as a device. A 409 means the account is
+ *  already carrying a full palette; the caller surfaces it as a note. */
+export const registerDevice = async (
+  apiBase: string,
+  token: string,
+  id: string,
+  kind: DeviceKind,
+  fetcher: typeof fetch = fetch,
+): Promise<Device> => {
+  const response = await fetcher(`${normalizeApiBase(apiBase)}/api/devices/${encodeURIComponent(id)}`, {
+    method: 'PUT',
+    headers: { ...bearer(token), 'Content-Type': 'application/json' },
+    body: JSON.stringify({ kind }),
+  })
+  const payload = await response.json().catch(() => ({})) as { device?: Device; error?: string }
+  if (!response.ok || !payload.device) {
+    throw new AccountApiError(response.status, payload.error || 'This Mac could not be added to your devices')
+  }
+  return payload.device
+}
+
+/** DELETE {apiBase}/api/devices/{id} — forgets a device and every Local
+ *  gallery row it published. A 404 means it was already gone. */
+export const forgetDevice = async (
+  apiBase: string,
+  token: string,
+  id: string,
+  fetcher: typeof fetch = fetch,
+): Promise<void> => {
+  const response = await fetcher(`${normalizeApiBase(apiBase)}/api/devices/${encodeURIComponent(id)}`, {
+    method: 'DELETE',
+    headers: bearer(token),
+  })
+  if (response.status === 404) return
+  if (!response.ok) {
+    const payload = await response.json().catch(() => ({})) as { error?: string }
+    throw new AccountApiError(response.status, payload.error || 'That device could not be forgotten')
+  }
+}

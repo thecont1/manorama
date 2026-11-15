@@ -2,9 +2,9 @@ import { deviceGalleryRequest, type LocalCatalogue, type LocalGalleryRecord } fr
 
 /**
  * Catalogue sync: gallery-level metadata only. The wire shape is fixed by
- * `deviceGalleryRequest` — title, sourceKind, itemCount, deviceId,
- * deviceLabel — and the server re-parses it against `parseDeviceGalleryInput`,
- * which rejects unknown keys outright. No path, filename, or byte can ride
+ * `deviceGalleryRequest` — title, sourceKind, itemCount, deviceId — and the
+ * server re-parses it against `parseDeviceGalleryInput`, which rejects
+ * unknown keys outright. No path, filename, byte or machine name can ride
  * along even if this function were misused.
  *
  * Failures are quiet by contract: sync must never block local viewing.

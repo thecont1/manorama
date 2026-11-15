@@ -331,8 +331,10 @@ body.manorama-desktop .lib-temp-flag[role="img"] { cursor: help; }
    must not break the `+` sibling rule that pins it. */
 @media (min-width: 860px) {
   .admin-page--selector .admin-rail .lib-vault-tracker + .admin-copyright { margin-top: auto; }
+  .admin-page--selector .admin-rail .lib-devices-legend + .admin-copyright { margin-top: auto; }
 }
 body.manorama-desktop .lib-vault-tracker { margin: 0 0 18px; }
+body.manorama-desktop .lib-devices-legend { margin: 0 0 18px; }
 body.manorama-desktop .lib-vault-tracker-label {
   margin: 0 0 6px;
   font-family: "DM Mono", ui-monospace, monospace;

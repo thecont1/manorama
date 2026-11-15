@@ -250,6 +250,10 @@ final class NativeBridge {
         switch cmd {
         case "device_label":
             return deviceLabel
+        /// Matches `src-tauri/src/lib.rs` `device_kind()`: the generic
+        /// platform family only — never the model, the name or a serial.
+        case "device_kind":
+            return "mac"
         case "device_id":
             return try stableDeviceId()
 

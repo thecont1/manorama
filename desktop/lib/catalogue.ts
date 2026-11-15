@@ -198,7 +198,9 @@ export const deviceGalleryInput = (
   // `parseDeviceGalleryInput` rejects counts above MAX_GALLERY_ITEMS.
   itemCount: Math.min(record.itemCount, MAX_GALLERY_ITEMS),
   deviceId: catalogue.deviceId,
-  deviceLabel: catalogue.deviceLabel,
+  // The machine's name is deliberately absent: the account's device list
+  // records only the id and the kind, so no owner-chosen name ever leaves
+  // this Mac.
   // The hidden flag rides the sync — a hidden local disappears from every
   // device that lists this mirror, same contract as a cloud gallery.
   hidden: Boolean(record.hiddenAt),

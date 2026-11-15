@@ -1,7 +1,7 @@
 import { describe, expect, test } from 'bun:test'
 import type { DeviceGallery } from '../../packages/core/device-gallery'
 import type { GallerySummary } from '../../app/lib/gallery-repository'
-import { fetchAccountGalleries, fetchAccountProfile, fetchDeviceGalleries, standaloneDeviceGalleries } from './account'
+import { fetchAccountGalleries, fetchAccountProfile, fetchDeviceGalleries, fetchDevices, forgetDevice, registerDevice, standaloneDeviceGalleries } from './account'
 
 const captureFetch = (handler: (url: string) => Response) => {
   const calls: { url: string; init?: RequestInit }[] = []
@@ -21,7 +21,6 @@ const device = (id: string, deviceId: string, extras: Partial<DeviceGallery> = {
   sourceKind: 'folder',
   itemCount: 3,
   deviceId,
-  deviceLabel: 'Other Mac',
   updatedAt: '2026-10-01T00:00:00.000Z',
   ...extras,
 })
@@ -108,21 +107,71 @@ describe('standaloneDeviceGalleries', () => {
     ])
   })
 
-  test('a matching label under a different deviceId stays an honest mirror', () => {
-    // Two of the owner's Macs can share a ComputerName — the label is
-    // display metadata, not identity. Treating it as proof of ownership
-    // would offer to relink, and then overwrite, a row that belongs to
-    // the other machine.
-    const devices = [device('bbbbbbbb-0000-4000-8000-000000000002', OTHER, { deviceLabel: 'This Mac' })]
+  test('a row under a different deviceId stays an honest mirror', () => {
+    // The deviceId is the identity. Two of the owner's Macs could share a
+    // machine name, and the server no longer stores names at all — a
+    // display match would never be proof of ownership.
+    const devices = [device('bbbbbbbb-0000-4000-8000-000000000002', OTHER)]
     expect(entries(devices)).toEqual([
       { gallery: devices[0], ghost: false },
     ])
   })
 
   test('a genuinely different device is an honest mirror', () => {
-    const devices = [device('cccccccc-0000-4000-8000-000000000003', OTHER, { deviceLabel: 'Office iMac' })]
+    const devices = [device('cccccccc-0000-4000-8000-000000000003', OTHER)]
     expect(entries(devices)).toEqual([
       { gallery: devices[0], ghost: false },
     ])
+  })
+})
+
+const DEVICE_ID = 'aaaaaaaa-0000-4000-8000-0000000000aa'
+
+const listedDevice = () => ({
+  id: DEVICE_ID,
+  kind: 'mac',
+  ordinal: 1,
+  colour: 0,
+  firstSeenAt: '2026-11-01T09:00:00.000Z',
+  lastSeenAt: '2026-11-14T09:00:00.000Z',
+})
+
+describe('fetchDevices', () => {
+  test('GETs /api/devices with the bearer token', async () => {
+    const { calls, fetcher } = captureFetch(() => new Response(JSON.stringify({ devices: [listedDevice()] }), { status: 200 }))
+    const devices = await fetchDevices('https://manorama.xyz/', 'token-value', fetcher)
+    expect(calls[0]!.url).toBe('https://manorama.xyz/api/devices')
+    expect(devices).toEqual([listedDevice()])
+  })
+
+  test('an incomplete payload is an error, not an empty list', async () => {
+    const { fetcher } = captureFetch(() => new Response(JSON.stringify({}), { status: 200 }))
+    await expect(fetchDevices('https://manorama.xyz', 'token-value', fetcher)).rejects.toThrow('incomplete')
+  })
+})
+
+describe('registerDevice', () => {
+  test('PUTs the kind and nothing else — never a machine name', async () => {
+    const { calls, fetcher } = captureFetch(() => new Response(JSON.stringify({ device: listedDevice() }), { status: 200 }))
+    const device = await registerDevice('https://manorama.xyz', 'token-value', DEVICE_ID, 'mac', fetcher)
+    expect(calls[0]!.url).toBe(`https://manorama.xyz/api/devices/${DEVICE_ID}`)
+    expect(calls[0]!.init?.method).toBe('PUT')
+    expect(JSON.parse(calls[0]!.init?.body as string)).toEqual({ kind: 'mac' })
+    expect(device.ordinal).toBe(1)
+  })
+
+  test('a full palette surfaces the server message', async () => {
+    const { fetcher } = captureFetch(() => new Response(JSON.stringify({ error: 'Forget a device to add another' }), { status: 409 }))
+    await expect(registerDevice('https://manorama.xyz', 'token-value', DEVICE_ID, 'mac', fetcher))
+      .rejects.toThrow('Forget a device to add another')
+  })
+})
+
+describe('forgetDevice', () => {
+  test('DELETEs the device, treating 404 as already gone', async () => {
+    const { calls, fetcher } = captureFetch(() => new Response(JSON.stringify({ error: 'That device was not found' }), { status: 404 }))
+    await forgetDevice('https://manorama.xyz', 'token-value', DEVICE_ID, fetcher)
+    expect(calls[0]!.url).toBe(`https://manorama.xyz/api/devices/${DEVICE_ID}`)
+    expect(calls[0]!.init?.method).toBe('DELETE')
   })
 })
