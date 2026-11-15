@@ -777,11 +777,14 @@ export default function Admin({ galleries: initialGalleries, owner, ownerName, p
     if (!response.ok) throw new Error(payload.error || 'That gallery could not be pinned')
   }
 
+  const libraryRequestSeq = useRef(0)
   const refetchLibrary = async () => {
+    const request = ++libraryRequestSeq.current
     const fresh = await fetch('/api/library')
     const list = await fresh.json() as { galleries?: GallerySummary[]; error?: string }
     if (!fresh.ok || !list.galleries) throw new Error(list.error || 'The library could not be reloaded')
-    setGalleries(sortRecent(list.galleries))
+    // Overlapping reads resolve out of order — only the latest may publish.
+    if (request === libraryRequestSeq.current) setGalleries(sortRecent(list.galleries))
   }
 
   /** Pinning reshuffles the whole strip/compact split, so the lean list is
