@@ -3043,7 +3043,9 @@ export default function Viewer({ slug, galleryTitle, images: sourceImages, encry
                 ? { width: `${cappedVideo.width}px`, height: stagingHeight > 0 ? `${stagingHeight}px` : '100%' }
                 : staged && staged.width > 0 && staged.height > 0
                   ? { width: `${staged.width}px`, height: `${plateShort ? stagingHeight : staged.height}px` }
-                  : { aspectRatio: `${frameW} / ${frameH}` }
+                  : video && stageSize.height > 0 && frameW > 0 && frameH > 0
+                    ? { width: `${(stageSize.height * frameW) / frameH}px`, aspectRatio: `${frameW} / ${frameH}` }
+                    : { aspectRatio: `${frameW} / ${frameH}` }
               : mode === 'vertical'
                 ? video
                   ? cappedVideo
