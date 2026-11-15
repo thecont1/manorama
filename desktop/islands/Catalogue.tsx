@@ -51,7 +51,8 @@ import { desktopScreen, showPasteFallback } from '../lib/welcome'
 import ShareFlow from './ShareFlow'
 import LocalGalleryDetails from './LocalGalleryDetails'
 import { Sheet } from '../../app/components/ui/Sheet'
-import { SettingsIcon, LinkIcon, SourceIcon } from '../../app/components/admin-icons'
+import { QuietIcon, SettingsIcon, LinkIcon, SourceIcon } from '../../app/components/admin-icons'
+import { curtainStagger } from '../../app/components/library/quiet'
 import { AddGallerySheet } from '../../app/components/AddGallerySheet'
 import { GalleryShareSheet } from '../../app/components/GalleryShareSheet'
 import GallerySettingsSheet from '../../app/components/GallerySettingsSheet'
@@ -183,9 +184,6 @@ const tempFlag = (gallery: GallerySummary) => (
 )
 const tempWording = (gallery: GallerySummary) =>
   isLocked(gallery) ? ` · Temporary gallery${gallery.expiresAt ? ` · expires in ${expiryCountdownText(gallery.expiresAt, Date.now())}` : ''}` : ''
-const pinGlyph = (entry: { pinnedAt?: string | null }) => entry.pinnedAt
-  ? <span class="lib-pin" role="img" aria-label="Pinned"><svg viewBox="0 0 24 24" aria-hidden="true" width="14" height="14" fill="currentColor"><path d="M16 12V4h1V2H7v2h1v8l-2 2v2h5.2v6l.8 2 .8-2v-6H18v-2l-2-2z"/></svg></span>
-  : null
 /** Strips overflow horizontally; a vertical wheel gesture pans them so a
  *  mouse/trackpad never strands the rail — same mapping the web uses. */
 const stripWheel = (event: WheelEvent) => {
@@ -418,6 +416,10 @@ export default function Catalogue({ apiBase }: { apiBase: string }) {
   const [cloudOpen, setCloudOpen] = useState(true)
   const [localOpen, setLocalOpen] = useState(true)
   const [pinnedOpen, setPinnedOpen] = useState(true)
+  // Quiet view: sinks the gallery list's words to a whisper so only the
+  // photographs remain. Session-level — a launch always opens with the
+  // words on.
+  const [quiet, setQuiet] = useState(false)
   const [hiddenUnlocked, setHiddenUnlocked] = useState(false)
   const [passwordPrompt, setPasswordPrompt] = useState<'unlock' | 'set' | 'disable' | null>(null)
   const [passwordDraft, setPasswordDraft] = useState('')
@@ -2505,7 +2507,7 @@ export default function Catalogue({ apiBase }: { apiBase: string }) {
           type="button"
           class="lib-card-title"
           onClick={() => unavailable ? openDetails(record) : openViewer(record.id, 0)}
-        >{record.title}{pinGlyph(record)}</button>
+        >{record.title}</button>
         <button type="button" class="lib-card-menu" aria-label={`${record.title} actions`} aria-haspopup="dialog" onClick={() => setCardMenu({ kind: 'local', record })}>···</button>
       </div>
       <p class="lib-card-sub">
@@ -2547,7 +2549,7 @@ export default function Catalogue({ apiBase }: { apiBase: string }) {
             type="button"
             class="lib-card-title"
             onClick={() => unavailable ? openDetails(record) : openViewer(record.id, 0)}
-          >{record.title}{pinGlyph(record)}</button>
+          >{record.title}</button>
           <p class="lib-card-sub">
             {record.itemCount} {record.itemCount === 1 ? 'photograph' : 'photographs'}
             {record.sourceKind === 'card' ? ' · Memory card' : ''} · <DeviceIndicator id={catalogue?.deviceId} devices={devices} selfId={catalogue?.deviceId} selfKind={deviceKind} />
@@ -2603,7 +2605,7 @@ export default function Catalogue({ apiBase }: { apiBase: string }) {
       </a>
       <div class="lib-compact-body">
         <div class="lib-compact-main">
-          <a class="lib-card-title" href={galleryUrl} onClick={openCard} draggable={false}>{title}{pinGlyph(gallery)}</a>
+          <a class="lib-card-title" href={galleryUrl} onClick={openCard} draggable={false}>{title}</a>
           {isLocked(gallery) ? tempFlag(gallery) : null}
           {savedGalleryFor(gallery) ? <p class="desktop-badge-saved">Saved on this Mac</p> : null}
           {gallery.id && keyChecked.has(gallery.id) && !galleryHashes[gallery.id] && gallery.manifestVersion === 2
@@ -2642,6 +2644,19 @@ export default function Catalogue({ apiBase }: { apiBase: string }) {
             <h1 class="admin-galleries-heading" id="galleries-heading">Library</h1>
             <div class="admin-heading-actions">
               <button type="button" class="admin-button admin-button--solid admin-add-pill" onClick={() => setAddChooserOpen(true)} disabled={busy}><span aria-hidden="true">+</span> Add Gallery</button>
+              {/* Quiet view: sinks every word in the gallery list to a
+                  whisper so only the photographs remain. The toggle lives
+                  on the rail, which stays untouched — it is the way back. */}
+              <button
+                type="button"
+                class="admin-button lib-quiet-toggle"
+                aria-pressed={quiet ? 'true' : 'false'}
+                aria-label={quiet ? 'Show the words' : 'Quiet view — hide the words'}
+                title={quiet ? 'Show the words' : 'Quiet view — hide the words'}
+                onClick={() => { curtainStagger(document.querySelector('.gallery-list')); setQuiet((on) => !on) }}
+              >
+                <QuietIcon />
+              </button>
               <button
                 type="button"
                 class="admin-button admin-settings-pill"
@@ -2709,7 +2724,7 @@ export default function Catalogue({ apiBase }: { apiBase: string }) {
           ) : null}
           <p class="admin-copyright">© 2026 Mahesh Shantaram / <a {...externalAnchor(AUTHOR_URL)}>thecontrarian.in</a><br />Photographs in galleries belong to their respective owners.</p>
         </aside>
-        <section class="gallery-list" aria-labelledby="galleries-heading">
+        <section class={quiet ? 'gallery-list lib-quiet' : 'gallery-list'} aria-labelledby="galleries-heading">
           {pendingUpdate ? (
             <div class="app-update-banner" role="status">
               <span class="app-update-text">manorama <strong>v{pendingUpdate.version}</strong> is available.</span>
@@ -2786,7 +2801,7 @@ export default function Catalogue({ apiBase }: { apiBase: string }) {
                       </div>
                     ) : null}
                     <div class="lib-card-head">
-                      <a class="lib-card-title" href={galleryUrl} onClick={openCard(0)} draggable={false}>{title}{pinGlyph(gallery)}</a>
+                      <a class="lib-card-title" href={galleryUrl} onClick={openCard(0)} draggable={false}>{title}</a>
                       {isLocked(gallery) ? tempFlag(gallery) : null}
                       {savedGalleryFor(gallery) ? <span class="desktop-badge-saved">Saved on this Mac</span> : null}
                       <button type="button" class="lib-card-menu" aria-label={`${title} actions`} aria-haspopup="dialog" onClick={() => setCardMenu({ kind: 'account', gallery })}>···</button>

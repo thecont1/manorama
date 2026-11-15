@@ -1651,6 +1651,42 @@ describe('signed-in account area', () => {
     expect(container.querySelector('.native-library-heading')).not.toBeNull()
   })
 
+  test('the quiet toggle sinks the Library card but never the topbar or a photograph', async () => {
+    installLocalStorage()
+    signInStorage()
+    stubFetch({ galleries: json({ galleries: [accountSummary({
+      images: [
+        { id: 'first', ref: 'first', filename: 'first.jpg', src: 'https://cdn.example/first.jpg', width: 1200, height: 800 },
+        { id: 'second', ref: 'second', filename: 'second.jpg', src: 'https://cdn.example/second.jpg', width: 800, height: 1200 },
+      ],
+    })] }) })
+    const { container } = mountAccount()
+    await settle()
+
+    // The toggle sits in the topbar beside the gear — the same round icon
+    // chrome — and starts off.
+    const toggle = container.querySelector('.lib-quiet-toggle') as HTMLButtonElement
+    expect(toggle).not.toBeNull()
+    expect(toggle.closest('.m-topbar')).not.toBeNull()
+    expect(toggle.getAttribute('aria-pressed')).toBe('false')
+    expect(container.querySelector('.native-list-card')?.classList.contains('lib-quiet')).toBe(false)
+
+    toggle.click()
+    await settle()
+
+    // The whole card — heading, finding line, every card's words — quiets,
+    // while the rail's photographs and the topbar stay at full strength.
+    expect(container.querySelector('.native-list-card')?.classList.contains('lib-quiet')).toBe(true)
+    expect(toggle.getAttribute('aria-pressed')).toBe('true')
+    expect(container.querySelector('.m-topbar')?.classList.contains('lib-quiet')).toBe(false)
+    expect(container.querySelectorAll('.lib-rail .lib-th').length).toBeGreaterThan(0)
+
+    toggle.click()
+    await settle()
+    expect(container.querySelector('.native-list-card')?.classList.contains('lib-quiet')).toBe(false)
+    expect(toggle.getAttribute('aria-pressed')).toBe('false')
+  })
+
 })
 
 describe('native-only placement', () => {

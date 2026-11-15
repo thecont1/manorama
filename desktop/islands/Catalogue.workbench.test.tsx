@@ -1,4 +1,5 @@
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, test } from 'bun:test'
+import { readFileSync } from 'node:fs'
 import { Window } from 'happy-dom'
 import { render } from 'hono/jsx/dom'
 import { releaseAllOverlays } from '../../app/lib/overlay-stack'
@@ -1723,11 +1724,12 @@ describe('desktop catalogue workbench', () => {
       expect(saved.galleries[0]!.pinnedAt).toBeTruthy()
       expect(calls.some((call) => call.url.includes('/pin'))).toBe(false)
 
-      // The card moves to Pinned galleries as a full strip, pin glyph and all.
+      // The card moves to Pinned galleries as a full strip. The section
+      // already says pinned, so the title carries no redundant pin glyph.
       const pinnedSection = container.querySelector<HTMLElement>('[aria-labelledby="pinned-galleries-title"]')!
       const strip = pinnedSection.querySelector(`[data-gallery-card="${GALLERY_ID}"]`)!
       expect(strip.querySelector('.admin-gallery-strip')).not.toBeNull()
-      expect(strip.querySelector('.lib-pin')).not.toBeNull()
+      expect(strip.querySelector('.lib-pin')).toBeNull()
       // With nothing left, the Local section folds away.
       expect(container.querySelector('#local-galleries-title')).toBeNull()
 
@@ -2277,5 +2279,48 @@ describe('desktop device legend', () => {
     } finally {
       globals.fetch = defaultFetch
     }
+  })
+})
+
+describe('the Library quiet view', () => {
+  test('the rail toggle fades the gallery list and leaves the rail untouched', async () => {
+    const container = await mount(true)
+    const toggle = container.querySelector<HTMLButtonElement>('.lib-quiet-toggle')!
+    expect(toggle).not.toBeNull()
+    expect(toggle.getAttribute('aria-pressed')).toBe('false')
+    const list = container.querySelector<HTMLElement>('.gallery-list')!
+    const rail = container.querySelector<HTMLElement>('.admin-rail')!
+    expect(list.classList.contains('lib-quiet')).toBe(false)
+
+    toggle.click()
+    await settle()
+    expect(list.classList.contains('lib-quiet')).toBe(true)
+    expect(toggle.getAttribute('aria-pressed')).toBe('true')
+    // The rail — and the way back — never quiets.
+    expect(rail.classList.contains('lib-quiet')).toBe(false)
+    expect(rail.querySelector('.lib-quiet')).toBeNull()
+    expect(rail.textContent).toContain('Library')
+
+    toggle.click()
+    await settle()
+    expect(list.classList.contains('lib-quiet')).toBe(false)
+    expect(toggle.getAttribute('aria-pressed')).toBe('false')
+  })
+
+  test('the stylesheet fades text and chrome to a whisper but never the rail or a photograph', () => {
+    const css = readFileSync(new URL('../../app/styles.css', import.meta.url), 'utf8')
+    expect(css).toContain('.lib-quiet, .lib-quiet *')
+    expect(css).toContain('color: rgba(var(--ink), .05) !important')
+    expect(css).toContain('-webkit-text-fill-color: rgba(var(--ink), .05) !important')
+    expect(css).toContain('.lib-quiet :where(svg, .device-pill')
+    // The fade animates as a curtain — the transition lives on the
+    // un-quieted elements so it eases in both directions — and the
+    // photographs step a touch brighter while the words sink.
+    expect(css).toContain('transition: color .7s cubic-bezier(.4, 0, .2, 1)')
+    expect(css).toContain('.lib-quiet img { filter: brightness(1.12); }')
+    // No image dims, and nothing on the rail, ever quiets.
+    expect(css).not.toMatch(/\.lib-quiet[^{}]*img[^{}]*opacity/)
+    expect(css).not.toContain('.admin-rail.lib-quiet')
+    expect(css).toContain('.lib-quiet-toggle')
   })
 })
