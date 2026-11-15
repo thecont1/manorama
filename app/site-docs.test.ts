@@ -69,6 +69,16 @@ describe('/about renders README.md', () => {
     expect(html).toContain('<code>')
     expect(html).not.toContain('# manorama')
   })
+
+  test('repo-relative links resolve to GitHub and open in a new tab', async () => {
+    const html = await get('/about', aboutRoute)
+    // README.md links TECH-SPEC.md relatively — on the site that href
+    // would 404, so the renderer anchors it to the repo blob and every
+    // document link leaves the tab.
+    expect(html).toContain('href="https://github.com/thecont1/manorama/blob/main/TECH-SPEC.md"')
+    expect(html).toContain('target="_blank"')
+    expect(html).toContain('rel="noopener"')
+  })
 })
 
 describe('/techspecs renders TECH-SPEC.md', () => {
@@ -99,6 +109,13 @@ describe('/techspecs renders TECH-SPEC.md', () => {
     // Inline markup in a heading still renders — the quick-add title
     // carries a code span.
     expect(html).toContain('<summary>Quick-add: <code>manorama.xyz/&lt;share-url&gt;</code></summary>')
+  })
+
+  test('repo-relative links resolve to GitHub and open in a new tab', async () => {
+    const html = await get('/techspecs', techSpecsRoute)
+    expect(html).toContain('href="https://github.com/thecont1/manorama/blob/main/README.md"')
+    expect(html).toContain('target="_blank"')
+    expect(html).toContain('rel="noopener"')
   })
 
   test('markup mentioned inside code spans stays escaped', async () => {
