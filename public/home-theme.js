@@ -30,7 +30,14 @@ try {
   toggles.forEach(function (el) {
     el.addEventListener('click', function () {
       current = current === 'light' ? 'dark' : 'light'
-      try { localStorage.setItem(KEY, current) } catch (e) {}
+      try {
+        localStorage.setItem(KEY, current)
+        // The .manorama.xyz cookie carries the choice to downloads.manorama.xyz;
+        // foreign origins (capacitor://, tauri://) reject it silently.
+        if (location.hostname === 'manorama.xyz' || location.hostname.slice(-13) === '.manorama.xyz') {
+          document.cookie = 'manorama-theme=' + current + '; domain=.manorama.xyz; path=/; max-age=31536000; samesite=lax; secure'
+        }
+      } catch (e) {}
       apply(current)
     })
   })

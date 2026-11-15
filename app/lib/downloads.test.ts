@@ -215,13 +215,19 @@ describe('handleDownloads', () => {
     expect(android.headers.get('location')).toBe('https://downloads.manorama.xyz/v1.0/manorama_1.0_android.apk')
   })
 
-  test('the header carries the downloads menu and a providers-only sign-in panel', async () => {
+  test('the header links Home instead of repeating the downloads menu', async () => {
     const res = await handleDownloads(req('/'), envWith({}))
     const body = await res.text()
-    expect(body).toContain('class="home-downloads-trigger" href="https://downloads.manorama.xyz/"')
-    expect(body).toContain('https://downloads.manorama.xyz/linux')
-    expect(body).toContain('home-downloads-soon')
+    expect(body).toContain('href="https://manorama.xyz/?home=1">Home</a>')
+    expect(body).not.toContain('home-downloads-trigger')
     expect(body).not.toContain('Get the app')
+  })
+
+  test('the theme toggle shares its choice through a .manorama.xyz cookie', async () => {
+    const res = await handleDownloads(req('/'), envWith({}))
+    const body = await res.text()
+    expect(body).toContain('manorama-theme=(light|dark)')
+    expect(body).toContain('domain=.manorama.xyz')
   })
 
   test('serves versioned objects with immutable caching', async () => {

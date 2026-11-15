@@ -460,7 +460,7 @@ html.light .home-theme-moon {
   z-index: 30;
   display: none;
   min-width: 200px;
-  padding: 8px 0;
+  padding: 14px;
   background: var(--home-surface-raised);
   border: 2px solid var(--home-ink);
   box-shadow: 4px 4px 0 var(--home-accent);
@@ -491,16 +491,19 @@ html.light .home-theme-moon {
 .home .home-downloads-panel a {
   display: flex;
   align-items: center;
-  min-height: 40px;
-  padding: 8px 14px;
-  font-size: 15px;
+  min-height: 44px;
+  padding: 9px 10px;
   text-decoration: none;
-  color: var(--home-ink-soft);
+  color: var(--home-ink);
 }
 
 .home .home-downloads-panel a:hover {
-  color: var(--home-ink);
-  background: var(--home-surface);
+  background: var(--home-accent);
+}
+
+.home-downloads-name {
+  font-size: 16px;
+  font-weight: 600;
 }
 
 .home-downloads-soon {
@@ -508,8 +511,8 @@ html.light .home-theme-moon {
   align-items: center;
   justify-content: space-between;
   gap: 12px;
-  min-height: 40px;
-  padding: 8px 14px;
+  min-height: 44px;
+  padding: 9px 10px;
   font-size: 15px;
   color: var(--home-ink-muted);
 }

@@ -149,17 +149,6 @@ html.light .home-account-panel{background:#fff}
 .home .home-nav-menu-list a{font-size:15px;text-decoration:none;color:var(--home-ink-soft);padding:10px 8px}
 .home .home-nav-menu-list a:hover{color:var(--home-ink)}
 .home-nav-menu-label{font-size:13px;color:var(--home-ink-muted);margin:0;padding:12px 8px 2px}
-.home-downloads{position:relative;display:inline-flex}
-.home .home-downloads-trigger{font-size:15px;text-decoration:none;color:var(--home-ink-soft);transition:color 120ms ease-out}
-.home .home-downloads-trigger:hover{color:var(--home-ink)}
-.home-downloads-panel{position:absolute;top:calc(100% + 10px);left:0;z-index:30;display:none;min-width:200px;padding:8px 0;background:var(--home-surface-raised);border:2px solid var(--home-ink);box-shadow:4px 4px 0 var(--home-accent)}
-.home-downloads-panel::before{content:"";position:absolute;top:-10px;left:0;right:0;height:10px}
-.home-downloads-list{list-style:none;margin:0;padding:0}
-.home-downloads:hover .home-downloads-panel,.home-downloads:focus-within .home-downloads-panel{display:block}
-.home .home-downloads-panel a{display:flex;align-items:center;min-height:40px;padding:8px 14px;font-size:15px;text-decoration:none;color:var(--home-ink-soft)}
-.home .home-downloads-panel a:hover{color:var(--home-ink);background:var(--home-surface)}
-.home-downloads-soon{display:flex;align-items:center;justify-content:space-between;gap:12px;min-height:40px;padding:8px 14px;font-size:15px;color:var(--home-ink-muted)}
-.home-downloads-soon small{font-size:12px}
 .home .home-btn{display:inline-flex;align-items:center;justify-content:center;min-height:46px;padding:10px 22px;border:0;border-radius:999px;background:var(--home-ink);color:var(--home-bg);font-family:inherit;font-size:15px;font-weight:600;text-decoration:none;cursor:pointer;transition:background-color 120ms ease-out,color 120ms ease-out}
 .home .home-btn:hover{background:var(--home-ink-bright);color:var(--home-bg)}
 .home .home-btn-quiet{background:transparent;color:var(--home-ink);box-shadow:inset 0 0 0 2px var(--home-line)}
@@ -215,7 +204,7 @@ html.light .home-account-panel{background:#fff}
 `
 
 const THEME_INIT = `<script>
-try{var t=localStorage.getItem('manorama:theme');if(t==='light')document.documentElement.classList.add('light')}catch(e){}
+try{var m=/(?:^|; *)manorama-theme=(light|dark)/.exec(document.cookie);var t=m?m[1]:localStorage.getItem('manorama:theme');if(t==='light')document.documentElement.classList.add('light')}catch(e){}
 </script>`
 
 const THEME_WIRE = `<script>
@@ -224,7 +213,7 @@ function apply(t){var l=t==='light';root.classList.toggle('light',l);var label=l
 Array.prototype.forEach.call(toggles,function(el){el.hidden=false;el.setAttribute('aria-label',label);el.setAttribute('aria-pressed',l?'true':'false')});
 var m=document.querySelector('meta[name="theme-color"]');if(m)m.setAttribute('content',l?'#f3f0e8':'#0a0a0a')}
 var cur=root.classList.contains('light')?'light':'dark';apply(cur);
-Array.prototype.forEach.call(toggles,function(el){el.addEventListener('click',function(){cur=cur==='light'?'dark':'light';try{localStorage.setItem('manorama:theme',cur)}catch(e){}apply(cur)})});
+Array.prototype.forEach.call(toggles,function(el){el.addEventListener('click',function(){cur=cur==='light'?'dark':'light';try{localStorage.setItem('manorama:theme',cur);if(location.hostname==='manorama.xyz'||location.hostname.slice(-13)==='.manorama.xyz')document.cookie='manorama-theme='+cur+'; domain=.manorama.xyz; path=/; max-age=31536000; samesite=lax; secure'}catch(e){}apply(cur)})});
 }catch(e){}
 </script>
 <script>
@@ -309,27 +298,14 @@ const accountPanelHtml = () => `<div id="home-account-panel" class="home-account
   .join('')}</ul></section>
 </div>`
 
-// Mirrors app/components/home/DownloadMenu.tsx — the ported header carries
-// the same hover menu. iPhone & iPad stays a quiet "soon" until
-// mobile.ios.url exists; never a link that goes nowhere.
-const DOWNLOADS_MENU = `<div class="home-downloads"><a class="home-downloads-trigger" href="https://${DOWNLOAD_HOST}/">Downloads</a><div class="home-downloads-panel"><ul class="home-downloads-list">
-<li><a href="${SITE}/"><span class="home-downloads-name">Web app</span></a></li>
-<li><a href="https://${DOWNLOAD_HOST}/mac"><span class="home-downloads-name">Mac</span></a></li>
-<li><a href="https://${DOWNLOAD_HOST}/windows"><span class="home-downloads-name">Windows</span></a></li>
-<li><a href="https://${DOWNLOAD_HOST}/linux"><span class="home-downloads-name">Linux</span></a></li>
-<li><a href="https://${DOWNLOAD_HOST}/android"><span class="home-downloads-name">Android</span></a></li>
-<li><span class="home-downloads-soon"><span class="home-downloads-name">iPhone &amp; iPad</span><small>soon</small></span></li>
-<li><a href="https://${DOWNLOAD_HOST}/"><span class="home-downloads-name">Downloads page</span></a></li>
-</ul></div></div>`
-
 const headerHtml = () => `<header class="home-header"><div class="home-header-inner">
 <a class="home-wordmark" href="${SITE}/?home=1" aria-label="manorama, home"><img class="home-logo-dark" src="${SITE}/manorama-merged-logo.png" alt="manorama" width="2027" height="688"><img class="home-logo-light" src="${SITE}/manorama-merged-logo-light.png" alt="" aria-hidden="true" width="2027" height="688"></a>
-<nav class="home-nav" aria-label="Sections"><a href="${SITE}/?home=1#unify">Features</a><a href="${SITE}/?home=1#pricing">Pricing</a><a href="${SITE}/?home=1#faq">FAQ</a>${DOWNLOADS_MENU}</nav>
+<nav class="home-nav" aria-label="Sections"><a href="${SITE}/?home=1#unify">Features</a><a href="${SITE}/?home=1#pricing">Pricing</a><a href="${SITE}/?home=1#faq">FAQ</a><a href="${SITE}/?home=1">Home</a></nav>
 ${THEME_TOGGLE}
 <button type="button" class="home-signin-trigger" popovertarget="home-account-panel" popovertargetaction="show">Sign in</button>
 <button type="button" class="home-btn" popovertarget="home-account-panel" popovertargetaction="show">Start free</button>
 <details class="home-nav-menu"><summary>Menu</summary><div class="home-nav-menu-list">
-<a href="${SITE}/?home=1#unify">Features</a><a href="${SITE}/?home=1#pricing">Pricing</a><a href="${SITE}/?home=1#faq">FAQ</a><a href="https://${DOWNLOAD_HOST}/">Downloads</a>
+<a href="${SITE}/?home=1#unify">Features</a><a href="${SITE}/?home=1#pricing">Pricing</a><a href="${SITE}/?home=1#faq">FAQ</a><a href="${SITE}/?home=1">Home</a>
 <button type="button" class="home-nav-signin" popovertarget="home-account-panel" popovertargetaction="show">Sign in</button>
 <p class="home-nav-menu-label">View</p>${THEME_TOGGLE}
 </div></details>
