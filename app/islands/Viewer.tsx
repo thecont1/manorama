@@ -1949,6 +1949,38 @@ export default function Viewer({ slug, galleryTitle, images: sourceImages, encry
     return () => cancelAnimationFrame(frame)
   }, [stageSize, foldActive])
 
+  // A canvas switch restages every strip frame — the 10px image margin
+  // appears or disappears — but nothing else notices: bounds and the
+  // docked transform are both stale, leaving the strip parked past the
+  // new end with Rewind out of reach. Mirror the stage-size re-dock:
+  // hold the endcard when it was docked, otherwise re-anchor the current
+  // photograph. Bounds are dirtied even mid-gesture so the gesture's own
+  // settle clamps against the new margin; only the re-dock itself waits
+  // for rest. The first run is mount — the stage-size effect covers it.
+  const marginRedockInitRef = useRef(false)
+  useEffect(() => {
+    if (!marginRedockInitRef.current) {
+      marginRedockInitRef.current = true
+      return
+    }
+    // Read the pre-change bounds before dirtying: wasAtEnd means "docked
+    // on the card at the OLD end", measured against the bounds the
+    // transform was last settled with.
+    const wasAtEnd = endcapRevealedRef.current
+      && -currentXRef.current >= boundsRef.current.max - 1
+    boundsDirtyRef.current = true
+    if (modeRef.current !== 'strip' || foldActiveRef.current || draggingRef.current || momentumRef.current !== null) return
+    const frame = requestAnimationFrame(() => {
+      if (wasAtEnd) {
+        settleTo(-getBounds().max, true)
+        return
+      }
+      const anchor = pendingEntryRef.current ?? indexRef.current
+      settleTo(-imageStart(anchor), true, pendingEntryRef.current === null)
+    })
+    return () => cancelAnimationFrame(frame)
+  }, [imageMarginPx])
+
   useEffect(() => () => {
     cancelPositionReport()
   }, [])
@@ -3043,8 +3075,8 @@ export default function Viewer({ slug, galleryTitle, images: sourceImages, encry
                 ? { width: `${cappedVideo.width}px`, height: stagingHeight > 0 ? `${stagingHeight}px` : '100%' }
                 : staged && staged.width > 0 && staged.height > 0
                   ? { width: `${staged.width}px`, height: `${plateShort ? stagingHeight : staged.height}px` }
-                  : video && stageSize.height > 0 && frameW > 0 && frameH > 0
-                    ? { width: `${(stageSize.height * frameW) / frameH}px`, aspectRatio: `${frameW} / ${frameH}` }
+                  : video && stagingHeight > 0 && frameW > 0 && frameH > 0
+                    ? { width: `${(stagingHeight * frameW) / frameH}px`, aspectRatio: `${frameW} / ${frameH}` }
                     : { aspectRatio: `${frameW} / ${frameH}` }
               : mode === 'vertical'
                 ? video

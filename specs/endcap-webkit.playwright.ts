@@ -296,4 +296,132 @@ test.describe("strip endcap bounds on WebKit", () => {
       .poll(async () => Math.abs((await track.boundingBox())!.x - stageBox!.x), { timeout: 10_000 })
       .toBeLessThan(2);
   });
+
+  // A canvas switch (Blank → Dark → Blank) restages every frame — strip
+  // frames gain or lose the 10px image margin — but the measured bounds
+  // and the docked transform used to stay stale: docked on "The End."
+  // card, switching to Dark shrank the track and left the card parked
+  // off the left edge with Rewind unreachable (repro: /tmp/dark-switch2.mjs
+  // against manorama.xyz/vidzee/singapore). The viewer must re-dock —
+  // holding the card at the new end — on either direction of the switch.
+  test("a canvas switch while docked on the endcard re-docks flush, both directions", async ({
+    page,
+    request,
+  }) => {
+    const slug = `endcap-canvas-${Date.now().toString(36)}`;
+    const spawn = await request.post(`${BASE}/.dev-seed/spawn`, {
+      data: {
+        accountId: SEED_ACCOUNT,
+        galleries: [{ slug, images: galleryImages() }],
+      },
+    });
+    expect(spawn.status(), "dev-seed spawn — is this `bun run dev`?").toBe(200);
+    const spawned = (await spawn.json()) as { results?: { ok?: boolean }[] };
+    expect(spawned.results?.[0]?.ok, "spawned gallery was accepted").toBe(true);
+
+    await page.goto(`${BASE}/${SEED_OWNER}/${slug}`, { waitUntil: "domcontentloaded" });
+    const curtain = page.locator("[data-curtain]");
+    for (let attempt = 0; attempt < 5; attempt += 1) {
+      const curtainBox = await curtain.boundingBox();
+      if (!curtainBox) break;
+      await page.touchscreen.tap(curtainBox.x + curtainBox.width / 2, curtainBox.y + curtainBox.height / 2);
+      try {
+        await expect(curtain).toBeHidden({ timeout: 2_500 });
+        break;
+      } catch {
+        // Still visible — the tap never reached the curtain's handler.
+      }
+    }
+    await expect(curtain).toBeHidden({ timeout: 10_000 });
+
+    const track = page.locator("[data-track]");
+    const stage = page.locator("[data-stage]");
+    const endcap = page.locator("[data-endcard]");
+    await expect(endcap).toHaveCount(1);
+    const stageBox = await stage.boundingBox();
+
+    const stripSettled = async () =>
+      expect
+        .poll(
+          async () => {
+            const a = await track.evaluate((el) => el.style.transform);
+            await new Promise((resolve) => setTimeout(resolve, 160));
+            const b = await track.evaluate((el) => el.style.transform);
+            return a === b;
+          },
+          { timeout: 8_000 },
+        )
+        .toBe(true);
+
+    // Same path to the docked card as the first test: End, then drags
+    // past the last photograph until the reveal joins the card to the
+    // pan range and the gesture carries it flush to the right edge.
+    await page.keyboard.press("End");
+    await expect.poll(async () => track.evaluate((el) => el.style.transform)).toContain("translate3d");
+    await stripSettled();
+    const dragPastEnd = async () => {
+      await page.mouse.move(stageBox!.x + stageBox!.width - 20, stageBox!.y + stageBox!.height / 2);
+      await page.mouse.down();
+      await page.mouse.move(stageBox!.x + stageBox!.width - 1400, stageBox!.y + stageBox!.height / 2, { steps: 14 });
+      await page.mouse.up();
+    };
+    // The card's margin box — border box plus its trailing gutter — is
+    // what docks flush: Dark/Light give the card the same 10px right
+    // margin every strip frame carries, so its border box rightly sits
+    // one gutter inside the stage edge.
+    const dockedDelta = async () => {
+      const box = await endcap.boundingBox();
+      if (!box) return Infinity;
+      const marginRight = await endcap.evaluate(
+        (el) => parseFloat(getComputedStyle(el).marginRight) || 0,
+      );
+      return Math.abs(box.x + box.width + marginRight - (stageBox!.x + stageBox!.width));
+    };
+    // Keep dragging until the card is revealed AND actually docked —
+    // breaking on the reveal alone can leave the strip short of the end
+    // when a gesture's momentum dies early.
+    for (let attempt = 0; attempt < 8; attempt += 1) {
+      await dragPastEnd();
+      await stripSettled();
+      const revealed = await endcap.evaluate((el) => !el.hasAttribute("inert"));
+      if (revealed && (await dockedDelta()) < 5) break;
+    }
+    const expectDockedFlush = async () => {
+      await expect.poll(dockedDelta, { timeout: 10_000 }).toBeLessThan(2);
+      // Rewind must be reachable — fully inside the stage, not parked
+      // off the left edge the way the stale transform left it.
+      const rewindBox = await endcap.getByRole("button", { name: /^rewind$/i }).boundingBox();
+      expect(rewindBox).not.toBeNull();
+      expect(rewindBox!.x).toBeGreaterThanOrEqual(stageBox!.x);
+      expect(rewindBox!.x + rewindBox!.width).toBeLessThanOrEqual(stageBox!.x + stageBox!.width);
+      expect(rewindBox!.y).toBeGreaterThanOrEqual(stageBox!.y);
+      expect(rewindBox!.y + rewindBox!.height).toBeLessThanOrEqual(stageBox!.y + stageBox!.height);
+    };
+    await expectDockedFlush();
+
+    // Chrome up, then Gallery Settings → Canvas. The segmented control's
+    // radios are the canvas choices; the sheet stays open across picks.
+    await page.touchscreen.tap(stageBox!.x + stageBox!.width / 2, stageBox!.y + stageBox!.height / 2);
+    await page.getByRole("button", { name: /gallery settings/i }).first().click({ timeout: 5_000 });
+    const canvas = page.getByRole("radiogroup", { name: "Canvas" });
+    await canvas.getByRole("radio", { name: "Dark" }).click({ timeout: 5_000 });
+    // Dark adds the margin: the track shrinks and the dock must follow
+    // the card to the new end instead of parking past it.
+    await expectDockedFlush();
+    await canvas.getByRole("radio", { name: "Blank" }).click({ timeout: 5_000 });
+    // Blank removes it again — the larger end must dock flush too.
+    await expectDockedFlush();
+    await page.keyboard.press("Escape");
+    await page.waitForTimeout(400);
+
+    // Still docked and reachable: Rewind runs home.
+    const reset = endcap.getByRole("button", { name: /^rewind$/i });
+    const resetBox = await reset.boundingBox();
+    expect(resetBox).not.toBeNull();
+    await page.touchscreen.tap(resetBox!.x + resetBox!.width / 2, resetBox!.y + resetBox!.height / 2);
+    await expect(page.locator("[data-chrome-position]")).toHaveText("1 of 8", { timeout: 10_000 });
+    await expect
+      .poll(async () => Math.abs((await track.boundingBox())!.x - stageBox!.x), { timeout: 10_000 })
+      .toBeLessThan(2);
+  });
 });

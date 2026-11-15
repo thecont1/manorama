@@ -110,12 +110,15 @@ beforeAll(() => {
   prev = {
     window: globals.window, document: globals.document,
     raf: globals.requestAnimationFrame, caf: globals.cancelAnimationFrame,
-    svg: globals.SVGElement, fetch: globals.fetch,
+    svg: globals.SVGElement, fetch: globals.fetch, ls: globals.localStorage,
   }
   dom = new Window({ url: `http://localhost/${SLUG}` })
   globals.window = dom
   globals.document = dom.document
   globals.SVGElement = dom.SVGElement
+  // The canvas preference lives in localStorage — without this global the
+  // viewer's `typeof localStorage === 'undefined'` guard reads no prefs.
+  globals.localStorage = dom.localStorage
   globals.requestAnimationFrame = ((callback: FrameRequestCallback) => {
     const id = nextFrameId++
     armed.set(id, callback)
@@ -136,6 +139,7 @@ afterAll(() => {
   globals.requestAnimationFrame = prev.raf
   globals.cancelAnimationFrame = prev.caf
   globals.fetch = prev.fetch
+  globals.localStorage = prev.ls
 })
 
 describe('the strip video frame size contract', () => {
@@ -169,6 +173,29 @@ describe('the strip video frame size contract', () => {
     expect(photoFrame!.style.width).toMatch(/px$/)
     expect(photoFrame!.style.height).toMatch(/px$/)
     expect(photoFrame!.style.aspectRatio).toBe('')
+  })
+
+  test('a Dark canvas measures the frame against stagingHeight, not the raw stage', async () => {
+    const root = dom.document.createElement('div')
+    dom.document.body.appendChild(root)
+    const settings = defaultGallerySettings({ slug: SLUG, title: 'Video frame', caption: '', date: '', images })
+    // The canvas preference is read from localStorage before first render;
+    // Dark puts the 10px image margin on every strip frame, so the staged
+    // height is the stage minus 20px.
+    dom.localStorage.setItem(`manorama:view:${SLUG}`, JSON.stringify({ background: 'dark' }))
+    try {
+      await mountViewer(root, settings)
+
+      const videoFrame = root.querySelector('.viewer-frame[data-media-type="video"]') as unknown as HTMLElement | null
+      expect(videoFrame).not.toBeNull()
+      // (STAGE_HEIGHT - 2 * 10) * frameW / frameH — a frame sized from the
+      // raw stage would be ~20·ratio px too wide under a visible canvas.
+      expect(videoFrame!.style.width).toMatch(/^\d+(\.\d+)?px$/)
+      expect(Math.abs(parseFloat(videoFrame!.style.width) - ((STAGE_HEIGHT - 20) * VIDEO_WIDTH) / VIDEO_HEIGHT)).toBeLessThan(0.001)
+      expect(videoFrame!.style.aspectRatio).toBe(`${VIDEO_WIDTH} / ${VIDEO_HEIGHT}`)
+    } finally {
+      dom.localStorage.removeItem(`manorama:view:${SLUG}`)
+    }
   })
 
   test('vertical mode does not pick up the strip width rule', async () => {
