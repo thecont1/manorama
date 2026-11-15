@@ -70,7 +70,10 @@ describe('subrequest budget', () => {
         headers: { 'Content-Type': 'application/json', Cookie: await sessionCookieFor((await upsertUser({ accountId: 'dbid:AAAbudget', displayName: 'Budget' })).accountId) },
         body: JSON.stringify({ url: 'https://www.dropbox.com/scl/fo/budget?rlkey=K' }),
       }, env)
-      expect(response.status).toBe(201)
+      // The probes outrun the scan budget, so the listing comes back
+      // partial — and create now refuses it like refresh does, still
+      // inside the subrequest ceiling.
+      expect(response.status).toBe(422)
       expect(calls).toBeLessThanOrEqual(1000)
     } finally {
       globalThis.fetch = realFetch
