@@ -1296,6 +1296,7 @@ export default function Viewer({ slug, galleryTitle, images: sourceImages, encry
     const superseded = glideCompleteRef.current
     glideCompleteRef.current = null
     stopMomentum()
+    marginRedockPendingRef.current = false
     superseded?.()
     const from = currentXRef.current
     const bounds = getBounds()
@@ -1355,6 +1356,21 @@ export default function Viewer({ slug, galleryTitle, images: sourceImages, encry
         queuePlateActionability()
         if (reportOnComplete) reportStripPosition()
         onComplete?.()
+        if (marginRedockPendingRef.current) {
+          marginRedockPendingRef.current = false
+          // The landing report needs a frame to commit the index, so the
+          // re-dock waits two: the anchor must read the post-glide
+          // position, not the pre-glide one a paging advance just left.
+          requestAnimationFrame(() => requestAnimationFrame(() => {
+            if (modeRef.current !== 'strip' || foldActiveRef.current || draggingRef.current || momentumRef.current !== null) return
+            if (endcapRevealedRef.current && -currentXRef.current >= getBounds().max - 1) {
+              settleTo(-getBounds().max, true)
+              return
+            }
+            const anchor = pendingEntryRef.current ?? indexRef.current
+            settleTo(-imageStart(anchor), true, pendingEntryRef.current === null)
+          }))
+        }
       }
     }
     momentumRef.current = requestAnimationFrame(tick)
@@ -1958,6 +1974,10 @@ export default function Viewer({ slug, galleryTitle, images: sourceImages, encry
   // settle clamps against the new margin; only the re-dock itself waits
   // for rest. The first run is mount — the stage-size effect covers it.
   const marginRedockInitRef = useRef(false)
+  // Set when the canvas margin changes mid-glide: the in-flight settle
+  // finishes at the pre-switch destination, so a re-dock is owed for
+  // when motion ends. Any new settleTo supersedes it.
+  const marginRedockPendingRef = useRef(false)
   useEffect(() => {
     if (!marginRedockInitRef.current) {
       marginRedockInitRef.current = true
@@ -1969,7 +1989,11 @@ export default function Viewer({ slug, galleryTitle, images: sourceImages, encry
     const wasAtEnd = endcapRevealedRef.current
       && -currentXRef.current >= boundsRef.current.max - 1
     boundsDirtyRef.current = true
-    if (modeRef.current !== 'strip' || foldActiveRef.current || draggingRef.current || momentumRef.current !== null) return
+    if (modeRef.current !== 'strip' || foldActiveRef.current || draggingRef.current) return
+    if (momentumRef.current !== null) {
+      marginRedockPendingRef.current = true
+      return
+    }
     const frame = requestAnimationFrame(() => {
       if (wasAtEnd) {
         settleTo(-getBounds().max, true)
