@@ -14,7 +14,6 @@ type DeviceGalleryRow = {
   source_kind: string
   item_count: number
   device_id: string
-  device_label: string
   public_gallery_slug: string | null
   hidden: number
   updated_at: string
@@ -27,7 +26,6 @@ const rowToDeviceGallery = (row: DeviceGalleryRow): DeviceGallery => {
     sourceKind: row.source_kind === 'card' ? 'card' : 'folder',
     itemCount: row.item_count,
     deviceId: row.device_id,
-    deviceLabel: row.device_label,
     updatedAt: row.updated_at,
   }
   if (row.public_gallery_slug) gallery.publicGallerySlug = row.public_gallery_slug
@@ -41,7 +39,7 @@ const rowToDeviceGallery = (row: DeviceGalleryRow): DeviceGallery => {
    stored slug (see clearDeviceGalleryLink), so an expired link that stays
    hidden is either re-armed by renewal or dies with its gallery — a new
    gallery reusing the slug cannot inherit it. */
-const DEVICE_GALLERY_SELECT = `SELECT d.id, d.title, d.source_kind, d.item_count, d.device_id, d.device_label, d.hidden,
+const DEVICE_GALLERY_SELECT = `SELECT d.id, d.title, d.source_kind, d.item_count, d.device_id, d.hidden,
   CASE WHEN d.public_gallery_slug IS NOT NULL AND g.slug IS NOT NULL
     AND (g.retention != 'pipeline' OR g.expires_at IS NULL OR g.expires_at > ?)
     THEN d.public_gallery_slug ELSE NULL END AS public_gallery_slug,
@@ -66,8 +64,8 @@ export const putDeviceGallery = async (ownerId: string, id: string, input: Devic
     // PUT omits the field (parseDeviceGalleryInput leaves it undefined →
     // NULL here), and wiping a linked slug would unlink a published
     // gallery every sync. A real slug in the payload still applies.
-    .prepare('INSERT INTO device_galleries (owner_id, id, title, source_kind, item_count, device_id, device_label, public_gallery_slug, hidden, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT(owner_id, id) DO UPDATE SET title = excluded.title, source_kind = excluded.source_kind, item_count = excluded.item_count, device_id = excluded.device_id, device_label = excluded.device_label, public_gallery_slug = COALESCE(excluded.public_gallery_slug, device_galleries.public_gallery_slug), hidden = COALESCE(excluded.hidden, device_galleries.hidden), updated_at = excluded.updated_at')
-    .bind(ownerId, id, input.title, input.sourceKind, input.itemCount, input.deviceId, input.deviceLabel, input.publicGallerySlug ?? null, input.hidden === undefined ? null : (input.hidden ? 1 : 0), updatedAt)
+    .prepare('INSERT INTO device_galleries (owner_id, id, title, source_kind, item_count, device_id, public_gallery_slug, hidden, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT(owner_id, id) DO UPDATE SET title = excluded.title, source_kind = excluded.source_kind, item_count = excluded.item_count, device_id = excluded.device_id, public_gallery_slug = COALESCE(excluded.public_gallery_slug, device_galleries.public_gallery_slug), hidden = COALESCE(excluded.hidden, device_galleries.hidden), updated_at = excluded.updated_at')
+    .bind(ownerId, id, input.title, input.sourceKind, input.itemCount, input.deviceId, input.publicGallerySlug ?? null, input.hidden === undefined ? null : (input.hidden ? 1 : 0), updatedAt)
     .run()
   // Answer the stored row, not the input echo — a slug the upsert just
   // preserved belongs in the response too.

@@ -18,6 +18,7 @@ import { randomGalleryName } from './lib/gallery-name'
 import { defaultGallerySettings } from './lib/gallery-settings'
 import { adSuppressionFor, clearAdSuppression, listAdSuppressions, setAdSuppression, type AdSuppressionKind } from './lib/ads-visibility'
 import { createDeviceGalleryApi } from './device-gallery-api'
+import { createDeviceApi } from './device-api'
 import { getGalleryKey, getOwnerVault, putGalleryKey, putOwnerVault } from './lib/key-vault-repository'
 import { verifyDesktopHandoffToken } from './lib/desktop-auth'
 import { LastIdentityError, listIdentities, unlinkIdentity, type AuthProvider } from './lib/identity-repository'
@@ -269,6 +270,7 @@ export const createManoramaApi = () => {
     }
   })
   api.route('/', createDeviceGalleryApi())
+  api.route('/', createDeviceApi())
   /** Exchanges the one-minute deep-link handoff for the normal seven-day
    * bearer session. The handoff is purpose-bound and never accepted as an API
    * bearer token itself. */

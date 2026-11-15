@@ -149,6 +149,8 @@ const sharedD1Database = async () => {
     await applyMigration(proxy.env.DB, '0017_device_gallery_hidden.sql')
     await applyMigration(proxy.env.DB, '0019_owner_slug_reservations.sql')
     await applyMigration(proxy.env.DB, '0020_gallery_source_check.sql')
+    await applyMigration(proxy.env.DB, '0021_devices.sql')
+    await applyMigration(proxy.env.DB, '0022_device_label_drop.sql')
     sharedD1 = { proxy }
   }
   return sharedD1.proxy.env.DB

@@ -619,6 +619,9 @@ export const deleteAccount = async (accountId: string, env?: UserRepositoryEnv):
       env.DB.prepare('DELETE FROM auth_identities WHERE account_id = ?').bind(accountId),
       env.DB.prepare('DELETE FROM auth_flows WHERE account_id = ?').bind(accountId),
       env.DB.prepare('DELETE FROM device_galleries WHERE owner_id = ?').bind(accountId),
+      // The device list is the account's own record of where it has signed
+      // in; deletion removes it with everything else.
+      env.DB.prepare('DELETE FROM devices WHERE owner_id = ?').bind(accountId),
       env.DB.prepare('DELETE FROM galleries WHERE owner_id = ?').bind(accountId),
       env.DB.prepare('DELETE FROM gallery_keys WHERE owner_id = ?').bind(accountId),
       env.DB.prepare('DELETE FROM owner_key_vault WHERE owner_id = ?').bind(accountId),

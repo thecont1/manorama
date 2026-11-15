@@ -56,6 +56,8 @@ describe('deleteAccount', () => {
       '0017_device_gallery_hidden.sql',
       '0019_owner_slug_reservations.sql',
       '0020_gallery_source_check.sql',
+      '0021_devices.sql',
+      '0022_device_label_drop.sql',
     ]) {
       await applyMigration(db, migration)
     }
@@ -73,8 +75,8 @@ describe('deleteAccount', () => {
     await db.prepare(insertGallery).bind('gone-with-a', OWNER_A, 'Gone A').run()
     await db.prepare(insertGallery).bind('kept-by-b', OWNER_B, 'Kept B').run()
     await db.prepare(
-      `INSERT INTO device_galleries (owner_id, id, title, source_kind, item_count, device_id, device_label, updated_at)
-       VALUES (?, 'dev-a', 'Mac folder', 'folder', 3, 'dev-1', 'Mac Studio', '2026-10-01 00:00:00')`,
+      `INSERT INTO device_galleries (owner_id, id, title, source_kind, item_count, device_id, updated_at)
+       VALUES (?, 'dev-a', 'Mac folder', 'folder', 3, 'dev-1', '2026-10-01 00:00:00')`,
     ).bind(OWNER_A).run()
   }, 15_000)
 

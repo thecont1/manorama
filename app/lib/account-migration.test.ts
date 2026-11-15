@@ -93,6 +93,8 @@ beforeAll(async () => {
   // the real schema, so the fixture carries it too.
   await applyMigration(db, '0007_device_galleries.sql')
   await applyMigration(db, '0017_device_gallery_hidden.sql')
+  await applyMigration(db, '0021_devices.sql')
+  await applyMigration(db, '0022_device_label_drop.sql')
 }, 15_000)
 
 afterAll(async () => {

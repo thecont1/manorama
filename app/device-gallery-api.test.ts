@@ -48,6 +48,8 @@ beforeAll(async () => {
   await applyMigration(db, '0016_gallery_hidden.sql')
   await applyMigration(db, '0017_device_gallery_hidden.sql')
   await applyMigration(db, '0020_gallery_source_check.sql')
+  await applyMigration(db, '0021_devices.sql')
+  await applyMigration(db, '0022_device_label_drop.sql')
 }, 15_000)
 
 afterAll(async () => {
@@ -82,7 +84,6 @@ const deviceInput = (overrides: Record<string, unknown> = {}) => ({
   sourceKind: 'folder',
   itemCount: 12,
   deviceId: crypto.randomUUID(),
-  deviceLabel: 'Studio Mac',
   ...overrides,
 })
 
@@ -223,14 +224,29 @@ describe('device catalogue ownership', () => {
     const created = await putAs(owner.bearer, id, deviceInput())
     expect(created.status).toBe(200)
     const { gallery } = await created.json() as { gallery: Record<string, unknown> }
-    expect(Object.keys(gallery).sort()).toEqual(['deviceId', 'deviceLabel', 'id', 'itemCount', 'sourceKind', 'title', 'updatedAt'])
+    expect(Object.keys(gallery).sort()).toEqual(['deviceId', 'id', 'itemCount', 'sourceKind', 'title', 'updatedAt'])
     expect(gallery.id).toBe(id)
     expect(typeof gallery.updatedAt).toBe('string')
     const galleries = await galleriesOf(await listAs(owner.bearer))
     expect(galleries).toHaveLength(1)
-    expect(Object.keys(galleries[0]).sort()).toEqual(['deviceId', 'deviceLabel', 'id', 'itemCount', 'sourceKind', 'title', 'updatedAt'])
+    expect(Object.keys(galleries[0]).sort()).toEqual(['deviceId', 'id', 'itemCount', 'sourceKind', 'title', 'updatedAt'])
     expect(galleries[0]).not.toHaveProperty('owner_id')
     expect(galleries[0]).not.toHaveProperty('ownerId')
+  })
+
+  test('a build that still sends the machine name is accepted and the name is dropped', async () => {
+    const owner = await seedOwner()
+    const id = crypto.randomUUID()
+    const created = await putAs(owner.bearer, id, deviceInput({ deviceLabel: 'Mahesh’s MacBook Pro' }))
+    expect(created.status).toBe(200)
+    const { gallery } = await created.json() as { gallery: Record<string, unknown> }
+    expect(gallery).not.toHaveProperty('deviceLabel')
+    // The column is gone from the table too — the name never reaches a row.
+    const row = await db.prepare('SELECT * FROM device_galleries WHERE id = ?').bind(id).first<Record<string, unknown>>()
+    expect(row).not.toBeNull()
+    expect(Object.keys(row ?? {})).not.toContain('device_label')
+    const listed = await galleriesOf(await listAs(owner.bearer))
+    expect(listed[0]).not.toHaveProperty('deviceLabel')
   })
 
   test('a put upserts idempotently and a delete removes only that row', async () => {
@@ -488,6 +504,8 @@ describe('device catalogue storage failures', () => {
     } finally {
       await applyMigration(db, '0007_device_galleries.sql')
       await applyMigration(db, '0017_device_gallery_hidden.sql')
+      await applyMigration(db, '0021_devices.sql')
+      await applyMigration(db, '0022_device_label_drop.sql')
     }
   })
 })

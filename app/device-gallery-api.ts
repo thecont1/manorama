@@ -1,33 +1,13 @@
-import { Hono, type MiddlewareHandler } from 'hono'
+import { Hono } from 'hono'
 import { bodyLimit } from 'hono/body-limit'
 import { DEVICE_GALLERY_ID_PATTERN, parseDeviceGalleryInput } from '../packages/core/device-gallery'
 import { deleteDeviceGallery, listDeviceGalleries, putDeviceGallery, setDeviceGalleryHidden, type DeviceGalleryEnv } from './lib/device-gallery-repository'
 import { getStoredGallery } from './lib/gallery-repository'
 import { isGalleryExpired } from './lib/gallery-policy'
 import { getUserByAccountId } from './lib/user-repository'
-import { accessEnvOf, requireSession, resolveManoramaSession, type HonoSessionEnv } from './lib/session'
+import { privateNoStore, requireBearerSession, requireSession, type HonoSessionEnv } from './lib/session'
 
 const dbEnv = (c: { env: unknown }) => c.env as DeviceGalleryEnv
-
-const privateNoStore: MiddlewareHandler<HonoSessionEnv> = async (c, next) => {
-  c.header('Cache-Control', 'private, no-store')
-  await next()
-}
-
-const requireBearerSession = (): MiddlewareHandler<HonoSessionEnv> =>
-  async (c, next) => {
-    const authorization = c.req.header('Authorization') ?? ''
-    if (!/^Bearer[ \t]+\S+$/i.test(authorization)) return c.json({ error: 'Authentication required' }, 401)
-    const headers = new Headers(c.req.raw.headers)
-    headers.delete('Cookie')
-    const session = await resolveManoramaSession(
-      new Request(c.req.raw.url, { method: c.req.raw.method, headers }),
-      accessEnvOf(c),
-    )
-    if (!session) return c.json({ error: 'Authentication required' }, 401)
-    c.set('manoramaSession', session)
-    await next()
-  }
 
 export const createDeviceGalleryApi = () => {
   const api = new Hono<HonoSessionEnv>()

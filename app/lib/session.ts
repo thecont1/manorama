@@ -268,6 +268,32 @@ export const requireSession = (): MiddlewareHandler<HonoSessionEnv> =>
     await next()
   }
 
+/** Account reads that must never be cached by a browser, proxy or CDN. */
+export const privateNoStore: MiddlewareHandler<HonoSessionEnv> = async (c, next) => {
+  c.header('Cache-Control', 'private, no-store')
+  await next()
+}
+
+/**
+ * The device-token gate: a bearer session only. Cookie sessions are refused
+ * here on purpose — a browser is never a device, so the surfaces that record
+ * what a device holds must not accept one.
+ */
+export const requireBearerSession = (): MiddlewareHandler<HonoSessionEnv> =>
+  async (c, next) => {
+    const authorization = c.req.header('Authorization') ?? ''
+    if (!/^Bearer[ \t]+\S+$/i.test(authorization)) return c.json({ error: 'Authentication required' }, 401)
+    const headers = new Headers(c.req.raw.headers)
+    headers.delete('Cookie')
+    const session = await resolveManoramaSession(
+      new Request(c.req.raw.url, { method: c.req.raw.method, headers }),
+      accessEnvOf(c),
+    )
+    if (!session) return c.json({ error: 'Authentication required' }, 401)
+    c.set('manoramaSession', session)
+    await next()
+  }
+
 /** Master controls bind to an immutable provider subject, never to an editable
  * slug, display name, or password. The legacy account-ID binding remains only
  * so existing deployments do not lose access during the one-time migration.
