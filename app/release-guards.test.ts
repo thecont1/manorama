@@ -93,6 +93,9 @@ describe('release workflow credential gates', () => {
     expect(androidWorkflow).toContain('scripts/require-env.sh')
     expect(androidWorkflow).toContain('ANDROID_KEYSTORE_BASE64')
     expect(androidWorkflow).toContain('CLOUDFLARE_ACCOUNT_ID')
+    // The helper is fetched from the workflow's own commit — a manual
+    // dispatch against an old tag must not depend on the tag carrying it.
+    expect(androidWorkflow).toContain('github.workflow_sha')
     // No ready output, no step gate, no warning-based skip path survives.
     expect(androidWorkflow).not.toContain('outputs.ready')
     expect(androidWorkflow).not.toContain('steps.keys')
@@ -102,6 +105,9 @@ describe('release workflow credential gates', () => {
 
   test('desktop-release.yml notarizes unconditionally and validates the staple', () => {
     expect(desktopWorkflow).toContain('scripts/require-env.sh')
+    // Same old-tag hazard as Android: the helper resolves from the
+    // workflow's commit, not the checked-out tag.
+    expect(desktopWorkflow).toContain('github.workflow_sha')
     expect(desktopWorkflow).toContain('xcrun stapler validate')
     // The notarytool submit must not sit inside an `if [ -n … ]` credential
     // guard — walk back from the submit line to its `run: |` block.

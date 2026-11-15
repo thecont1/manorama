@@ -96,7 +96,16 @@ jobs:
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           ADMOB_ANDROID_APP_ID: ${{ vars.ADMOB_ANDROID_APP_ID }}
         run: |
-          scripts/require-env.sh ANDROID_KEYSTORE_BASE64 ANDROID_KEYSTORE_PASSWORD ANDROID_KEY_ALIAS ANDROID_KEY_PASSWORD CLOUDFLARE_API_TOKEN CLOUDFLARE_ACCOUNT_ID
+          # The checked-out ref may be an old tag that predates the helper —
+          # a manual dispatch builds inputs.tag while this workflow file
+          # comes from the dispatch ref. Resolve the script from the commit
+          # that carries this workflow instead.
+          curl -fsSL \
+            -H "Authorization: Bearer ${{ secrets.GITHUB_TOKEN }}" \
+            -H "Accept: application/vnd.github.raw" \
+            "https://api.github.com/repos/${{ github.repository }}/contents/scripts/require-env.sh?ref=${{ github.workflow_sha }}" \
+            -o "$RUNNER_TEMP/require-env.sh"
+          bash "$RUNNER_TEMP/require-env.sh" ANDROID_KEYSTORE_BASE64 ANDROID_KEYSTORE_PASSWORD ANDROID_KEY_ALIAS ANDROID_KEY_PASSWORD CLOUDFLARE_API_TOKEN CLOUDFLARE_ACCOUNT_ID
           # The AdMob app id is a repo variable, not a secret — optional:
           # absent builds keep Google's test id and never serve real ads.
           if [ -n "${ADMOB_ANDROID_APP_ID:-}" ]; then

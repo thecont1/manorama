@@ -117,7 +117,17 @@ jobs:
           APPLE_ID: ${{ secrets.APPLE_ID }}
           APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD || secrets.APPLE_APP_SPECIFIC_PASSWORD }}
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
-        run: scripts/require-env.sh APPLE_CERTIFICATE APPLE_CERTIFICATE_PASSWORD APPLE_ID APPLE_PASSWORD APPLE_TEAM_ID
+        run: |
+          # The checked-out ref may be an old tag that predates the helper —
+          # a manual dispatch builds inputs.tag while this workflow file
+          # comes from the dispatch ref. Resolve the script from the commit
+          # that carries this workflow instead.
+          curl -fsSL \
+            -H "Authorization: Bearer ${{ secrets.GITHUB_TOKEN }}" \
+            -H "Accept: application/vnd.github.raw" \
+            "https://api.github.com/repos/${{ github.repository }}/contents/scripts/require-env.sh?ref=${{ github.workflow_sha }}" \
+            -o "$RUNNER_TEMP/require-env.sh"
+          bash "$RUNNER_TEMP/require-env.sh" APPLE_CERTIFICATE APPLE_CERTIFICATE_PASSWORD APPLE_ID APPLE_PASSWORD APPLE_TEAM_ID
 
       # The macOS leg codesigns through scripts/build-macos.sh, so it fails at
       # codesign until the APPLE_* secrets exist — no unsigned fallback on
