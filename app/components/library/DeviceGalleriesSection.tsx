@@ -1,27 +1,49 @@
+import type { Child } from 'hono/jsx'
 import type { DeviceGallery } from '../../../packages/core/device-gallery'
-import SourceMark from '../home/SourceMark'
+import { findDevice, type Device } from '../../../packages/core/devices'
+import { DevicePill } from './DevicePill'
 import { SectionChevron } from './SectionChevron'
 
-/** The web form of a synced device gallery — a compact index tile: the
- *  local mark, the title, the count and the device the folder lives on.
- *  Still no thumbnail and no link: the synced row carries no paths, so
- *  there is nothing honest to render a cover from or open in a browser. */
-export const deviceTileCard = (gallery: DeviceGallery) => (
-  <li key={gallery.id} class="lib-device-card" data-gallery-card={`device:${gallery.id}`}>
-    <span class="lib-device-mark"><SourceMark id="local" /></span>
-    <div class="lib-device-text">
-      <p class="lib-device-title" title={gallery.title}>{gallery.title}</p>
-      <p class="lib-device-sub">{gallery.itemCount} {gallery.itemCount === 1 ? 'photograph' : 'photographs'}</p>
-      <p class="lib-device-sub" title={gallery.deviceLabel}>{gallery.deviceLabel}</p>
-    </div>
-  </li>
-)
+/** A synced device gallery as a super-compact tile: the title, the count and
+ *  the pill of the device the folder lives on. No cover and no link — the
+ *  synced row carries no paths and no bytes, so there is nothing honest to
+ *  render an image from. A row whose device is no longer on the account
+ *  wears the neutral "Another device" pill rather than a stale name. */
+export const deviceTileCard = (gallery: DeviceGallery, devices: readonly Device[], options: { action?: Child; onOpen?: () => void } = {}) => {
+  const device = findDevice(devices, gallery.deviceId)
+  return (
+    <li key={gallery.id} class="lib-device-card" data-gallery-card={`device:${gallery.id}`}>
+      {options.onOpen ? (
+        <button type="button" class="lib-device-title lib-device-open" title={gallery.title} onClick={options.onOpen}>{gallery.title}</button>
+      ) : (
+        <p class="lib-device-title" title={gallery.title}>{gallery.title}</p>
+      )}
+      <p class="lib-device-meta">
+        <span>{gallery.itemCount} {gallery.itemCount === 1 ? 'photograph' : 'photographs'}</span>
+        <DevicePill device={device} devices={devices} />
+      </p>
+      {options.action ?? null}
+    </li>
+  )
+}
 
 /** The compact tile grid — the hidden-galleries fold reuses it so a
  *  concealed device row stays recoverable anywhere the account's hides
- *  are listed. */
-export const DeviceGalleriesGrid = ({ galleries }: { galleries: readonly DeviceGallery[] }) => (
-  <ul class="lib-device-grid">{galleries.map(deviceTileCard)}</ul>
+ *  are listed. `action` is the surface's own per-row control (the desktop
+ *  card menu); the web and the phone pass nothing. */
+export const DeviceGalleriesGrid = ({ galleries, devices, action, onOpen }: {
+  galleries: readonly DeviceGallery[]
+  devices: readonly Device[]
+  action?: (gallery: DeviceGallery) => Child
+  /** Only a published row opens elsewhere; a naked mirror has nowhere to go. */
+  onOpen?: (gallery: DeviceGallery) => void
+}) => (
+  <ul class="lib-device-grid">
+    {galleries.map((gallery) => deviceTileCard(gallery, devices, {
+      action: action?.(gallery),
+      onOpen: onOpen && gallery.publicGallerySlug ? () => onOpen(gallery) : undefined,
+    }))}
+  </ul>
 )
 
 /** The compact thumbnail-less Local section the web Library gets. The feed
@@ -30,8 +52,9 @@ export const DeviceGalleriesGrid = ({ galleries }: { galleries: readonly DeviceG
  *  `open`/`onToggle` make the section collapsible like the Cloud and Hidden
  *  sections around it — the host owns the state because this component is
  *  also rendered bare by the render tests, outside any hook context. */
-export const DeviceGalleriesSection = ({ galleries, open = true, onToggle }: {
+export const DeviceGalleriesSection = ({ galleries, devices = [], open = true, onToggle }: {
   galleries: readonly DeviceGallery[]
+  devices?: readonly Device[]
   open?: boolean
   onToggle?: () => void
 }) =>
@@ -50,7 +73,7 @@ export const DeviceGalleriesSection = ({ galleries, open = true, onToggle }: {
       {open ? (
         <>
           <p class="lib-section-sub">Folders on your devices — the originals stay there; open them in the app.</p>
-          <DeviceGalleriesGrid galleries={galleries} />
+          <DeviceGalleriesGrid galleries={galleries} devices={devices} />
         </>
       ) : null}
     </section>

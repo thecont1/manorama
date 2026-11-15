@@ -2276,9 +2276,9 @@ button.lib-card-title {
 .lib-compact-card > .lib-remove-confirm { padding-bottom: 6px; }
 
 /* Local galleries — synced device rows carry no paths, so each tile is a
-   compact mark-and-metadata index rather than a cover card. The auto-fill
-   track's 150px floor is ~2/3 of a cover card's 240px, so six tiles land
-   across wherever the thumbnail feed fits four. */
+   super-compact index entry: title, count and the device's pill. The
+   auto-fill track's 150px floor is ~2/3 of a cover card's 240px, so six
+   tiles land across wherever the thumbnail feed fits four. */
 .lib-device-grid {
   list-style: none;
   margin: 0;
@@ -2288,23 +2288,8 @@ button.lib-card-title {
   column-gap: 14px;
   row-gap: 18px;
 }
-.lib-device-card { display: flex; align-items: flex-start; gap: 10px; min-width: 0; }
-/* The local folder mark at a smaller scale than the home source row —
-   the tile is an index entry, not a provider card. */
-.lib-device-mark {
-  flex: none;
-  display: grid;
-  place-items: center;
-  width: 32px;
-  height: 32px;
-  border-radius: 8px;
-  background: rgba(var(--ink), .08);
-  color: rgba(var(--ink), .55);
-}
-.lib-device-mark svg { display: block; width: 15px; height: 15px; }
-.lib-device-text { flex: 1; min-width: 0; }
-/* Titles clamp to two lines; the count and device lines are single-line
-   ellipsized — a long folder name or machine label never reflows the row. */
+/* Titles clamp to two lines; the count line is single-line ellipsized — a
+   long folder name never reflows the tile. */
 .lib-device-title {
   margin: 0;
   color: var(--m-ink);
@@ -2319,6 +2304,154 @@ button.lib-card-title {
   overflow-wrap: anywhere;
 }
 .lib-device-sub { margin: 2px 0 0; color: var(--m-secondary); font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* A published tile's title is the way in; an unpublished one is plain text. */
+.lib-device-open {
+  padding: 0;
+  border: 0;
+  background: none;
+  text-align: left;
+  cursor: pointer;
+}
+.lib-device-open:focus-visible { outline: 2px solid var(--m-focus, #ff2d95); outline-offset: 2px; border-radius: 4px; }
+
+/* ───────── Device pills ─────────
+   One pill colour per live device, and no two devices on an account share
+   one — "Mac 1" and "Mac 2" must be told apart at a glance. The text inside
+   always names the device, so colour is a cue and never the only one. Pink
+   is deliberately absent: #ff2d95 means "the active photograph". */
+:root {
+  --device-0: #8ecbff;  --device-0-bg: #10293c;
+  --device-1: #7fdcc9;  --device-1-bg: #0f2f2a;
+  --device-2: #a6dd8a;  --device-2-bg: #1f3016;
+  --device-3: #d6de7a;  --device-3-bg: #2c2f10;
+  --device-4: #f2c46b;  --device-4-bg: #33260c;
+  --device-5: #f5a97c;  --device-5-bg: #351d0e;
+  --device-6: #f28f8f;  --device-6-bg: #351414;
+  --device-7: #d9a3e0;  --device-7-bg: #2c1433;
+  --device-8: #b3a8f5;  --device-8-bg: #221c40;
+  --device-9: #9db4f0;  --device-9-bg: #16203f;
+  --device-10: #8fb8c9; --device-10-bg: #16262d;
+  --device-11: #d3c6b0; --device-11-bg: #2a251d;
+}
+html.light {
+  --device-0: #0f4c81;  --device-0-bg: #dbeafe;
+  --device-1: #0b5d52;  --device-1-bg: #d5f3ee;
+  --device-2: #2f6b18;  --device-2-bg: #e3f4d6;
+  --device-3: #5c6512;  --device-3-bg: #f0f3cf;
+  --device-4: #7a4e06;  --device-4-bg: #fbeed2;
+  --device-5: #8a3f12;  --device-5-bg: #fce3d5;
+  --device-6: #8d2020;  --device-6-bg: #fadada;
+  --device-7: #6f2a80;  --device-7-bg: #f0dff5;
+  --device-8: #4b3f9e;  --device-8-bg: #e4e0fb;
+  --device-9: #2b3f8f;  --device-9-bg: #dde5fa;
+  --device-10: #2a5566; --device-10-bg: #d9eaf1;
+  --device-11: #5e5240; --device-11-bg: #efe8dc;
+}
+.device-pill {
+  --pill-ink: var(--device-0);
+  --pill-fill: var(--device-0-bg);
+  display: inline-flex;
+  align-items: center;
+  flex: none;
+  max-width: 100%;
+  padding: 1px 8px;
+  border-radius: 999px;
+  background: var(--pill-fill);
+  color: var(--pill-ink);
+  font-family: "DM Mono", ui-monospace, monospace;
+  font-size: 10.5px;
+  font-weight: 500;
+  letter-spacing: .06em;
+  line-height: 1.7;
+  text-transform: uppercase;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.device-pill[data-colour="0"] { --pill-ink: var(--device-0); --pill-fill: var(--device-0-bg); }
+.device-pill[data-colour="1"] { --pill-ink: var(--device-1); --pill-fill: var(--device-1-bg); }
+.device-pill[data-colour="2"] { --pill-ink: var(--device-2); --pill-fill: var(--device-2-bg); }
+.device-pill[data-colour="3"] { --pill-ink: var(--device-3); --pill-fill: var(--device-3-bg); }
+.device-pill[data-colour="4"] { --pill-ink: var(--device-4); --pill-fill: var(--device-4-bg); }
+.device-pill[data-colour="5"] { --pill-ink: var(--device-5); --pill-fill: var(--device-5-bg); }
+.device-pill[data-colour="6"] { --pill-ink: var(--device-6); --pill-fill: var(--device-6-bg); }
+.device-pill[data-colour="7"] { --pill-ink: var(--device-7); --pill-fill: var(--device-7-bg); }
+.device-pill[data-colour="8"] { --pill-ink: var(--device-8); --pill-fill: var(--device-8-bg); }
+.device-pill[data-colour="9"] { --pill-ink: var(--device-9); --pill-fill: var(--device-9-bg); }
+.device-pill[data-colour="10"] { --pill-ink: var(--device-10); --pill-fill: var(--device-10-bg); }
+.device-pill[data-colour="11"] { --pill-ink: var(--device-11); --pill-fill: var(--device-11-bg); }
+.device-pill[data-colour="none"] {
+  --pill-ink: rgba(var(--ink), .68);
+  --pill-fill: rgba(var(--ink), .1);
+}
+
+/* The super-compact tile: a gallery that lives on another device. Title,
+   count, pill — no cover, because the synced row carries no paths and no
+   bytes ever leave the source device. */
+.lib-device-card {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+  padding: 10px 12px;
+  border-radius: 12px;
+  background: rgba(var(--ink), .04);
+}
+.lib-device-meta {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin: 0;
+  min-width: 0;
+  color: var(--m-secondary);
+  font-size: 12px;
+}
+.lib-device-meta > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* A tile's own ··· sits at its top-right, out of the count-and-pill row. */
+.lib-device-card { position: relative; }
+.lib-device-menu { position: absolute; top: 4px; right: 4px; }
+
+/* The legend under the vault meter: one row per device, the pill as the
+   term and where it was last seen as the description. */
+.lib-devices-legend { margin: 0 0 18px; }
+.lib-devices-legend-label {
+  margin: 0 0 6px;
+  font-family: "DM Mono", ui-monospace, monospace;
+  font-size: 11px;
+  letter-spacing: .08em;
+  text-transform: uppercase;
+  color: rgba(var(--ink), .62);
+}
+.lib-devices-legend-list { display: grid; gap: 6px; margin: 0; }
+.lib-devices-legend-row { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.lib-devices-legend-row dt { flex: none; margin: 0; }
+.lib-devices-legend-row dd {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin: 0;
+  color: rgba(var(--ink), .62);
+  font-size: 12px;
+}
+.lib-devices-legend-note { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.lib-devices-legend-forget {
+  flex: none;
+  padding: 2px 0;
+  border: 0;
+  background: none;
+  color: rgba(var(--ink), .55);
+  font-family: "DM Mono", ui-monospace, monospace;
+  font-size: 10.5px;
+  letter-spacing: .06em;
+  text-transform: uppercase;
+  cursor: pointer;
+}
+.lib-devices-legend-forget:hover { color: var(--m-negative, #f28f8f); }
+.lib-devices-legend-forget:focus-visible { outline: 2px solid var(--m-focus, #ff2d95); outline-offset: 2px; border-radius: 4px; }
 
 /* A pinned card carries the pin beside its title — presentation only,
    the pin itself lives in the ··· menu. */

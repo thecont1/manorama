@@ -3,6 +3,7 @@ import { applyTheme, readStoredTheme, storeTheme, type Theme } from '../lib/owne
 import type { GallerySummary } from '../lib/gallery-repository'
 import type { AccountTier } from '../../packages/core/account'
 import type { DeviceGallery } from '../../packages/core/device-gallery'
+import type { Device } from '../../packages/core/devices'
 import { friendlySourceError } from '../lib/source-errors'
 import { FREE_RETAINED_LIMIT, PAID_RETAINED_LIMIT, isGalleryExpired, expiryCountdownText } from '../lib/gallery-policy'
 import type { AuthProvider } from '../lib/identity-repository'
@@ -12,6 +13,7 @@ import { AddGallerySheet } from '../components/AddGallerySheet'
 import { useMasonry } from '../components/library/useMasonry'
 import { CompactCoverImg } from '../components/library/CompactCoverImg'
 import { DeviceGalleriesGrid, DeviceGalleriesSection } from '../components/library/DeviceGalleriesSection'
+import { DeviceLegend } from '../components/library/DeviceLegend'
 import { SectionChevron } from '../components/library/SectionChevron'
 import { GalleryShareSheet } from '../components/GalleryShareSheet'
 import { HeicImg } from '../components/ui/HeicImg'
@@ -279,13 +281,23 @@ export default function Admin({ galleries: initialGalleries, owner, ownerName, p
   // mirror, deliberately carrying no paths. The web lists them compact and
   // thumbnail-less; writes stay bound to the devices that own the folders.
   const [deviceGalleries, setDeviceGalleries] = useState<DeviceGallery[]>([])
+  // The account's device list. The web reads it so the owner can always see
+  // which device a pill means — and never writes it: a browser is not a
+  // device, so a web sign-in records nothing.
+  const [devices, setDevices] = useState<Device[]>([])
   useEffect(() => {
     let active = true
     void (async () => {
       try {
-        const response = await fetch('/api/device-galleries')
-        const payload = await response.json() as { galleries?: DeviceGallery[] }
-        if (active && response.ok && payload.galleries) setDeviceGalleries(payload.galleries)
+        const [galleriesResponse, devicesResponse] = await Promise.all([
+          fetch('/api/device-galleries'),
+          fetch('/api/devices'),
+        ])
+        const payload = await galleriesResponse.json() as { galleries?: DeviceGallery[] }
+        const devicePayload = await devicesResponse.json() as { devices?: Device[] }
+        if (!active) return
+        if (galleriesResponse.ok && payload.galleries) setDeviceGalleries(payload.galleries)
+        if (devicesResponse.ok && devicePayload.devices) setDevices(devicePayload.devices)
       } catch {
         // A failed read leaves the section hidden.
       }
@@ -987,6 +999,7 @@ export default function Admin({ galleries: initialGalleries, owner, ownerName, p
         ) : (
           <>You are a manorama <strong>Free User</strong> hosting<br /><strong>{retainedCount}</strong> of {FREE_RETAINED_LIMIT} permanent galleries{temporaryCount ? <> and <strong>{temporaryCount}</strong> temporary {temporaryCount === 1 ? 'gallery' : 'galleries'}</> : null}. <a class="admin-upgrade-link" href={upgradeHref}>Upgrade to Visionary?</a></>
         )}</p>
+        <DeviceLegend devices={devices} />
         {adsShow && accountAd ? (
           /* The sponsored panel sits between the Library heading and the
              cards — the same portrait-shaped house slot as native. */
@@ -1113,7 +1126,7 @@ export default function Admin({ galleries: initialGalleries, owner, ownerName, p
         {/* The synced device feed in compact form — titles, counts and the
             device each folder lives on, no covers: the rows carry no paths
             and the web keeps them that way. */}
-        <DeviceGalleriesSection galleries={visibleDeviceRows} open={localOpen} onToggle={() => setLocalOpen((open) => !open)} />
+        <DeviceGalleriesSection galleries={visibleDeviceRows} devices={devices} open={localOpen} onToggle={() => setLocalOpen((open) => !open)} />
         {/* Concealed galleries stay reachable — the flag is account-wide,
             so a gallery hidden on a device can be restored from the
             browser too. Collapsed by default: hidden means out of sight,
@@ -1133,7 +1146,7 @@ export default function Admin({ galleries: initialGalleries, owner, ownerName, p
             {hiddenOpen ? (
               <>
                 <ul class="lib-compact-grid" ref={hiddenGridRef}>{hiddenGalleries.map(compactCard)}</ul>
-                {hiddenDeviceRows.length ? <DeviceGalleriesGrid galleries={hiddenDeviceRows} /> : null}
+                {hiddenDeviceRows.length ? <DeviceGalleriesGrid galleries={hiddenDeviceRows} devices={devices} /> : null}
               </>
             ) : null}
           </section>
