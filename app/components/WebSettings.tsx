@@ -170,7 +170,7 @@ export function WebSettings(props: Props) {
         <ActionGroup label="About">
           {props.appUpdate ? <ActionRow label="App update" value={`v${props.appUpdate.version} available`} href={props.appUpdate.url} /> : null}
           <ActionRow label="Privacy Policy" href="/privacy" />
-          <p class="m-note m-panel-note">© 2026 Mahesh Shantaram / thecontrarian.in</p>
+          <p class="m-note m-panel-note">© 2026 Mahesh Shantaram / <a href="https://thecontrarian.in" target="_blank" rel="noopener">thecontrarian.in</a></p>
         </ActionGroup>
 
         <ActionGroup label="Sign out and delete">

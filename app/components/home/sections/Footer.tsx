@@ -22,7 +22,7 @@ export default function Footer() {
               <img class="home-logo-dark" src="/manorama-merged-logo.png" alt="manorama" width={2027} height={688} />
               <img class="home-logo-light" src="/manorama-merged-logo-light.png" alt="" aria-hidden="true" width={2027} height={688} />
             </span>
-            <span>© 2026 Mahesh Shantaram.</span>
+            <span>© 2026 Mahesh Shantaram / <a href="https://thecontrarian.in" target="_blank" rel="noopener">thecontrarian.in</a></span>
           </span>
           <span class="home-footer-ownership">Photographs in galleries belong to their respective owners.</span>
         </p>

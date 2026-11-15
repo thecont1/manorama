@@ -238,7 +238,8 @@ describe('the pricing section', () => {
 describe('the footer', () => {
   test('carries the logo-led copyright, ownership notice and document links', () => {
     const html = page()
-    expect(html).toContain('© 2026 Mahesh Shantaram.')
+    expect(html).toContain('© 2026 Mahesh Shantaram / <a href="https://thecontrarian.in"')
+    expect(html).toContain('>thecontrarian.in</a>')
     expect(html).toContain('home-footer-ownership">Photographs in galleries belong to their respective owners.</span>')
     expect(html).toContain('home-footer-brand')
     expect(html).toContain('alt="manorama"')
@@ -255,7 +256,6 @@ describe('the footer', () => {
     const html = page()
     const footer = html.slice(html.indexOf('<footer'))
     expect(footer).not.toContain('Created by documentary photographer')
-    expect(footer).not.toContain('thecontrarian.in')
     expect(footer).not.toContain('All platform rights reserved')
   })
 })

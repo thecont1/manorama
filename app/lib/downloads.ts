@@ -315,7 +315,7 @@ ${THEME_TOGGLE}
 
 const footerHtml = () => `<footer class="home-footer"><div class="home-wrap home-footer-inner">
 <nav class="home-footer-links" aria-label="Footer"><a href="${SITE}/privacy">Privacy Policy</a></nav>
-<p class="home-footer-copy"><span class="home-footer-copy-line"><span class="home-footer-brand"><img class="home-logo-dark" src="${SITE}/manorama-merged-logo.png" alt="manorama" width="2027" height="688"><img class="home-logo-light" src="${SITE}/manorama-merged-logo-light.png" alt="" aria-hidden="true" width="2027" height="688"></span><span>© 2026 Mahesh Shantaram.</span></span><span class="home-footer-ownership">Photographs in galleries belong to their respective owners.</span></p>
+<p class="home-footer-copy"><span class="home-footer-copy-line"><span class="home-footer-brand"><img class="home-logo-dark" src="${SITE}/manorama-merged-logo.png" alt="manorama" width="2027" height="688"><img class="home-logo-light" src="${SITE}/manorama-merged-logo-light.png" alt="" aria-hidden="true" width="2027" height="688"></span><span>© 2026 Mahesh Shantaram / <a href="https://thecontrarian.in" target="_blank" rel="noopener">thecontrarian.in</a></span></span><span class="home-footer-ownership">Photographs in galleries belong to their respective owners.</span></p>
 </div></footer>`
 
 const page = (title: string, body: string): Response =>

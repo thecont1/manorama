@@ -1025,7 +1025,7 @@ export default function Admin({ galleries: initialGalleries, owner, ownerName, p
             </div>
           </aside>
         ) : null}
-        <p class="admin-copyright">© 2026 Mahesh Shantaram.<br />Photographs in galleries belong to their respective owners.</p>
+        <p class="admin-copyright">© 2026 Mahesh Shantaram / <a href="https://thecontrarian.in" target="_blank" rel="noopener">thecontrarian.in</a><br />Photographs in galleries belong to their respective owners.</p>
       </aside>
       <section class="gallery-list" aria-labelledby="galleries-heading">
         {stripGalleries.length ? <section aria-labelledby="lib-strips-title">

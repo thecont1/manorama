@@ -40,7 +40,7 @@ export default function Welcome({ signedIn, onSignIn, authError, pendingQuickAdd
       {pendingQuickAdd ? <p class="native-welcome-note">Sign in to turn this supported cloud folder into a Manorama gallery.</p> : null}
       <footer class="site-footer">
         <button type="button" class="site-footer-link" onClick={onPrivacy}>Privacy Policy</button>
-        <p class="site-footer-copy">© 2026 Mahesh Shantaram · <button type="button" onClick={onAuthor}>thecontrarian.in</button></p>
+        <p class="site-footer-copy">© 2026 Mahesh Shantaram / <button type="button" onClick={onAuthor}>thecontrarian.in</button></p>
       </footer>
     </main>
   )
