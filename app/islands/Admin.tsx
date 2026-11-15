@@ -466,7 +466,11 @@ export default function Admin({ galleries: initialGalleries, owner, ownerName, p
       document.documentElement.dataset.detailsConsumed = slug
       setGalSettingsSlug(slug)
     } else if (params.get('settings') === '1') {
-      setSettingsOpen(true)
+      // Settings is session chrome, not a destination — a reload lands on
+      // the Library. Rewriting the entry drops the param so a stale Forward
+      // can't reopen the pane either; popstate still owns Back/Forward.
+      params.delete('settings')
+      rewriteGalleryHistory(window, 'replace', null, `${window.location.pathname}${params.size ? `?${params}` : ''}`)
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
