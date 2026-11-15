@@ -20,17 +20,21 @@ export default function Header({
   next,
   failed,
   signInOrigin,
+  navBase = '',
 }: {
   returning?: boolean
   next?: string
   failed?: boolean
   /** Origin of the dedicated sign-in host; unset keeps relative links. */
   signInOrigin?: string
+  /** Prefix for the section anchors — '/' on the standalone document
+   *  pages, whose Features/Pricing/FAQ sections live on the homepage. */
+  navBase?: string
 }) {
   const sections = [
-    { href: '#unify', label: 'Features' },
-    { href: '#pricing', label: 'Pricing' },
-    { href: '#faq', label: 'FAQ' },
+    { href: `${navBase}#unify`, label: 'Features' },
+    { href: `${navBase}#pricing`, label: 'Pricing' },
+    { href: `${navBase}#faq`, label: 'FAQ' },
   ]
 
   return (

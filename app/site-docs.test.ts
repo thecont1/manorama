@@ -4,6 +4,7 @@ import type { Context, Handler, Next } from 'hono'
 import { contextStorage } from 'honox/server/context-storage'
 import renderer from './routes/_renderer'
 import aboutRoute from './routes/about'
+import privacyRoute from './routes/privacy'
 import techSpecsRoute from './routes/techspecs'
 import termsRoute from './routes/terms'
 
@@ -39,10 +40,27 @@ const get = async (path: string, route: unknown) => {
   return response.text()
 }
 
+/** The site chrome shared by all four document pages: the same header and
+ *  footer the homepage carries, with section anchors pointing back at the
+ *  homepage where those sections live. */
+const expectSiteChrome = (html: string) => {
+  expect(html).toContain('class="home-header"')
+  expect(html).toContain('href="/#unify"')
+  expect(html).toContain('href="/#pricing"')
+  expect(html).toContain('href="/#faq"')
+  expect(html).toContain('id="content"')
+  // The sign-in popover and its trigger ride inside the header.
+  expect(html).toContain('id="home-account-panel"')
+  expect(html).toContain('home-footer-links')
+  // The marketing stylesheet is loaded for the document pages too.
+  expect(html).toContain('home.css')
+}
+
 describe('/about renders README.md', () => {
   test('the page carries the document, rendered as HTML', async () => {
     const html = await get('/about', aboutRoute)
     expect(html).toContain('<title>About — manorama</title>')
+    expectSiteChrome(html)
     expect(html).toContain('<h1>manorama</h1>')
     expect(html).toContain('photography-first')
     // Markdown constructs became elements, not literal markers.
@@ -57,6 +75,7 @@ describe('/techspecs renders TECH-SPEC.md', () => {
   test('the page carries the engineering reference', async () => {
     const html = await get('/techspecs', techSpecsRoute)
     expect(html).toContain('<title>Tech Specs — manorama</title>')
+    expectSiteChrome(html)
     expect(html).toContain('technical specification')
     expect(html).toContain('<h2>')
     expect(html).toContain('<table>')
@@ -73,10 +92,20 @@ describe('/techspecs renders TECH-SPEC.md', () => {
   })
 })
 
+describe('/privacy shares the same site chrome', () => {
+  test('the policy document rides inside the header and footer', async () => {
+    const html = await get('/privacy', privacyRoute)
+    expect(html).toContain('<title>Privacy Policy — manorama</title>')
+    expect(html).toContain('<article class="policy-document">')
+    expectSiteChrome(html)
+  })
+})
+
 describe('/terms renders the terms document', () => {
   test('the page carries the terms a payment review looks for', async () => {
     const html = await get('/terms', termsRoute)
     expect(html).toContain('<title>Terms — manorama</title>')
+    expectSiteChrome(html)
     expect(html).toContain('<h1>Terms of Service</h1>')
     for (const marker of ['Subscriptions, billing and refunds', 'Visionary', 'Stripe', 'Refunds', 'Limitation of liability']) {
       expect(html).toContain(marker)
