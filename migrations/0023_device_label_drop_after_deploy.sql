@@ -1,0 +1,13 @@
+-- Records the deploy ordering that 0022 broke; it does not drop anything.
+--
+-- 0022 drops `device_galleries.device_label`. Applying it before the Worker
+-- that stops selecting the column was deployed made the live
+-- /api/device-galleries answer 503 for every signed-in client, and the column
+-- had to be put back by hand. Production has since been restored to the
+-- intended shape (the column is gone) and this migration is recorded there.
+--
+-- The body is deliberately inert: 0022 already removes the column, so a fresh
+-- database that applies every migration in order must not try to drop it a
+-- second time. Read the file name as "the drop is only safe once the Worker is
+-- live", not as an instruction to drop again.
+SELECT 1;
