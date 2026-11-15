@@ -106,11 +106,18 @@ export const PRIVACY_POLICY: PrivacyDocument = {
         {
           parts: [
             t(
-              'The desktop app can also scan a folder you choose on that computer. Its local catalogue keeps the folder path and file list on the device; the catalogue metadata may sync to Manorama and contains only a title, source type, item count, device identifier, and device label. Opening, rescanning, launching, or mounting a folder does not upload the original files. If you explicitly choose ',
+              'The desktop app can also scan a folder you choose on that computer. Its local catalogue keeps the folder path and file list on the device; the catalogue metadata may sync to Manorama and contains only a title, source type, item count, and an anonymous device identifier. Opening, rescanning, launching, or mounting a folder does not upload the original files. If you explicitly choose ',
             ),
             strong('Share'),
             t(
               ', the app uploads supported originals to your connected Dropbox or Google Drive, creates a public provider link, and sends Manorama that link plus the gallery metadata. Local paths, file lists, and image bytes are not sent to the Manorama Worker.',
+            ),
+          ],
+        },
+        {
+          parts: [
+            t(
+              'The apps keep a short device list on your account so you can see which devices your Local galleries live on. Signing in on the Mac app, iPhone, iPad or Android app registers a random identifier for that device and its general type — Mac, Windows, Linux, iPhone, iPad or Android. Your device’s name, model, serial number and hardware identifiers are never sent. Signing in on the website records no device, because the website keeps no lasting device identifier. A device you remove, or one unused for 180 days, drops off the list along with its Local gallery entries, and deleting your account removes the list.',
             ),
           ],
         },

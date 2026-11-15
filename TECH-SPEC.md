@@ -53,7 +53,7 @@ The compact grid is a masonry, not a table of boxes. `app/lib/masonry.ts` places
 
 The cover image owns its own slot. `app/components/library/CompactCoverImg.tsx` keeps the decoded natural size in state and sets `aspect-ratio` from it, falling back to the stored dimensions; `max-width` is the natural width, so a bitmap is never stretched to fill its box (invariant 13). The anchor reserves no ratio of its own, so the card hugs the image through EXIF-rotated frames and video posters alike.
 
-Local galleries are a different shape: `app/components/library/DeviceGalleriesSection.tsx` renders a `repeat(auto-fill, minmax(150px, 1fr))` tile grid with no masonry, no thumbnail and no link — a provider mark, the title, the item count, and the device label. The rows arrive from `GET /api/device-galleries`, which returns an **empty array** for a free account rather than a 403, and the web computes no ghost flag (that reconciliation is desktop-only, matched by `deviceId`).
+Local galleries are a different shape: `app/components/library/DeviceGalleriesSection.tsx` renders a `repeat(auto-fill, minmax(150px, 1fr))` grid of super-compact tiles with no masonry, no thumbnail and no cover — the title, the item count and the device's coloured pill (`DevicePill`, whose colour slot is unique per device on the account). The rows arrive from `GET /api/device-galleries`, which returns an **empty array** for a free account rather than a 403, and the web computes no ghost flag (that reconciliation is desktop-only, matched by `deviceId`). The device list itself is `GET /api/devices`; the web reads it and never writes it, because a browser is not a device.
 
 Encrypted sources that this browser cannot open render an `EncryptedCoverPlaceholder` instead of a cover: the provider mark, a label and a note. Proton refuses web transport outright and its card is a dead end — no cover link, no title link. MEGA and Ente are blocked only while the tab does not hold the gallery key; a keyed tab opens them normally.
 
@@ -360,6 +360,7 @@ The opening surface (`native/islands/GalleryList.tsx`) shows the same icon-orb s
 - `/api/account/key-vault`, `/api/galleries/:slug/key` — key escrow (see Security posture)
 - `/api/auth/native/exchange`, `/api/auth/desktop/exchange` — one-time shell handoffs
 - `/api/device-galleries*` — metadata-only shell sync (strict wire parse)
+- `/api/devices*` — the account's device list: `GET` accepts a cookie or bearer session, `PUT`/`DELETE` are bearer-only, so a web sign-in records no device
 - `/api/ads/visibility` — public plate switch; `/api/ads/suppressions` — master-gated
 - `/api/admin/*` — master console (overview, master flags, account deletion), gated by `requireMasterSession` against `master_accounts`/`MASTER_DROPBOX_SUBJECT`
 - `/api/revenuecat-webhook`, `/api/stripe-webhook` — tier writes through `setUserTier`

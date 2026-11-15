@@ -106,7 +106,7 @@ describe('PrivacyPolicy renders the shared model verbatim', () => {
     expect(rendered.paragraphs).toEqual(expected.paragraphs)
     expect(rendered.headings).toEqual(expected.headings)
     expect(rendered.hrefs).toEqual(expected.hrefs)
-    expect(rendered.paragraphs.length).toBe(22)
+    expect(rendered.paragraphs.length).toBe(23)
   })
 
   test('keeps the effective date and the on-your-device anchor id from the model', () => {

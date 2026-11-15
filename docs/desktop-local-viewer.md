@@ -123,8 +123,12 @@ fails the exchange — start a fresh sign-in and re-paste.
   explicit share flow in `docs/desktop-uploads.md`; nothing uploads on
   open, rescan, or launch.
 - No watch folders or background monitoring — manual rescan only.
-- No server-side file lists — the PUT body is title, sourceKind, itemCount,
-  deviceId, deviceLabel. `packages/core/device-gallery.ts` rejects anything
-  else, and `desktop/lib/catalogue.test.ts` asserts no path material leaves.
+- No server-side file lists — the PUT body is title, sourceKind, itemCount
+  and deviceId. `packages/core/device-gallery.ts` rejects anything else, and
+  `desktop/lib/catalogue.test.ts` asserts no path material leaves.
+- No device names on the server — the machine's own name stays in the local
+  catalogue. The account's device list (`PUT /api/devices/:id`) records a
+  random id and the generic kind only, and a build that still sends
+  `deviceLabel` has it discarded.
 - No Windows work — deep-link single-instance delivery and path handling
   differ there; revisit when the second platform lands.

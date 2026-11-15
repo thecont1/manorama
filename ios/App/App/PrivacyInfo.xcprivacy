@@ -75,6 +75,23 @@
 				<string>NSPrivacyCollectedDataTypePurposeAppFunctionality</string>
 			</array>
 		</dict>
+		<!-- The account's device list: a random app-generated identifier per
+		     device, linked to the account, plus the device's general type
+		     (iPhone, iPad, Android, Mac, Windows, Linux). No name, model,
+		     serial or advertising identifier is collected, and nothing is
+		     used for tracking. Signing in on the website records no device. -->
+		<dict>
+			<key>NSPrivacyCollectedDataType</key>
+			<string>NSPrivacyCollectedDataTypeDeviceID</string>
+			<key>NSPrivacyCollectedDataTypeLinked</key>
+			<true/>
+			<key>NSPrivacyCollectedDataTypeTracking</key>
+			<false/>
+			<key>NSPrivacyCollectedDataTypePurposes</key>
+			<array>
+				<string>NSPrivacyCollectedDataTypePurposeAppFunctionality</string>
+			</array>
+		</dict>
 		<!-- Photos and videos rendered in the app, including MEGA originals
 		     decrypted on-device from a key that never reaches the server.
 		     A bounded legacy exception remains until those galleries
