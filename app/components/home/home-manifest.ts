@@ -50,9 +50,11 @@ export const LIMITS = {
 /**
  * Footer links that only exist once the owner approves them (plan D8).
  * `null` means the link is not rendered at all: never a dead link.
+ * Terms points at the site's own /terms page; Support stays empty until
+ * the owner names a channel.
  */
 export const LINKS: { terms: string | null; support: string | null } = {
-  terms: null,
+  terms: '/terms',
   support: null,
 }
 

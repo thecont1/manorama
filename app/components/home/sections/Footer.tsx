@@ -10,6 +10,8 @@ export default function Footer() {
       <div class="home-wrap home-footer-inner">
         <nav class="home-footer-links" aria-label="Footer">
           <a href="/privacy">Privacy Policy</a>
+          <a href="/about">About</a>
+          <a href="/techspecs">Tech Specs</a>
           {LINKS.terms ? <a href={LINKS.terms}>Terms</a> : null}
           {LINKS.support ? <a href={LINKS.support}>Support</a> : null}
         </nav>

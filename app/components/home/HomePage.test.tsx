@@ -236,13 +236,18 @@ describe('the pricing section', () => {
 })
 
 describe('the footer', () => {
-  test('carries the logo-led copyright, ownership notice and privacy link', () => {
+  test('carries the logo-led copyright, ownership notice and document links', () => {
     const html = page()
     expect(html).toContain('© 2026 Mahesh Shantaram.')
     expect(html).toContain('home-footer-ownership">Photographs in galleries belong to their respective owners.</span>')
     expect(html).toContain('home-footer-brand')
     expect(html).toContain('alt="manorama"')
-    expect(html).toContain('href="/privacy"')
+    // The document links sit in order on the footer's first line.
+    const linksStart = html.indexOf('home-footer-links')
+    const footerLinks = html.slice(linksStart, html.indexOf('</nav>', linksStart))
+    const order = ['/privacy', '/about', '/techspecs', '/terms'].map((href) => footerLinks.indexOf(`href="${href}"`))
+    expect(order.every((index) => index >= 0)).toBe(true)
+    expect([...order].sort((a, b) => a - b)).toEqual(order)
     expect(html.match(/home-footer[\s\S]*downloads\.manorama\.xyz/)).toBeNull()
   })
 
