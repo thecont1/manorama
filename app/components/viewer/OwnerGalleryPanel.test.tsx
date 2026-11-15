@@ -199,6 +199,79 @@ describe('the web owner panel', () => {
     }
   })
 
+  test('a stalled refresh hits the client deadline and recovers', async () => {
+    const realFetch = globals.fetch
+    const realTimeout = AbortSignal.timeout
+    const controller = new AbortController()
+    let timeoutMs = -1
+    // AbortSignal.timeout's real delay is two minutes — hand the panel a
+    // signal this test fires itself, and record the budget it was given.
+    ;(AbortSignal as unknown as { timeout: (ms: number) => AbortSignal }).timeout = (ms: number) => {
+      timeoutMs = ms
+      return controller.signal
+    }
+    globals.fetch = (async (url: unknown, init?: RequestInit) => {
+      calls.push({ url: String(url), init })
+      if (String(url).includes('/refresh')) {
+        // The stall this guards: a fetch that never resolves and never
+        // errors on its own — only the abort signal can end it.
+        return new Promise<Response>((_resolve, reject) => {
+          init?.signal?.addEventListener('abort', () => reject(new DOMException('The operation timed out.', 'TimeoutError')))
+        })
+      }
+      return new Response('{}', { status: 200 })
+    }) as unknown as typeof fetch
+    try {
+      calls = []
+      const root = mounted()
+      flushSync(() => row(root, 'Refresh gallery contents')?.click())
+      await settle()
+      expect(row(root, 'Refreshing')).toBeTruthy()
+      const refresh = calls.find((call) => call.url === '/api/galleries/mixed/refresh')
+      expect(refresh?.init?.signal).toBe(controller.signal)
+      expect(timeoutMs).toBe(120_000)
+      controller.abort()
+      await settle()
+      expect(row(root, 'Refresh gallery contents')).toBeTruthy()
+      expect(root.querySelector('[role="alert"]')?.textContent).toBe(
+        'That refresh is taking too long. The gallery may still be updating, so check your Library or try again.',
+      )
+    } finally {
+      globals.fetch = realFetch
+      ;(AbortSignal as unknown as { timeout: (ms: number) => AbortSignal }).timeout = realTimeout
+    }
+  })
+
+  test('a successful refresh with onRefreshed idles the row and runs the callback once', async () => {
+    calls = []; assigned = []
+    let refreshed = 0
+    const root = mounted({ onRefreshed: () => { refreshed += 1 } })
+    flushSync(() => row(root, 'Refresh gallery contents')?.click())
+    await settle()
+    expect(refreshed).toBe(1)
+    expect(row(root, 'Refresh gallery contents')).toBeTruthy()
+    expect(row(root, 'Refreshing')).toBeFalsy()
+    // The host owns what happens next — no same-URL navigation.
+    expect(assigned).toEqual([])
+  })
+
+  test('a successful refresh without onRefreshed falls back to idle when navigation never lands', async () => {
+    calls = []; assigned = []
+    const root = mounted()
+    flushSync(() => row(root, 'Refresh gallery contents')?.click())
+    await settle()
+    // The SSR reload is attempted at the same photograph…
+    expect(assigned).toEqual(['/thecontrarian/mixed?photo=photo-3'])
+    // …but the row stays busy only until the fallback proves the page
+    // is still alive — a shell that swallowed the navigation must not
+    // leave "Refreshing…" counting forever.
+    expect(row(root, 'Refreshing')).toBeTruthy()
+    await new Promise((resolve) => setTimeout(resolve, 5_100))
+    flushSync(() => {})
+    expect(row(root, 'Refresh gallery contents')).toBeTruthy()
+    expect(row(root, 'Refreshing')).toBeFalsy()
+  }, 15_000)
+
   test('an encrypted source without the key explains instead of fetching', async () => {
     calls = []
     // No fragment — the manifest URL is keyless, so the key must come from

@@ -679,6 +679,13 @@ export const createManoramaApi = () => {
         gallery: toSummary(sourceUrlMatch),
         galleryUrl: galleryUrlFor(session.ownerSlug, sourceUrlMatch.slug),
       }, 409)
+      // Same admission as refresh: a budget-cut scan returns a partial
+      // listing, and persisting it would drop source items the scan
+      // never reached — so the create is refused and nothing is written.
+      // `truncated` is the deliberate gallery cap and still creates with
+      // its note; submitted encrypted manifests carry `truncated` with
+      // different semantics and never reach this check.
+      if ('partial' in scan && scan.partial) return c.json({ error: 'That album could not be read completely — try again' }, 422)
       const orderedImages = payload.order?.length
         ? (() => {
             const seen = new Set<string>()

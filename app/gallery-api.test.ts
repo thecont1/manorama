@@ -1,6 +1,6 @@
 import { beforeAll, describe, expect, test } from 'bun:test'
 import { createManoramaApi } from './api'
-import { createGallery, getGallery, resetGalleryStore } from './lib/gallery-repository'
+import { createGallery, getGallery, listGalleries, resetGalleryStore } from './lib/gallery-repository'
 import type { GalleryImage } from './lib/imagesource'
 import { resetUserStore } from './lib/user-repository'
 import { seedTestUser, sessionCookieFor, TEST_OWNER, TEST_SESSION_SECRET } from './lib/test-fixtures'
@@ -554,6 +554,86 @@ describe('source ordering', () => {
       expect(response.status).toBe(422)
       const gallery = await getGallery(PARTIAL_OWNER, 'partial-source')
       expect(gallery?.images.map((image) => image.filename)).toEqual(['keep-1.jpg', 'keep-2.jpg'])
+    } finally {
+      globalThis.fetch = realFetch
+    }
+  })
+
+  test('create rejects a scan the subrequest budget cut short', async () => {
+    // Own owner — a refused create must not spend ORDER_OWNER's free
+    // allowance, or later seeds in this describe land read-only.
+    const PARTIAL_CREATE_OWNER = 'dbid:AAATESTpartialcreate'
+    await seedTestUser({ accountId: PARTIAL_CREATE_OWNER, displayName: 'Partial Create' })
+    const partialCreateCookie = await sessionCookieFor(PARTIAL_CREATE_OWNER)
+    // No media_info — every entry costs dimension probes, so 1,000 files
+    // outrun the scan's 950-request budget and come back flagged partial.
+    const names = Array.from({ length: 1000 }, (_, index) => `img${String(index).padStart(4, '0')}.jpg`)
+    const realFetch = globalThis.fetch
+    globalThis.fetch = (async (input: Parameters<typeof fetch>[0]) => {
+      const url = String(input)
+      if (url.includes('files/list_folder')) {
+        return Response.json({
+          entries: names.map((name) => ({ '.tag': 'file' as const, name, id: `id:${name}` })),
+          cursor: '',
+          has_more: false,
+        })
+      }
+      if (url.includes('get_shared_link_metadata')) return Response.json({ name: 'Partial Create Album' })
+      return new Response('not found', { status: 404 })
+    }) as typeof fetch
+    try {
+      const response = await api.request('/api/galleries', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Cookie: partialCreateCookie },
+        body: JSON.stringify({ url: 'https://www.dropbox.com/scl/fo/partial-create' }),
+      }, { ...env, DROPBOX_APP_KEY: 'key', DROPBOX_APP_SECRET: 'secret' })
+      // Persisting the partial listing would drop source items the scan
+      // never reached — the create is refused like a refresh is, and no
+      // gallery row is written.
+      expect(response.status).toBe(422)
+      const payload = await response.json() as { error?: string }
+      expect(payload.error).toBe('That album could not be read completely — try again')
+      expect(await listGalleries(PARTIAL_CREATE_OWNER)).toEqual([])
+    } finally {
+      globalThis.fetch = realFetch
+    }
+  })
+
+  test('create keeps a scan that hit the gallery cap', async () => {
+    const TRUNC_CREATE_OWNER = 'dbid:AAATESTtrunccreate'
+    await seedTestUser({ accountId: TRUNC_CREATE_OWNER, displayName: 'Trunc Create' })
+    const truncCreateCookie = await sessionCookieFor(TRUNC_CREATE_OWNER)
+    // 1,001 media files carrying media_info — no probe fetches — so the
+    // scan finishes complete and reports the deliberate cap as
+    // `truncated`, never `partial`.
+    const names = Array.from({ length: 1001 }, (_, index) => `img${String(index).padStart(4, '0')}.jpg`)
+    const realFetch = globalThis.fetch
+    globalThis.fetch = (async (input: Parameters<typeof fetch>[0]) => {
+      const url = String(input)
+      if (url.includes('files/list_folder')) {
+        return Response.json({
+          entries: names.map((name) => ({
+            '.tag': 'file' as const,
+            name,
+            id: `id:${name}`,
+            media_info: { metadata: { dimensions: { width: 4, height: 3 } } },
+          })),
+          cursor: '',
+          has_more: false,
+        })
+      }
+      if (url.includes('get_shared_link_metadata')) return Response.json({ name: 'Capped Album' })
+      return new Response('not found', { status: 404 })
+    }) as typeof fetch
+    try {
+      const response = await api.request('/api/galleries', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Cookie: truncCreateCookie },
+        body: JSON.stringify({ url: 'https://www.dropbox.com/scl/fo/trunc-create' }),
+      }, { ...env, DROPBOX_APP_KEY: 'key', DROPBOX_APP_SECRET: 'secret' })
+      expect(response.status).toBe(201)
+      const payload = await response.json() as { truncated?: { kept: number; total: number } }
+      expect(payload.truncated).toEqual({ kept: 1000, total: 1001 })
     } finally {
       globalThis.fetch = realFetch
     }

@@ -617,6 +617,17 @@ html.light .home-theme-moon {
   text-align: center;
 }
 
+/* The line under the live demo: it says what the visitor is looking at, so
+   the frame is read as something they can drive rather than a recording. */
+.home-hero-note {
+  margin: 0 auto;
+  max-width: 56ch;
+  text-align: center;
+  font-size: 15px;
+  line-height: 1.5;
+  color: var(--home-ink-soft);
+}
+
 .home-hero-tail {
   margin-top: var(--home-gap-block);
 }
@@ -1273,14 +1284,35 @@ html.light .home-demo-device--duo .home-demo-device-body {
   margin: 0;
   padding: 0;
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(140px, max-content));
-  gap: 12px 28px;
+  /* Equal tracks, not content-sized ones: the detail line under each name
+     is longer than the name, and a content-sized track would let one long
+     line widen its column until the row overflows. */
+  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+  gap: 16px 24px;
 }
 
 .home-source-item {
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   gap: 10px;
+}
+
+/* The mark stays on the name's line; the detail sits under it. */
+.home-source-item .home-source-mark {
+  margin-top: 1px;
+}
+
+.home-source-text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.home-source-detail {
+  font-size: 13px;
+  line-height: 1.35;
+  color: var(--home-ink-soft);
 }
 
 .home-source-mark {

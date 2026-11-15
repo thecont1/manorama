@@ -6,7 +6,7 @@ import {
   parseSharePage,
   scanGPhotosAlbum,
 } from './gphotos-shared'
-import { MAX_GALLERY_ITEMS, SourceFetchError } from './imagesource'
+import { MAX_GALLERY_ITEMS, SourceFetchError, isVideoItem, type VideoItem } from './imagesource'
 
 const ALBUM_ID = 'AF1QipAlbumIdTestValue0123456789abcdefghijklmnop'
 const KEY = 'k3yAbCdEf0123456789'
@@ -254,7 +254,7 @@ describe('scanGPhotosAlbum', () => {
     expect(scan.partial).toBeUndefined()
   })
 
-  test('duplicates and videos do not consume the photo enumeration bound', async () => {
+  test('duplicates do not consume the enumeration bound', async () => {
     const dupes = Array.from({ length: MAX_GALLERY_ITEMS }, () => item('AF1QipItem000000001'))
     const video = item('AF1QipItemVideo00001', 1920, 1080, [[[['https://lh3.googleusercontent.com/pw/k=m18']]]])
     const stub = stubScan(
@@ -263,7 +263,7 @@ describe('scanGPhotosAlbum', () => {
     )
     const scan = await scanGPhotosAlbum(SHARE_URL, stub.impl)
     expect(scan.images.map((image) => image.ref)).toEqual([
-      'AF1QipItem000000001', 'AF1QipItem000000002', 'AF1QipItem000000003',
+      'AF1QipItem000000001', 'AF1QipItemVideo00001', 'AF1QipItem000000002', 'AF1QipItem000000003',
     ])
     expect(stub.calls.filter((c) => c.url.includes('batchexecute'))).toHaveLength(1)
   })
@@ -276,12 +276,43 @@ describe('scanGPhotosAlbum', () => {
     expect(scan.truncated).toBe(MAX_GALLERY_ITEMS + 10)
   })
 
-  test('skips items carrying video renditions and non-lh3 media urls', async () => {
+  test('keeps video items as videos and drops non-lh3 media urls', async () => {
     const video = item('AF1QipItemVideo00001', 1920, 1080, [[[['https://lh3.googleusercontent.com/pw/otherkey=m18']]]])
     const foreign = ['AF1QipItemForeign001', ['https://cdn.example.com/img.jpg', 1000, 1000], 1000]
     const stub = stubScan(sharePage([item('AF1QipItem000000001'), video, foreign]))
     const scan = await scanGPhotosAlbum(SHARE_URL, stub.impl)
-    expect(scan.images.map((image) => image.ref)).toEqual(['AF1QipItem000000001'])
+    expect(scan.images.map((image) => image.ref)).toEqual(['AF1QipItem000000001', 'AF1QipItemVideo00001'])
+    expect(isVideoItem(scan.images[1])).toBe(true)
+  })
+
+  test('emits a VideoItem from the descriptor shape current payloads use', async () => {
+    const video = item('AF1QipItemVideo00001', 1080, 1920, [
+      { '15': 4082, '76647426': [11157, null, 1080, 1920, null, 4, 134, null, [[1, null, 1080, 1920]], 0, null, null, null, ['https://lh3.googleusercontent.com/pw/AF1QipItemVideo00001key']] },
+    ])
+    const stub = stubScan(sharePage([item('AF1QipItem000000001'), video]))
+    const scan = await scanGPhotosAlbum(SHARE_URL, stub.impl)
+    const emitted = scan.images[1]
+    expect(isVideoItem(emitted)).toBe(true)
+    const clip = emitted as VideoItem
+    expect(clip.filename).toBe('Video 2')
+    expect(clip.mimeType).toBe('video/mp4')
+    expect(clip.durationSeconds).toBe(11.157)
+    expect(clip.width).toBe(1080)
+    expect(clip.height).toBe(1920)
+    expect(clip.src).toBe('https://lh3.googleusercontent.com/pw/AF1QipItemVideo00001key=m22')
+    expect(clip.poster.src).toBe(`/api/gphotos/image?u=${encodeURIComponent('https://lh3.googleusercontent.com/pw/AF1QipItemVideo00001key')}&r=w1080`)
+    expect(clip.c2pa).toBe(false)
+    expect(clip.fidelity).toBe('display-derivative')
+  })
+
+  test('emits a VideoItem without a duration for the older URL-marker shape', async () => {
+    const video = item('AF1QipItemVideo00001', 1920, 1080, [[[['https://lh3.googleusercontent.com/pw/otherkey=m22']]]])
+    const stub = stubScan(sharePage([video]))
+    const scan = await scanGPhotosAlbum(SHARE_URL, stub.impl)
+    const emitted = scan.images[0]
+    expect(isVideoItem(emitted)).toBe(true)
+    expect((emitted as VideoItem).durationSeconds).toBeUndefined()
+    expect((emitted as VideoItem).src).toMatch(/^https:\/\/lh3\.googleusercontent\.com\/.*=m22$/)
   })
 
   test('throws the empty-album error when the album block carries no items', async () => {
@@ -294,10 +325,12 @@ describe('scanGPhotosAlbum', () => {
     await expect(scanGPhotosAlbum(SHARE_URL, stub.impl)).rejects.toThrow('could not read that Google Photos album')
   })
 
-  test('throws the videos-unsupported error when every item is a video', async () => {
+  test('an all-video album scans to a video gallery', async () => {
     const video = item('AF1QipItemVideo00001', 1920, 1080, [[[['https://lh3.googleusercontent.com/pw/k=m22']]]])
     const stub = stubScan(sharePage([video]))
-    await expect(scanGPhotosAlbum(SHARE_URL, stub.impl)).rejects.toThrow('only contains videos')
+    const scan = await scanGPhotosAlbum(SHARE_URL, stub.impl)
+    expect(scan.images).toHaveLength(1)
+    expect(isVideoItem(scan.images[0])).toBe(true)
   })
 
   test('rejects non-share links with paste guidance', async () => {

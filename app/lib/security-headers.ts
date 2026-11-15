@@ -17,7 +17,10 @@ export const pageSecurityHeaders = (opts: { dev: boolean }): Record<string, stri
     "style-src 'self' 'unsafe-inline'",
     "font-src 'self' data:",
     "img-src 'self' data: blob:",
-    "media-src 'self' blob:",
+    // Google Photos clips play from lh3 directly — the =m-rendition 302s to
+    // a googlevideo URL bound to the visitor's own IP, and the policy is
+    // checked at every hop of that chain.
+    "media-src 'self' blob: https://lh3.googleusercontent.com https://*.googlevideo.com",
     // Dev adds ws:/wss: for Vite HMR.
     // MEGA's public API/CDN permit direct ciphertext access. Only their
     // exact API hosts and rotating storage suffix join the gallery allowlist.
@@ -33,7 +36,11 @@ export const pageSecurityHeaders = (opts: { dev: boolean }): Record<string, stri
     'Content-Security-Policy': directives.join('; '),
     'X-Frame-Options': 'DENY',
     'Strict-Transport-Security': 'max-age=31536000; includeSubDomains',
-    'Referrer-Policy': 'strict-origin-when-cross-origin',
+    // same-origin, not strict-origin-when-cross-origin: a Referer on either
+    // hop of the lh3 -> googlevideo video chain makes Google 403 the signed
+    // playback URL, and Chrome's media stack ignores the element-level
+    // referrerpolicy attribute — the page policy is the lever that works.
+    'Referrer-Policy': 'same-origin',
     'X-Content-Type-Options': 'nosniff',
   }
 }

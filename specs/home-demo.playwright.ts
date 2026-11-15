@@ -414,7 +414,7 @@ test.describe('the mounted homepage photo demo', () => {
     expect(geometry.frames[1]).toMatchObject({ x: 495.5, frameWidth: 455.5, frameHeight: 669 })
     expect(parseFloat(geometry.trackTransition)).toBeLessThanOrEqual(0.000001)
     expect(geometry.trackTransform).toMatch(/^translateX\(-?[\d.]+px\)$/)
-    expect(geometry.controls.map((control) => control.text)).toEqual(['Library', '3-4 of 15', 'Settings', 'Info'])
+    expect(geometry.controls.map((control) => control.text)).toEqual(['Library', '3-4 of 15', 'Gallery Settings', 'Info'])
     for (let index = 1; index < geometry.controls.length; index += 1) {
       expect(geometry.controls[index]!.top).toBeGreaterThan(geometry.controls[index - 1]!.top)
       expect(geometry.controls[index]!.right).toBeCloseTo(geometry.controls[0]!.right, 0)

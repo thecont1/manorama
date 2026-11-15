@@ -93,6 +93,19 @@ export type OwnerGalleryPanelProps = {
 
 type EditField = 'name' | 'caption' | 'address'
 
+/** The refresh POST is bounded server-side (per-request fetch deadline +
+ *  scan cap), but the fetch itself can stall forever — a backgrounded
+ *  WebView's network stack can sit on a slow provider probe with no
+ *  response and no error. The client gets its own deadline well past the
+ *  server's budget so the row can never count forever. The device-side
+ *  key scan inside refreshRequestInit legitimately runs longer and stays
+ *  unbounded — only the fetch carries the signal. */
+const REFRESH_CLIENT_TIMEOUT_MS = 120_000
+/** A successful refresh reloads the page for its fresh SSR manifest. A
+ *  shell whose location.assign does not navigate would keep the row busy
+ *  forever, so the fallback retires it if the page is still alive. */
+const REFRESH_IDLE_FALLBACK_MS = 5_000
+
 /** The gallery's identity header — title, the source line ("16
  *  photographs · Dropbox"), and the caption in full. The Settings
  *  popover hoists it to the top as the intro; the panel renders it in
@@ -268,6 +281,10 @@ export default function OwnerGalleryPanel({
 
   const [readState, setReadState] = useState<'idle' | 'busy' | 'error'>('idle')
   const [readNote, setReadNote] = useState<string | null>(null)
+  const refreshFallbackRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  useEffect(() => () => {
+    if (refreshFallbackRef.current !== null) clearTimeout(refreshFallbackRef.current)
+  }, [])
   // A refresh can legitimately run for minutes — the device-side scan
   // for encrypted sources, then the server's own scan deadline — so the
   // row counts elapsed seconds and, past the point where a hang is
@@ -288,19 +305,32 @@ export default function OwnerGalleryPanel({
     setReadNote(null)
     void (async () => {
       try {
-        const response = await api(`/api/galleries/${encodeURIComponent(slug)}/refresh`, await refreshRequestInit({ id: galleryId, sourceUrl, keyStore }))
+        const response = await api(`/api/galleries/${encodeURIComponent(slug)}/refresh`, {
+          ...(await refreshRequestInit({ id: galleryId, sourceUrl, keyStore })),
+          signal: AbortSignal.timeout(REFRESH_CLIENT_TIMEOUT_MS),
+        })
         const payload = await response.json().catch(() => ({})) as { error?: string }
         if (!response.ok) throw new Error(payload.error || 'That folder could not be read again')
-        if (onRefreshed) { onRefreshed(); return }
+        if (onRefreshed) {
+          setReadState('idle')
+          onRefreshed()
+          return
+        }
         // The manifest is SSR state — reload into the fresh gallery at the
         // same photograph so the re-read shows what changed.
         const here = new URL(window.location.href)
         const photo = currentPhotoId()
         if (photo) here.searchParams.set('photo', photo)
         window.location.assign(`${here.pathname}${here.search}${here.hash}`)
+        refreshFallbackRef.current = setTimeout(() => setReadState('idle'), REFRESH_IDLE_FALLBACK_MS)
       } catch (error) {
+        const errorName = typeof error === 'object' && error !== null ? (error as { name?: unknown }).name : undefined
         setReadState('error')
-        setReadNote(error instanceof Error ? error.message : 'That folder could not be read again')
+        setReadNote(
+          errorName === 'TimeoutError' || errorName === 'AbortError'
+            ? 'That refresh is taking too long. The gallery may still be updating, so check your Library or try again.'
+            : error instanceof Error ? error.message : 'That folder could not be read again',
+        )
       }
     })()
   }
