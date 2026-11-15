@@ -222,13 +222,15 @@ describe('the homepage is the marketing page', () => {
     expect(dropped).not.toContain('evil.example')
   })
 
-  test('a signed-in editor is redirected to their dashboard', async () => {
+  test('a signed-in editor still gets the homepage — sign-in lives on its own host', async () => {
     const response = await page().request('/', authed(), env)
-    expect(response.status).toBe(302)
-    expect(response.headers.get('location')).toBe('/test-owner')
+    expect(response.status).toBe(200)
+    const html = await response.text()
+    expect(html).toContain('class="home"')
+    expect(html).toContain('aria-label="Continue with Dropbox"')
   })
 
-  test('a signed-in visitor who explicitly asked for the homepage still gets it', async () => {
+  test('the home parameter is accepted and ignored', async () => {
     const response = await page().request('/?home=1', authed(), env)
     expect(response.status).toBe(200)
     expect(await response.text()).toContain('manorama')

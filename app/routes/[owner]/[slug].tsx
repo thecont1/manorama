@@ -13,6 +13,7 @@ import {
 import { sourceLabelFor } from '../../lib/source-label'
 import { getUserByOwnerSlug } from '../../lib/user-repository'
 import { accessEnvOf, resolveManoramaSession } from '../../lib/session'
+import { signinOriginOf } from '../../lib/signin-host'
 import { webAdFrameForRequest } from '../../lib/ads-visibility'
 import { ogItemKey } from '../../lib/og-card'
 import { encryptedGalleryGate, isEncryptedSourceUrl, keylessSourceUrl } from '../../../packages/core/encrypted-source'
@@ -65,6 +66,13 @@ export default createRoute(async (c) => {
 
   const plate = await webAdFrameForRequest(c.req.raw, accessEnvOf(c), undefined, gallery.slug)
   const media = mediaCountOf(source.list())
+  // The visitor's Sign in pill goes through the dedicated sign-in host
+  // when the deployment configures it; the chooser carries `next` back
+  // to this gallery after OAuth.
+  const signInOrigin = signinOriginOf(c.env)
+  const signInHref = viewerRole === 'visitor' && signInOrigin
+    ? `${signInOrigin}/?next=${encodeURIComponent(`/${owner}/${slug}`)}`
+    : undefined
 
   const settings = defaultGallerySettings(gallery)
   // Per-gallery social card: the first frame with the wordmark over it.
@@ -87,6 +95,7 @@ export default createRoute(async (c) => {
     viewerRole,
     galleryOwner: owner,
     libraryHref,
+    signInHref,
     ownerGallery: viewerRole === 'owner' ? {
       title: gallery.title,
       caption: gallery.caption,

@@ -28,20 +28,38 @@ account claims.
 
 ## The sign-in flow
 
+Sign-in lives on its own host: **`signin.manorama.xyz`**. The apex
+homepage (`manorama.xyz`) is the public marketing page for everyone —
+signed in or not — and its provider chooser links out to the subdomain.
+The `signinHostGate` middleware in `app/lib/signin-host.ts` enforces the
+split on every request when `SIGNIN_HOST` is configured (it is in the
+default and `env.production` vars; dev and staging leave it unset and
+keep auth on the request host):
+
+- `signin.manorama.xyz/` serves a small chooser page — provider buttons,
+  the `?error=1` retry note, `?next=` passthrough, and a signed-in state
+  that links back to the app host.
+- `signin.manorama.xyz/auth/*` is the whole OAuth surface, unchanged.
+- Every other path on the subdomain redirects to `manorama.xyz`, and every
+  `/auth/*` request on the apex 307/302-redirects to the subdomain with
+  path and query intact — except `/auth/logout`, which stays on the apex
+  so sign-out lands on the homepage.
+
 Every provider runs the same transaction (`app/lib/oauth-flow.ts`):
 
-1. `GET /` — the landing page carries a quiet three-provider chooser
-   (Dropbox, Google, Apple) and doubles as the sign-in door: an existing
-   session skips straight to the dashboard. The `manorama_returning`
-   marker only shortens the button copy; the chooser stays the same.
+1. `GET /` on the sign-in host — the chooser carries the three providers
+   (Apple first — App Review 4.8). `manorama_returning` only shortens the
+   button copy.
 2. `GET /auth/{provider}` — creates a row in `auth_flows` (crypto-random
    `state`, nonce, optional PKCE verifier, handoff flavour, post-login
    destination) and redirects to the provider's authorize endpoint. The
-   redirect URI is derived from the request origin (register both
-   `https://manorama.xyz/auth/{provider}/callback` and the dev origin in
-   each provider console). `?link=1` upgrades to a link flow only when the
-   caller already holds a session; `native=1` and `native=desktop` (with a
-   `code_challenge`) select the client handoffs.
+   redirect URI is derived from the request origin, so on the sign-in
+   host it is `https://signin.manorama.xyz/auth/{provider}/callback` —
+   register that URI (plus the dev origin) in each provider console; the
+   apex `/auth/{provider}/callback` URIs still work because apex auth
+   requests redirect here first. `?link=1` upgrades to a link flow only
+   when the caller already holds a session; `native=1` and
+   `native=desktop` (with a `code_challenge`) select the client handoffs.
 3. `GET /auth/{provider}/callback` — consumes the `auth_flows` row
    **first** (a `DELETE … RETURNING`, so state is single-use and no
    provider call ever runs on a replayed or expired state), exchanges the
@@ -49,14 +67,16 @@ Every provider runs the same transaction (`app/lib/oauth-flow.ts`):
    - **sign-in** resolves the `(provider, subject)` identity row (creating
      an `acct_…` account and a unique owner slug on first sign-in), sets
      the session + returning cookies, and lands on the stored `next` URL
-     (same-origin only) or `/{owner_slug}`.
+     or `/{owner_slug}` — always as an absolute `manorama.xyz` URL when
+     the flow ran on the sign-in host, with `next` checked against the
+     app origin (a `next` pointing back at the subdomain is foreign).
    - **link** re-verifies the browser session against the flow's bound
      `account_id`, attaches the identity, and lands on
-     `/{owner_slug}?linked=<provider>` (`?link=conflict` when the subject
-     belongs to another account). Linking is web-only for now: the intent
-     is bound to the session that started it, so `?link=1` needs the
-     session cookie riding the top-level navigation — the dashboard's
-     "Connect" anchors rely on exactly that.
+     `manorama.xyz/{owner_slug}?linked=<provider>` (`?link=conflict` when
+     the subject belongs to another account). Linking is web-only for now:
+     the intent is bound to the session that started it, so `?link=1`
+     needs the session cookie riding the top-level navigation — the
+     dashboard's "Connect" anchors rely on exactly that.
    - Without a D1 binding the callback answers a generic no-store `503`
      rather than a misleading credential error.
 4. `POST /auth/apple/callback` — Apple's `response_mode=form_post`
@@ -64,7 +84,9 @@ Every provider runs the same transaction (`app/lib/oauth-flow.ts`):
    one-time `user` JSON (the only place a display name ever appears).
    Because all flow state is server-side, no `SameSite=None` cookie is
    needed. A bare GET on this route just errors.
-5. `POST /auth/logout` — clears the session.
+5. `POST /auth/logout` — clears the session. Served on both hosts: the
+   dashboard posts it on the apex, the chooser's sign-out form posts it
+   on the subdomain.
 
 There are no OAuth cookies anywhere: `state`, `nonce`, the Google PKCE
 verifier, the desktop `code_challenge` and `next` all live in
@@ -111,6 +133,13 @@ values); the owner slug, name, and tier are loaded from D1 on every
 request, so profile changes apply immediately. Missing secret, missing cookie, invalid/expired token, or
 a deleted account all fail closed to `null` → `401` JSON for API
 routes, a `/` redirect for the dashboard.
+
+When `SIGNIN_HOST` is configured the cookie is set with
+`Domain=<PUBLIC_HOST>` (`manorama.xyz`): the OAuth callback writes it on
+the sign-in host and it must reach the apex dashboard and APIs. Host-only
+behaviour is unchanged wherever the variable is absent. Every deletion —
+`/auth/logout` and `DELETE /api/account` — carries the same `Domain` so
+the shared cookie cannot survive a sign-out.
 
 ## Storage (D1)
 
@@ -178,6 +207,9 @@ inert until the owner registers each provider's client credentials.
 Non-secret configuration (Wrangler `[vars]` or dashboard settings):
 
 - `PUBLIC_HOST` — the public origin.
+- `SIGNIN_HOST` — the dedicated sign-in hostname (`signin.manorama.xyz`
+  in production). Setting it enables the host gate, the domain-scoped
+  session cookie, and absolute sign-in links on every surface.
 
 Secrets (Wrangler secret store only, never in TOML or committed files):
 

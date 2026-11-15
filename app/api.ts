@@ -29,6 +29,7 @@ import { mergeMigratedImages } from './lib/encrypted-migration'
 import { probeSource } from './lib/source-probe'
 import { sourceCheckDue } from './lib/source-freshness'
 import { isAppOrigin } from './lib/app-origin'
+import { sessionCookieDomain } from './lib/signin-host'
 
 type RequestBody = { url?: string; manifest?: unknown; order?: string[]; quick?: boolean; title?: string; caption?: string }
 
@@ -1138,7 +1139,10 @@ export const createManoramaApi = () => {
       return c.json({ error: 'Your account could not be deleted right now' }, 503)
     }
     // Same teardown as /auth/logout so the web session dies with the account.
-    deleteCookie(c, SESSION_COOKIE, { path: '/' })
+    // The Domain attribute must match how the cookie was set on the
+    // sign-in host, or the apex-scoped cookie survives the deletion.
+    const cookieDomain = sessionCookieDomain(envOf(c))
+    deleteCookie(c, SESSION_COOKIE, { path: '/', ...(cookieDomain ? { domain: cookieDomain } : {}) })
     return c.json({ ok: true })
   })
 

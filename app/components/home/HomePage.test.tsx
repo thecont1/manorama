@@ -340,7 +340,6 @@ describe('the copy makes no promise the product does not keep', () => {
 describe('the index route renders the homepage', () => {
   const env = { HOST_API_JWT_SECRET: TEST_SESSION_SECRET }
   let cookie: string
-  let ownerSlug: string
 
   const mountRoute = (app: Hono, path: string, route: unknown) => {
     const get = app.get.bind(app) as (p: string, ...h: Handler[]) => void
@@ -360,8 +359,7 @@ describe('the index route renders the homepage', () => {
 
   beforeAll(async () => {
     resetUserStore()
-    const user = await seedTestUser()
-    ownerSlug = user.ownerSlug
+    await seedTestUser()
     cookie = await sessionCookieFor(TEST_OWNER.accountId)
   })
 
@@ -440,11 +438,13 @@ describe('the index route renders the homepage', () => {
     expect(html).toContain('aria-label="Sign in with Apple"')
   })
 
-  test('a signed-in editor is redirected straight to their dashboard', async () => {
+  test('a signed-in editor still gets the homepage — sign-in lives on its own host', async () => {
     const app = mountIndexRoute()
     const response = await app.request('/', { headers: { Cookie: cookie } }, env)
-    expect(response.status).toBe(302)
-    expect(response.headers.get('location')).toBe(`/${ownerSlug}`)
+    expect(response.status).toBe(200)
+    const html = await response.text()
+    expect(html).toContain('class="home"')
+    expect(html).toContain(HEADLINE_HTML)
   })
 
   test('the next parameter is sanitised exactly as before', async () => {

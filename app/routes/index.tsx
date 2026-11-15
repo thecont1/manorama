@@ -1,17 +1,16 @@
 import { createRoute } from 'honox/factory'
 import { getCookie } from 'hono/cookie'
-import { accessEnvOf, resolveManoramaSession, RETURNING_COOKIE } from '../lib/session'
+import { RETURNING_COOKIE } from '../lib/session'
+import { signinOriginOf } from '../lib/signin-host'
 import HomePage from '../components/home/HomePage'
 import { HOME_DEMO_ENABLED } from '../components/home/home-manifest'
 
 export default createRoute(async (c) => {
-  // The landing page doubles as the sign-in door: editors arriving with a
-  // session go straight to their dashboard — unless the link explicitly
-  // asked for the marketing page (the downloads site's nav does), so a
-  // signed-in visitor can still read it.
-  const session = await resolveManoramaSession(c.req.raw, accessEnvOf(c))
-  if (session && !c.req.query('home')) return c.redirect(`/${session.ownerSlug}`)
-
+  // The homepage is the marketing page for everyone — a session used to
+  // bounce editors straight to their dashboard, which made it unreachable
+  // while signed in. Sign-in itself lives on signin.manorama.xyz; the
+  // chooser's provider links point there whenever the deployment
+  // configures the subdomain.
   const failed = c.req.query('error') === '1'
   // We can't know whether the Dropbox account has a manorama record until
   // OAuth completes — but a marker cookie tells us this browser has been here.
@@ -26,7 +25,7 @@ export default createRoute(async (c) => {
   // it off and leaves the static hero, with no demo code or assets loaded.
   const demo = HOME_DEMO_ENABLED && (c.env as Record<string, unknown>).MANORAMA_HOME_DEMO !== 'off'
   return c.render(
-    <HomePage returning={returning} failed={failed} next={next} demo={demo} />,
+    <HomePage returning={returning} failed={failed} next={next} demo={demo} signInOrigin={signinOriginOf(c.env)} />,
     {
       title: 'Manorama: your photographs, together in one beautiful view',
       description:

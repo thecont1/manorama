@@ -20,4 +20,14 @@ describe('the gallery expiry scheduler', () => {
     expect(wrangler).toContain('[triggers]')
     expect(wrangler).toContain('crons')
   })
+
+  test('the sign-in host gate is mounted before the routes', () => {
+    expect(appSource).toContain('signinHostGate')
+    expect(appSource.indexOf('signinHostGate')).toBeLessThan(appSource.indexOf('createManoramaApi()'))
+  })
+
+  test('wrangler routes the sign-in subdomain and declares its host var', () => {
+    expect(wrangler).toContain('signin.manorama.xyz')
+    expect(wrangler).toContain('SIGNIN_HOST')
+  })
 })

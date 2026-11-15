@@ -2,6 +2,7 @@ import { createRoute } from 'honox/factory'
 import { embeddedSourceCandidate } from '../lib/sources'
 import { localFolderCandidate } from '../lib/local-source'
 import { accessEnvOf, resolveManoramaSession, RETURNING_COOKIE } from '../lib/session'
+import { signinOriginOf } from '../lib/signin-host'
 import { SignInLinks } from '../lib/signin'
 import { getCookie } from 'hono/cookie'
 import { PUBLIC_HEADING_FONT_FAMILY } from '../components/home/typography'
@@ -146,6 +147,7 @@ export default createRoute(async (c, next) => {
                   anchorClass="quickadd-signin"
                   anchorAttrs={{ 'data-quickadd-signin': true }}
                   pending
+                  signInOrigin={signinOriginOf(c.env)}
                 />
               )}
               <p class="quickadd-copy quickadd-note" data-quickadd-status role="status" aria-live="polite"></p>

@@ -5,11 +5,14 @@ export default function SignInMenu({
   next,
   failed,
   class: cls,
+  signInOrigin,
 }: {
   returning?: boolean
   next?: string
   failed?: boolean
   class?: string
+  /** Origin of the dedicated sign-in host; unset keeps relative links. */
+  signInOrigin?: string
 }) {
   return (
     <>
@@ -30,7 +33,7 @@ export default function SignInMenu({
               .sort((a, b) => (a.id === 'apple' ? -1 : b.id === 'apple' ? 1 : 0))
               .map(({ id, name, Glyph }) => {
                 const action = `${returning ? 'Sign in' : 'Continue'} with ${name}`
-                const destination = next ? `/auth/${id}?next=${encodeURIComponent(next)}` : `/auth/${id}`
+                const destination = `${signInOrigin ?? ''}/auth/${id}${next ? `?next=${encodeURIComponent(next)}` : ''}`
                 return (
                   <li key={id}>
                     <a href={destination} aria-label={action}>

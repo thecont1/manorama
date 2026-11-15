@@ -868,3 +868,105 @@ describe('the first-time-account interstitial', () => {
     expect(users.find((u) => u.accountId === dropboxAccount!.accountId)?.primaryProvider).toBe('dropbox')
   })
 })
+
+describe('the dedicated sign-in host', () => {
+  const SIGNIN = 'https://signin.manorama.xyz'
+  const signinEnv = () => env({ SIGNIN_HOST: 'signin.manorama.xyz', PUBLIC_HOST: 'manorama.xyz' })
+
+  /** completePending, but the confirm POST stays on the sign-in host —
+   *  which is where the interstitial's relative form action sends it. */
+  const completePendingOnSignin = async (app: Hono, response: Response, stateCookie?: string) => {
+    const html = response.status === 200 ? await response.text() : ''
+    const token = /name="token" value="([^"]+)"/.exec(html)?.[1]
+    if (!token) return response
+    const jar = applySetCookie(stateCookie ?? '', response)
+    return app.request(`${SIGNIN}/auth/confirm-account`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/x-www-form-urlencoded',
+        ...(jar ? { Cookie: jar } : {}),
+      },
+      body: `token=${encodeURIComponent(token)}`,
+    }, signinEnv())
+  }
+
+  const runSignIn = async (flowInput: Parameters<typeof flowWithCookie>[0], sub: string) => {
+    const flow = await flowWithCookie(flowInput)
+    const { deps } = await googleDeps(flow!.nonce, { sub })
+    const app = callbackApp(deps)
+    const callback = await app.request(`${SIGNIN}/auth/google/callback?code=ok&state=${flow!.state}`, { headers: { Cookie: flow!.cookie } }, signinEnv())
+    return { app, callback, cookie: flow!.cookie }
+  }
+
+  test('the start route builds provider redirect URIs on the sign-in host', async () => {
+    const response = await realApp().request(`${SIGNIN}/auth/dropbox`, undefined, signinEnv())
+    expect(response.status).toBe(302)
+    const location = new URL(response.headers.get('Location')!)
+    expect(location.searchParams.get('redirect_uri')).toBe(`${SIGNIN}/auth/dropbox/callback`)
+  })
+
+  test('a completed sign-in sets Domain cookies and lands on the app host', async () => {
+    const { app, callback, cookie: stateCookie } = await runSignIn({ provider: 'google', intent: 'signin' }, 'google-sub-signin1')
+    const response = await completePendingOnSignin(app, callback, stateCookie)
+    expect(response.status).toBe(302)
+    const cookies = response.headers.get('Set-Cookie') ?? ''
+    expect(cookies).toContain(SESSION_COOKIE)
+    expect(cookies).toContain(RETURNING_COOKIE)
+    // The session must reach the apex dashboard — the cookie is scoped
+    // to the shared domain, not to the sign-in host alone.
+    expect(cookies).toContain('Domain=manorama.xyz')
+    const account = await findAccountByIdentity('google', 'google-sub-signin1', { DB: db() })
+    expect(response.headers.get('Location')).toBe(`https://manorama.xyz/${account!.ownerSlug}`)
+  })
+
+  test('next is honoured against the app origin, never the sign-in host', async () => {
+    const absolute = await runSignIn(
+      { provider: 'google', intent: 'signin', next: 'https://manorama.xyz/welcome' },
+      'google-sub-signin2',
+    )
+    const absoluteResponse = await completePendingOnSignin(absolute.app, absolute.callback, absolute.cookie)
+    expect(absoluteResponse.headers.get('Location')).toBe('https://manorama.xyz/welcome')
+
+    const relative = await runSignIn(
+      { provider: 'google', intent: 'signin', next: '/relative/path' },
+      'google-sub-signin3',
+    )
+    const relativeResponse = await completePendingOnSignin(relative.app, relative.callback, relative.cookie)
+    expect(relativeResponse.headers.get('Location')).toBe('https://manorama.xyz/relative/path')
+
+    // A next pointing back at the sign-in host is foreign — the landing
+    // check measures against the app origin only.
+    const foreign = await runSignIn(
+      { provider: 'google', intent: 'signin', next: `${SIGNIN}/elsewhere` },
+      'google-sub-signin4',
+    )
+    const foreignResponse = await completePendingOnSignin(foreign.app, foreign.callback, foreign.cookie)
+    const account = await findAccountByIdentity('google', 'google-sub-signin4', { DB: db() })
+    expect(foreignResponse.headers.get('Location')).toBe(`https://manorama.xyz/${account!.ownerSlug}`)
+  })
+
+  test('a web link flow reports ?linked on the app host', async () => {
+    const user = await upsertIdentitySignIn(
+      { provider: 'dropbox', subject: 'dbid:LINKsignin', displayName: 'Link Signin' },
+      { DB: db() },
+    )
+    const { state, nonce, cookie } = await flowWithCookie({ provider: 'google', intent: 'link', accountId: user.accountId })
+    const { deps } = await googleDeps(nonce, { sub: 'goog-link-signin' })
+    const sessionToken = await createSessionToken(user.accountId, TEST_SESSION_SECRET)
+    const response = await callbackApp(deps).request(
+      `${SIGNIN}/auth/google/callback?code=ok&state=${state}`,
+      { headers: { Cookie: cookieHeader(`${SESSION_COOKIE}=${sessionToken}`, cookie) } },
+      signinEnv(),
+    )
+    expect(response.headers.get('Location')).toBe(`https://manorama.xyz/${user.ownerSlug}?linked=google`)
+  })
+
+  test('the interstitial points back at the app host when it ran on the sign-in host', async () => {
+    const { callback } = await runSignIn({ provider: 'google', intent: 'signin', next: '/opman' }, 'google-sub-signin5')
+    const html = await callback.text()
+    expect(html).toContain('src="https://manorama.xyz/manorama-merged-logo.png"')
+    expect(html).toContain('href="https://manorama.xyz/opman"')
+    // The confirm form stays relative — it posts back to this same host.
+    expect(html).toContain('action="/auth/confirm-account"')
+  })
+})

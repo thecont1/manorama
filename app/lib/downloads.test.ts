@@ -161,6 +161,9 @@ describe('handleDownloads', () => {
     expect(body).toContain('data-theme-toggle')
     expect(body).toContain('manorama:theme')
     expect(body).toContain('Start free')
+    // Sign-in links point at the dedicated host, never the apex /auth/*.
+    expect(body).toContain('https://signin.manorama.xyz/auth/apple')
+    expect(body).not.toContain('https://manorama.xyz/auth/')
   })
 
   test('page assets serve short-cached and manifests stay public', async () => {

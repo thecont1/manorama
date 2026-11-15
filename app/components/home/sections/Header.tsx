@@ -19,10 +19,13 @@ export default function Header({
   returning,
   next,
   failed,
+  signInOrigin,
 }: {
   returning?: boolean
   next?: string
   failed?: boolean
+  /** Origin of the dedicated sign-in host; unset keeps relative links. */
+  signInOrigin?: string
 }) {
   const sections = [
     { href: '#unify', label: 'Features' },
@@ -61,7 +64,7 @@ export default function Header({
           ))}
         </nav>
         <ThemeToggle />
-        <SignInMenu class="home-signin-header" returning={returning} next={next} failed={failed} />
+        <SignInMenu class="home-signin-header" returning={returning} next={next} failed={failed} signInOrigin={signInOrigin} />
         <button type="button" class="home-btn" popovertarget="home-account-panel" popovertargetaction="show">Start free</button>
       </div>
     </header>

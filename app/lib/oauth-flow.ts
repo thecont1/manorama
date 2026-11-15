@@ -37,6 +37,7 @@ import {
   SESSION_COOKIE,
   SESSION_TTL_SECONDS,
 } from './session'
+import { appOriginOf, isSigninHost, sessionCookieDomain } from './signin-host'
 import { setLastSeenLocation, type UserRecord } from './user-repository'
 
 /**
@@ -257,14 +258,24 @@ const completeSignIn = async (
   secret: string,
 ) => {
   const requestUrl = new URL(c.req.url)
+  // On the sign-in host the browser must land back on the app host — a
+  // relative redirect would keep it on signin.manorama.xyz, where the
+  // host gate would bounce it anyway. `next` is therefore checked against
+  // the app origin, and allowed values come back as absolute URLs.
+  const onSigninHost = isSigninHost(requestUrl.hostname, env)
+  const appOrigin = onSigninHost ? appOriginOf(env) : requestUrl.origin
   const geo = requestGeo(c)
   await setLastSeenLocation(user.accountId, geo.country, geo.colo, env).catch(() => {})
   const token = await createSessionToken(user.accountId, secret)
+  const cookieDomain = sessionCookieDomain(env)
   const cookieOpts = {
     httpOnly: true,
     secure: requestUrl.protocol === 'https:',
     sameSite: 'Lax' as const,
     path: '/',
+    // The apex and the sign-in host share one session: the cookie is set
+    // on the subdomain but must reach manorama.xyz for the dashboard.
+    ...(cookieDomain ? { domain: cookieDomain } : {}),
   }
   setCookie(c, SESSION_COOKIE, token, { ...cookieOpts, maxAge: SESSION_TTL_SECONDS })
   // Outlives the session: a signed-in-here-before hint for the landing CTA.
@@ -282,13 +293,14 @@ const completeSignIn = async (
     try {
       // Stored raw at create time; the same-origin check happens here,
       // at the only place the value can do harm. Path-relative URLs
-      // resolve against our own origin and always pass.
-      if (new URL(flow.nextUrl, requestUrl.origin).origin === requestUrl.origin) {
-        return c.redirect(flow.nextUrl)
+      // resolve against the landing origin and always pass there.
+      const target = new URL(flow.nextUrl, appOrigin)
+      if (target.origin === appOrigin) {
+        return c.redirect(onSigninHost ? target.toString() : flow.nextUrl)
       }
     } catch { /* fall through to the dashboard */ }
   }
-  return c.redirect(`/${user.ownerSlug}`)
+  return c.redirect(onSigninHost ? `${appOrigin}/${user.ownerSlug}` : `/${user.ownerSlug}`)
 }
 
 const PROVIDER_LABEL: Record<AuthProvider, string> = { apple: 'Apple', dropbox: 'Dropbox', google: 'Google Drive' }
@@ -321,7 +333,12 @@ const pendingAccountPage = async (
   const provider = PROVIDER_LABEL[identity.provider]
   // Declining lands back where sign-in can be retried: the ops door keeps
   // its provider buttons anonymous, everywhere else it's the landing page.
-  const decline = flow.nextUrl?.startsWith('/opman') ? flow.nextUrl : '/'
+  // On the sign-in host both targets live on the app host.
+  const pageEnv = accessEnvOf(c)
+  const declinePath = flow.nextUrl?.startsWith('/opman') ? flow.nextUrl : '/'
+  const onSigninHost = isSigninHost(new URL(c.req.url).hostname, pageEnv)
+  const decline = onSigninHost ? `${appOriginOf(pageEnv)}${declinePath}` : declinePath
+  const logoSrc = onSigninHost ? `${appOriginOf(pageEnv)}/manorama-merged-logo.png` : '/manorama-merged-logo.png'
   c.header('Cache-Control', 'no-store')
   return c.html(`<!doctype html>
 <html lang="en"><head>
@@ -341,7 +358,7 @@ font-size:1rem;font-weight:600;text-decoration:none;cursor:pointer;border:none;w
 .create{background:#e8e6e3;color:#111312}
 .back{background:transparent;color:#b9b5ae;border:1px solid #3a3d3b}
 </style></head><body><main class="card">
-<img src="/manorama-merged-logo.png" alt="manorama">
+<img src="${logoSrc}" alt="manorama">
 <h1>This ${esc(provider)} sign-in is new to manorama.</h1>
 <p class="note">If you already keep galleries here, this probably isn&rsquo;t the sign-in you used
 before &mdash; go back and pick the provider you signed in with last time.</p>
@@ -422,6 +439,12 @@ export const finishProviderAuth = async (
   const secret = env.HOST_API_JWT_SECRET?.trim()
   if (!secret) return finishFailure(c)
 
+  // Web link returns land on the app host even when the flow ran on the
+  // sign-in host — a relative redirect would strand the browser on the
+  // subdomain, where the host gate would bounce it anyway.
+  const onSigninHost = isSigninHost(new URL(c.req.url).hostname, env)
+  const webLanding = (path: string) => (onSigninHost ? `${appOriginOf(env)}${path}` : path)
+
   // A web link flow must still belong to the browser that started it — check
   // the session before spending the authorization code. A client link flow
   // was pre-bound by its link handoff and returns through the custom scheme.
@@ -449,13 +472,13 @@ export const finishProviderAuth = async (
         await linkIdentity(flow.accountId!, identity, env)
       } catch (error) {
         if (error instanceof IdentityConflictError) {
-          return c.redirect(nativeLink ? `${linkCallback}?link=conflict` : `/${linkSessionAccount!.ownerSlug}?link=conflict`)
+          return c.redirect(nativeLink ? `${linkCallback}?link=conflict` : webLanding(`/${linkSessionAccount!.ownerSlug}?link=conflict`))
         }
         throw error
       }
       const geo = requestGeo(c)
       await setLastSeenLocation(flow.accountId!, geo.country, geo.colo, env).catch(() => {})
-      return c.redirect(nativeLink ? `${linkCallback}?linked=${provider}` : `/${linkSessionAccount!.ownerSlug}?linked=${provider}`)
+      return c.redirect(nativeLink ? `${linkCallback}?linked=${provider}` : webLanding(`/${linkSessionAccount!.ownerSlug}?linked=${provider}`))
     }
 
     // A first-time provider identity used to mint an empty account on the

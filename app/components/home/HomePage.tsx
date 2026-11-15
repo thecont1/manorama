@@ -21,6 +21,7 @@ export default function HomePage({
   next,
   samplePath,
   demo = false,
+  signInOrigin,
 }: {
   /** True when the browser has the returning-visitor hint cookie. */
   returning?: boolean
@@ -32,10 +33,13 @@ export default function HomePage({
   samplePath?: string | null
   /** True to enhance the hero with the live photo demo. */
   demo?: boolean
+  /** Origin of the dedicated sign-in host; provider links stay relative
+   *  `/auth/*` while it is unset (dev, staging, tests). */
+  signInOrigin?: string
 }) {
   return (
     <div class="home">
-      <Header returning={returning} failed={failed} next={next} />
+      <Header returning={returning} failed={failed} next={next} signInOrigin={signInOrigin} />
       <main id="content">
         <Hero samplePath={samplePath} demo={demo} />
         <Unify />

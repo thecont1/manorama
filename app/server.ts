@@ -7,6 +7,7 @@ import { expirePipelineGalleries } from './lib/gallery-expiry'
 import { deleteExpiredPipelineGallery, listExpiredPipelineGalleries } from './lib/gallery-repository'
 import { injectDevD1 } from './lib/dev-d1'
 import { handleDownloads, isDownloadHost } from './lib/downloads'
+import { signinHostGate } from './lib/signin-host'
 
 type AppEnv = HonoSessionEnv & { Bindings: SessionEnv & RuntimeEnv }
 
@@ -39,6 +40,13 @@ const init = (app: ReturnType<typeof createApp<AppEnv>>) => {
   // it as env.DB before any handler reads c.env. No-op in production.
   app.use('*', injectDevD1)
 
+  // signin.manorama.xyz is the dedicated sign-in host: it serves the
+  // chooser at / and the whole /auth surface, and sends everything else
+  // back to the app host. On every other host, /auth/* redirects there —
+  // sign-in always happens on the subdomain. Inert unless SIGNIN_HOST
+  // is configured.
+  app.use('*', signinHostGate())
+
   // Management APIs behind the Dropbox session, at one boundary. The
   // owner dashboard (/[owner]) gates itself inside the route handler.
   app.route('/', createManoramaApi())
@@ -55,8 +63,7 @@ const init = (app: ReturnType<typeof createApp<AppEnv>>) => {
     const ct = c.res.headers.get('content-type')
     if (ct && ct.includes('text/html')) {
       // The homepage is the one page the world may find, so it carries no
-      // noindex header. A signed-in visitor is redirected before any HTML
-      // exists, and a redirect is not a page to index.
+      // noindex header. Redirects are not pages to index.
       if (!(c.req.path === '/' && c.res.status < 300)) {
         c.header('X-Robots-Tag', 'noindex, nofollow, noarchive')
       }

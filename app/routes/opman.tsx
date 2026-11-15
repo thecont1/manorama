@@ -3,6 +3,7 @@ import { getCookie } from 'hono/cookie'
 import AdminOps from '../islands/AdminOps'
 import OpsDoor from '../components/OpsDoor'
 import { accessEnvOf, isMasterAccount, resolveManoramaSession, RETURNING_COOKIE } from '../lib/session'
+import { signinOriginOf } from '../lib/signin-host'
 
 export default createRoute(async (c) => {
   c.header('X-Robots-Tag', 'noindex, nofollow, noarchive')
@@ -11,15 +12,16 @@ export default createRoute(async (c) => {
   const session = await resolveManoramaSession(c.req.raw, env)
   // No shortcut to a provider: the door is the standard manorama chooser,
   // and each provider link carries next=/opman through the auth flow.
+  const signInOrigin = signinOriginOf(c.env)
   if (!session) {
     return c.render(
-      <OpsDoor returning={!!getCookie(c, RETURNING_COOKIE)} />,
+      <OpsDoor returning={!!getCookie(c, RETURNING_COOKIE)} signInOrigin={signInOrigin} />,
       { title: 'Operations sign-in — manorama', description: 'Private manorama operations console' },
     )
   }
   if (!(await isMasterAccount(session, env))) {
     return c.render(
-      <OpsDoor deniedName={session.name} />,
+      <OpsDoor deniedName={session.name} signInOrigin={signInOrigin} />,
       { title: 'Operations — manorama', description: 'Private manorama operations console' },
     )
   }

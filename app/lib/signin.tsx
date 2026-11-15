@@ -43,6 +43,7 @@ export const SignInLinks = ({
   anchorAttrs,
   next,
   pending,
+  signInOrigin,
 }: {
   returning?: boolean
   anchorClass?: string
@@ -52,6 +53,8 @@ export const SignInLinks = ({
   /** Emit `data-href` + aria-disabled instead of `href` — the client promotes
    *  each link once it has attached its return URL. */
   pending?: boolean
+  /** Origin of the dedicated sign-in host; unset keeps relative `/auth/*`. */
+  signInOrigin?: string
 }) => (
   <div class="signin">
     <div class="signin-icons">
@@ -64,7 +67,7 @@ export const SignInLinks = ({
           // The button reads the whole phrase; the accessible name is the
           // same string, so WCAG 2.5.3 holds by construction.
           const text = `${returning ? 'Sign in' : 'Continue'} with ${label}`
-          const destination = next ? `/auth/${id}?next=${encodeURIComponent(next)}` : `/auth/${id}`
+          const destination = `${signInOrigin ?? ''}/auth/${id}${next ? `?next=${encodeURIComponent(next)}` : ''}`
           return (
             <a
               key={id}

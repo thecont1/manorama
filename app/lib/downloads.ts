@@ -17,6 +17,8 @@ import { isAppOrigin } from './app-origin'
 
 export const DOWNLOAD_HOST = 'downloads.manorama.xyz'
 const SITE = 'https://manorama.xyz'
+// Sign-in lives on its own host; the apex /auth/* URLs only redirect here.
+const SIGNIN = 'https://signin.manorama.xyz'
 const REPO = 'https://github.com/thecont1/manorama'
 
 export type DownloadsEnv = { DOWNLOADS?: R2Bucket }
@@ -294,7 +296,7 @@ const GLYPHS = {
 const accountPanelHtml = () => `<div id="home-account-panel" class="home-account-panel" popover="auto">
 <section aria-labelledby="home-account-signin"><h2 id="home-account-signin" class="home-account-heading">Continue with</h2>
 <ul class="home-account-list home-signin-list">${(['apple', 'google', 'dropbox'] as const)
-  .map((id) => `<li><a href="${SITE}/auth/${id}">${GLYPHS[id]}<span class="home-account-name">${id === 'apple' ? 'Apple' : id === 'google' ? 'Google' : 'Dropbox'}</span></a></li>`)
+  .map((id) => `<li><a href="${SIGNIN}/auth/${id}">${GLYPHS[id]}<span class="home-account-name">${id === 'apple' ? 'Apple' : id === 'google' ? 'Google' : 'Dropbox'}</span></a></li>`)
   .join('')}</ul></section>
 </div>`
 

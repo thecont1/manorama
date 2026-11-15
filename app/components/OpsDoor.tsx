@@ -9,11 +9,14 @@ import { SIGN_IN_PROVIDERS } from '../lib/signin'
 export default function OpsDoor({
   returning,
   deniedName,
+  signInOrigin,
 }: {
   /** The browser signed into manorama before — use the shorter lead. */
   returning?: boolean
   /** The current session resolved but holds no master role. */
   deniedName?: string
+  /** Origin of the dedicated sign-in host; unset keeps relative links. */
+  signInOrigin?: string
 }) {
   const lead = returning ?? Boolean(deniedName)
   return (
@@ -42,7 +45,7 @@ export default function OpsDoor({
             <a
               key={id}
               class="ops-provider"
-              href={`/auth/${id}?next=${encodeURIComponent('/opman')}`}
+              href={`${signInOrigin ?? ''}/auth/${id}?next=${encodeURIComponent('/opman')}`}
               aria-label={`${lead ? 'Sign in' : 'Continue'} with ${name}`}
             >
               <Glyph />
