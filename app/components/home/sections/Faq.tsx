@@ -9,8 +9,22 @@ const QUESTIONS = [
   {
     q: 'Which cloud links can I add?',
     a: [
-      'Dropbox shared folders, Google Drive folders shared with anyone, iCloud Photos Shared Album links, MEGA folders and collections, Ente albums, and Proton Drive share links in the apps. Local folders work in the Mac and Windows apps.',
+      'Dropbox shared folders, Google Drive folders shared with anyone, iCloud Photos Shared Album links, Google Photos shared albums, MEGA folders and collections, Ente albums, and Proton Drive share links in the apps. Local folders work in the Mac and Windows apps.',
       'The full list is under Supported cloud drives. Ente opens in the browser too.',
+    ],
+  },
+  {
+    q: 'Can a gallery hold video?',
+    a: [
+      'Yes. iCloud Photos Shared Album links and Google Photos shared albums carry video as well as photographs, and a clip plays in the gallery beside the stills.',
+      'Dropbox, Google Drive, MEGA, Ente and Proton Drive galleries are photographs only.',
+    ],
+  },
+  {
+    q: 'What happens when I add photographs to an album?',
+    a: [
+      'Your Library checks each gallery at its provider when you open it, compares the album with what it already has, and brings in whatever is new. You do not have to press a button to find out that you have added photographs.',
+      'The check runs at most once a day for each gallery, and it stays quiet — nothing moves on screen unless something actually changed.',
     ],
   },
   {
@@ -24,6 +38,7 @@ const QUESTIONS = [
     a: [
       'Visionary includes unlimited local galleries in the Mac and Windows apps. Folders open in place, where they already sit on the disk.',
       'Only titles and counts sync to your account, never the photographs, and a local gallery opens only on the computer that has the folder.',
+      'The names show up in your Library on the web and on your phone too, so you can see what your Mac is holding without opening it.',
     ],
   },
   {

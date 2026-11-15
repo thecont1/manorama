@@ -154,10 +154,14 @@ export const assetById = (id: string): Asset | undefined => ASSETS.find((a) => a
 export type Source = {
   id: string
   name: string
-  /** What kind of link this source needs. */
+  /**
+   * The line printed under the name: what this source actually gives, in
+   * the visitor's words. It is the truth the page must not drift from —
+   * iCloud and Google Photos both carry video, the encrypted sources
+   * decrypt on the visitor's own device, and Proton Drive refuses to
+   * serve a browser at all.
+   */
   detail: string
-  /** Where this source is available. */
-  where: string
 }
 
 /**
@@ -168,43 +172,36 @@ export const SOURCES: Source[] = [
   {
     id: 'dropbox',
     name: 'Dropbox',
-    detail: 'Public shared-folder links, with downloading enabled.',
-    where: 'Web and the apps',
+    detail: 'Photos',
   },
   {
     id: 'gdrive',
     name: 'Google Drive',
-    detail: 'Folders shared with "Anyone with the link".',
-    where: 'Web and the apps',
+    detail: 'Photos',
   },
   {
     id: 'icloud',
     name: 'iCloud',
-    detail: 'Photos Shared Album links, photos and video. Not iCloud Drive folders.',
-    where: 'Web and the apps',
+    detail: 'Photos and video',
   },
   {
     id: 'gphotos',
     name: 'Google Photos',
-    detail: 'Public shared-album links — photos.google.com/share/… or photos.app.goo.gl/…, photos only.',
-    where: 'Web and the apps',
+    detail: 'Photos and video',
   },
   {
     id: 'mega',
     name: 'MEGA',
-    detail: 'Public folder or collection links, with the key.',
-    where: 'Web and the apps',
+    detail: 'Photos, decrypted on your device',
   },
   {
     id: 'ente',
     name: 'Ente',
-    detail: 'Public album links from albums.ente.io.',
-    where: 'Web and the apps',
+    detail: 'Photos, decrypted on your device',
   },
   {
     id: 'proton',
     name: 'Proton Drive',
-    detail: 'Public share links, with the password that comes with them.',
-    where: 'The iPhone, iPad, Mac and Windows apps',
+    detail: 'Photos, in the apps only',
   },
 ]

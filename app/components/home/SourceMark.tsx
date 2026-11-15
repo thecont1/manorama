@@ -38,9 +38,24 @@ const FolderGlyph = () => (
   </svg>
 )
 
+/* The Google Photos mark. The real mark is four colours in a pin; this is
+   the same silhouette in one colour, with the aperture knocked out in the
+   tile's own surface — the same move the MEGA mark makes. A pin reads as
+   the Photos mark where four petals would only read as a plus sign. */
+const GPhotosGlyph = () => (
+  <svg viewBox="0 0 24 24" aria-hidden="true">
+    <path
+      fill="currentColor"
+      d="M12 2.4c-4 0-7.3 3.2-7.3 7.3 0 5.3 6.5 11.1 6.8 11.3a.65.65 0 0 0 .9 0c.3-.2 6.9-6 6.9-11.3 0-4.1-3.3-7.3-7.3-7.3Z"
+    />
+    <circle cx="12" cy="9.6" r="2.6" fill="var(--home-surface-raised)" />
+  </svg>
+)
+
 const MARKS: Record<string, Child> = {
   dropbox: <DropboxGlyph />,
   gdrive: <GoogleGlyph />,
+  gphotos: <GPhotosGlyph />,
   icloud: <AppleGlyph />,
   mega: <MegaGlyph />,
   ente: <span class="home-source-initial">e</span>,

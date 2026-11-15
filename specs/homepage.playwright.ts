@@ -56,8 +56,12 @@ test.describe('the marketing homepage', () => {
   test('the desktop header keeps sections and account utilities together on the right', async ({ page }) => {
     await page.setViewportSize({ width: 1440, height: 900 })
     await open(page)
-    const items = page.locator('.home-header-inner > .home-nav a, .home-header-inner > [data-theme-toggle], .home-header-inner > .home-signin-trigger')
-    await expect(items).toHaveText(['Features', 'Pricing', 'FAQ', '', 'Sign in'])
+    // The Downloads menu leads the nav, and its panel lives inside the nav
+    // element — so the section links are matched by their fragment href,
+    // never by "every anchor in .home-nav", which would also count the
+    // panel's platform links.
+    const items = page.locator('.home-downloads-trigger, .home-nav a[href^="#"], .home-header-inner > [data-theme-toggle], .home-header-inner > .home-signin-trigger')
+    await expect(items).toHaveText(['Downloads', 'Features', 'Pricing', 'FAQ', '', 'Sign in'])
     const wordmark = await page.locator('.home-wordmark').boundingBox()
     const first = await items.first().boundingBox()
     const last = await items.last().boundingBox()
@@ -66,7 +70,7 @@ test.describe('the marketing homepage', () => {
     expect(last!.x + last!.width).toBeLessThanOrEqual(start!.x)
   })
 
-  test('the account panel groups sign-in and published apps, closes on Escape, and restores focus', async ({ page }) => {
+  test('the account panel holds only the providers, the Downloads menu holds the apps, and the panel closes on Escape', async ({ page }) => {
     await page.setViewportSize({ width: 1440, height: 900 })
     await open(page)
     const trigger = page.locator('.home-signin-trigger')
@@ -74,12 +78,23 @@ test.describe('the marketing homepage', () => {
     const panel = page.locator('#home-account-panel')
     await expect(panel).toBeVisible()
     await expect(panel).toContainText('Continue with')
-    await expect(panel).toContainText('Get the app')
     await expect(panel.locator('.home-signin-list a')).toHaveText(['Apple', 'Dropbox', 'Google'])
-    await expect(panel.locator('a[href="https://downloads.manorama.xyz/mac"]')).toContainText('Mac')
-    await expect(panel.locator('a[href="https://downloads.manorama.xyz/mac"] small')).toHaveText('Apple silicon')
-    await expect(panel.locator('a[href="https://downloads.manorama.xyz/windows"]')).toHaveText('Windows')
+    // The panel is a sign-in disclosure and nothing else. The published
+    // apps live in the Downloads menu, which the header leads with — so
+    // the panel must not carry a download list of its own.
+    await expect(panel).not.toContainText('Get the app')
+    await expect(panel.locator('a[href^="https://downloads.manorama.xyz"]')).toHaveCount(0)
     await expect(panel).not.toContainText('iPhone & iPad')
+
+    // The Downloads menu is where the apps are, and it names the platforms.
+    const downloads = page.locator('.home-downloads-panel')
+    await expect(downloads.locator('a[href="https://downloads.manorama.xyz/mac"]')).toContainText('Mac')
+    await expect(downloads.locator('a[href="https://downloads.manorama.xyz/windows"]')).toContainText('Windows')
+    await expect(downloads.locator('a[href="https://downloads.manorama.xyz/android"]')).toContainText('Android')
+    // iPhone & iPad has no published URL yet, so it lists quiet without a
+    // link — never a link that goes nowhere.
+    await expect(downloads.locator('.home-downloads-soon')).toContainText('iPhone & iPad')
+
     await page.keyboard.press('Escape')
     await expect(panel).toBeHidden()
     await expect(trigger).toBeFocused()
@@ -309,7 +324,10 @@ test.describe('the marketing homepage', () => {
   test('every menu link scrolls to the section it names', async ({ page }) => {
     await page.setViewportSize({ width: 1440, height: 900 })
     await open(page)
-    const links = await page.locator('.home-nav a').all()
+    // The Downloads panel lives inside .home-nav too, so the section
+    // links are matched by their fragment href — the panel's platform links
+    // are not section links and must not be judged as ones.
+    const links = await page.locator('.home-nav a[href^="#"]').all()
     expect(links.length).toBe(3)
     for (const link of links) {
       const href = (await link.getAttribute('href')) ?? ''
@@ -334,10 +352,13 @@ test.describe('the marketing homepage', () => {
   test('the phone menu carries every link the desktop navigation does', async ({ page }) => {
     await page.setViewportSize({ width: 390, height: 844 })
     await open(page)
-    const desktop = await page.locator('.home-nav a').allTextContents()
+    const desktop = await page.locator('.home-nav a[href^="#"]').allTextContents()
     await page.locator('.home-nav-menu summary').click()
-    const phone = await page.locator('.home-nav-menu-list a').allTextContents()
-    expect(phone.slice(0, desktop.length)).toEqual(desktop)
+    const phone = await page.locator('.home-nav-menu-list a[href^="#"]').allTextContents()
+    expect(phone).toEqual(desktop)
+    // Both navs lead with Downloads, and it is the same destination.
+    await expect(page.locator('.home-nav-menu-list a').first()).toHaveAttribute('href', 'https://downloads.manorama.xyz/')
+    await expect(page.locator('.home-downloads-trigger')).toHaveAttribute('href', 'https://downloads.manorama.xyz/')
   })
 
   test('the keyboard reaches the skip link, the navigation and the sign-in disclosure', async ({ page, browserName }) => {
@@ -349,7 +370,11 @@ test.describe('the marketing homepage', () => {
     const skip = page.locator('.home-skip')
     await expect(skip).toBeFocused()
     const seen: string[] = []
-    for (let step = 0; step < 12; step += 1) {
+    // The Downloads menu opens on focus-within, so its seven platform
+    // links sit in the tab path between the trigger and the section
+    // links — the sign-in disclosure is the fourteenth stop, not the
+    // eighth. The budget follows the header, not the other way round.
+    for (let step = 0; step < 20; step += 1) {
       await tab()
       const id = await page.evaluate(() => {
         const active = document.activeElement

@@ -72,6 +72,7 @@ export const SHARED_FEATURES: { label: string; href?: string; codeRef: string }[
   // app/components/viewer/* for tier branches returns nothing.
   { label: 'The same viewing', codeRef: 'app/islands/Viewer.tsx (no tier branch)' },
   { label: 'All supported cloud sources', href: '#unify', codeRef: 'app/lib/sources.ts:22,53; app/lib/proton-client.ts:263-265; app/lib/encrypted-client.ts:26-27' },
+  { label: 'Your Library noticing new photographs by itself', codeRef: 'app/lib/source-freshness.ts; app/islands/Admin.tsx:209-264 (Library-load probe)' },
   { label: 'Saving shared galleries', codeRef: 'app/api.ts:726+ (POST /api/galleries/adopt, createGalleryWithinLimit)' },
   { label: 'Public sharing', codeRef: 'README §Plans; app/lib/gallery-policy.ts (pipeline lifetime)' },
   { label: 'Editing your permanent galleries', codeRef: 'app/lib/gallery-policy.ts:26 (assertGalleryEditable)' },
