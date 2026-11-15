@@ -172,7 +172,7 @@ export const SOURCES: Source[] = [
   {
     id: 'dropbox',
     name: 'Dropbox',
-    detail: 'Photos',
+    detail: 'Photos and video',
   },
   {
     id: 'gdrive',

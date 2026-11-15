@@ -18,7 +18,7 @@ Bun is the toolchain (`bun install`, `bun run dev`, `bun run test:unit`); Playwr
 
 ## Gallery lifecycle
 
-Owners sign in with Apple, Google, or Dropbox and get a namespace — `manorama.xyz/{owner}/{gallery}` — fed by public Dropbox folder, Google Drive folder, iCloud shared album, Google Photos shared album, and MEGA, Ente, or Proton Drive links without asking gallery providers to connect their accounts. iCloud and Google Photos shared albums can contribute video alongside photos.
+Owners sign in with Apple, Google, or Dropbox and get a namespace — `manorama.xyz/{owner}/{gallery}` — fed by public Dropbox folder, Google Drive folder, iCloud shared album, Google Photos shared album, and MEGA, Ente, or Proton Drive links without asking gallery providers to connect their accounts. iCloud and Google Photos shared albums, and Dropbox folders, can contribute video alongside photos.
 
 Pasting a supported link runs a server-side scan using platform credentials (Dropbox app credentials, a Drive API key, or none for iCloud, Google Photos, MEGA, Ente and Proton), ignores undisplayable files, loads a low-resolution preview strip, and lets the owner arrange the gallery before adding it.
 
@@ -505,6 +505,6 @@ After any native or desktop presentation change, capture the six-state evidence 
 
 ## Known limitations
 
-iCloud shared albums and Google Photos shared albums are the video sources; Dropbox, Drive, MEGA, Ente and Proton scans remain image-only, and there is no transcode pipeline for master files. MEGA, iCloud and Google Photos ingestion rely on undocumented provider endpoints that may change without notice — the Google Photos scanner is the most exposed, since it reads Google's internal `batchexecute` RPC and its item-shape nesting. Metadata and references are all Manorama stores; original media bytes are proxied, never persisted.
+iCloud shared albums, Google Photos shared albums and Dropbox folders are the video sources; Drive, MEGA, Ente and Proton scans remain image-only, and there is no transcode pipeline for master files. MEGA, iCloud and Google Photos ingestion rely on undocumented provider endpoints that may change without notice — the Google Photos scanner is the most exposed, since it reads Google's internal `batchexecute` RPC and its item-shape nesting. Metadata and references are all Manorama stores; original media bytes are proxied, never persisted.
 
 The Android shell is generated and buildable but unpolished — kept as a break-glass store option, not a shipped product. The legacy Tauri shell still builds the Windows and Linux legs and is scheduled for removal. The homepage's hero assets are all `interim` (`docs/homepage-assets.md`) — the owner's clearance for the still captures is outstanding, though the demo's photographs are cleared and published.

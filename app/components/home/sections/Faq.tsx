@@ -16,14 +16,14 @@ const QUESTIONS = [
   {
     q: 'Can a gallery hold video?',
     a: [
-      'Yes. iCloud Photos Shared Album links and Google Photos shared albums carry video as well as photographs, and a clip plays in the gallery beside the stills.',
-      'Dropbox, Google Drive, MEGA, Ente and Proton Drive galleries are photographs only.',
+      'Yes. iCloud Photos Shared Album links, Google Photos shared albums and Dropbox folders carry video as well as photographs, and a clip plays in the gallery beside the stills.',
+      'Google Drive, MEGA, Ente and Proton Drive galleries are photographs only.',
     ],
   },
   {
     q: 'What happens when I add photographs to an album?',
     a: [
-      'Your Library checks each gallery at its provider when you open it, compares the album with what it already has, and brings in whatever is new. You do not have to press a button to find out that you have added photographs.',
+      'When you open your Library, it quietly checks each permanent gallery at its provider, compares the album with what it already has, and brings in whatever is new. You do not have to press a button to find out that you have added photographs.',
       'The check runs at most once a day for each gallery, and it stays quiet — nothing moves on screen unless something actually changed.',
     ],
   },
