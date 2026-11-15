@@ -5,7 +5,7 @@ import { SourceFetchError, isVideoItem, stillSourceOf, MAX_GALLERY_ITEMS, type G
 import { fetchDropboxFile, fetchDropboxThumbnail } from './lib/dropbox-public'
 import { fetchDriveFile, fetchDriveThumbnail } from './lib/gdrive-public'
 import { fetchICloudCkImage, fetchICloudCkVideo, fetchICloudImage, fetchICloudVideo, isAlbumToken } from './lib/icloud-shared'
-import { fetchGPhotosImage, fetchGPhotosVideo } from './lib/gphotos-shared'
+import { fetchGPhotosImage } from './lib/gphotos-shared'
 import { canonicalSourceMatches, detectSource, scanSource, UNRECOGNIZED_LINK_MESSAGE } from './lib/sources'
 import { localSourcesEnabled, serveLocalMedia } from './lib/local-source'
 import { createGalleryWithinLimit, deleteGallery, getGallery, getStoredGallery, listGalleries, markGallerySourceChecked, setGalleryHidden, setGalleryPinned, setGalleryRetained, swapGalleryRetention, toLibrarySummaries, toSummary, updateGalleryHidden, updateGalleryImages, updateGalleryMetadata, updateGalleryOrder, updateGalleryRecord, updateGallerySlug, type GalleryEnv, type GalleryRecord } from './lib/gallery-repository'
@@ -1296,23 +1296,6 @@ export const createManoramaApi = () => {
       // The tail identifies which asset failed without echoing a complete
       // working media URL into the sampled failure log.
       return proxyFailure(c, 'Google Photos image', `…${u.slice(-24)}`, error)
-    }
-  })
-
-  /** Google Photos video renditions on the same lh3 base the poster uses:
-   *  m18/m22/m28/m37 MP4 transcodes or the dv original — lh3 302s to a
-   *  signed googlevideo URL, which fetchGPhotosVideo follows inside the
-   *  Worker with the visitor's Range forwarded, so seeking costs a slice
-   *  rather than the whole clip. Public like the image proxy; never
-   *  cached, the signed URL expires. */
-  api.get('/api/gphotos/video', async (c) => {
-    const u = c.req.query('u')
-    const r = c.req.query('r')
-    if (!u || !r) return c.json({ error: 'Missing Google Photos video reference' }, 400)
-    try {
-      return await streamMediaResponse(await fetchGPhotosVideo(u, r, c.req.header('Range') ?? null, fetch), 'private, no-store')
-    } catch (error) {
-      return proxyFailure(c, 'Google Photos video', `…${u.slice(-24)}`, error)
     }
   })
 

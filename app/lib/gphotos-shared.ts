@@ -49,13 +49,12 @@ const VIDEO_HOST = /googlevideo|videoplayback/i
 // embedded — the marker has to be read by key, not by string.
 const VIDEO_DESCRIPTOR_KEY = '76647426'
 
-// Rendition suffixes the video proxy may request: the mp4 transcodes and
-// the original download. =d stays with the image route — it answers the
-// JPEG poster still, not a clip.
-const ALLOWED_VIDEO_RENDITION = /^(?:m18|m22|m28|m37|dv)$/
-
 // The derivative a gallery slide plays: 720p H.264 MP4, the same tier
-// iCloud shared-album derivatives stream at.
+// iCloud shared-album derivatives stream at. It goes into the VideoItem
+// as a direct lh3 URL rather than a proxied one: =m-renditions 302 to a
+// googlevideo URL whose signature binds the requester's IP (`ip` sits in
+// sparams), so a Worker hop mints a URL its own second fetch cannot use —
+// the browser has to make both hops itself.
 const VIDEO_PLAY_RENDITION = 'm22'
 
 // Renditions the image proxy may request from lh3: width-bound and
@@ -371,9 +370,6 @@ const placeholderFor = (width: number, height: number) =>
 const imageProxy = (baseUrl: string, rendition: string) =>
   `/api/gphotos/image?u=${encodeURIComponent(baseUrl)}&r=${rendition}`
 
-const videoProxy = (baseUrl: string, rendition: string) =>
-  `/api/gphotos/video?u=${encodeURIComponent(baseUrl)}&r=${rendition}`
-
 export const scanGPhotosAlbum = async (input: string, fetchImpl: typeof fetch = fetch): Promise<GPhotosScan> => {
   const share = extractGPhotosShare(input)
   if (!share) throw new Error('Use a public Google Photos shared album link')
@@ -484,7 +480,7 @@ export const scanGPhotosAlbum = async (input: string, fetchImpl: typeof fetch = 
         id: `gphotos-${uid.replace(/[^a-zA-Z0-9]+/g, '').slice(-18) || position}`,
         ref: uid,
         filename: `Video ${position + 1}`,
-        src: videoProxy(cleanBase, VIDEO_PLAY_RENDITION),
+        src: `${cleanBase}=${VIDEO_PLAY_RENDITION}`,
         mimeType: 'video/mp4',
         width: vw,
         height: vh,
@@ -579,41 +575,6 @@ export const fetchGPhotosImage = async (u: string, rendition: string, fetchImpl:
   return retryOnceOnTransient(async () => {
     const response = await request(fetchImpl, target)
     if (!response.ok) throw transientError('Google Photos image fetch failed', response)
-    return response
-  })
-}
-
-/** Hosts a video rendition may 302 to: the signed googlevideo playback
- *  endpoints and the download host. Anything else means the route is being
- *  aimed somewhere Google never pointed — refuse rather than follow. */
-const VIDEO_REDIRECT_HOST = /^(?:[a-z0-9-]+\.)*(?:googlevideo\.com|googleusercontent\.com)$/
-
-/** Fetch a video rendition for the proxy. lh3 answers =m18/=m22/=m28/=m37
- *  and =dv with a 302 to a signed playback URL, so the hop is followed by
- *  hand inside the Worker — the visitor's Range header rides both requests
- *  and the redirect target is host-checked before it is fetched. */
-export const fetchGPhotosVideo = async (u: string, rendition: string, range: string | null, fetchImpl: typeof fetch = fetch) => {
-  if (!ALLOWED_VIDEO_RENDITION.test(rendition)) {
-    throw new SourceFetchError('That Google Photos video rendition is not supported', 400)
-  }
-  const target = `${lh3BaseUrl(u)}=${rendition}`
-  return retryOnceOnTransient(async () => {
-    const headers = range ? { Range: range } : undefined
-    let response = await request(fetchImpl, target, { headers, redirect: 'manual' })
-    if (response.status >= 300 && response.status < 400) {
-      const location = response.headers.get('location')
-      let host: string | null = null
-      try {
-        host = location ? new URL(location).hostname : null
-      } catch {
-        host = null
-      }
-      if (!location || !host || !VIDEO_REDIRECT_HOST.test(host)) {
-        throw new SourceFetchError('Google Photos video fetch failed (502)', 502)
-      }
-      response = await request(fetchImpl, location, { headers, redirect: 'manual' })
-    }
-    if (!response.ok) throw transientError('Google Photos video fetch failed', response)
     return response
   })
 }
