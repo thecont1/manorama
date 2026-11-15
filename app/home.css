@@ -617,17 +617,6 @@ html.light .home-theme-moon {
   text-align: center;
 }
 
-/* The line under the live demo: it says what the visitor is looking at, so
-   the frame is read as something they can drive rather than a recording. */
-.home-hero-note {
-  margin: 0 auto;
-  max-width: 56ch;
-  text-align: center;
-  font-size: 15px;
-  line-height: 1.5;
-  color: var(--home-ink-soft);
-}
-
 .home-hero-tail {
   margin-top: var(--home-gap-block);
 }

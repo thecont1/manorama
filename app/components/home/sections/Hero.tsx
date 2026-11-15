@@ -31,16 +31,6 @@ export default function Hero({
           </div>
         ) : null}
 
-        {/* The demo is the real viewer, not a recording of one — say so, or a
-            visitor watches it once and never learns it is theirs to drive.
-            It sits below the stage so the frame keeps the first fold. */}
-        {live ? (
-          <p class="home-hero-note home-rise home-rise-3">
-            That is the real gallery viewer, running here in your browser — the same one the apps
-            use. Switch the device, pause it, or open the gallery full-size.
-          </p>
-        ) : null}
-
         {/* The live demo carries this link in its own control bar, directly
             under the device it invites you to leave. */}
         {!live && samplePath ? (
