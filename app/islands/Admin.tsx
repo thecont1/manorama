@@ -1007,7 +1007,7 @@ export default function Admin({ galleries: initialGalleries, owner, ownerName, p
             >
               <QuietIcon />
             </button>
-            <button type="button" class="admin-button admin-settings-pill" aria-label="Settings" onClick={openSettings}>
+            <button type="button" class="admin-button admin-settings-pill" aria-label="Settings" aria-expanded={settingsOpen ? 'true' : 'false'} onClick={() => { settingsOpen ? closeSettings() : openSettings() }}>
               <SettingsIcon />
             </button>
           </div>
@@ -1045,7 +1045,7 @@ export default function Admin({ galleries: initialGalleries, owner, ownerName, p
         ) : null}
         <p class="admin-copyright">© 2026 Mahesh Shantaram / <a href="https://thecontrarian.in" target="_blank" rel="noopener">thecontrarian.in</a><br />Photographs in galleries belong to their respective owners.</p>
       </aside>
-      <section class={quiet ? 'gallery-list lib-quiet' : 'gallery-list'} aria-labelledby="galleries-heading">
+      <section class={quiet ? 'gallery-list lib-quiet' : 'gallery-list'} aria-labelledby="galleries-heading" hidden={settingsOpen || undefined}>
         {stripGalleries.length ? <section aria-labelledby="lib-strips-title">
           <button
             type="button"
@@ -1177,6 +1177,39 @@ export default function Admin({ galleries: initialGalleries, owner, ownerName, p
           </div>
         ) : null}
       </section>
+      {/* Settings takes over the galleries column itself — the rail stays
+          mounted beside it and the gear becomes the way back. */}
+      {settingsOpen ? (
+        <WebSettings
+          presentation="pane"
+          ownerName={ownerName}
+          ownerSlug={owner}
+          ownerSlugDraft={ownerSlugDraft}
+          onOwnerSlugDraft={(value) => { setOwnerSlugDraft(value); setSettingsNote('') }}
+          onSaveOwnerSlug={() => void saveOwnerSlug()}
+          ownerSlugBusy={busy}
+          ownerSlugNote={settingsNote}
+          identities={identities}
+          identityNote={identityNote}
+          onUnlinkIdentity={(provider) => void removeIdentity(provider)}
+          tier={tier}
+          retainedCount={retainedCount}
+          retainedLimit={retainedLimit}
+          temporaryCount={temporaryCount}
+          upgradeHref={upgradeHref}
+          theme={theme}
+          onTheme={setTheme}
+          deleteConfirm={deleteConfirm}
+          onDeleteConfirmChange={setDeleteConfirm}
+          deleteOpen={deleteOpen}
+          onRequestDelete={() => { setDeleteOpen(true); setDeleteNote('') }}
+          onCancelDelete={() => { setDeleteOpen(false); setDeleteConfirm(''); setDeleteNote('') }}
+          deleteBusy={deleteBusy}
+          deleteNote={deleteNote}
+          onDeleteAccount={() => void removeAccount()}
+          onBack={closeSettings}
+        />
+      ) : null}
       </div>
 
       {status ? <div class="admin-toast" role="status" aria-live="polite">{status}</div> : null}
@@ -1317,36 +1350,6 @@ export default function Admin({ galleries: initialGalleries, owner, ownerName, p
         />
       ) : null}
 
-      {settingsOpen ? (
-        <WebSettings
-          ownerName={ownerName}
-          ownerSlug={owner}
-          ownerSlugDraft={ownerSlugDraft}
-          onOwnerSlugDraft={(value) => { setOwnerSlugDraft(value); setSettingsNote('') }}
-          onSaveOwnerSlug={() => void saveOwnerSlug()}
-          ownerSlugBusy={busy}
-          ownerSlugNote={settingsNote}
-          identities={identities}
-          identityNote={identityNote}
-          onUnlinkIdentity={(provider) => void removeIdentity(provider)}
-          tier={tier}
-          retainedCount={retainedCount}
-          retainedLimit={retainedLimit}
-          temporaryCount={temporaryCount}
-          upgradeHref={upgradeHref}
-          theme={theme}
-          onTheme={setTheme}
-          deleteConfirm={deleteConfirm}
-          onDeleteConfirmChange={setDeleteConfirm}
-          deleteOpen={deleteOpen}
-          onRequestDelete={() => { setDeleteOpen(true); setDeleteNote('') }}
-          onCancelDelete={() => { setDeleteOpen(false); setDeleteConfirm(''); setDeleteNote('') }}
-          deleteBusy={deleteBusy}
-          deleteNote={deleteNote}
-          onDeleteAccount={() => void removeAccount()}
-          onBack={closeSettings}
-        />
-      ) : null}
     </>
   )
 }

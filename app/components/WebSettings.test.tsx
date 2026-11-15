@@ -78,4 +78,17 @@ describe('WebSettings', () => {
     expect(html).toContain(paidGalleryLimitError().message)
     expect(html).not.toContain('buy.stripe.com')
   })
+
+  test('the pane drops the screen frame and carries the way back to the Library', () => {
+    const html = String(WebSettings(props({ presentation: 'pane' })))
+    expect(html).toContain('web-settings--pane')
+    expect(html).toContain('data-screen="settings"')
+    expect(html).not.toContain('m-screen--fixed')
+    expect(html).not.toContain('m-topbar')
+    expect(html).toContain('aria-label="Back to the library"')
+    expect(html).toContain('<h1>Settings</h1>')
+    // Same groups, same controls — only the chrome changes.
+    expect(html).toContain('Allowance')
+    expect(html).toContain('action="/auth/logout"')
+  })
 })

@@ -56,6 +56,10 @@ type Props = {
   deleteNote?: string | null
   onDeleteAccount: () => void
   onBack: () => void
+  /** 'screen' (default) is the fixed full-page surface. 'pane' drops the
+   *  frame and TopBar so the caller can home the same content inside the
+   *  galleries column — the Library's left rail stays in place. */
+  presentation?: 'screen' | 'pane'
   /** Native surfaces sign out in-process — there is no /auth/logout form to
    *  post. When present it replaces the web form with a plain button. */
   onSignOut?: () => void
@@ -73,6 +77,164 @@ type Props = {
 export function WebSettings(props: Props) {
   const linked = new Set((props.identities ?? []).map((identity) => identity.provider))
   const deleteReady = !props.deleteBusy && props.deleteConfirm.trim() === props.ownerSlug
+  const groups = (
+    <>
+      <ActionGroup label="Account">
+        <ActionRow label="Name" value={props.ownerName} chevron={false} />
+        <div class="m-panel m-settings-address">
+          <label for="web-settings-owner-address">Address</label>
+          <div>
+            <span>manorama.xyz/</span>
+            <input
+              id="web-settings-owner-address"
+              class="m-input"
+              value={props.ownerSlugDraft}
+              disabled={props.ownerSlugBusy}
+              aria-label="Your URL — edit to change your address"
+              autoCapitalize="none"
+              autoCorrect="off"
+              spellcheck={false}
+              onInput={(event) => props.onOwnerSlugDraft((event.currentTarget as HTMLInputElement).value)}
+              onBlur={props.onSaveOwnerSlug}
+              onKeyDown={(event) => {
+                if (event.key === 'Escape') props.onOwnerSlugDraft(props.ownerSlug)
+                if (event.key === 'Enter') { event.preventDefault(); props.onSaveOwnerSlug() }
+              }}
+            />
+          </div>
+        </div>
+        {props.ownerSlugNote ? <p class="m-error m-panel-note" role="alert">{props.ownerSlugNote}</p> : null}
+      </ActionGroup>
+
+      <ActionGroup label="Sign-in methods">
+        {props.identities === null ? <p class="m-note m-panel-note">Reading sign-in methods…</p> : null}
+        {props.identities?.map((identity) => (
+          <ActionRow
+            key={identity.provider}
+            label={signInMethodName(identity.provider)}
+            chevron={false}
+            control={(
+              <Button
+                variant="quiet"
+                disabled={props.identities!.length <= 1}
+                onClick={() => props.onUnlinkIdentity(identity.provider)}
+              >
+                Unlink
+              </Button>
+            )}
+          />
+        ))}
+        {props.identities !== null ? SIGN_IN_METHODS.filter((method) => !linked.has(method.provider)).map((method) => (
+          <ActionRow key={method.provider} label={`Connect ${method.name}`} href={`/auth/${method.provider}?link=1`} />
+        )) : null}
+        {props.identityNote ? <p class="m-note m-panel-note" role="status">{props.identityNote}</p> : null}
+        <p class="m-note m-panel-note">Keep at least one way to sign in.</p>
+      </ActionGroup>
+
+      <ActionGroup label="Allowance">
+        <ActionRow label="Plan" value={props.tier === 'pro' ? 'Visionary' : 'Free User'} chevron={false} />
+        <ActionRow label={props.tier === 'pro' ? 'Cloud galleries' : 'Permanent galleries'} value={`${props.retainedCount} of ${props.retainedLimit}`} chevron={false} />
+        {/* Temporary galleries are a Free concept — Visionary holds every
+            cloud gallery permanently, so the row is noise there. */}
+        {props.tier === 'free' && props.temporaryCount != null ? <ActionRow label="Temporary galleries" value={`${props.temporaryCount} of ${FREE_PIPELINE_LIMIT}`} chevron={false} /> : null}
+        {props.localCount != null ? <ActionRow label="Local galleries" value={props.tier === 'pro' ? `${props.localCount} of ∞` : '0 of 0'} chevron={false} /> : null}
+        {props.tier === 'pro' && props.hiddenCount != null ? <ActionRow label="Hidden galleries" value={props.hiddenCount} chevron={false} /> : null}
+        {props.tier === 'free' ? <ActionRow label="Upgrade" href={props.upgradeHref} /> : null}
+        {props.tier === 'pro' ? (
+          <>
+            <p class="m-note m-panel-note">Paid accounts retain up to 99 galleries. Retained galleries stay until you delete them.</p>
+            {props.retainedCount >= props.retainedLimit ? (
+              <p class="m-note m-panel-note" role="status">{paidGalleryLimitError().message}</p>
+            ) : null}
+          </>
+        ) : (
+          <p class="m-note m-panel-note">{FREE_RETENTION_DISCLOSURE}</p>
+        )}
+      </ActionGroup>
+
+      <ActionGroup label="Appearance">
+        <div class="m-panel m-settings-segmented">
+          <Segmented
+            label="Appearance"
+            value={props.theme}
+            options={[{ value: 'dark', label: 'Dark' }, { value: 'light', label: 'Light' }]}
+            onChange={(value) => props.onTheme(value as Theme)}
+          />
+        </div>
+      </ActionGroup>
+
+      {props.deviceSection ?? null}
+
+      <ActionGroup label="About">
+        {props.appUpdate ? <ActionRow label="App update" value={`v${props.appUpdate.version} available`} href={props.appUpdate.url} /> : null}
+        <ActionRow label="Privacy Policy" href="/privacy" />
+        <p class="m-note m-panel-note">© 2026 Mahesh Shantaram / <a href="https://thecontrarian.in" target="_blank" rel="noopener">thecontrarian.in</a></p>
+      </ActionGroup>
+
+      <ActionGroup label="Sign out and delete">
+        <ActionRow
+          label="Session"
+          control={props.onSignOut ? (
+            <Button variant="quiet" onClick={props.onSignOut}>Sign out</Button>
+          ) : (
+            <form method="post" action="/auth/logout" class="m-signout-form">
+              <Button variant="quiet" type="submit">Sign out</Button>
+            </form>
+          )}
+        />
+        {props.deleteOpen ? (
+          <div class="m-panel m-settings-delete">
+            <p>
+              This removes your galleries, device catalogue and sign-in methods from manorama. Nothing in your
+              Dropbox, Google Drive, iCloud or MEGA is touched. If you subscribe, cancel first — web: your Stripe receipt.
+            </p>
+            <label class="admin-delete-confirm">
+              Type your URL name ({props.ownerSlug}) to confirm
+              <input
+                class="m-input"
+                type="text"
+                value={props.deleteConfirm}
+                autoCapitalize="none"
+                autoCorrect="off"
+                spellcheck={false}
+                disabled={props.deleteBusy}
+                onInput={(event) => props.onDeleteConfirmChange((event.currentTarget as HTMLInputElement).value)}
+              />
+            </label>
+            <div>
+              <Button
+                variant="destructive"
+                disabled={!deleteReady}
+                onClick={props.onDeleteAccount}
+              >
+                {props.deleteBusy ? 'Deleting…' : 'Delete my account'}
+              </Button>
+              <Button variant="secondary" disabled={props.deleteBusy} onClick={props.onCancelDelete}>Cancel</Button>
+            </div>
+            {props.deleteNote ? <p class="m-error" role="alert">{props.deleteNote}</p> : null}
+          </div>
+        ) : (
+          <ActionRow label="Delete my account" tone="destructive" onClick={props.onRequestDelete} />
+        )}
+      </ActionGroup>
+    </>
+  )
+  if (props.presentation === 'pane') {
+    return (
+      <section class="m-owner web-settings web-settings--pane" data-screen="settings" aria-label="Settings">
+        <div class="m-owner-content">
+          <header class="lib-settings-head">
+            <Button variant="quiet" class="m-backbtn" onClick={props.onBack} aria-label="Back to the library">
+              <svg viewBox="0 0 24 24" aria-hidden="true" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M15 6l-6 6 6 6"/></svg>
+              Library
+            </Button>
+            <h1>Settings</h1>
+          </header>
+          {groups}
+        </div>
+      </section>
+    )
+  }
   return (
     <main class="m-owner m-screen m-screen--fixed web-settings" data-screen="settings">
       <TopBar
@@ -80,146 +242,7 @@ export function WebSettings(props: Props) {
         logo={false}
         start={<Button variant="quiet" onClick={props.onBack} aria-label="Back">‹ Back</Button>}
       />
-      <div class="m-owner-content">
-        <ActionGroup label="Account">
-          <ActionRow label="Name" value={props.ownerName} chevron={false} />
-          <div class="m-panel m-settings-address">
-            <label for="web-settings-owner-address">Address</label>
-            <div>
-              <span>manorama.xyz/</span>
-              <input
-                id="web-settings-owner-address"
-                class="m-input"
-                value={props.ownerSlugDraft}
-                disabled={props.ownerSlugBusy}
-                aria-label="Your URL — edit to change your address"
-                autoCapitalize="none"
-                autoCorrect="off"
-                spellcheck={false}
-                onInput={(event) => props.onOwnerSlugDraft((event.currentTarget as HTMLInputElement).value)}
-                onBlur={props.onSaveOwnerSlug}
-                onKeyDown={(event) => {
-                  if (event.key === 'Escape') props.onOwnerSlugDraft(props.ownerSlug)
-                  if (event.key === 'Enter') { event.preventDefault(); props.onSaveOwnerSlug() }
-                }}
-              />
-            </div>
-          </div>
-          {props.ownerSlugNote ? <p class="m-error m-panel-note" role="alert">{props.ownerSlugNote}</p> : null}
-        </ActionGroup>
-
-        <ActionGroup label="Sign-in methods">
-          {props.identities === null ? <p class="m-note m-panel-note">Reading sign-in methods…</p> : null}
-          {props.identities?.map((identity) => (
-            <ActionRow
-              key={identity.provider}
-              label={signInMethodName(identity.provider)}
-              chevron={false}
-              control={(
-                <Button
-                  variant="quiet"
-                  disabled={props.identities!.length <= 1}
-                  onClick={() => props.onUnlinkIdentity(identity.provider)}
-                >
-                  Unlink
-                </Button>
-              )}
-            />
-          ))}
-          {props.identities !== null ? SIGN_IN_METHODS.filter((method) => !linked.has(method.provider)).map((method) => (
-            <ActionRow key={method.provider} label={`Connect ${method.name}`} href={`/auth/${method.provider}?link=1`} />
-          )) : null}
-          {props.identityNote ? <p class="m-note m-panel-note" role="status">{props.identityNote}</p> : null}
-          <p class="m-note m-panel-note">Keep at least one way to sign in.</p>
-        </ActionGroup>
-
-        <ActionGroup label="Allowance">
-          <ActionRow label="Plan" value={props.tier === 'pro' ? 'Visionary' : 'Free User'} chevron={false} />
-          <ActionRow label={props.tier === 'pro' ? 'Cloud galleries' : 'Permanent galleries'} value={`${props.retainedCount} of ${props.retainedLimit}`} chevron={false} />
-          {/* Temporary galleries are a Free concept — Visionary holds every
-              cloud gallery permanently, so the row is noise there. */}
-          {props.tier === 'free' && props.temporaryCount != null ? <ActionRow label="Temporary galleries" value={`${props.temporaryCount} of ${FREE_PIPELINE_LIMIT}`} chevron={false} /> : null}
-          {props.localCount != null ? <ActionRow label="Local galleries" value={props.tier === 'pro' ? `${props.localCount} of ∞` : '0 of 0'} chevron={false} /> : null}
-          {props.tier === 'pro' && props.hiddenCount != null ? <ActionRow label="Hidden galleries" value={props.hiddenCount} chevron={false} /> : null}
-          {props.tier === 'free' ? <ActionRow label="Upgrade" href={props.upgradeHref} /> : null}
-          {props.tier === 'pro' ? (
-            <>
-              <p class="m-note m-panel-note">Paid accounts retain up to 99 galleries. Retained galleries stay until you delete them.</p>
-              {props.retainedCount >= props.retainedLimit ? (
-                <p class="m-note m-panel-note" role="status">{paidGalleryLimitError().message}</p>
-              ) : null}
-            </>
-          ) : (
-            <p class="m-note m-panel-note">{FREE_RETENTION_DISCLOSURE}</p>
-          )}
-        </ActionGroup>
-
-        <ActionGroup label="Appearance">
-          <div class="m-panel m-settings-segmented">
-            <Segmented
-              label="Appearance"
-              value={props.theme}
-              options={[{ value: 'dark', label: 'Dark' }, { value: 'light', label: 'Light' }]}
-              onChange={(value) => props.onTheme(value as Theme)}
-            />
-          </div>
-        </ActionGroup>
-
-        {props.deviceSection ?? null}
-
-        <ActionGroup label="About">
-          {props.appUpdate ? <ActionRow label="App update" value={`v${props.appUpdate.version} available`} href={props.appUpdate.url} /> : null}
-          <ActionRow label="Privacy Policy" href="/privacy" />
-          <p class="m-note m-panel-note">© 2026 Mahesh Shantaram / <a href="https://thecontrarian.in" target="_blank" rel="noopener">thecontrarian.in</a></p>
-        </ActionGroup>
-
-        <ActionGroup label="Sign out and delete">
-          <ActionRow
-            label="Session"
-            control={props.onSignOut ? (
-              <Button variant="quiet" onClick={props.onSignOut}>Sign out</Button>
-            ) : (
-              <form method="post" action="/auth/logout" class="m-signout-form">
-                <Button variant="quiet" type="submit">Sign out</Button>
-              </form>
-            )}
-          />
-          {props.deleteOpen ? (
-            <div class="m-panel m-settings-delete">
-              <p>
-                This removes your galleries, device catalogue and sign-in methods from manorama. Nothing in your
-                Dropbox, Google Drive, iCloud or MEGA is touched. If you subscribe, cancel first — web: your Stripe receipt.
-              </p>
-              <label class="admin-delete-confirm">
-                Type your URL name ({props.ownerSlug}) to confirm
-                <input
-                  class="m-input"
-                  type="text"
-                  value={props.deleteConfirm}
-                  autoCapitalize="none"
-                  autoCorrect="off"
-                  spellcheck={false}
-                  disabled={props.deleteBusy}
-                  onInput={(event) => props.onDeleteConfirmChange((event.currentTarget as HTMLInputElement).value)}
-                />
-              </label>
-              <div>
-                <Button
-                  variant="destructive"
-                  disabled={!deleteReady}
-                  onClick={props.onDeleteAccount}
-                >
-                  {props.deleteBusy ? 'Deleting…' : 'Delete my account'}
-                </Button>
-                <Button variant="secondary" disabled={props.deleteBusy} onClick={props.onCancelDelete}>Cancel</Button>
-              </div>
-              {props.deleteNote ? <p class="m-error" role="alert">{props.deleteNote}</p> : null}
-            </div>
-          ) : (
-            <ActionRow label="Delete my account" tone="destructive" onClick={props.onRequestDelete} />
-          )}
-        </ActionGroup>
-      </div>
+      <div class="m-owner-content">{groups}</div>
     </main>
   )
 }

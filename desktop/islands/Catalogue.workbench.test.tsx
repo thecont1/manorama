@@ -1487,11 +1487,21 @@ describe('desktop catalogue workbench', () => {
     globals.fetch = defaultFetch
     expect(screen.querySelector('.desktop-sync-progress')).toBeNull()
     expect(screen.textContent).toContain('Up to date')
-    // Back returns to the Library.
-    const back = [...screen.querySelectorAll('button')].find((b) => b.textContent?.includes('Back'))!
-    back.click()
+    // Settings takes over the galleries column: the rail stays mounted and
+    // the list is hidden, not replaced by a page or a floating sheet.
+    expect(screen.classList.contains('web-settings--pane')).toBe(true)
+    expect(screen.closest('.m-sheet')).toBeNull()
+    const rail = container.querySelector<HTMLElement>('.admin-rail')!
+    expect(rail).not.toBeNull()
+    expect(rail.hasAttribute('hidden')).toBe(false)
+    expect(container.querySelector('.gallery-list')!.hasAttribute('hidden')).toBe(true)
+    // The pane's own back affordance returns to the Library — and the rail's
+    // gear is a toggle now, expanded while Settings is up.
+    expect(rail.querySelector('[aria-label="Settings"]')!.getAttribute('aria-expanded')).toBe('true')
+    ;(screen.querySelector('[aria-label="Back to the library"]') as HTMLButtonElement).click()
     await settle()
     expect(container.querySelector('.web-settings')).toBeNull()
+    expect(container.querySelector('.gallery-list')!.hasAttribute('hidden')).toBe(false)
   })
 
   test('an encrypted cloud gallery opens in-app — never on a locked browser page', async () => {

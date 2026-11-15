@@ -2661,7 +2661,8 @@ export default function Catalogue({ apiBase }: { apiBase: string }) {
                 type="button"
                 class="admin-button admin-settings-pill"
                 aria-label="Settings"
-                onClick={openSettings}
+                aria-expanded={settingsOpen ? 'true' : 'false'}
+                onClick={() => { settingsOpen ? setSettingsOpen(false) : openSettings() }}
               >
                 <SettingsIcon />
               </button>
@@ -2724,7 +2725,7 @@ export default function Catalogue({ apiBase }: { apiBase: string }) {
           ) : null}
           <p class="admin-copyright">© 2026 Mahesh Shantaram / <a {...externalAnchor(AUTHOR_URL)}>thecontrarian.in</a><br />Photographs in galleries belong to their respective owners.</p>
         </aside>
-        <section class={quiet ? 'gallery-list lib-quiet' : 'gallery-list'} aria-labelledby="galleries-heading">
+        <section class={quiet ? 'gallery-list lib-quiet' : 'gallery-list'} aria-labelledby="galleries-heading" hidden={settingsOpen || undefined}>
           {pendingUpdate ? (
             <div class="app-update-banner" role="status">
               <span class="app-update-text">manorama <strong>v{pendingUpdate.version}</strong> is available.</span>
@@ -2941,6 +2942,108 @@ export default function Catalogue({ apiBase }: { apiBase: string }) {
             <p class="desktop-empty">Choose a folder or a mounted memory card. Manorama references the originals in place — nothing is copied, uploaded, or moved.</p>
           ) : null}
         </section>
+        {/* Settings takes over the galleries column itself — the rail stays
+            mounted beside it and the gear becomes the way back. Anchors in it
+            open in the system browser, same as the rail's. */}
+        {settingsOpen && session ? (
+          <div onClick={interceptSettingsLink} style="display: contents">
+            <WebSettings
+              presentation="pane"
+              ownerSlug={ownerSlug ?? session.ownerSlug}
+              ownerSlugDraft={ownerSlugDraft}
+              onOwnerSlugDraft={(value) => { setOwnerSlugDraft(value); setSettingsNote(null) }}
+              onSaveOwnerSlug={() => void saveOwnerSlug()}
+              ownerSlugBusy={busy}
+              ownerSlugNote={settingsNote}
+              identities={identities}
+              identityNote={identityNote}
+              onUnlinkIdentity={(provider) => void unlinkIdentity(provider)}
+              tier={accountTier}
+              retainedCount={retainedCount}
+              retainedLimit={retainedLimit}
+              temporaryCount={temporaryCount}
+              localCount={galleries.length + remoteDeviceGalleries.length}
+              hiddenCount={hiddenCount}
+              upgradeHref="mailto:mahesh@thecontrarian.in?subject=Manorama%20upgrade"
+              theme={theme}
+              onTheme={setTheme}
+              deleteConfirm={deleteConfirm}
+              onDeleteConfirmChange={setDeleteConfirm}
+              deleteOpen={deleteOpen}
+              onRequestDelete={() => { setDeleteOpen(true); setDeleteNote(null) }}
+              onCancelDelete={() => { setDeleteOpen(false); setDeleteConfirm(''); setDeleteNote(null) }}
+              deleteBusy={deleteBusy}
+              deleteNote={deleteNote}
+              onDeleteAccount={() => void removeAccount()}
+              onBack={() => setSettingsOpen(false)}
+              onSignOut={signOut}
+              appUpdate={appUpdate}
+              deviceSection={(
+                <>
+                  <ActionGroup label="This Mac">
+                    <ActionRow label="Device" value={catalogue?.deviceLabel} chevron={false} />
+                    {/* Sync publishes local-gallery rows — a Visionary-only
+                        feature, so the row simply isn't offered on Free. */}
+                    {accountTier === 'pro' ? (
+                      <>
+                        <ActionRow
+                          label="Catalogue sync"
+                          value={syncState === 'synced' ? 'Up to date'
+                            : syncState === 'partial' ? 'Partly synced'
+                            : syncState === 'failed' ? 'Sync failed' : undefined}
+                          control={(
+                            <Button
+                              variant="quiet"
+                              disabled={syncState === 'syncing' || !catalogue}
+                              onClick={() => catalogue && void runSync(catalogue, session)}
+                            >
+                              {syncState === 'syncing' ? 'Syncing…' : 'Sync now'}
+                            </Button>
+                          )}
+                        />
+                        {syncState === 'syncing' ? (
+                          <div class="desktop-sync-progress" role="progressbar" aria-label="Syncing this Mac's catalogue" />
+                        ) : null}
+                        <p class="m-note m-panel-note">
+                          Sends each local gallery's title and photograph count — never the photographs — so
+                          your other devices can list this Mac's folders.
+                        </p>
+                        <ActionRow
+                          label="Hidden galleries"
+                          value={hiddenPasswordSet ? 'Password protected' : 'Open to anyone'}
+                          control={(
+                            <Button
+                              variant="quiet"
+                              onClick={() => {
+                                setPasswordPrompt(hiddenPasswordSet ? 'disable' : 'set')
+                                setPasswordDraft(''); setPasswordDraft2(''); setPasswordNote(null)
+                              }}
+                            >
+                              {hiddenPasswordSet ? 'Remove password' : 'Set a password'}
+                            </Button>
+                          )}
+                        />
+                        <p class="m-note m-panel-note">
+                          Any gallery's ··· menu can hide it out of the Library. The password gates
+                          opening that section — a screen-privacy barrier, not encryption.
+                        </p>
+                      </>
+                    ) : null}
+                  </ActionGroup>
+                  {/* The same vault card the iOS Settings hosts: usage, cap,
+                      load policy, per-gallery purge, Forget everything. The
+                      controller resolves the live tier on every call. */}
+                  <VaultSettings
+                    controller={createDesktopVaultSettings(() => accountTier)}
+                    tier={accountTier}
+                    embedded
+                    usageBreakdown={false}
+                  />
+                </>
+              )}
+            />
+          </div>
+        ) : null}
       </div>
 
       {/* "+ Add Gallery" is a fork, not a picker: a folder on this Mac goes
@@ -3222,107 +3325,6 @@ export default function Catalogue({ apiBase }: { apiBase: string }) {
                 </ActionGroup>
               )}
         />
-      ) : null}
-      {/* The shared Settings surface — the same groups and options the
-          web dashboard shows. Its anchors (privacy, connect links, the
-          upgrade mailto) all open in the system browser. */}
-      {settingsOpen && session ? (
-        <div onClick={interceptSettingsLink}>
-          <WebSettings
-            ownerSlug={ownerSlug ?? session.ownerSlug}
-            ownerSlugDraft={ownerSlugDraft}
-            onOwnerSlugDraft={(value) => { setOwnerSlugDraft(value); setSettingsNote(null) }}
-            onSaveOwnerSlug={() => void saveOwnerSlug()}
-            ownerSlugBusy={busy}
-            ownerSlugNote={settingsNote}
-            identities={identities}
-            identityNote={identityNote}
-            onUnlinkIdentity={(provider) => void unlinkIdentity(provider)}
-            tier={accountTier}
-            retainedCount={retainedCount}
-            retainedLimit={retainedLimit}
-            temporaryCount={temporaryCount}
-            localCount={galleries.length + remoteDeviceGalleries.length}
-            hiddenCount={hiddenCount}
-            upgradeHref="mailto:mahesh@thecontrarian.in?subject=Manorama%20upgrade"
-            theme={theme}
-            onTheme={setTheme}
-            deleteConfirm={deleteConfirm}
-            onDeleteConfirmChange={setDeleteConfirm}
-            deleteOpen={deleteOpen}
-            onRequestDelete={() => { setDeleteOpen(true); setDeleteNote(null) }}
-            onCancelDelete={() => { setDeleteOpen(false); setDeleteConfirm(''); setDeleteNote(null) }}
-            deleteBusy={deleteBusy}
-            deleteNote={deleteNote}
-            onDeleteAccount={() => void removeAccount()}
-            onBack={() => setSettingsOpen(false)}
-            onSignOut={signOut}
-            appUpdate={appUpdate}
-            deviceSection={(
-              <>
-                <ActionGroup label="This Mac">
-                  <ActionRow label="Device" value={catalogue?.deviceLabel} chevron={false} />
-                  {/* Sync publishes local-gallery rows — a Visionary-only
-                      feature, so the row simply isn't offered on Free. */}
-                  {accountTier === 'pro' ? (
-                    <>
-                      <ActionRow
-                        label="Catalogue sync"
-                        value={syncState === 'synced' ? 'Up to date'
-                          : syncState === 'partial' ? 'Partly synced'
-                          : syncState === 'failed' ? 'Sync failed' : undefined}
-                        control={(
-                          <Button
-                            variant="quiet"
-                            disabled={syncState === 'syncing' || !catalogue}
-                            onClick={() => catalogue && void runSync(catalogue, session)}
-                          >
-                            {syncState === 'syncing' ? 'Syncing…' : 'Sync now'}
-                          </Button>
-                        )}
-                      />
-                      {syncState === 'syncing' ? (
-                        <div class="desktop-sync-progress" role="progressbar" aria-label="Syncing this Mac's catalogue" />
-                      ) : null}
-                      <p class="m-note m-panel-note">
-                        Sends each local gallery's title and photograph count — never the photographs — so
-                        your other devices can list this Mac's folders.
-                      </p>
-                      <ActionRow
-                        label="Hidden galleries"
-                        value={hiddenPasswordSet ? 'Password protected' : 'Open to anyone'}
-                        control={(
-                          <Button
-                            variant="quiet"
-                            onClick={() => {
-                              setPasswordPrompt(hiddenPasswordSet ? 'disable' : 'set')
-                              setPasswordDraft(''); setPasswordDraft2(''); setPasswordNote(null)
-                            }}
-                          >
-                            {hiddenPasswordSet ? 'Remove password' : 'Set a password'}
-                          </Button>
-                        )}
-                      />
-                      <p class="m-note m-panel-note">
-                        Any gallery's ··· menu can hide it out of the Library. The password gates
-                        opening that section — a screen-privacy barrier, not encryption.
-                      </p>
-                    </>
-                  ) : null}
-                </ActionGroup>
-                {/* The same vault card the iOS Settings hosts: usage, cap,
-                    load policy, per-gallery purge, Forget everything. The
-                    controller resolves the live tier on every call. */}
-                <VaultSettings
-                  controller={createDesktopVaultSettings(() => accountTier)}
-                  tier={accountTier}
-                  embedded
-                  usageBreakdown={false}
-                />
-              </>
-            )}
-          />
-        </div>
       ) : null}
       {/* Status notes toast over the surface like the web dashboard's —
           the rail stays clean of transient text. */}
