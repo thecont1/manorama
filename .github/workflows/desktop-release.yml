@@ -95,7 +95,7 @@ jobs:
               printf '%-28s set (%s characters)\n' "$name" "${#value}"
             else
               printf '%-28s MISSING\n' "$name"
-              echo "::warning::$name is not set for this repository. Signing cannot complete without it; notarization is skipped silently when APPLE_ID, APPLE_PASSWORD and APPLE_TEAM_ID are absent."
+              echo "::warning::$name is not set for this repository. The macOS leg requires the full APPLE_* set — it fails at the credential check before building — while the Windows and Linux legs do not use it."
             fi
           done
 
@@ -104,6 +104,20 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev patchelf libxdo-dev libssl-dev
+
+      # The Mac leg signs and notarizes, so it fails here — before the
+      # certificate import — when any APPLE_* secret is absent, naming what
+      # is missing without printing a value. Windows and Linux never reach
+      # this step and do not need Apple credentials.
+      - name: Require the macOS signing credentials
+        if: runner.os == 'macOS'
+        env:
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD || secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: scripts/require-env.sh APPLE_CERTIFICATE APPLE_CERTIFICATE_PASSWORD APPLE_ID APPLE_PASSWORD APPLE_TEAM_ID
 
       # The macOS leg codesigns through scripts/build-macos.sh, so it fails at
       # codesign until the APPLE_* secrets exist — no unsigned fallback on
@@ -132,9 +146,10 @@ jobs:
           rm signing.p12
 
       # The SwiftUI shell is the only Mac build — swiftc + codesign via
-      # scripts/build-macos.sh, then a drag-install DMG. notarytool + stapler
-      # run when the APPLE_ID trio is present, the same posture the tauri CLI
-      # took before the Mac leg moved off it.
+      # scripts/build-macos.sh, then a drag-install DMG. The credential
+      # check above guarantees the APPLE_* set, so notarytool + stapler run
+      # unconditionally and stapler validate fails the job on an
+      # unstapled or Invalid ticket.
       - name: Build the SwiftUI Mac bundle
         if: matrix.swiftui == true
         env:
@@ -152,10 +167,9 @@ jobs:
           ln -s /Applications build/dmg-stage/Applications
           DMG="build/dmg/manorama_${VERSION}_aarch64.dmg"
           hdiutil create -volname manorama -srcfolder build/dmg-stage -ov -format UDZO "$DMG"
-          if [ -n "${APPLE_ID:-}" ] && [ -n "${APPLE_PASSWORD:-}" ] && [ -n "${APPLE_TEAM_ID:-}" ]; then
-            xcrun notarytool submit "$DMG" --apple-id "$APPLE_ID" --password "$APPLE_PASSWORD" --team-id "$APPLE_TEAM_ID" --wait
-            xcrun stapler staple "$DMG"
-          fi
+          xcrun notarytool submit "$DMG" --apple-id "$APPLE_ID" --password "$APPLE_PASSWORD" --team-id "$APPLE_TEAM_ID" --wait
+          xcrun stapler staple "$DMG"
+          xcrun stapler validate "$DMG"
 
       - name: Build desktop bundles
         if: runner.os != 'macOS'
