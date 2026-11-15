@@ -193,7 +193,9 @@ export default function VideoSlide({ item, isActive, soundOn, prefersReducedMoti
         poster={item.poster.src}
         // Google Photos clips load straight from lh3, whose 302 mints a
         // googlevideo URL bound to the visitor's IP and UA — and poisons
-        // it if a Referer rides either hop. No provider URL needs one.
+        // it if a Referer rides either hop. Chrome ignores this attribute
+        // on media (the page's Referrer-Policy is what strips it), but
+        // engines that honour it get the same treatment.
         referrerPolicy="no-referrer"
         width={item.width}
         height={item.height}

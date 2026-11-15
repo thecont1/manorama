@@ -36,7 +36,11 @@ export const pageSecurityHeaders = (opts: { dev: boolean }): Record<string, stri
     'Content-Security-Policy': directives.join('; '),
     'X-Frame-Options': 'DENY',
     'Strict-Transport-Security': 'max-age=31536000; includeSubDomains',
-    'Referrer-Policy': 'strict-origin-when-cross-origin',
+    // same-origin, not strict-origin-when-cross-origin: a Referer on either
+    // hop of the lh3 -> googlevideo video chain makes Google 403 the signed
+    // playback URL, and Chrome's media stack ignores the element-level
+    // referrerpolicy attribute — the page policy is the lever that works.
+    'Referrer-Policy': 'same-origin',
     'X-Content-Type-Options': 'nosniff',
   }
 }
