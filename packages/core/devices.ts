@@ -23,9 +23,8 @@ export const DEVICE_EXPIRY_DAYS = 180
  *  thirteenth live device is refused rather than repeating a colour. */
 export const DEVICE_COLOUR_SLOTS = 12
 
-/** The pill a gallery wears when its device is no longer on the account —
+/** The label a gallery wears when its device is no longer on the account —
  *  forgotten, expired, or an older build that never registered. */
-export const UNKNOWN_DEVICE_COLOUR = -1
 export const UNKNOWN_DEVICE_LABEL = 'Another device'
 
 export type Device = {

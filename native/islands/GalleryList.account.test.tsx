@@ -728,6 +728,21 @@ describe('signed-in account area', () => {
     expect(section!.textContent).not.toContain('87654321')
   })
 
+  test('a Free account never sees the Local section — the feature is Visionary only', async () => {
+    installLocalStorage()
+    signInStorage()
+    stubFetch({
+      // The feed answers empty for Free anyway; the stub returns a row so the
+      // gate, not the empty list, is what keeps the section absent.
+      deviceGalleries: json({ galleries: [deviceGallery()] }),
+    })
+    const { container } = mountAccount({ billing: entitlement('free') })
+    await settle()
+
+    expect(container.querySelector('[data-local-galleries]')).toBeNull()
+    expect(container.textContent).not.toContain('Living room folder')
+  })
+
   test('a published row opens its cloud gallery from the tile', async () => {
     installLocalStorage()
     signInStorage()

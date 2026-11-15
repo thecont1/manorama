@@ -38,7 +38,7 @@ import { AccountApiError, createAccountGallery, deleteAccount, deleteDeviceGalle
 import { previewSrcFor, sourceLabelFor } from '../../native/lib/library-media'
 import type { GallerySummary } from '../../app/lib/gallery-repository'
 import type { DeviceGallery } from '../../packages/core/device-gallery'
-import { DEVICE_KIND_NAME, UNKNOWN_DEVICE_LABEL, deviceShortName, findDevice, isDeviceKind, sortDevices, type Device, type DeviceKind } from '../../packages/core/devices'
+import { DEVICE_KIND_NAME, UNKNOWN_DEVICE_LABEL, findDevice, isDeviceKind, type Device, type DeviceKind } from '../../packages/core/devices'
 import { DeviceLegend } from '../../app/components/library/DeviceLegend'
 import { DevicePill } from '../../app/components/library/DevicePill'
 import { DeviceGalleriesGrid } from '../../app/components/library/DeviceGalleriesSection'
@@ -2356,7 +2356,7 @@ export default function Catalogue({ apiBase }: { apiBase: string }) {
           </div>
           <footer class="site-footer">
             <a class="site-footer-link" {...externalAnchor(PRIVACY_URL)}>Privacy Policy</a>
-            <p class="site-footer-copy">© 2026 Mahesh Shantaram. · <a {...externalAnchor(AUTHOR_URL)}>thecontrarian.in</a><br />Photographs in galleries belong to their respective owners.</p>
+            <p class="site-footer-copy">© 2026 Mahesh Shantaram / <a {...externalAnchor(AUTHOR_URL)}>thecontrarian.in</a><br />Photographs in galleries belong to their respective owners.</p>
           </footer>
         </main>
       </>
@@ -2707,7 +2707,7 @@ export default function Catalogue({ apiBase }: { apiBase: string }) {
               </div>
             </aside>
           ) : null}
-          <p class="admin-copyright">© 2026 Mahesh Shantaram.<br />Photographs in galleries belong to their respective owners.</p>
+          <p class="admin-copyright">© 2026 Mahesh Shantaram / <a {...externalAnchor(AUTHOR_URL)}>thecontrarian.in</a><br />Photographs in galleries belong to their respective owners.</p>
         </aside>
         <section class="gallery-list" aria-labelledby="galleries-heading">
           {pendingUpdate ? (
