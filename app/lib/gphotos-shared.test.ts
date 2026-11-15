@@ -2,11 +2,12 @@ import { describe, expect, test } from 'bun:test'
 import {
   extractGPhotosShare,
   fetchGPhotosImage,
+  fetchGPhotosVideo,
   gphotosAlbumIdOf,
   parseSharePage,
   scanGPhotosAlbum,
 } from './gphotos-shared'
-import { MAX_GALLERY_ITEMS, SourceFetchError } from './imagesource'
+import { MAX_GALLERY_ITEMS, SourceFetchError, isVideoItem, type VideoItem } from './imagesource'
 
 const ALBUM_ID = 'AF1QipAlbumIdTestValue0123456789abcdefghijklmnop'
 const KEY = 'k3yAbCdEf0123456789'
@@ -254,7 +255,7 @@ describe('scanGPhotosAlbum', () => {
     expect(scan.partial).toBeUndefined()
   })
 
-  test('duplicates and videos do not consume the photo enumeration bound', async () => {
+  test('duplicates do not consume the enumeration bound', async () => {
     const dupes = Array.from({ length: MAX_GALLERY_ITEMS }, () => item('AF1QipItem000000001'))
     const video = item('AF1QipItemVideo00001', 1920, 1080, [[[['https://lh3.googleusercontent.com/pw/k=m18']]]])
     const stub = stubScan(
@@ -263,7 +264,7 @@ describe('scanGPhotosAlbum', () => {
     )
     const scan = await scanGPhotosAlbum(SHARE_URL, stub.impl)
     expect(scan.images.map((image) => image.ref)).toEqual([
-      'AF1QipItem000000001', 'AF1QipItem000000002', 'AF1QipItem000000003',
+      'AF1QipItem000000001', 'AF1QipItemVideo00001', 'AF1QipItem000000002', 'AF1QipItem000000003',
     ])
     expect(stub.calls.filter((c) => c.url.includes('batchexecute'))).toHaveLength(1)
   })
@@ -276,12 +277,43 @@ describe('scanGPhotosAlbum', () => {
     expect(scan.truncated).toBe(MAX_GALLERY_ITEMS + 10)
   })
 
-  test('skips items carrying video renditions and non-lh3 media urls', async () => {
+  test('keeps video items as videos and drops non-lh3 media urls', async () => {
     const video = item('AF1QipItemVideo00001', 1920, 1080, [[[['https://lh3.googleusercontent.com/pw/otherkey=m18']]]])
     const foreign = ['AF1QipItemForeign001', ['https://cdn.example.com/img.jpg', 1000, 1000], 1000]
     const stub = stubScan(sharePage([item('AF1QipItem000000001'), video, foreign]))
     const scan = await scanGPhotosAlbum(SHARE_URL, stub.impl)
-    expect(scan.images.map((image) => image.ref)).toEqual(['AF1QipItem000000001'])
+    expect(scan.images.map((image) => image.ref)).toEqual(['AF1QipItem000000001', 'AF1QipItemVideo00001'])
+    expect(isVideoItem(scan.images[1])).toBe(true)
+  })
+
+  test('emits a VideoItem from the descriptor shape current payloads use', async () => {
+    const video = item('AF1QipItemVideo00001', 1080, 1920, [
+      { '15': 4082, '76647426': [11157, null, 1080, 1920, null, 4, 134, null, [[1, null, 1080, 1920]], 0, null, null, null, ['https://lh3.googleusercontent.com/pw/AF1QipItemVideo00001key']] },
+    ])
+    const stub = stubScan(sharePage([item('AF1QipItem000000001'), video]))
+    const scan = await scanGPhotosAlbum(SHARE_URL, stub.impl)
+    const emitted = scan.images[1]
+    expect(isVideoItem(emitted)).toBe(true)
+    const clip = emitted as VideoItem
+    expect(clip.filename).toBe('Video 2')
+    expect(clip.mimeType).toBe('video/mp4')
+    expect(clip.durationSeconds).toBe(11.157)
+    expect(clip.width).toBe(1080)
+    expect(clip.height).toBe(1920)
+    expect(clip.src).toBe(`/api/gphotos/video?u=${encodeURIComponent('https://lh3.googleusercontent.com/pw/AF1QipItemVideo00001key')}&r=m22`)
+    expect(clip.poster.src).toBe(`/api/gphotos/image?u=${encodeURIComponent('https://lh3.googleusercontent.com/pw/AF1QipItemVideo00001key')}&r=w1080`)
+    expect(clip.c2pa).toBe(false)
+    expect(clip.fidelity).toBe('display-derivative')
+  })
+
+  test('emits a VideoItem without a duration for the older URL-marker shape', async () => {
+    const video = item('AF1QipItemVideo00001', 1920, 1080, [[[['https://lh3.googleusercontent.com/pw/otherkey=m22']]]])
+    const stub = stubScan(sharePage([video]))
+    const scan = await scanGPhotosAlbum(SHARE_URL, stub.impl)
+    const emitted = scan.images[0]
+    expect(isVideoItem(emitted)).toBe(true)
+    expect((emitted as VideoItem).durationSeconds).toBeUndefined()
+    expect((emitted as VideoItem).src).toContain('/api/gphotos/video?')
   })
 
   test('throws the empty-album error when the album block carries no items', async () => {
@@ -294,10 +326,12 @@ describe('scanGPhotosAlbum', () => {
     await expect(scanGPhotosAlbum(SHARE_URL, stub.impl)).rejects.toThrow('could not read that Google Photos album')
   })
 
-  test('throws the videos-unsupported error when every item is a video', async () => {
+  test('an all-video album scans to a video gallery', async () => {
     const video = item('AF1QipItemVideo00001', 1920, 1080, [[[['https://lh3.googleusercontent.com/pw/k=m22']]]])
     const stub = stubScan(sharePage([video]))
-    await expect(scanGPhotosAlbum(SHARE_URL, stub.impl)).rejects.toThrow('only contains videos')
+    const scan = await scanGPhotosAlbum(SHARE_URL, stub.impl)
+    expect(scan.images).toHaveLength(1)
+    expect(isVideoItem(scan.images[0])).toBe(true)
   })
 
   test('rejects non-share links with paste guidance', async () => {
@@ -398,5 +432,58 @@ describe('fetchGPhotosImage', () => {
     const { urls: boom, impl: boomImpl } = recording(new Response('boom', { status: 503 }))
     await expect(fetchGPhotosImage(BASE, 'w400', boomImpl)).rejects.toBeInstanceOf(SourceFetchError)
     expect(boom).toHaveLength(2)
+  })
+})
+
+describe('fetchGPhotosVideo', () => {
+  const BASE = 'https://lh3.googleusercontent.com/pw/AP1GczTestKey0123456789'
+  const SIGNED = 'https://rr5---sn-h5576nsd.googlevideo.com/videoplayback?expire=1&id=abc&itag=22'
+
+  const recording = (handler: (url: string, init?: RequestInit) => Response) => {
+    const calls: { url: string; init?: RequestInit }[] = []
+    const impl = (async (input: Parameters<typeof fetch>[0], init?: Parameters<typeof fetch>[1]) => {
+      const url = typeof input === 'string' ? input : input instanceof URL ? input.href : input.url
+      calls.push({ url, init })
+      return handler(url, init)
+    }) as typeof fetch
+    return { calls, impl }
+  }
+
+  test('follows the signed googlevideo redirect and forwards the Range window', async () => {
+    const { calls, impl } = recording((url) =>
+      url.includes('googlevideo.com')
+        ? new Response('chunk', { status: 206, headers: { 'Content-Range': 'bytes 0-1023/4096', 'Content-Type': 'video/mp4' } })
+        : new Response(null, { status: 302, headers: { location: SIGNED } }),
+    )
+    const res = await fetchGPhotosVideo(BASE, 'm22', 'bytes=0-1023', impl)
+    expect(res.status).toBe(206)
+    expect(calls.map((c) => c.url)).toEqual([`${BASE}=m22`, SIGNED])
+    for (const call of calls) expect((call.init?.headers as Record<string, string>).Range).toBe('bytes=0-1023')
+  })
+
+  test('serves a direct answer without a redirect hop', async () => {
+    const { calls, impl } = recording(() => new Response('mp4', { status: 200, headers: { 'Content-Type': 'video/mp4' } }))
+    const res = await fetchGPhotosVideo(BASE, 'm18', null, impl)
+    expect(res.status).toBe(200)
+    expect(calls.map((c) => c.url)).toEqual([`${BASE}=m18`])
+  })
+
+  test('refuses a redirect to a non-Google host', async () => {
+    const { calls, impl } = recording(() => new Response(null, { status: 302, headers: { location: 'https://cdn.evil.example/steal.mp4' } }))
+    await expect(fetchGPhotosVideo(BASE, 'm22', null, impl)).rejects.toBeInstanceOf(SourceFetchError)
+    // The refusal is an upstream-shape failure — one transient retry, never the follow.
+    expect(calls).toHaveLength(2)
+    expect(calls.every((c) => !c.url.includes('evil.example'))).toBe(true)
+  })
+
+  test('rejects rendition shapes outside the video whitelist and non-lh3 urls', async () => {
+    const { calls, impl } = recording(() => new Response('mp4', { status: 200 }))
+    for (const r of ['w400', 'h256', 'd', 'x', 'm99', '']) {
+      await expect(fetchGPhotosVideo(BASE, r, null, impl)).rejects.toBeInstanceOf(SourceFetchError)
+    }
+    for (const u of ['https://lh3.googleusercontent.com.evil.com/pw/x', 'http://lh3.googleusercontent.com/pw/x']) {
+      await expect(fetchGPhotosVideo(u, 'm22', null, impl)).rejects.toBeInstanceOf(SourceFetchError)
+    }
+    expect(calls).toHaveLength(0)
   })
 })
