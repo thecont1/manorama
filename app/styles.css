@@ -1837,23 +1837,14 @@ body:has(.ops-page) { overflow: auto; overflow-x: clip; background: #111312; }
 .lib-quiet-toggle[aria-pressed="true"] { border-color: rgb(var(--ink)); background: rgb(var(--ink)); color: #161817; }
 html.light .lib-quiet-toggle[aria-pressed="true"] { color: #e9e5dc; }
 
-/* Quiet view — the toggle on the rail sinks the gallery list to a whisper:
-   every word to alpha 0.05 so only the photographs stay at full strength.
-   `color` (and -webkit-text-fill-color for engines that honour it)
-   inherits, so the fade lands once on every descendant rather than
-   compounding the way nested opacity would. The rail itself — and the
-   way back — is deliberately untouched. */
-.lib-quiet, .lib-quiet * {
-  color: rgba(var(--ink), .05) !important;
-  -webkit-text-fill-color: rgba(var(--ink), .05) !important;
-}
-/* The curtain: the transition lives on the un-quieted elements so the fade
-   eases in AND back out — the same bezier the viewer's curtain uses. The
-   per-card delay that makes it fall is written inline by curtainStagger.
-   Only the img decode crossfades carry transitions inside these containers;
-   they keep their .32s lane and gain the slower brightness lane beside it. */
+/* Keep color stable and resolve each fill locally so WebKit never chases an inherited animation. */
+.gallery-list, .native-list-card, .native-lib-foot,
 .gallery-list :not(img), .native-list-card :not(img), .native-lib-foot :not(img) {
-  transition: color .7s cubic-bezier(.4, 0, .2, 1), -webkit-text-fill-color .7s cubic-bezier(.4, 0, .2, 1), opacity .7s cubic-bezier(.4, 0, .2, 1);
+  -webkit-text-fill-color: currentColor;
+  transition: -webkit-text-fill-color .7s cubic-bezier(.4, 0, .2, 1), opacity .7s cubic-bezier(.4, 0, .2, 1);
+}
+.lib-quiet, .lib-quiet * {
+  -webkit-text-fill-color: rgba(var(--ink), .05) !important;
 }
 .gallery-list :is(.lib-card, .admin-gallery-strip-item, .lib-compact-cover) img,
 .native-list-card :is(.lib-card, .admin-gallery-strip-item, .lib-compact-cover) img {

@@ -2320,13 +2320,14 @@ describe('the Library quiet view', () => {
   test('the stylesheet fades text and chrome to a whisper but never the rail or a photograph', () => {
     const css = readFileSync(new URL('../../app/styles.css', import.meta.url), 'utf8')
     expect(css).toContain('.lib-quiet, .lib-quiet *')
-    expect(css).toContain('color: rgba(var(--ink), .05) !important')
+    expect(css).toContain('-webkit-text-fill-color: currentColor')
     expect(css).toContain('-webkit-text-fill-color: rgba(var(--ink), .05) !important')
+    expect(css).not.toMatch(/\n\s+color: rgba\(var\(--ink\), \.05\) !important/)
     expect(css).toContain('.lib-quiet :where(svg, .device-pill')
     // The fade animates as a curtain — the transition lives on the
     // un-quieted elements so it eases in both directions — and the
     // photographs step a touch brighter while the words sink.
-    expect(css).toContain('transition: color .7s cubic-bezier(.4, 0, .2, 1)')
+    expect(css).toContain('transition: -webkit-text-fill-color .7s cubic-bezier(.4, 0, .2, 1)')
     expect(css).toContain('.lib-quiet img { filter: brightness(1.12); }')
     // No image dims, and nothing on the rail, ever quiets.
     expect(css).not.toMatch(/\.lib-quiet[^{}]*img[^{}]*opacity/)
