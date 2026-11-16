@@ -45,6 +45,9 @@ import { mimeTypeForItem, sourceLabelFor, LibraryMediaLoader } from '../lib/libr
 import { cacheFillRegistry } from '../lib/cache-fill'
 import { copyText, type GallerySharePayload } from '../../app/lib/gallery-share'
 import { shareGalleryNative } from '../lib/gallery-share'
+import type { EncryptedClientSession } from '../../app/lib/encrypted-resolver'
+import type { PostToXPhoto } from '../lib/post-to-x'
+import type { PostPhotoBytes } from '../lib/post-export'
 import { LibraryCover, LibraryRail } from './LibraryRail'
 import { libraryLayout } from '../../packages/core/library-layout'
 import { deviceImageDpr } from '../../packages/core/image-staging'
@@ -332,7 +335,7 @@ export default function GalleryList({ apiBase, owner, slug, deepLinkSelection, o
   const [openMenuSlug, setOpenMenuSlug] = useState<string | null>(null)
   // The gallery whose photographs are being posted to X, and the address the
   // post carries back to it.
-  const [postToX, setPostToX] = useState<{ gallery: GallerySummary; url: string } | null>(null)
+  const [postToX, setPostToX] = useState<{ gallery: GallerySummary; url: string; galleryId: string } | null>(null)
   const [vaultGalleries, setVaultGalleries] = useState<ReadonlyMap<string, OfflineGallerySummary>>(new Map())
   const [cachedLibraryGalleries, setCachedLibraryGalleries] = useState<OfflineGridGallery[]>([])
   const [cachedMenuGallery, setCachedMenuGallery] = useState<OfflineGridGallery | null>(null)
@@ -1037,7 +1040,45 @@ export default function GalleryList({ apiBase, owner, slug, deepLinkSelection, o
       }
       hash = galleryHashForSource(source, gallery.id)
     }
-    setPostToX({ gallery, url: `https://manorama.xyz/${ownerSlug}/${gallery.slug}${hash}` })
+    setPostToX({
+      gallery,
+      url: `https://manorama.xyz/${ownerSlug}/${gallery.slug}${hash}`,
+      // The device's own vault identity for this gallery — the copies an
+      // encrypted source keeps on the phone.
+      galleryId: galleryIds[gallery.slug] ?? '',
+    })
+  }
+
+  /** The decryption session for an encrypted gallery's source, opened once and
+   *  held for the length of the picker. The provider SDK arrives behind a
+   *  dynamic import, so it never enters the Worker graph. */
+  const encryptedSessionRef = useRef<EncryptedClientSession | null>(null)
+  const encryptedSession = async (): Promise<EncryptedClientSession | null> => {
+    if (encryptedSessionRef.current) return encryptedSessionRef.current
+    const galleryId = postToX?.gallery.id
+    if (!galleryId) return null
+    const source = await resolveEncryptedSourceForSelection(galleryId).catch(() => null)
+    if (!source) return null
+    const { openEncryptedSource } = await import('../../app/lib/encrypted-client')
+    const session = await openEncryptedSource(source)
+    encryptedSessionRef.current = session
+    return session
+  }
+
+  /** Decrypts one photograph for a post. An encrypted source has no address,
+   *  so this is the only way its bytes reach the export. */
+  const materializeEncryptedPhoto = async (photo: PostToXPhoto): Promise<PostPhotoBytes | undefined> => {
+    if (!photo.media || photo.media.kind !== 'encrypted') return undefined
+    const session = await encryptedSession().catch(() => null)
+    if (!session) return undefined
+    const materialized = await session.materialize(photo.media, false)
+    return { bytes: materialized.bytes, mimeType: materialized.mimeType }
+  }
+
+  const closePostToX = () => {
+    encryptedSessionRef.current?.dispose()
+    encryptedSessionRef.current = null
+    setPostToX(null)
   }
 
   const purgeSavedCopy = async (gallery: GallerySummary) => {
@@ -2100,7 +2141,13 @@ export default function GalleryList({ apiBase, owner, slug, deepLinkSelection, o
         slug={postToX.gallery.slug}
         title={galleryName(postToX.gallery)}
         galleryUrl={postToX.url}
-        onClose={() => setPostToX(null)}
+        savedPhotos={postToX.galleryId ? {
+          galleryId: postToX.galleryId,
+          entryIdFor: (photoId) => thumbnailEntryId(photoId),
+          read: (entryId) => offlineStore.readThumbnail(postToX.galleryId, entryId),
+        } : undefined}
+        materialize={materializeEncryptedPhoto}
+        onClose={closePostToX}
         onPosted={(note) => setGalleryActionNote(note)}
       />
     ) : null}

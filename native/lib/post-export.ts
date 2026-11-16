@@ -7,7 +7,7 @@ import {
   runImageProgram,
   type ImageProgramRuntime,
 } from './image-program'
-import { exportFileName, POST_TO_X_MAX_EDGE, type PostToXPhoto } from './post-to-x'
+import { exportFileName, photoMimeType, POST_TO_X_MAX_EDGE, type PostToXPhoto } from './post-to-x'
 
 /**
  * The export.
@@ -40,6 +40,48 @@ export type PostPhotoBytes = { bytes: Uint8Array; mimeType: string }
 
 /** Reads the bytes of one photograph. */
 export type PostPhotoReader = (photo: PostToXPhoto) => Promise<PostPhotoBytes | undefined>
+
+/**
+ * The device's own copies of a gallery's photographs.
+ *
+ * An encrypted source has no addresses: its bytes live in the device's vault,
+ * keyed by the gallery's own identity. Nothing here reaches the network.
+ */
+export type PostSavedPhotos = {
+  /** The device's vault identity for the gallery. */
+  galleryId: string
+  /** The vault entry that holds one photograph's own bytes. */
+  entryIdFor: (photoId: string) => string
+  /** The decrypted bytes the device holds for that entry. */
+  read: (entryId: string) => Promise<Uint8Array | undefined>
+}
+
+/**
+ * Reads a photograph's original bytes for the post.
+ *
+ * A cloud photograph is fetched from the provider's own address. A photograph
+ * from an encrypted source has no address at all, so its bytes come from this
+ * device: the saved copy first — local, and it works with no network and no
+ * key — and a live decryption only when the device holds no copy of it.
+ */
+export const postPhotoReader = (options: {
+  /** Fetches a cloud photograph from the provider's address. */
+  fetch?: (photo: PostToXPhoto) => Promise<PostPhotoBytes | undefined>
+  /** This device's own copies, when the gallery has any. */
+  saved?: PostSavedPhotos
+  /** Decrypts one photograph from an encrypted source. */
+  materialize?: (photo: PostToXPhoto) => Promise<PostPhotoBytes | undefined>
+}): PostPhotoReader => async (photo) => {
+  if (photo.encrypted) {
+    const saved = await options.saved?.read(options.saved.entryIdFor(photo.id)).catch(() => undefined)
+    if (saved && saved.length > 0) return { bytes: saved, mimeType: photoMimeType(photo) }
+    if (!options.materialize) return undefined
+    return options.materialize(photo).catch(() => undefined)
+  }
+  if (!photo.src) return undefined
+  if (!options.fetch) return undefined
+  return options.fetch(photo).catch(() => undefined)
+}
 
 /** The share sheet the prepared files are handed to. */
 export interface PostShareSheet {

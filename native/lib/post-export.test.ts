@@ -2,6 +2,7 @@ import { describe, expect, test } from 'bun:test'
 import type { ImageProgramRuntime } from './image-program'
 import {
   exportPhotosForShare,
+  postPhotoReader,
   toBase64,
   type PostFileStore,
   type PostPhotoReader,
@@ -71,6 +72,73 @@ describe('toBase64', () => {
     expect(toBase64(new Uint8Array([104, 105]))).toBe('aGk=')
     const large = new Uint8Array(0x8000 + 10).fill(65)
     expect(atob(toBase64(large)).length).toBe(large.length)
+  })
+})
+
+describe('postPhotoReader', () => {
+  const encrypted = (id: string): PostToXPhoto => ({
+    id,
+    filename: `${id}.jpg`,
+    width: 3000,
+    height: 2000,
+    alt: `Photograph ${id}`,
+    src: '',
+    preview: '',
+    encrypted: true,
+    media: { kind: 'encrypted', provider: 'mega', sourceKind: 'folder', sourceId: 'F', nodeId: id },
+  })
+
+  test('a cloud photograph is fetched from its own address', async () => {
+    const fetched: string[] = []
+    const read = postPhotoReader({
+      fetch: async (each) => { fetched.push(each.id); return { bytes: bytes(10), mimeType: 'image/jpeg' } },
+    })
+    const result = await read(photo('a'))
+    expect(fetched).toEqual(['a'])
+    expect(result?.bytes).toHaveLength(10)
+  })
+
+  test('an encrypted photograph comes from this device’s own copy first', async () => {
+    const read = postPhotoReader({
+      saved: {
+        galleryId: 'gallery-1',
+        entryIdFor: (photoId) => `thumb:${photoId}`,
+        read: async (entryId) => entryId === 'thumb:a' ? bytes(4096) : undefined,
+      },
+      materialize: async () => { throw new Error('the device already holds it') },
+    })
+    const result = await read(encrypted('a'))
+    expect(result?.bytes).toHaveLength(4096)
+    expect(result?.mimeType).toBe('image/jpeg')
+  })
+
+  test('a live decryption is the fallback when the device holds no copy', async () => {
+    const decrypted: string[] = []
+    const read = postPhotoReader({
+      saved: {
+        galleryId: 'gallery-1',
+        entryIdFor: (photoId) => `thumb:${photoId}`,
+        read: async () => undefined,
+      },
+      materialize: async (each) => { decrypted.push(each.id); return { bytes: bytes(2048), mimeType: 'image/heic' } },
+    })
+    const result = await read(encrypted('a'))
+    expect(decrypted).toEqual(['a'])
+    expect(result?.mimeType).toBe('image/heic')
+  })
+
+  test('an encrypted photograph with neither is left out, not faked', async () => {
+    const read = postPhotoReader({
+      saved: { galleryId: 'gallery-1', entryIdFor: (photoId) => `thumb:${photoId}`, read: async () => undefined },
+    })
+    expect(await read(encrypted('a'))).toBeUndefined()
+  })
+
+  test('a failing decryption leaves the photograph out rather than failing the post', async () => {
+    const read = postPhotoReader({
+      materialize: async () => { throw new Error('the key is gone') },
+    })
+    expect(await read(encrypted('a'))).toBeUndefined()
   })
 })
 

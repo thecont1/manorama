@@ -3,6 +3,7 @@ import type { GalleryMediaItem } from '../../app/lib/imagesource'
 import {
   exportFileName,
   orderedSelection,
+  photoMimeType,
   postToXPhotos,
   postToXText,
   togglePostSelection,
@@ -68,6 +69,26 @@ describe('postToXPhotos', () => {
     ])
     expect(only.src).toBe('')
     expect(only.encrypted).toBe(true)
+  })
+
+  test('carries the encrypted reference, so the device can decrypt it', () => {
+    const media = { kind: 'encrypted', provider: 'mega', sourceKind: 'folder', sourceId: 'F', nodeId: 'N' } as const
+    const [only] = postToXPhotos([photo('a', { src: '', media }) as Partial<GalleryMediaItem>])
+    expect(only.media).toEqual(media)
+  })
+})
+
+describe('photoMimeType', () => {
+  test('reads the format from the file’s own name', () => {
+    expect(photoMimeType({ filename: 'shot.jpg' })).toBe('image/jpeg')
+    expect(photoMimeType({ filename: 'shot.JPEG' })).toBe('image/jpeg')
+    expect(photoMimeType({ filename: 'shot.png' })).toBe('image/png')
+    expect(photoMimeType({ filename: 'shot.heic' })).toBe('image/heic')
+  })
+
+  test('claims nothing it cannot know', () => {
+    expect(photoMimeType({ filename: 'shot' })).toBe('application/octet-stream')
+    expect(photoMimeType({ filename: 'shot.bin' })).toBe('application/octet-stream')
   })
 })
 

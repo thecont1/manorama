@@ -1,5 +1,6 @@
 import type { GalleryMediaItem } from '../../app/lib/imagesource'
 import { isVideoItem } from '../../app/lib/imagesource'
+import type { MediaReference } from '../../packages/core/encrypted-source'
 
 /**
  * The "Post to X" policy.
@@ -43,6 +44,9 @@ export type PostToXPhoto = {
   preview: string
   /** True when the source is encrypted and the bytes are local. */
   encrypted: boolean
+  /** The encrypted reference, when there is one — the key to decrypting this
+   *  photograph from its source. Absent for every cloud photograph. */
+  media?: MediaReference
 }
 
 /**
@@ -63,7 +67,28 @@ export const postToXPhotos = (images: readonly GalleryMediaItem[]): PostToXPhoto
     src: item.src,
     preview: item.variants?.[0]?.src ?? item.src,
     encrypted: item.media?.kind === 'encrypted',
+    media: item.media,
   }))
+
+/**
+ * The format of a photograph's own bytes.
+ *
+ * The manifest's filename is the record of what the file is — the encrypted
+ * sources keep the real name even though the bytes have no address — so the
+ * extension answers it. Anything unrecognised stays unknown rather than
+ * claiming a type the bytes may not have.
+ */
+export const photoMimeType = (photo: Pick<PostToXPhoto, 'filename'>): string => {
+  const format = photo.filename.split('.').pop()?.toLowerCase() ?? ''
+  if (format === 'jpg' || format === 'jpeg') return 'image/jpeg'
+  if (format === 'png') return 'image/png'
+  if (format === 'webp') return 'image/webp'
+  if (format === 'gif') return 'image/gif'
+  if (format === 'avif') return 'image/avif'
+  if (format === 'heic') return 'image/heic'
+  if (format === 'heif') return 'image/heif'
+  return 'application/octet-stream'
+}
 
 /**
  * Adds or removes one photograph from the selection.

@@ -1,7 +1,8 @@
-import { useEffect, useState } from 'hono/jsx'
+import { useEffect, useMemo, useRef, useState } from 'hono/jsx'
 import { fetchGallery } from '../lib/api'
 import {
   orderedSelection,
+  photoMimeType,
   postToXPhotos,
   postToXText,
   togglePostSelection,
@@ -10,8 +11,17 @@ import {
   POST_TO_X_MAX_MEDIA,
   type PostToXPhoto,
 } from '../lib/post-to-x'
-import { exportPhotosForShare, type PostExportReport, type PostPhotoReader } from '../lib/post-export'
+import {
+  exportPhotosForShare,
+  postPhotoReader,
+  type PostExportReport,
+  type PostPhotoBytes,
+  type PostPhotoReader,
+  type PostSavedPhotos,
+} from '../lib/post-export'
 import { getSessionToken } from '../lib/session'
+import { GridThumbLoader } from '../lib/global-view'
+import type { OfflineObjectUrlProvider } from '../lib/offline-gallery'
 import '../styles/global-view.css'
 import '../styles/post-to-x.css'
 
@@ -38,23 +48,129 @@ type Props = {
   onClose: () => void
   /** Told what happened, in the photographer's words. */
   onPosted: (note: string) => void
-  /** Injected by the tests; the default fetches the provider's original. */
+  /** Injected by the tests; the default reads the provider's original. */
   read?: PostPhotoReader
+  /** This device's own copies of the gallery's photographs. */
+  savedPhotos?: PostSavedPhotos
+  /** Decrypts one photograph from an encrypted source, when the device holds
+   *  no copy of it. */
+  materialize?: (photo: PostToXPhoto) => Promise<PostPhotoBytes | undefined>
   exportPhotos?: typeof exportPhotosForShare
+}
+
+const defaultObjectUrls: OfflineObjectUrlProvider = {
+  create(bytes, mimeType) {
+    return URL.createObjectURL(new Blob([bytes.slice().buffer], { type: mimeType }))
+  },
+  revoke(url) {
+    URL.revokeObjectURL(url)
+  },
 }
 
 /**
  * The default reader: the provider's original bytes, with the session's
  * bearer. A photograph with no address — an encrypted gallery's — is not
- * reachable this way and is left out of the post.
+ * reachable this way; its bytes come from this device instead.
  */
-const defaultReader: PostPhotoReader = async (photo) => {
+const fetchFromProvider: PostPhotoReader = async (photo) => {
   if (!photo.src) return undefined
   const token = await getSessionToken()
   const response = await fetch(photo.src, token ? { headers: { Authorization: `Bearer ${token}` } } : undefined)
   if (!response.ok) return undefined
   const mimeType = response.headers.get('Content-Type')?.split(';')[0] ?? 'application/octet-stream'
   return { bytes: new Uint8Array(await response.arrayBuffer()), mimeType }
+}
+
+/**
+ * One cell of the picker matrix.
+ *
+ * A cloud photograph shows the provider's own rendition. A photograph from an
+ * encrypted source has no address at all, so the cell shows the device's own
+ * copy — read when the cell nears the viewport, so a gallery of two hundred
+ * stays a flat memory profile instead of decrypting every frame at once.
+ */
+const PostCell = ({
+  photo,
+  index,
+  total,
+  selected,
+  onPick,
+  savedPhotos,
+  loader,
+}: {
+  photo: PostToXPhoto
+  index: number
+  total: number
+  selected: boolean
+  onPick: (id: string) => void
+  savedPhotos?: PostSavedPhotos
+  loader?: GridThumbLoader
+}) => {
+  const [savedUrl, setSavedUrl] = useState<string | null>(null)
+  const cellRef = useRef<HTMLButtonElement | null>(null)
+  // An encrypted photograph is only ever shown from this device: the provider
+  // has no rendition of it to offer.
+  const needsSaved = Boolean(savedPhotos && loader) && (photo.encrypted || !photo.preview)
+
+  useEffect(() => {
+    if (!needsSaved || !loader || !savedPhotos) return
+    let cancelled = false
+    const materialize = () => {
+      const entryId = savedPhotos.entryIdFor(photo.id)
+      void loader
+        .urlFor(savedPhotos.galleryId, {
+          id: photo.id,
+          entryId,
+          mimeType: photoMimeType(photo),
+          video: false,
+          width: photo.width,
+          height: photo.height,
+          alt: photo.alt,
+          index,
+        })
+        .then((url) => {
+          if (!cancelled && url) setSavedUrl(url)
+        })
+        .catch(() => undefined)
+    }
+    const cell = cellRef.current
+    if (typeof IntersectionObserver === 'undefined' || !cell) {
+      materialize()
+      return () => { cancelled = true }
+    }
+    const observer = new IntersectionObserver((entries) => {
+      for (const entry of entries) if (entry.isIntersecting) materialize()
+    }, { rootMargin: '120px' })
+    observer.observe(cell)
+    return () => {
+      cancelled = true
+      observer.disconnect()
+    }
+  }, [needsSaved, loader, savedPhotos, photo, index])
+
+  const src = photo.encrypted ? savedUrl ?? undefined : photo.preview || undefined
+  return (
+    <button
+      ref={cellRef}
+      type="button"
+      class={`native-global-cell${selected ? ' is-active' : ''}`}
+      aria-pressed={selected ? 'true' : 'false'}
+      aria-label={`${selected ? 'Take out' : 'Choose'} ${photo.alt || photo.filename}, photograph ${index + 1} of ${total}`}
+      onClick={() => onPick(photo.id)}
+    >
+      {src ? (
+        <img
+          src={src}
+          width={photo.width}
+          height={photo.height}
+          alt=""
+          loading="lazy"
+          decoding="async"
+          draggable={false}
+        />
+      ) : null}
+    </button>
+  )
 }
 
 export default function PostToX({
@@ -65,7 +181,9 @@ export default function PostToX({
   galleryUrl,
   onClose,
   onPosted,
-  read = defaultReader,
+  read,
+  savedPhotos,
+  materialize,
   exportPhotos = exportPhotosForShare,
 }: Props) {
   const [photos, setPhotos] = useState<readonly PostToXPhoto[] | null>(null)
@@ -89,6 +207,13 @@ export default function PostToX({
     return () => { active = false }
   }, [apiBase, owner, slug])
 
+  // The grid's own copies are materialized lazily and revoked with the picker,
+  // so closing it leaves no decrypted photograph behind in the page.
+  const loader = useMemo(() => savedPhotos
+    ? new GridThumbLoader({ read: (_galleryId, entryId) => savedPhotos.read(entryId), objectUrls: defaultObjectUrls })
+    : undefined, [savedPhotos])
+  useEffect(() => () => loader?.release(), [loader])
+
   const pick = (id: string) => {
     if (busy) return
     const next = togglePostSelection(selected, id)
@@ -100,6 +225,12 @@ export default function PostToX({
     setNote('')
     setSelected(next)
   }
+
+  const reader = useMemo(() => read ?? postPhotoReader({
+    fetch: fetchFromProvider,
+    saved: savedPhotos,
+    materialize,
+  }), [read, savedPhotos, materialize])
 
   const post = async () => {
     if (busy || selected.length === 0) return
@@ -113,7 +244,7 @@ export default function PostToX({
         text: postToXText(caption, galleryUrl),
         title,
         url: galleryUrl,
-        read,
+        read: reader,
       })
     } catch {
       report = { outcome: 'failed', posted: 0, skipped: 0, note: 'Those photographs could not be prepared for sharing.' }
@@ -148,29 +279,18 @@ export default function PostToX({
           <p class="native-global-note">This gallery has no photographs to post.</p>
         ) : (
           <div class="native-global-grid" role="list">
-            {photos.map((photo, index) => {
-              const isSelected = selected.includes(photo.id)
-              return (
-                <button
-                  key={photo.id}
-                  type="button"
-                  class={`native-global-cell${isSelected ? ' is-active' : ''}`}
-                  aria-pressed={isSelected ? 'true' : 'false'}
-                  aria-label={`${isSelected ? 'Take out' : 'Choose'} ${photo.alt || photo.filename}, photograph ${index + 1} of ${photos.length}`}
-                  onClick={() => pick(photo.id)}
-                >
-                  <img
-                    src={photo.preview}
-                    width={photo.width}
-                    height={photo.height}
-                    alt=""
-                    loading="lazy"
-                    decoding="async"
-                    draggable={false}
-                  />
-                </button>
-              )
-            })}
+            {photos.map((photo, index) => (
+              <PostCell
+                key={photo.id}
+                photo={photo}
+                index={index}
+                total={photos.length}
+                selected={selected.includes(photo.id)}
+                onPick={pick}
+                savedPhotos={savedPhotos}
+                loader={loader}
+              />
+            ))}
           </div>
         )}
       </div>
