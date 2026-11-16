@@ -982,27 +982,6 @@ html.light .home-demo-device--duo .home-demo-device-body {
   box-shadow: inset 0 0 0 1px rgb(255 255 255 / 0.2), 0 12px 32px rgb(0 0 0 / 0.28);
 }
 
-.home-demo-duo-hinge {
-  position: absolute;
-  z-index: 20;
-  top: 0;
-  bottom: 0;
-  background: #060707;
-  pointer-events: none;
-}
-
-.home-demo-duo-hinge-cover {
-  position: absolute;
-  left: 50%;
-  width: calc(100% + 16px);
-  height: 20px;
-  transform: translateX(-50%);
-  background: #17191a;
-}
-
-.home-demo-duo-hinge-cover--top { top: 0; }
-.home-demo-duo-hinge-cover--bottom { bottom: 0; }
-
 .home-demo-duo-spread-track {
   display: flex;
   height: 100%;
@@ -1039,18 +1018,18 @@ html.light .home-demo-device--duo .home-demo-device-body {
   pointer-events: none;
 }
 
+.home-demo-viewer-stage .m-chrome--side-leading {
+  left: 0;
+  right: auto;
+}
+
+.home-demo-viewer-stage .m-chrome--side-trailing {
+  left: auto;
+  right: 0;
+}
+
 .home-demo-viewer-stage .m-chrome--top {
   top: var(--home-demo-safe-top, 8px);
-}
-
-.home-demo-device--duo .m-chrome {
-  justify-content: flex-end;
-  align-items: flex-end;
-}
-
-.home-demo-device--duo .m-chrome--bottom {
-  flex-direction: column;
-  gap: 8px;
 }
 
 .home-demo-device--duo .stage-arrows {

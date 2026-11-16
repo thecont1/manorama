@@ -1,15 +1,13 @@
 import { describe, expect, test } from 'bun:test'
-import { DEMO_DUO_PHOTOS, DEMO_PHOTOS } from './manifest'
+import { DEMO_PHOTOS } from './manifest'
 import {
   DEMO_PRESETS,
   demoPresetById,
   deviceFrameSize,
   deviceViewerSize,
-  DUO_HINGE_WIDTH,
   fitDeviceFrame,
 } from './presets'
-import { duoSpreadStartIndexes } from './DemoDuoTrack'
-import { resolveFoldLayout } from '../../../../packages/core/fold'
+import DeviceFrame from './DeviceFrame'
 import {
   captureAnchor,
   contentWidth,
@@ -78,33 +76,11 @@ describe('device frames', () => {
     near(fit.height, frame.height * 1.25)
   })
 
-  test('the Foldable derives a vertical 40pt gutter from regular inner-display size classes', () => {
+  test('the Foldable is a flat inner display with no synthetic hinge', () => {
     const duo = demoPresetById('duo')
-    const viewport = deviceViewerSize(duo)
-    const layout = resolveFoldLayout({
-      viewport,
-      ios: {
-        horizontalSizeClass: 'regular',
-        verticalSizeClass: 'regular',
-        safeAreaInsets: { top: 24, right: 28, bottom: 24, left: 24 },
-        hinge: {
-          axis: 'vertical',
-          start: (viewport.width - DUO_HINGE_WIDTH) / 2,
-          size: DUO_HINGE_WIDTH,
-        },
-      },
-    })
-    expect(DUO_HINGE_WIDTH).toBe(40)
-    expect(layout.mode).toBe('diptych')
-    expect(layout.source).toBe('ios')
-    expect(layout.segments).toEqual([
-      { x: 0, y: 0, width: 455.5, height: 669 },
-      { x: 495.5, y: 0, width: 455.5, height: 669 },
-    ])
-    expect(layout.controlRegions).toEqual([
-      { x: 24, y: 24, width: 403.5, height: 621 },
-      { x: 519.5, y: 24, width: 403.5, height: 621 },
-    ])
+    const html = String(DeviceFrame({ preset: duo, deviceRef: () => {}, viewerRef: () => {}, children: null }))
+    expect(html).not.toContain('data-demo-hinge')
+    expect(html).not.toContain('home-demo-duo-hinge')
     near(duo.bezel / deviceFrameSize(duo).width, 0.04)
     near(duo.screenRadius / duo.screen.height, 0.09, 0.01)
   })
@@ -133,29 +109,9 @@ describe('device frames', () => {
   })
 })
 
-describe('Foldable spreads', () => {
-  test('opens with portraits and keeps every fixed spread in one orientation', () => {
-    expect(DEMO_DUO_PHOTOS.slice(0, 2).map((photo) => photo.id)).toEqual(['italy-0302', 'italy-0503'])
-    expect(new Set(DEMO_DUO_PHOTOS.map((photo) => photo.id))).toEqual(new Set(DEMO_PHOTOS.map((photo) => photo.id)))
-    for (const start of duoSpreadStartIndexes(DEMO_DUO_PHOTOS.length)) {
-      const spread = DEMO_DUO_PHOTOS.slice(start, start + 2)
-      expect(spread).toHaveLength(2)
-      expect(spread[1]!.orientation).toBe(spread[0]!.orientation)
-    }
-  })
-
-  test('advances by two and overlaps only the final odd-count spread', () => {
-    expect(duoSpreadStartIndexes(15)).toEqual([0, 2, 4, 6, 8, 10, 12, 13])
-    expect(duoSpreadStartIndexes(3)).toEqual([0, 1])
-    expect(duoSpreadStartIndexes(2)).toEqual([0])
-    expect(duoSpreadStartIndexes(1)).toEqual([0])
-    expect(duoSpreadStartIndexes(0)).toEqual([])
-  })
-})
-
 describe('layoutStrip', () => {
-  test('every non-fold device uses the same height-first, uncropped strip geometry', () => {
-    for (const preset of DEMO_PRESETS.filter((candidate) => candidate.id !== 'duo')) {
+  test('every device uses the same height-first, uncropped strip geometry', () => {
+    for (const preset of DEMO_PRESETS) {
       const viewport = deviceViewerSize(preset)
       const layout = layoutStrip(sources(), viewport, 2)
       expect(layout).toHaveLength(DEMO_PHOTOS.length)

@@ -1,5 +1,5 @@
 import type { Child } from 'hono/jsx'
-import { deviceFrameSize, deviceViewerSize, DUO_HINGE_WIDTH, type DemoPreset } from './presets'
+import { deviceFrameSize, deviceViewerSize, type DemoPreset } from './presets'
 
 export default function DeviceFrame({
   preset,
@@ -78,16 +78,6 @@ export default function DeviceFrame({
             data-demo-island
             style={`top:${preset.island.top}px;width:${preset.island.width}px;height:${preset.island.height}px`}
           />
-        ) : null}
-        {preset.id === 'duo' ? (
-          <div
-            class="home-demo-duo-hinge"
-            data-demo-hinge
-            style={`left:${(preset.screen.width - DUO_HINGE_WIDTH) / 2}px;width:${DUO_HINGE_WIDTH}px`}
-          >
-            <span class="home-demo-duo-hinge-cover home-demo-duo-hinge-cover--top" />
-            <span class="home-demo-duo-hinge-cover home-demo-duo-hinge-cover--bottom" />
-          </div>
         ) : null}
       </div>
     </div>

@@ -3,15 +3,11 @@ import Viewer, { type ViewerDemoHandle } from './Viewer'
 import { GalleryCurtain } from '../components/GalleryShell'
 import { defaultGallerySettings } from '../lib/gallery-settings'
 import type { GalleryImage } from '../lib/imagesource'
-import { resolveFoldLayout, type FoldLayout } from '../../packages/core/fold'
 import DeviceFrame from '../components/home/demo/DeviceFrame'
-import DemoDuoTrack from '../components/home/demo/DemoDuoTrack'
-import { DEMO_DUO_PHOTOS, DEMO_PHOTOS, demoRenditionPath, type DemoFormat } from '../components/home/demo/manifest'
+import { DEMO_PHOTOS, demoRenditionPath, type DemoFormat } from '../components/home/demo/manifest'
 import {
   DEMO_PRESETS,
   demoPresetById,
-  deviceViewerSize,
-  DUO_HINGE_WIDTH,
   fitDeviceFrame,
   type DemoPresetId,
 } from '../components/home/demo/presets'
@@ -22,8 +18,6 @@ const GALLERY_CAPTION = 'family trip to Italy in October 2018'
 const PLACEHOLDER = 'data:image/gif;base64,R0lGODlhAQABAAAAACH5BAEKAAEALAAAAAABAAEAAAICTAEAOw=='
 type LoadState = 'loaded' | 'failed'
 type DemoPhase = 'curtain' | 'travel' | 'end' | 'rewind'
-
-const DUO_SPREAD_HOLD_MS = 1400
 
 export default function HomeDemo({ samplePath }: { samplePath?: string | null }) {
   const rootRef = useRef<HTMLDivElement>(null)
@@ -98,7 +92,7 @@ export default function HomeDemo({ samplePath }: { samplePath?: string | null })
     demoRef.current?.measure()
   }
 
-  const images = useMemo<GalleryImage[]>(() => (presetId === 'duo' ? DEMO_DUO_PHOTOS : DEMO_PHOTOS)
+  const images = useMemo<GalleryImage[]>(() => DEMO_PHOTOS
     .filter((photo) => loadStateRef.current.get(photo.id) !== 'failed')
     .map((photo) => ({
       id: photo.id,
@@ -109,7 +103,7 @@ export default function HomeDemo({ samplePath }: { samplePath?: string | null })
       alt: photo.alt,
       c2pa: false,
       placeholder: PLACEHOLDER,
-    })), [ready, failedIds, presetId])
+    })), [ready, failedIds])
   const settings = useMemo(() => ({
     ...defaultGallerySettings({
       slug: 'home-demo',
@@ -120,24 +114,6 @@ export default function HomeDemo({ samplePath }: { samplePath?: string | null })
     }),
     defaultMode: 'strip' as const,
   }), [images])
-  const foldLayout = useMemo<FoldLayout | null>(() => {
-    if (presetId !== 'duo') return null
-    const viewport = deviceViewerSize(demoPresetById('duo'))
-    return resolveFoldLayout({
-      viewport,
-      ios: {
-        horizontalSizeClass: 'regular',
-        verticalSizeClass: 'regular',
-        safeAreaInsets: { top: 24, right: 28, bottom: 24, left: 24 },
-        hinge: {
-          axis: 'vertical',
-          start: (viewport.width - DUO_HINGE_WIDTH) / 2,
-          size: DUO_HINGE_WIDTH,
-        },
-      },
-    })
-  }, [presetId])
-
   useEffect(() => {
     const root = rootRef.current
     const stage = stageRef.current
@@ -288,11 +264,11 @@ export default function HomeDemo({ samplePath }: { samplePath?: string | null })
           await handle.rewind()
           if (cancelled) return
           positionRef.current = 0
-          positionImageIdRef.current = (presetId === 'duo' ? DEMO_DUO_PHOTOS : DEMO_PHOTOS)[0]!.id
+          positionImageIdRef.current = DEMO_PHOTOS[0]!.id
           setCycle((value) => value + 1)
           return
         }
-        if (!await wait(presetId === 'duo' ? DUO_SPREAD_HOLD_MS : DEFAULT_SETTINGS.restMs)) return
+        if (!await wait(DEFAULT_SETTINGS.restMs)) return
       }
     })()
 
@@ -371,30 +347,8 @@ export default function HomeDemo({ samplePath }: { samplePath?: string | null })
                   embedded
                   demoRef={demoRef}
                   demoDisplayScaleRef={demoDisplayScaleRef}
-                  foldLayout={foldLayout}
-                  foldRenderer={foldLayout ? ({ frames, activeIndex, segments, dpr }) => (
-                    <DemoDuoTrack
-                      frames={frames.map((image) => ({
-                        id: image.id,
-                        src: image.src,
-                        width: image.width,
-                        height: image.height,
-                        alt: image.alt,
-                        placeholder: image.placeholder,
-                      }))}
-                      allFrames={images.map((image) => ({
-                        id: image.id,
-                        src: image.src,
-                        width: image.width,
-                        height: image.height,
-                        alt: image.alt,
-                        placeholder: image.placeholder,
-                      }))}
-                      activeIndex={activeIndex}
-                      segments={segments}
-                      dpr={dpr}
-                    />
-                  ) : undefined}
+                  demoVerticalBarEdge={presetId === 'duo' ? 'trailing' : undefined}
+                  demoVerticalStyle={presetId === 'duo' ? { top: '24px', bottom: '0px' } : undefined}
                   onReturnToGalleries={() => {}}
                   onPositionChange={(position) => {
                     positionRef.current = position.index
@@ -418,7 +372,7 @@ export default function HomeDemo({ samplePath }: { samplePath?: string | null })
                 data-shape={shape.id}
                 aria-pressed={shape.id === presetId ? 'true' : 'false'}
                 onClick={() => {
-                  const nextPhotos = (shape.id === 'duo' ? DEMO_DUO_PHOTOS : DEMO_PHOTOS)
+                  const nextPhotos = DEMO_PHOTOS
                     .filter((photo) => loadStateRef.current.get(photo.id) !== 'failed')
                   const nextIndex = nextPhotos.findIndex((photo) => photo.id === positionImageIdRef.current)
                   positionRef.current = Math.max(0, nextIndex)
