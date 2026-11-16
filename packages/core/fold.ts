@@ -156,9 +156,11 @@ const controlRegions = (
     width: Math.max(0, viewport.width - insets.left - insets.right),
     height: Math.max(0, viewport.height - insets.top - insets.bottom),
   }
+  const viewportRect: FoldSegment = { x: 0, y: 0, width: viewport.width, height: viewport.height }
   const activeOcclusions = occlusions
-    .filter((region) => region.kind === 'occlusion' && region.active && withinViewport(region.frame, viewport))
-    .map((region) => region.frame)
+    .filter((region) => region.kind === 'occlusion' && region.active)
+    .map((region) => intersection(region.frame, viewportRect))
+    .filter((frame) => finitePositive(frame.width) && finitePositive(frame.height))
   return segments.map((segment) => activeOcclusions.reduce(
     (region, occlusion) => withoutOcclusion(region, occlusion),
     intersection(segment, safeRect),
@@ -169,8 +171,8 @@ const segmentsFromDivision = (
   viewport: FoldViewport,
   region: FoldReservedRegion,
 ): readonly FoldSegment[] | null => {
-  const frame = region.frame
-  if (!withinViewport(frame, viewport)) return null
+  const frame = intersection(region.frame, { x: 0, y: 0, width: viewport.width, height: viewport.height })
+  if (!finitePositive(frame.width) || !finitePositive(frame.height)) return null
   if (frame.height >= frame.width) {
     if (frame.x <= 0 || frame.x + frame.width >= viewport.width || frame.y !== 0 || frame.height !== viewport.height) return null
     return [
