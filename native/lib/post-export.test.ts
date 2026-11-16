@@ -95,10 +95,9 @@ describe('exportPhotosForShare', () => {
     expect(report.skipped).toBe(0)
     // The long edge is X's ceiling, and the portrait fits inside it.
     expect(encoded).toEqual([[2048, 1365], [2048, 1365]])
-    expect(writes.map((write) => write.path)).toEqual([
-      expect.stringContaining('01-a.jpg'),
-      expect.stringContaining('02-b.jpg'),
-    ])
+    expect(writes).toHaveLength(2)
+    expect(writes[0].path).toContain('01-a.jpg')
+    expect(writes[1].path).toContain('02-b.jpg')
     expect(shares).toHaveLength(1)
     expect(shares[0].files).toHaveLength(2)
     expect(shares[0].text).toBe('Fog over the harbour')

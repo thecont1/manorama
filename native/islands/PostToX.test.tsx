@@ -191,7 +191,7 @@ describe('the Post to X picker', () => {
     await settle()
     const field = container.querySelector('textarea') as HTMLTextAreaElement
     field.value = 'Fog over the harbour'
-    field.dispatchEvent(new dom.window.Event('input', { bubbles: true }))
+    field.dispatchEvent(new dom.window.Event('input', { bubbles: true }) as unknown as Event)
     await settle()
     submitOf(container).click()
     await settle()

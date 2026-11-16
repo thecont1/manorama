@@ -974,7 +974,7 @@ describe('signed-in account area', () => {
     await settle()
     const items = [...container.querySelectorAll('[role="menuitem"]')] as HTMLButtonElement[]
     expect(items.map((item) => item.textContent)).toEqual([
-      'Pin gallery', 'Share link', 'Gallery details', 'Reorder photographs', 'Refresh gallery contents', 'Remove gallery',
+      'Pin gallery', 'Share link', 'Post to X', 'Gallery details', 'Reorder photographs', 'Refresh gallery contents', 'Remove gallery',
     ])
     ;(items.find((item) => item.textContent === 'Remove gallery'))!.click()
     await settle()
@@ -1678,7 +1678,7 @@ describe('signed-in account area', () => {
     await settle()
     const items = [...container.querySelectorAll('[role="menuitem"]')] as HTMLButtonElement[]
     expect(items.map((item) => item.textContent)).toEqual([
-      'Pin gallery', 'Share link', 'Gallery details', 'Reorder photographs', 'Refresh gallery contents', 'Remove gallery',
+      'Pin gallery', 'Share link', 'Post to X', 'Gallery details', 'Reorder photographs', 'Refresh gallery contents', 'Remove gallery',
     ])
     // Words, not drawings — the sheet is a list of sentences.
     expect(items.every((item) => item.querySelector('svg') === null)).toBe(true)
