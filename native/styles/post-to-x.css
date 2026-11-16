@@ -1,0 +1,69 @@
+/* "Post to X": the photo picker with a bar that holds the caption and the post
+   itself. The matrix itself is the picker's own — the same cells, the same
+   fixed height, aspect-true widths, zero gaps — so a photograph chosen here
+   looks chosen there. Only the chrome is new. */
+
+.native-postto {
+  display: flex;
+  flex-direction: column;
+  pointer-events: auto;
+}
+
+.native-postto-scroll {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  display: flex;
+  flex-direction: column;
+  justify-content: safe center;
+  gap: 24px;
+  padding: calc(env(safe-area-inset-top) + 12px) 0 20px;
+  scrollbar-width: thin;
+}
+
+.native-postto-bar {
+  flex: 0 0 auto;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin: 0 max(12px, env(safe-area-inset-left)) calc(12px + env(safe-area-inset-bottom)) max(12px, env(safe-area-inset-left));
+  padding: 13px 16px;
+  border: 1px solid rgba(var(--ink), .16);
+  border-radius: 18px;
+  background: rgba(24, 24, 24, .56);
+  box-shadow: 0 24px 60px rgba(0, 0, 0, .38);
+  backdrop-filter: blur(20px) saturate(.82);
+  -webkit-backdrop-filter: blur(20px) saturate(.82);
+}
+
+.native-postto-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.native-postto-head h1 {
+  margin: 0;
+  font-size: 20px;
+  font-weight: 500;
+  letter-spacing: -0.01em;
+}
+
+.native-postto-caption {
+  gap: 6px;
+}
+
+.native-postto-submit {
+  width: 100%;
+}
+
+.native-postto-note {
+  margin: 0;
+  color: rgba(var(--ink), .58);
+  font-family: 'DM Mono', ui-monospace, monospace;
+  font-size: 11px;
+  line-height: 1.5;
+}

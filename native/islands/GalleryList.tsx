@@ -2093,7 +2093,7 @@ export default function GalleryList({ apiBase, owner, slug, deepLinkSelection, o
         </div>
       </Sheet>
     ) : null}
-    {postToX ? (
+    {postToX && ownerSlug ? (
       <PostToX
         apiBase={apiBase}
         owner={ownerSlug}
