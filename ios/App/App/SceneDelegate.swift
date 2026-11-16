@@ -15,10 +15,18 @@ private final class ManoramaWebView: WKWebView {
 private final class ManoramaBridgeViewController: CAPBridgeViewController {
     var windowScene: UIWindowScene?
     var onLayoutChange: (() -> Void)?
+    var onNewDocument: (() -> Void)?
+    private var documentLoadObservation: NSKeyValueObservation?
 
     override func webView(with frame: CGRect, configuration: WKWebViewConfiguration) -> WKWebView {
         let webView = ManoramaWebView(frame: frame, configuration: configuration)
         webView.onReservedRegionsChange = { [weak self] in self?.onLayoutChange?() }
+        // A fresh document drops window.__MANORAMA_IOS_LAYOUT__; signal the
+        // delegate to forget the last delivery so identical geometry is sent
+        // again instead of being deduplicated away.
+        documentLoadObservation = webView.observe(\.isLoading, options: .new) { [weak self] webView, _ in
+            if webView.isLoading { self?.onNewDocument?() }
+        }
         guard let windowScene else { return webView }
 
         webView.configuration.userContentController.addUserScript(
@@ -74,6 +82,9 @@ class SceneDelegate: UIResponder, UIWindowSceneDelegate {
             guard let scene = self?.window?.windowScene else { return }
             self?.injectLayout(for: scene)
         }
+        bridgeViewController.onNewDocument = { [weak self] in
+            self?.lastInjectedLayout = nil
+        }
 
         window = UIWindow(windowScene: windowScene)
         window?.rootViewController = bridgeViewController
@@ -101,8 +112,11 @@ class SceneDelegate: UIResponder, UIWindowSceneDelegate {
               let webView = (window?.rootViewController as? CAPBridgeViewController)?.webView else { return }
         let javaScript = Self.layoutJavaScript(for: webView, windowScene: windowScene, dispatchEvent: true)
         guard javaScript != lastInjectedLayout else { return }
-        lastInjectedLayout = javaScript
-        webView.evaluateJavaScript(javaScript, completionHandler: nil)
+        webView.evaluateJavaScript(javaScript) { [weak self] _, error in
+            // Record only a successful delivery — a failed evaluation must not
+            // suppress the retry the next layout pass would send.
+            if error == nil { self?.lastInjectedLayout = javaScript }
+        }
     }
 
     fileprivate static func layoutJavaScript(for webView: WKWebView, windowScene: UIWindowScene, dispatchEvent: Bool) -> String {
