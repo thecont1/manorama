@@ -162,6 +162,11 @@ jobs:
       # unstapled or Invalid ticket.
       - name: Build the SwiftUI Mac bundle
         if: matrix.swiftui == true
+        # notarytool --wait blocks on Apple's service with no ceiling of its
+        # own; a stall there once burned the whole 6h job timeout. Fail the
+        # step after an hour so a rerun --failed can retry while artifacts
+        # from the other legs carry over.
+        timeout-minutes: 60
         env:
           APPLE_ID: ${{ secrets.APPLE_ID }}
           # Either name works; the app-specific password is what notarization
