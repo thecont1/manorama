@@ -31,6 +31,8 @@ type Props = {
   /** The whole viewer suspended under another surface — behaves like a
    *  disallowed-autoplay input: pauses and never restarts while held. */
   suspended?: boolean
+  initiallyPaused?: boolean
+  onExplicitPause?: (paused: boolean) => void
   /** Explicit media box, set when the desktop video size cap applies. The
    *  slide and its `<video>` must match the poster exactly, so the parent
    *  hands the same dimensions to both. Undefined means "fill the frame". */
@@ -51,8 +53,9 @@ export const formatDuration = (seconds: number | undefined) => {
   return `${minutes}:${String(remainder).padStart(2, '0')}`
 }
 
-export default function VideoSlide({ item, isActive, soundOn, prefersReducedMotion, suspended = false, onToggleSound, onPlaybackEvent, boxStyle, onActivity, onIdle }: Props) {
+export default function VideoSlide({ item, isActive, soundOn, prefersReducedMotion, suspended = false, initiallyPaused = false, onExplicitPause, onToggleSound, onPlaybackEvent, boxStyle, onActivity, onIdle }: Props) {
   const videoRef = useRef<HTMLVideoElement | null>(null)
+  const explicitlyPausedRef = useRef(initiallyPaused)
   // Whether the clip was actually running when the document last became
   // hidden — visibilitychange resumes only what was playing, never a
   // clip that was mounted-but-paused.
@@ -70,20 +73,23 @@ export default function VideoSlide({ item, isActive, soundOn, prefersReducedMoti
    *  rejection surfaces the Play button. */
   const attemptPlay = async () => {
     const video = videoRef.current
-    if (!video) return
+    if (!video || explicitlyPausedRef.current) return
     try {
       await video.play()
       onPlaybackEvent?.('playing')
-    } catch {
-      if (!video.muted) {
+    } catch (error) {
+      // AbortError means play() was cancelled — usually by pause() — not that
+      // autoplay was refused. Honour the pause; do not retry or report blocked.
+      if ((error as DOMException | null)?.name === 'AbortError') return
+      if (!video.muted && !explicitlyPausedRef.current) {
         // Sound was refused, motion probably isn't — fall back seamlessly.
         video.muted = true
         try {
           await video.play()
           onPlaybackEvent?.('playing')
           return
-        } catch {
-          // fall through
+        } catch (retryError) {
+          if ((retryError as DOMException | null)?.name === 'AbortError') return
         }
       }
       setIsPlaying(false)
@@ -180,7 +186,10 @@ export default function VideoSlide({ item, isActive, soundOn, prefersReducedMoti
   const togglePlayback = () => {
     const video = videoRef.current
     if (!video) return
-    if (video.paused) void attemptPlay()
+    const paused = !video.paused
+    explicitlyPausedRef.current = paused
+    onExplicitPause?.(paused)
+    if (!paused) void attemptPlay()
     else { video.pause(); onPlaybackEvent?.('paused') }
   }
 

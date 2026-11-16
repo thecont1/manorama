@@ -88,6 +88,16 @@ afterEach(() => {
 })
 
 describe('the Settings popover pages', () => {
+  test('Spread is offered only where its two-pane layout is available', () => {
+    const options = (root: HTMLElement) => [...root.querySelectorAll<HTMLElement>('[aria-label="Layout"] [role="radio"]')]
+    const available = mounted({ mode: 'spread', spreadAvailable: true })
+    expect(options(available.root).map((option) => option.textContent)).toEqual(['Strip', 'Scroll', 'One by one', 'Spread'])
+    expect(options(available.root)[3].getAttribute('aria-checked')).toBe('true')
+
+    const compact = mounted({ mode: 'strip', spreadAvailable: false })
+    expect(options(compact.root).map((option) => option.textContent)).toEqual(['Strip', 'Scroll', 'One by one'])
+  })
+
   test('a visitor sees the role actions and no Gallery settings row', () => {
     const { root } = mounted({
       actions: <button type="button" class="m-actionrow">Sign in</button>,

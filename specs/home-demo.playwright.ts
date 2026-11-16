@@ -2,8 +2,8 @@
 import { expect, test, type Page } from '@playwright/test'
 
 const BASE = process.env.GALLERY_URL ?? 'http://localhost:8787'
-const STRIP_SHAPES = ['desktop', 'phone', 'tablet'] as const
-const SHAPES = [...STRIP_SHAPES, 'duo'] as const
+const SHAPES = ['desktop', 'phone', 'tablet', 'duo'] as const
+const STRIP_SHAPES = SHAPES
 
 const MATRIX = [
   { name: 'phone', width: 375, height: 812, initial: 'phone' },
@@ -55,16 +55,13 @@ const pause = async (page: Page) => {
   await expect(button).toHaveText('Resume')
 }
 
-const currentDuoSpread = (page: Page) =>
-  page.locator('[data-demo-duo-spread][data-current="true"]')
-
-const duoContentQuads = async (page: Page) => {
+const demoContentQuads = async (page: Page) => {
   const cdp = await page.context().newCDPSession(page)
   try {
     const { root } = await cdp.send('DOM.getDocument', { depth: 1 })
     const { nodeIds } = await cdp.send('DOM.querySelectorAll', {
       nodeId: root.nodeId,
-      selector: '[data-demo-duo-spread][data-current="true"] [data-diptych-frame] img',
+      selector: '[data-demo-screen] [data-photo-id] img.frame-img',
     })
     const quads: number[][] = []
     for (const nodeId of nodeIds) {
@@ -163,7 +160,7 @@ test.describe('the mounted homepage photo demo', () => {
     })).toBe(true)
   })
 
-  test('every non-fold shape contains the same flush, honest Manorama strip', async ({ page }) => {
+  test('every shape contains the same flush, honest Manorama strip', async ({ page }) => {
     await open(page)
     await pause(page)
 
@@ -344,63 +341,47 @@ test.describe('the mounted homepage photo demo', () => {
     await expect(tablet.locator('.home-demo-island, .home-demo-notch, .home-demo-home-indicator')).toHaveCount(0)
   })
 
-  test('Foldable keeps straight honest photographs and right-safe controls clear of the gutter', async ({ page, browserName }) => {
+  test('Foldable uses Desktop’s ordered Strip, straight photographs, and trailing real chrome', async ({ page, browserName }) => {
     test.skip(browserName !== 'chromium', 'Image edge heights are measured with Chromium content quads.')
     await page.emulateMedia({ reducedMotion: 'reduce' })
     await open(page)
+    const orderedIds = () => page.locator('[data-photo-id]').evaluateAll(
+      (frames) => frames.map((frame) => frame.getAttribute('data-photo-id')),
+    )
+    const desktopIds = await orderedIds(page)
     await page.locator('[data-shape="duo"]').click()
-    const spread = currentDuoSpread(page)
-    const stage = spread.locator('[data-diptych-stage]')
-    await expect(stage).toBeVisible()
-    await expect(stage.locator('[data-diptych-frame]')).toHaveCount(2)
-    await expect.poll(() => stage.locator('img').evaluateAll(
-      (images) => images.every((image) => (image as HTMLImageElement).naturalWidth > 0),
-    )).toBe(true)
-    await expect(page.locator('[data-demo-hinge]')).toHaveCount(1)
-    await expect(page.locator('[data-demo-island], [data-demo-notch], [data-demo-camera]')).toHaveCount(0)
-    await expect(page.locator('[data-demo-strip]')).toHaveCount(0)
-    await expect(page.locator('[data-mode], .home-demo-mode, .home-demo-modes')).toHaveCount(0)
-    await expect(page.locator('[data-demo-screen] [data-stage]')).toHaveClass(/mode-strip/)
-    await expect(page.locator('[data-demo-chrome-top]')).toHaveClass(/is-visible/)
-    await expect(page.locator('[data-demo-chrome-bottom]')).toHaveClass(/is-visible/)
+    expect(await orderedIds(page)).toEqual(desktopIds)
 
-    const geometry = await spread.evaluate((element) => {
+    await expect(page.locator('[data-demo-hinge], [data-demo-duo-track], [data-diptych-stage]')).toHaveCount(0)
+    await expect(page.locator('[data-demo-island], [data-demo-notch], [data-demo-camera]')).toHaveCount(0)
+    await expect(page.locator('[data-demo-strip]')).toHaveCount(1)
+    await expect(page.locator('[data-demo-screen] [data-stage]')).toHaveClass(/mode-strip/)
+    const column = page.locator('.m-chrome--side-trailing[data-chrome-top][data-chrome-bottom]')
+    await expect(column).toHaveCount(1)
+    await expect(column).toHaveClass(/is-visible/)
+    await expect(column.locator('.m-chrome-pill')).toHaveCount(4)
+    await expect(column.locator('[data-chrome-library]')).toHaveAttribute('aria-label', 'Library')
+    await expect(column.locator('[data-chrome-position]')).toHaveAttribute('aria-label', /Photograph 1 of 15/)
+    await expect(column.locator('[data-chrome-position]')).toHaveText('1of 15')
+    await expect(column.locator('button[aria-label="Gallery Settings"]')).toHaveCount(1)
+    await expect(column.locator('button[aria-label="Info"]')).toHaveCount(1)
+    await expect(column.locator('svg[aria-hidden="true"]')).toHaveCount(3)
+
+    const geometry = await column.evaluate((element) => {
       const box = (node: Element) => {
         const rect = node.getBoundingClientRect()
         return { left: rect.left, right: rect.right, top: rect.top, bottom: rect.bottom }
       }
       const viewer = document.querySelector<HTMLElement>('[data-demo-screen]')!
-      const hinge = document.querySelector<HTMLElement>('[data-demo-hinge]')!
-      const controls = [...document.querySelectorAll<HTMLElement>(
-        '[data-demo-chrome-top] .m-chrome-pill, [data-demo-chrome-bottom] .m-chrome-pill',
-      )]
-      const scale = Number(document.querySelector('[data-demo-stage]')!.getAttribute('data-demo-scale'))
-      const track = document.querySelector<HTMLElement>('[data-demo-duo-track]')!
+      const viewerBox = box(viewer)
+      const gutter = { left: (viewerBox.left + viewerBox.right) / 2 - 20, right: (viewerBox.left + viewerBox.right) / 2 + 20 }
       return {
-        viewer: box(viewer),
-        gutter: box(hinge),
-        hingeWidth: hinge.offsetWidth,
-        frames: [...element.querySelectorAll<HTMLElement>('[data-diptych-frame]')].map((frame) => {
-          const image = frame.querySelector<HTMLImageElement>('img')!
-          return {
-            id: frame.dataset.imageId,
-            x: parseFloat(getComputedStyle(frame).left),
-            frameWidth: parseFloat(getComputedStyle(frame).width),
-            frameHeight: parseFloat(getComputedStyle(frame).height),
-            frameBox: box(frame),
-            imageBox: box(image),
-            imageWidth: image.offsetWidth,
-            imageHeight: image.offsetHeight,
-            naturalWidth: image.naturalWidth,
-            naturalHeight: image.naturalHeight,
-            objectFit: getComputedStyle(image).objectFit,
-          }
-        }),
-        controls: controls.map((control) => ({ text: control.textContent?.trim().replace(/^‹\s*/, ''), ...box(control) })),
-        scale,
-        dpr: window.devicePixelRatio || 1,
-        trackTransition: getComputedStyle(track).transitionDuration,
-        trackTransform: track.style.transform,
+        viewer: viewerBox,
+        column: box(element),
+        columnTop: parseFloat(getComputedStyle(element).top),
+        scale: Number(document.querySelector('[data-demo-stage]')!.getAttribute('data-demo-scale')),
+        gutter,
+        controls: [...element.querySelectorAll<HTMLElement>('.m-chrome-pill')].map(box),
         perspective: [...document.querySelectorAll<HTMLElement>('[data-demo-device], [data-demo-device] *')].map((node) => ({
           perspective: getComputedStyle(node).perspective,
           is2D: new DOMMatrixReadOnly(getComputedStyle(node).transform).is2D,
@@ -408,45 +389,21 @@ test.describe('the mounted homepage photo demo', () => {
         })),
       }
     })
-
-    expect(geometry.hingeWidth).toBe(40)
-    expect(geometry.frames[0]).toMatchObject({ x: 0, frameWidth: 455.5, frameHeight: 669 })
-    expect(geometry.frames[1]).toMatchObject({ x: 495.5, frameWidth: 455.5, frameHeight: 669 })
-    expect(parseFloat(geometry.trackTransition)).toBeLessThanOrEqual(0.000001)
-    expect(geometry.trackTransform).toMatch(/^translateX\(-?[\d.]+px\)$/)
-    expect(geometry.controls.map((control) => control.text)).toEqual(['Library', '3-4 of 15', 'Gallery Settings', 'Info'])
-    for (let index = 1; index < geometry.controls.length; index += 1) {
-      expect(geometry.controls[index]!.top).toBeGreaterThan(geometry.controls[index - 1]!.top)
-      expect(geometry.controls[index]!.right).toBeCloseTo(geometry.controls[0]!.right, 0)
-    }
+    expect(geometry.columnTop).toBe(24)
+    expect(geometry.column.right).toBeCloseTo(geometry.viewer.right, 0)
+    expect(geometry.column.top).toBeCloseTo(geometry.viewer.top + 24 * geometry.scale, 1)
     for (const control of geometry.controls) {
-      expect(control.left).toBeGreaterThanOrEqual(geometry.gutter.right - 1)
+      expect(control.left).toBeGreaterThanOrEqual(geometry.gutter.right)
+      expect(control.right).toBeLessThanOrEqual(geometry.viewer.right + 1)
     }
-    for (const frame of geometry.frames) {
-      if (frame.x === 0) {
-        expect(frame.frameBox.right).toBeLessThanOrEqual(geometry.gutter.left + 1)
-        expect(frame.imageBox.right).toBeLessThanOrEqual(geometry.gutter.left + 1)
-      } else {
-        expect(frame.frameBox.left).toBeGreaterThanOrEqual(geometry.gutter.right - 1)
-        expect(frame.imageBox.left).toBeGreaterThanOrEqual(geometry.gutter.right - 1)
-      }
-      expect(frame.naturalWidth).toBeGreaterThan(0)
-      expect(frame.objectFit).not.toBe('cover')
-      expect(Math.abs(frame.imageWidth / frame.imageHeight - frame.naturalWidth / frame.naturalHeight)).toBeLessThan(0.002)
-      expect(frame.imageWidth * geometry.scale * geometry.dpr).toBeLessThanOrEqual(frame.naturalWidth + 1)
-      expect(frame.imageHeight * geometry.scale * geometry.dpr).toBeLessThanOrEqual(frame.naturalHeight + 1)
-    }
-    const centres = geometry.frames.map((frame) => (frame.imageBox.top + frame.imageBox.bottom) / 2)
-    expect(Math.abs(centres[0]! - centres[1]!)).toBeLessThanOrEqual(1)
-    expect(centres[0]!).toBeCloseTo((geometry.viewer.top + geometry.viewer.bottom) / 2, 0)
     for (const style of geometry.perspective) {
       expect(style.perspective).toBe('none')
       expect(style.is2D).toBe(true)
       expect(style.transformStyle).not.toBe('preserve-3d')
     }
 
-    const quads = await duoContentQuads(page)
-    expect(quads).toHaveLength(2)
+    const quads = await demoContentQuads(page)
+    expect(quads.length).toBeGreaterThan(0)
     for (const quad of quads) {
       expect(quad).toHaveLength(8)
       const leftHeight = Math.abs(quad[7]! - quad[1]!)
@@ -455,77 +412,6 @@ test.describe('the mounted homepage photo demo', () => {
       expect(Math.abs(quad[1]! - quad[3]!)).toBeLessThanOrEqual(1)
       expect(Math.abs(quad[7]! - quad[5]!)).toBeLessThanOrEqual(1)
     }
-
-    const frozen = await page.locator('[data-demo-duo-track]').evaluate((track) => ({
-      spread: track.getAttribute('data-demo-spread'),
-      transform: getComputedStyle(track).transform,
-    }))
-    await page.waitForTimeout(1800)
-    expect(await page.locator('[data-demo-duo-track]').evaluate((track) => ({
-      spread: track.getAttribute('data-demo-spread'),
-      transform: getComputedStyle(track).transform,
-    }))).toEqual(frozen)
-  })
-
-  test('Foldable glides horizontally, pauses, holds, and rewinds behind the curtain', async ({ page }) => {
-    test.setTimeout(100_000)
-    await open(page)
-    await page.locator('[data-shape="duo"]').click()
-    const root = page.locator('[data-demo-stage]')
-    const track = page.locator('[data-demo-duo-track]')
-    await expect(root).toHaveAttribute('data-demo-phase', 'travel')
-    await expect(currentDuoSpread(page).locator('[data-diptych-frame]')).toHaveCount(2)
-    await expect(page.locator('[data-demo-chrome-bottom]')).not.toHaveClass(/is-visible/, { timeout: 8_000 })
-    await page.locator('[data-demo-viewport]').hover()
-    await expect(page.locator('[data-demo-chrome-top]')).toHaveClass(/is-visible/)
-    await expect(page.locator('[data-demo-chrome-bottom]')).toHaveClass(/is-visible/)
-
-    const initialSpread = await track.getAttribute('data-demo-spread')
-    await expect.poll(() => track.getAttribute('data-demo-spread'), { timeout: 20_000 }).not.toBe(initialSpread)
-    await pause(page)
-    await page.waitForTimeout(100)
-    const frozen = await track.evaluate((element) => getComputedStyle(element).transform)
-    await page.waitForTimeout(400)
-    expect(await track.evaluate((element) => getComputedStyle(element).transform)).toBe(frozen)
-    await page.locator('[data-demo-pause]').click()
-
-    const movement = await track.evaluate((element) => {
-      const style = getComputedStyle(element)
-      const matrix = new DOMMatrixReadOnly(style.transform)
-      return {
-        inline: (element as HTMLElement).style.transform,
-        duration: style.transitionDuration,
-        property: style.transitionProperty,
-        horizontal: matrix.m41,
-        vertical: matrix.m42,
-        shear: matrix.m12,
-        is2D: matrix.is2D,
-      }
-    })
-    expect(movement.inline).toMatch(/^translateX\(-?[\d.]+px\)$/)
-    expect(movement.duration).toBe('1.6s')
-    expect(movement.property).toBe('transform')
-    expect(movement.horizontal).toBeLessThan(0)
-    expect(movement.vertical).toBe(0)
-    expect(movement.shear).toBe(0)
-    expect(movement.is2D).toBe(true)
-
-    const arrivedSpread = await track.getAttribute('data-demo-spread')
-    await page.waitForTimeout(1800)
-    const settled = await track.evaluate((element) => getComputedStyle(element).transform)
-    await page.waitForTimeout(800)
-    expect(await track.getAttribute('data-demo-spread')).toBe(arrivedSpread)
-    expect(await track.evaluate((element) => getComputedStyle(element).transform)).toBe(settled)
-
-    await expect(root).toHaveAttribute('data-demo-phase', 'end', { timeout: 55_000 })
-    await expect(page.locator('[data-demo-position]')).toHaveText('14-15 of 15')
-    await expect(root).toHaveAttribute('data-demo-phase', 'rewind', { timeout: 5_000 })
-    await expect(page.locator('[data-curtain]')).toBeVisible()
-    await expect(root).toHaveAttribute('data-demo-phase', 'curtain', { timeout: 5_000 })
-    await expect.poll(() => currentDuoSpread(page).locator('[data-diptych-frame]').evaluateAll(
-      (frames) => frames.map((frame) => frame.getAttribute('data-image-id')),
-    )).toEqual(['italy-0302', 'italy-0503'])
-    await expect(page.locator('[data-demo-position]')).toHaveText('1-2 of 15')
   })
 
   test('the device frame contrasts with the page theme', async ({ page }) => {
@@ -573,13 +459,8 @@ test.describe('the mounted homepage photo demo', () => {
       const stage = page.locator('[data-demo-screen] [data-stage]')
       await expect(stage).toHaveClass(/mode-strip/)
       expect(await stage.evaluate((element) => element.scrollTop)).toBe(0)
-      if (shape === 'duo') {
-        await expect(page.locator('[data-demo-duo-track]')).toHaveCount(1)
-        await expect(page.locator('[data-demo-strip]')).toHaveCount(0)
-      } else {
-        await expect(page.locator('[data-demo-strip]')).toHaveCount(1)
-        await expect(page.locator('[data-demo-duo-track]')).toHaveCount(0)
-      }
+      await expect(page.locator('[data-demo-strip]')).toHaveCount(1)
+      await expect(page.locator('[data-demo-duo-track]')).toHaveCount(0)
     }
   })
 

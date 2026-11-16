@@ -1,4 +1,5 @@
 import { describe, expect, test } from 'bun:test'
+import type { VideoItem } from '../../packages/core/imagesource'
 import Diptych, {
   diptychFrameSize,
   resolveDiptychLayout,
@@ -93,6 +94,26 @@ describe('resolveDiptychLayout', () => {
 })
 
 describe('Diptych markup', () => {
+  const video: VideoItem = {
+    type: 'video', id: 'video', filename: 'video.mp4', src: '/video.mp4', mimeType: 'video/mp4',
+    width: 1920, height: 1080, poster: { src: '/video-poster.jpg', width: 1920, height: 1080 },
+    alt: 'A video', c2pa: false, placeholder: '',
+  }
+
+  test('a video uses its poster by default and never puts the MP4 in an image', () => {
+    const html = String(Diptych({ frames: [{ ...landscape, video }], segments: [left], dpr: 1 }))
+    expect(html).toContain('src="/video-poster.jpg"')
+    expect(html).not.toContain('src="/video.mp4"')
+  })
+
+  test('the viewer can supply its own video renderer', () => {
+    const html = String(Diptych({
+      frames: [{ ...landscape, video }], segments: [left], dpr: 1,
+      renderVideo: (item, context) => <video data-spread-video={item.id} width={context.width} height={context.height} />,
+    }))
+    expect(html).toContain('data-spread-video="video"')
+    expect(html).not.toContain('src="/video-poster.jpg"')
+  })
   test('renders two photographs and no controls in a two-segment stage', () => {
     const html = String(Diptych({ frames: [landscape, portrait], segments: [left, right], dpr: 1 }))
     expect(html).toContain('data-diptych-mode="diptych"')

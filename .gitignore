@@ -75,6 +75,10 @@ submission/*.zip
 # MCP result cache written by the local tool bridge.
 .manus/
 
+# Everything else under .work is capture, simulator, and agent-scratch output.
+# Curated evidence belongs in demo-captures/.
+/.work/
+
 # macOS capture scratch (screenshots, coverage dumps, throwaway probes).
 /.work/macos-capture/
 
@@ -82,3 +86,6 @@ submission/*.zip
 macos/ManoramaMac/build/
 macos/ManoramaMac/Resources/ViewerBundle/
 macos/ManoramaMac/build-focus-test/
+
+# Local styled-DMG preview output
+/build/dmg-preview/

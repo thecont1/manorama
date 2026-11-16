@@ -1,6 +1,8 @@
 import type { GalleryMediaItem, GalleryManifest } from './imagesource'
 
-export type ViewerMode = 'strip' | 'vertical' | 'single'
+export type ViewerMode = 'strip' | 'vertical' | 'single' | 'spread'
+
+export const autoSpreadInBookPose = false
 
 export type GallerySettings = {
   title: string
@@ -32,7 +34,7 @@ export const defaultGallerySettings = (manifest: GalleryManifest): GallerySettin
 
 const text = (value: unknown, fallback: string) => typeof value === 'string' ? value.slice(0, 5000) : fallback
 const bool = (value: unknown, fallback: boolean) => typeof value === 'boolean' ? value : fallback
-const mode = (value: unknown, fallback: ViewerMode): ViewerMode => value === 'vertical' || value === 'single' || value === 'strip' ? value : fallback
+const mode = (value: unknown, fallback: ViewerMode): ViewerMode => value === 'vertical' || value === 'single' || value === 'strip' || value === 'spread' ? value : fallback
 const record = (value: unknown, fallback: Record<string, string>) => {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return fallback
   return Object.fromEntries(Object.entries(value).map(([key, entry]) => [key, text(entry, fallback[key] ?? '')]))

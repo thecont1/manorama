@@ -2,9 +2,6 @@ export type DemoPresetId = 'desktop' | 'phone' | 'tablet' | 'duo'
 
 export const IPAD_ORIENTATION = 'portrait' as const
 
-// A drawing constant for the simulated book pose, not a report of UIKit's
-// reserved region: that region is zero while the physical device is flat.
-export const DUO_HINGE_WIDTH = 40
 const DUO_BODY_RATIO = 164.6 / 117.8
 const DUO_BEZEL = (951 * 0.04) / (1 - 0.08)
 const DUO_BODY_WIDTH = 951 + DUO_BEZEL * 2

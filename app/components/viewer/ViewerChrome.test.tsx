@@ -8,15 +8,17 @@ let dom: Window
 let prev: Record<string, unknown>
 
 beforeAll(() => {
-  prev = { window: globals.window, document: globals.document }
+  prev = { window: globals.window, document: globals.document, SVGElement: globals.SVGElement }
   dom = new Window({ url: 'http://localhost/' })
   globals.window = dom
   globals.document = dom.document
+  globals.SVGElement = dom.SVGElement
 })
 
 afterAll(() => {
   globals.window = prev.window
   globals.document = prev.document
+  globals.SVGElement = prev.SVGElement
 })
 
 const base = {
@@ -86,4 +88,21 @@ describe('the viewer chrome bars', () => {
     expect(opened).toBe(1)
     expect(pill).toBe(settings)
   })
+
+  for (const edge of ['leading', 'trailing'] as const) {
+    test(`vertical system bars put every control in one ${edge} side column`, () => {
+      const root = mounted({ verticalBarEdge: edge, libraryHref: '/thecontrarian' })
+      const columns = root.querySelectorAll('.m-chrome--side')
+      expect(columns).toHaveLength(1)
+      const column = columns[0] as HTMLElement
+      expect(column.classList.contains(`m-chrome--side-${edge}`)).toBe(true)
+      expect(column.hasAttribute('data-chrome-top')).toBe(true)
+      expect(column.hasAttribute('data-chrome-bottom')).toBe(true)
+      expect(column.querySelector('[data-chrome-library]')).not.toBeNull()
+      expect(column.querySelector('[data-chrome-position]')).not.toBeNull()
+      expect([...column.querySelectorAll('.m-chrome-pill')].map((pill) => pill.getAttribute('aria-label'))).toEqual(['Library', base.pickerAriaLabel, 'Gallery Settings', 'Info'])
+      expect(column.querySelectorAll('svg[aria-hidden="true"]')).toHaveLength(3)
+      expect(column.querySelector('[data-chrome-position]')?.textContent).toBe('1of 4')
+    })
+  }
 })
