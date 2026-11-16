@@ -408,7 +408,7 @@ const PREBOOT = async (which: number) => {
   var started = Date.now()
   var wait = function () {
     var account = document.querySelector('.native-account')
-    var add = document.querySelector('.native-library-heading .m-btn--primary')
+    var add = document.querySelector('.native-library-actions .m-btn--primary')
     var strip = stills()
     var bounds = add && add.getBoundingClientRect()
     var addVisible = Boolean(bounds && bounds.width > 0 && bounds.height >= 44 && bounds.top >= 0 && bounds.bottom <= innerHeight)
@@ -489,7 +489,10 @@ const DRIVER = (which: number) => `
     log('lifting curtain:', click(curtain))
     if (${which} === 1) {
       await new Promise((r) => setTimeout(r, 1300))
-      await report(document.body.classList.contains('gallery-entered') && Boolean(curtain.hidden))
+      click(document.querySelector('.m-chrome-skip'))
+      await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)))
+      const chrome = document.querySelector('[data-chrome-bottom]')
+      await report(document.body.classList.contains('gallery-entered') && Boolean(curtain.hidden) && Boolean(chrome?.classList.contains('is-visible')))
       return
     }
 
