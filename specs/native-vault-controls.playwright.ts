@@ -17,25 +17,34 @@ for (const viewport of [{ width: 375, height: 812 }, { width: 1376, height: 1032
     await expect(page.locator('.lib-th.is-active')).toHaveCount(0)
     await expect(page.getByRole('button', { name: 'Settings', exact: true })).toBeVisible()
     await expect.poll(() => page.locator('.lib-th img').first().evaluate((node) => (node as HTMLImageElement).complete && (node as HTMLImageElement).naturalWidth > 0), { timeout: 15000 }).toBe(true)
-    // A gallery card reads top-down: the rail of every photograph, then the
-    // title row with its ··· menu, then metadata and any caption.
+    // A gallery card reads top-down: the cover photograph, then the title row
+    // with its ··· menu, then metadata and any caption.
     const cards = page.locator('.lib-card')
     const cardCount = await cards.count()
     expect(cardCount).toBeGreaterThan(0)
     for (let index = 0; index < cardCount; index += 1) {
       const card = cards.nth(index)
       const box = async (selector: string) => (await card.locator(selector).first().boundingBox())!
-      const rail = await box('.lib-rail')
+      const cover = await box('.native-library-cover-slot')
       const head = await box('.lib-card-head')
       const sub = await box('.lib-card-sub')
-      expect(rail.y + rail.height, `card ${index} keeps its rail above the title`).toBeLessThanOrEqual(head.y + 4)
+      expect(cover.y + cover.height, `card ${index} keeps its cover above the title`).toBeLessThanOrEqual(head.y + 4)
       expect(head.y + head.height, `card ${index} keeps its metadata under the title`).toBeLessThanOrEqual(sub.y + 4)
-      // The rail bleeds past the card to the shell edge (margin-inline:
-      // -24px): it miniaturises the viewer, so it runs to the screen.
+      // The compact card's cover fills the card's own width. It is a column
+      // of the Library grid now, not a strip that runs to the screen's edge.
       const cardBox = (await card.boundingBox())!
-      expect(Math.abs(cardBox.x - rail.x - 24), `card ${index} bleeds its rail left`).toBeLessThanOrEqual(4)
-      expect(Math.abs(rail.x + rail.width - cardBox.x - cardBox.width - 24), `card ${index} bleeds its rail right`).toBeLessThanOrEqual(4)
-      expect(await card.locator('.lib-th').count(), `card ${index} carries at least one rail cell`).toBeGreaterThan(0)
+      expect(Math.abs(cardBox.x - cover.x), `card ${index} keeps its cover flush left`).toBeLessThanOrEqual(1)
+      expect(Math.abs(cardBox.x + cardBox.width - cover.x - cover.width), `card ${index} keeps its cover flush right`).toBeLessThanOrEqual(1)
+      // One cover cell per card: the gallery's own first photograph.
+      expect(await card.locator('.lib-th').count(), `card ${index} carries its cover cell`).toBe(1)
+      // A bitmap is never shown larger than it is.
+      const picture = await card.locator('.lib-th img').first().evaluate((node) => {
+        const image = node as HTMLImageElement
+        const rect = image.getBoundingClientRect()
+        return { width: rect.width, height: rect.height, naturalWidth: image.naturalWidth, naturalHeight: image.naturalHeight }
+      })
+      expect(picture.width, `card ${index} never upscales its cover`).toBeLessThanOrEqual(picture.naturalWidth + 1)
+      expect(picture.height, `card ${index} never upscales its cover`).toBeLessThanOrEqual(picture.naturalHeight + 1)
       // The title and its ··· affordance share the head row.
       const title = await box('.lib-card-title')
       const menuButton = await box('.lib-card-menu')
@@ -45,24 +54,30 @@ for (const viewport of [{ width: 375, height: 812 }, { width: 1376, height: 1032
       // reserved for the next gallery's card.
       const caption = card.locator('.native-gallery-caption')
       const captionCount = await caption.count()
+      let captionBottom = sub.y + sub.height
       if (captionCount > 0) {
         const captionBox = (await caption.first().boundingBox())!
+        captionBottom = captionBox.y + captionBox.height
         expect(captionBox.y - (sub.y + sub.height), `card ${index} keeps its caption in the metadata group`).toBeLessThanOrEqual(12)
       }
       if (index + 1 < cardCount) {
-        // Card padding carries the inter-gallery breathing room: measure from
-        // the last text block to the next card's rail, not box edge to edge.
-        const lastBlock = captionCount > 0 ? (await caption.first().boundingBox())! : sub
-        const nextRail = (await cards.nth(index + 1).locator('.lib-rail').first().boundingBox())!
-        expect(nextRail.y - (lastBlock.y + lastBlock.height), `card ${index} leaves a deliberate gap to the next gallery`).toBeGreaterThanOrEqual(30)
+        const nextCover = await cards.nth(index + 1).locator('.native-library-cover-slot').first().boundingBox()!
+        expect(nextCover.y - captionBottom, `card ${index} leaves a deliberate gap to the next gallery`).toBeGreaterThanOrEqual(30)
       }
     }
     await page.screenshot({ path: `demo-captures/admin-gallery-focus/native-${viewport.width}-admin.png`, fullPage: true })
 
     // The page runs to both edges now that the account tab lives at the top.
-    const shellPadding = await page.locator('.native-account-shell')
-      .evaluate((node) => getComputedStyle(node).paddingLeft)
-    if (viewport.width < 820) expect(shellPadding).toBe('24px')
+    // The shell carries no side padding of its own — the Library grid's
+    // gutter does the insetting, and it does it at every width.
+    const shell = page.locator('.native-account-shell')
+    expect(await shell.evaluate((node) => getComputedStyle(node).paddingLeft)).toBe('0px')
+    const gutter = await cards.first().evaluate((node) => {
+      const column = node.closest('.native-list-card')!.getBoundingClientRect()
+      return Math.round(node.getBoundingClientRect().x - column.x)
+    })
+    expect(gutter, 'the card is inset from its column by a comfortable gutter').toBeGreaterThanOrEqual(16)
+    expect(gutter, 'the card is inset from its column by a comfortable gutter').toBeLessThanOrEqual(32)
 
     // Add is a deliberate, keyboard-safe sheet with one pinned CTA — and a
     // real 44px finger target, not just a tall-enough label.
@@ -74,9 +89,14 @@ for (const viewport of [{ width: 375, height: 812 }, { width: 1376, height: 1032
     const addSheet = page.getByRole('dialog', { name: 'Add a gallery' })
     await expect(addSheet).toBeVisible()
     await expect(addSheet.getByLabel('Shared folder or album link — Dropbox, Google Drive, iCloud, MEGA, Ente or Proton Drive')).toBeVisible()
-    await expect(addSheet.getByRole('button', { name: 'Paste', exact: true })).toBeVisible()
-    await expect(addSheet.getByLabel('Name (optional)')).toBeVisible()
-    await expect(page.locator('.m-sheet-foot').getByRole('button', { name: 'Add a gallery', exact: true })).toBeInViewport()
+    // The sheet asks for one thing: the link. The name and the caption only
+    // appear once the source has answered, so a typo is never dressed up as
+    // a filled-in form. There is no paste button to press — the field is it.
+    await expect(addSheet.getByLabel('Name (optional)')).toHaveCount(0)
+    // The pinned CTA waits for the link: an empty field has nothing to create.
+    const createGallery = page.locator('.m-sheet-foot').getByRole('button', { name: 'Create gallery', exact: true })
+    await expect(createGallery).toBeInViewport()
+    await expect(createGallery).toBeDisabled()
     await page.screenshot({ path: `docs/redesign-parity/native-${viewport.width}-add.png`, fullPage: false })
     await addSheet.getByRole('button', { name: 'Close', exact: true }).click()
 
@@ -226,7 +246,7 @@ for (const viewport of [{ width: 375, height: 812 }, { width: 1376, height: 1032
     await expect(page.locator('html')).not.toHaveClass(/light/)
     await page.screenshot({ path: `docs/redesign-parity/native-${viewport.width}-settings.png`, fullPage: false })
     await settings.getByRole('button', { name: 'Back to the library', exact: true }).click()
-    // The rail is the card's most obvious affordance, so it opens the
+    // The cover is the card's most obvious affordance, so it opens the
     // gallery — the editor lives on the card menu, exercised above.
     await page.locator('.lib-card .lib-th').first().click()
     const curtain = page.locator('[data-curtain]')
@@ -240,26 +260,28 @@ for (const viewport of [{ width: 375, height: 812 }, { width: 1376, height: 1032
     // at rest, bars on demand — nothing floats over a photograph for long.
     await expect(page.locator('[data-chrome-position]')).toBeVisible()
     await showChrome(page)
-    await page.getByRole('button', { name: 'Settings', exact: true }).click()
-    const dialog = page.getByRole('dialog', { name: 'Settings' })
+    // The viewer's own settings are the gallery's: the chrome's pill opens
+    // the Gallery Settings sheet.
+    await page.getByRole('button', { name: 'Gallery Settings', exact: true }).click()
+    const dialog = page.getByRole('dialog', { name: 'Gallery Settings' })
     await expect(dialog).toBeVisible()
     // Fullscreen is a web capability; native shells keep the same Display
     // controls except this browser-only escape hatch.
     await expect(dialog.getByRole('switch', { name: 'Fullscreen', exact: true })).toHaveCount(0)
     await dialog.getByRole('button', { name: 'Close', exact: true }).click()
     const positionBeforeDetails = await page.locator('[data-chrome-position]').textContent()
-    await page.getByRole('button', { name: 'Settings', exact: true }).click()
-    await page.getByRole('dialog', { name: 'Settings' }).getByRole('button', { name: 'Gallery settings' }).click()
-    const viewerDetails = page.locator('[data-screen="details"]')
-    await expect(viewerDetails).toBeVisible()
+    // The gallery's own panel — the device policy included — lives one layer
+    // in, behind More Settings.
+    await page.getByRole('button', { name: 'Gallery Settings', exact: true }).click()
+    await page.getByRole('button', { name: 'More Settings', exact: true }).click()
     const keepCopy = page.getByRole('switch', { name: 'Keep a copy on this device' })
     await expect(keepCopy).toHaveAttribute('aria-checked', 'true')
     await keepCopy.click()
     await expect(keepCopy).toHaveAttribute('aria-checked', 'false')
-    await expect(viewerDetails.getByRole('status').filter({ hasText: 'Streaming from cloud' })).toBeVisible()
+    await expect(page.getByRole('status').filter({ hasText: 'Streaming from cloud' })).toBeVisible()
     await page.screenshot({ path: `docs/redesign-parity/native-${viewport.width}-viewer-details.png`, fullPage: true })
-    await viewerDetails.locator('.m-topbar button').click()
-    await expect(viewerDetails).toHaveCount(0)
+    await page.getByRole('button', { name: /^Back to / }).click()
+    await expect(keepCopy).toHaveCount(0)
     await expect(page.locator('[data-curtain]')).toBeHidden()
     await expect(page.locator('[data-chrome-position]')).toHaveText(positionBeforeDetails ?? '')
     await page.keyboard.press('g')
@@ -271,8 +293,8 @@ for (const viewport of [{ width: 375, height: 812 }, { width: 1376, height: 1032
     await expect(picker).not.toContainText('still settling')
     await page.getByRole('button', { name: 'Close photo picker', exact: true }).click()
     await showChrome(page)
-    await page.getByRole('button', { name: 'Settings', exact: true }).click()
-    await page.getByRole('dialog', { name: 'Settings' }).getByRole('button', { name: 'Close', exact: true }).click()
+    await page.getByRole('button', { name: 'Gallery Settings', exact: true }).click()
+    await page.getByRole('dialog', { name: 'Gallery Settings' }).getByRole('button', { name: 'Close', exact: true }).click()
     // The chrome's Library pill is the exit; the endcard carries a second
     // Library control that stays behind the track until it is revealed.
     await page.locator('[data-chrome-library]').click()
