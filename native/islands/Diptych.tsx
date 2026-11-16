@@ -1,4 +1,5 @@
 import { deviceImageDpr } from '../../packages/core/image-staging'
+import type { VideoItem } from '../../app/lib/imagesource'
 
 export type DiptychFrame = {
   id: string
@@ -7,6 +8,7 @@ export type DiptychFrame = {
   height: number
   alt: string
   placeholder?: string
+  video?: VideoItem
 }
 
 export type DiptychSegment = {
@@ -41,6 +43,7 @@ export type DiptychProps = {
   activeIndex?: number
   class?: string
   renderFrame?: (frame: DiptychFrame, context: DiptychRenderContext) => unknown
+  renderVideo?: (video: VideoItem, context: { width: number; height: number; active: boolean }) => unknown
 }
 
 export type DiptychRenderContext = {
@@ -151,7 +154,7 @@ const segmentStyle = (segment: DiptychSegment) => ({
 
 const defaultFrame = (frame: DiptychFrame, context: DiptychRenderContext) => (
   <img
-    src={frame.src}
+    src={frame.video?.poster.src ?? frame.src}
     alt={frame.alt}
     width={frame.width}
     height={frame.height}
@@ -178,6 +181,7 @@ export default function Diptych({
   activeIndex = 0,
   class: className,
   renderFrame = defaultFrame,
+  renderVideo,
 }: DiptychProps) {
   const layout = resolveDiptychLayout(frames, segments, dpr, activeIndex)
   if (!layout) return null
@@ -210,9 +214,9 @@ export default function Diptych({
           data-diptych-frame={context.index + 1}
           data-image-id={frame.id}
           aria-current={context.active ? 'true' : undefined}
-          style={{ ...segmentStyle(context.segment), margin: '0' }}
+          style={{ ...segmentStyle(context.segment), margin: '0', pointerEvents: frame.video ? 'auto' : undefined }}
         >
-          {renderFrame(frame, context)}
+          {frame.video && renderVideo ? renderVideo(frame.video, { width: context.size.width, height: context.size.height, active: context.active }) : renderFrame(frame, context)}
         </figure>
       ))}
     </div>

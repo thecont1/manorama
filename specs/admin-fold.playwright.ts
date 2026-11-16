@@ -6,7 +6,14 @@ for (const mode of ['web', 'native'] as const) {
     test.setTimeout(50_000)
     await page.setViewportSize({ width: 1100, height: 900 })
     await page.addInitScript(() => {
-      Object.assign(window, { __MANORAMA_IOS_FOLD__: { horizontalSizeClass: 'regular', verticalSizeClass: 'regular', hinge: { axis: 'vertical', start: 520, size: 60 } } })
+      Object.assign(window, { __MANORAMA_IOS_LAYOUT__: {
+        viewport: { width: 1100, height: 900 },
+        horizontalSizeClass: 'regular',
+        verticalSizeClass: 'regular',
+        verticalBarEdge: 'unspecified',
+        safeAreaInsets: { top: 0, right: 0, bottom: 0, left: 0 },
+        regions: [{ kind: 'division', active: true, frame: { x: 520, y: 0, width: 60, height: 900 } }],
+      } })
     })
     if (mode === 'web') {
       await expect.poll(async () => (await context.request.get(`${base}/.dev-seed/login`, { maxRedirects: 0, timeout: 15_000 })).status(), { timeout: 30_000 }).toBe(302)
@@ -26,6 +33,37 @@ for (const mode of ['web', 'native'] as const) {
     await expect(sponsored).toBeVisible()
     const sponsoredBox = (await sponsored.boundingBox())!
     expect(sponsoredBox!.x + sponsoredBox!.width <= 520 || sponsoredBox!.x >= 580).toBe(true)
+    if (mode === 'native') {
+      const publishDivision = async (active: boolean) => {
+        await page.evaluate((nextActive) => {
+          const current = (window as unknown as {
+            __MANORAMA_IOS_LAYOUT__: { regions: Array<Record<string, unknown>> }
+          }).__MANORAMA_IOS_LAYOUT__
+          const next = {
+            ...current,
+            regions: current.regions.map((region) => ({ ...region, active: nextActive })),
+          }
+          Object.assign(window, { __MANORAMA_IOS_LAYOUT__: next })
+          window.dispatchEvent(new CustomEvent('manorama:layout', { detail: next }))
+        }, active)
+      }
+      await page.getByRole('button', { name: 'Add Gallery', exact: true }).click()
+      const sheet = page.locator('.m-sheet')
+      await expect(sheet).toBeVisible()
+      const sheetBox = (await sheet.boundingBox())!
+      expect(sheetBox.x).toBeGreaterThanOrEqual(580)
+      expect(sheetBox.x + sheetBox.width).toBeLessThanOrEqual(1100)
+      const draft = sheet.getByRole('textbox', { name: /Shared folder or album link/ })
+      await draft.fill('https://example.test/fold-draft')
+      await publishDivision(false)
+      await expect(sheet).toBeVisible()
+      await expect(draft).toHaveValue('https://example.test/fold-draft')
+      await publishDivision(true)
+      await expect(sheet).toBeVisible()
+      await expect(draft).toHaveValue('https://example.test/fold-draft')
+      await sheet.getByRole('button', { name: 'Close', exact: true }).click()
+      await expect(sheet).toHaveCount(0)
+    }
     const gear = page.getByRole('button', { name: 'Settings', exact: true })
     await gear.click()
     const settings = page.locator(mode === 'web' ? '.web-settings' : '.native-settings')
@@ -33,7 +71,7 @@ for (const mode of ['web', 'native'] as const) {
     // The pushed settings surface survives a segment change.
     await page.setViewportSize({ width: 375, height: 812 })
     await expect(settings).toBeVisible()
-    await settings.getByRole('button', { name: mode === 'web' ? 'Back' : 'Back to the library', exact: true }).click()
+    await settings.getByRole('button', { name: 'Back to the library', exact: true }).click()
     await expect(settings).toHaveCount(0)
   })
 }

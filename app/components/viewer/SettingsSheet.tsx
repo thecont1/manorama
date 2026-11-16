@@ -5,6 +5,7 @@ import { Switch } from '../ui/Switch'
 import { ActionGroup, ActionRow } from '../ui/ActionRow'
 import { Button } from '../ui/Button'
 import type { Child } from 'hono/jsx'
+import type { ViewerMode } from '../../../packages/core/gallery-settings'
 
 /** The Settings popover: a "View" group (layout, canvas, arrows,
  *  fullscreen) then one role-bound slot — the member's Add to Library, a
@@ -18,8 +19,9 @@ import type { Child } from 'hono/jsx'
 export type SettingsSheetProps = {
   open: boolean
   onClose: () => void
-  mode: 'strip' | 'vertical' | 'single'
-  onMode: (mode: 'strip' | 'vertical' | 'single') => void
+  mode: ViewerMode
+  onMode: (mode: ViewerMode) => void
+  spreadAvailable?: boolean
   background: 'none' | 'dark' | 'light'
   onBackground: (background: 'none' | 'dark' | 'light') => void
   arrowsOn: boolean
@@ -49,7 +51,7 @@ export type SettingsSheetProps = {
 }
 
 export default function SettingsSheet({
-  open, onClose, mode, onMode, background, onBackground, arrowsOn, onArrows,
+  open, onClose, mode, onMode, spreadAvailable = false, background, onBackground, arrowsOn, onArrows,
   fullscreenAvailable, fullscreenActive, onFullscreen, showShortcuts,
   actions, quickPanel, galleryPanel, galleryIntro, onOpenShortcuts, panelStyle,
 }: SettingsSheetProps) {
@@ -80,6 +82,7 @@ export default function SettingsSheet({
   const layoutHint =
     mode === 'strip' ? 'Side by side, edge to edge'
     : mode === 'vertical' ? 'Each photograph fits the width'
+    : mode === 'spread' ? 'Two consecutive photographs, in the photographer’s order'
     : 'One at a time, swipe or tap'
   const canvasHint =
     background === 'none' ? 'No space between photographs'
@@ -114,11 +117,12 @@ export default function SettingsSheet({
                   <Segmented
                     label="Layout"
                     value={mode}
-                    onChange={(v) => onMode(v as 'strip' | 'vertical' | 'single')}
+                    onChange={onMode}
                     options={[
                       { value: 'strip', label: 'Strip' },
                       { value: 'vertical', label: 'Scroll' },
                       { value: 'single', label: 'One by one' },
+                      ...(spreadAvailable ? [{ value: 'spread' as const, label: 'Spread' }] : []),
                     ]}
                   />
                 </div>

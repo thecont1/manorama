@@ -86,4 +86,19 @@ describe('the viewer chrome bars', () => {
     expect(opened).toBe(1)
     expect(pill).toBe(settings)
   })
+
+  for (const edge of ['leading', 'trailing'] as const) {
+    test(`vertical system bars put every control in one ${edge} side column`, () => {
+      const root = mounted({ verticalBarEdge: edge, libraryHref: '/thecontrarian' })
+      const columns = root.querySelectorAll('.m-chrome--side')
+      expect(columns).toHaveLength(1)
+      const column = columns[0] as HTMLElement
+      expect(column.classList.contains(`m-chrome--side-${edge}`)).toBe(true)
+      expect(column.hasAttribute('data-chrome-top')).toBe(true)
+      expect(column.hasAttribute('data-chrome-bottom')).toBe(true)
+      expect(column.querySelector('[data-chrome-library]')).not.toBeNull()
+      expect(column.querySelector('[data-chrome-position]')).not.toBeNull()
+      expect(pills(root)).toEqual(['‹ Library', '1 of 4', 'Gallery Settings', 'Info'])
+    })
+  }
 })

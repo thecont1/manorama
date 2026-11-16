@@ -86,6 +86,39 @@ body.manorama-native .stage-arrows .stage-nav-arrow {
   }
 }
 
+body.manorama-native[data-native-fold-divided] :is(.m-sheet, .m-screen--fixed, .native-editor, .native-global-view, .native-welcome) {
+  left: var(--native-fold-x);
+  top: var(--native-fold-y);
+  right: auto;
+  bottom: auto;
+  box-sizing: border-box;
+  width: var(--native-fold-width);
+  height: var(--native-fold-height);
+  min-height: 0;
+  max-width: none;
+  max-height: none;
+  margin: 0;
+  overflow: auto;
+  transform: none;
+}
+body.manorama-native[data-native-fold-divided] .native-welcome { position: fixed; padding-inline: 48px; }
+body.manorama-native[data-native-fold-divided] .native-global-header {
+  left: calc(var(--native-fold-x) + 12px);
+  right: calc(var(--native-fold-right) + 12px);
+}
+body.manorama-native[data-native-fold-divided] .native-global-scroll {
+  left: var(--native-fold-x);
+  right: var(--native-fold-right);
+}
+body.manorama-native[data-native-fold-divided] .native-global-view > .native-global-note {
+  left: var(--native-fold-x);
+  right: var(--native-fold-right);
+  width: max-content;
+  max-width: calc(var(--native-fold-width) - 40px);
+  margin-inline: auto;
+  transform: translateY(-50%);
+}
+
 body {
   padding: var(--native-safe-top) var(--native-safe-right) var(--native-safe-bottom) var(--native-safe-left);
 }

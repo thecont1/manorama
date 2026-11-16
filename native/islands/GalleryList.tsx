@@ -4,7 +4,7 @@ import { closeTopOverlay, overlayDepth } from '../../app/lib/overlay-stack'
 import { expiryCountdownText } from '../../app/lib/gallery-policy'
 import { decideBack } from '../lib/back-decision'
 import { nativeDeviceLabel } from '../lib/device-label'
-import type { GalleryManifest, GalleryMediaItem } from '../../app/lib/imagesource'
+import type { GalleryManifest, GalleryMediaItem, VideoItem } from '../../app/lib/imagesource'
 import { formatMediaCount, isVideoItem, mediaCountOf, summaryMediaCount } from '../../app/lib/imagesource'
 import type { GallerySettings } from '../../app/lib/gallery-settings'
 import type { FoldLayout } from '../../packages/core/fold'
@@ -820,6 +820,25 @@ export default function GalleryList({ apiBase, owner, slug, deepLinkSelection, o
     return subscribeToRuntimeFoldLayout(sync)
   }, [])
 
+  useEffect(() => {
+    const body = document.body
+    const [left, right] = foldLayout?.controlRegions ?? []
+    const divided = Boolean(left && right && right.x > left.x + left.width && foldLayout)
+    const properties = ['--native-fold-x', '--native-fold-y', '--native-fold-width', '--native-fold-height', '--native-fold-right']
+    const clear = () => {
+      body.removeAttribute('data-native-fold-divided')
+      for (const property of properties) body.style.removeProperty(property)
+    }
+    if (!divided || !foldLayout || !right) return clear
+    body.setAttribute('data-native-fold-divided', '')
+    body.style.setProperty('--native-fold-x', `${right.x}px`)
+    body.style.setProperty('--native-fold-y', `${right.y}px`)
+    body.style.setProperty('--native-fold-width', `${right.width}px`)
+    body.style.setProperty('--native-fold-height', `${right.height}px`)
+    body.style.setProperty('--native-fold-right', `${Math.max(0, foldLayout.viewport.width - right.x - right.width)}px`)
+    return clear
+  }, [foldLayout])
+
   const enterGallery = (next: Selection) => {
     positionRef.current = null
     // A bare owner/slug selection still needs custody context for encrypted
@@ -1146,13 +1165,12 @@ export default function GalleryList({ apiBase, owner, slug, deepLinkSelection, o
 
   if (manifest && settings) {
     const source = new BundledSource(manifest)
-    const foldImages = source.list()
-    const foldEligible = foldImages.length > 1 && foldImages.every((image) => !isVideoItem(image))
-    const renderFold = ({ frames, activeIndex, segments, dpr }: {
+    const renderFold = ({ frames, activeIndex, segments, dpr, renderVideo }: {
       frames: readonly GalleryMediaItem[]
       activeIndex: number
       segments: NonNullable<FoldLayout>['segments']
       dpr: number
+      renderVideo: (video: VideoItem, context: { width: number; height: number; active: boolean }) => unknown
     }) => {
       const diptychFrames: DiptychFrame[] = frames.map((image) => ({
         id: image.id,
@@ -1161,8 +1179,9 @@ export default function GalleryList({ apiBase, owner, slug, deepLinkSelection, o
         height: image.height,
         alt: image.alt,
         placeholder: image.placeholder,
+        video: isVideoItem(image) ? image : undefined,
       }))
-      return <Diptych frames={diptychFrames} segments={segments} dpr={dpr} activeIndex={activeIndex} />
+      return <Diptych frames={diptychFrames} segments={segments} dpr={dpr} activeIndex={activeIndex} renderVideo={renderVideo} />
     }
     return (
       <>
@@ -1190,8 +1209,8 @@ export default function GalleryList({ apiBase, owner, slug, deepLinkSelection, o
               setGlobalViewOpen(true)
             }}
             initialIndex={frameKick.index}
-            foldLayout={foldEligible ? foldLayout : null}
-            foldRenderer={foldEligible ? renderFold : undefined}
+            foldLayout={foldLayout}
+            foldRenderer={renderFold}
           />
         </GalleryShell>
         {suspendedViewer && nav.screen.kind === 'details' ? detailsView : null}

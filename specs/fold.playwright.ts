@@ -49,10 +49,13 @@ const foldImage = (index: number, overrides: Partial<GalleryImage> = {}): Galler
 const installIOSFold = async (page: Page) => {
   await page.addInitScript(() => {
     Object.assign(window, {
-      __MANORAMA_IOS_FOLD__: {
+      __MANORAMA_IOS_LAYOUT__: {
+        viewport: { width: 1440, height: 900 },
         horizontalSizeClass: 'regular',
         verticalSizeClass: 'regular',
-        hinge: { axis: 'vertical', start: 700, size: 40 },
+        verticalBarEdge: 'unspecified',
+        safeAreaInsets: { top: 0, right: 0, bottom: 0, left: 0 },
+        regions: [{ kind: 'division', active: true, frame: { x: 700, y: 0, width: 40, height: 900 } }],
       },
     })
   })
@@ -66,7 +69,11 @@ const openFoldFixture = async (
   await page.route(apiPattern, (route) => route.fulfill({
     status: 200,
     contentType: 'application/json',
-    body: JSON.stringify({ ...manifest, manifest: { ...manifest.manifest, images } }),
+    body: JSON.stringify({
+      ...manifest,
+      manifest: { ...manifest.manifest, images },
+      settings: { ...manifest.settings, defaultMode: 'spread' },
+    }),
   }))
   await page.goto(`${nativeUrl}/?owner=fixture&slug=fold-fixture`, { waitUntil: 'domcontentloaded' })
   await expect(page.locator('[data-curtain]')).toBeVisible()
@@ -99,7 +106,26 @@ describeIfConfigured('native fold runtime', () => {
     await expect(page.locator('[data-track] [data-index]')).toHaveCount(2)
   })
 
-  test('renders two physical panes and advances the active pane pair', async ({ page }) => {
+  test('an active division leaves ordinary Strip continuous and only moves its controls', async ({ page }) => {
+    await installIOSFold(page)
+    await page.goto(`${nativeUrl}/?owner=fixture&slug=fold-fixture`, { waitUntil: 'domcontentloaded' })
+    await expect(page.locator('[data-curtain]')).toBeVisible()
+    const curtainCopy = await page.locator('.curtain-content').boundingBox()
+    expect(curtainCopy!.x).toBeGreaterThanOrEqual(740)
+    await page.locator('[data-curtain]').click()
+    await expect(page.locator('[data-track]')).toHaveCount(1)
+    await expect(page.locator('[data-diptych-stage]')).toHaveCount(0)
+    await expect(page.locator('[data-chrome-bottom]')).toHaveCSS('left', '740px')
+    await page.keyboard.press('End')
+    await page.keyboard.press('ArrowRight')
+    const endcard = page.locator('[data-endcard]')
+    await expect(endcard).not.toHaveAttribute('inert', '')
+    await expect.poll(async () => (await endcard.boundingBox())?.x).toBeCloseTo(740, 0)
+    const endcardBox = (await endcard.boundingBox())!
+    expect(endcardBox.x + endcardBox.width).toBeCloseTo(1440, 0)
+  })
+
+  test('explicit Spread renders two physical panes and advances the active pane pair', async ({ page }) => {
     await page.addInitScript(() => {
       const nativeMatchMedia = window.matchMedia.bind(window)
       window.matchMedia = ((query: string) => {
@@ -130,6 +156,11 @@ describeIfConfigured('native fold runtime', () => {
         document.head.appendChild(style)
       })
     })
+    await page.route(apiPattern, (route) => route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ ...manifest, settings: { ...manifest.settings, defaultMode: 'spread' } }),
+    }))
     await page.goto(`${nativeUrl}/?owner=fixture&slug=fold-fixture`, { waitUntil: 'domcontentloaded' })
     await expect(page.locator('[data-curtain]')).toBeVisible()
     await page.locator('[data-curtain]').click()
@@ -149,10 +180,13 @@ describeIfConfigured('native fold runtime', () => {
   test('aligns panes to physical segment origins despite safe-area insets', async ({ page }) => {
     await page.addInitScript(() => {
       Object.assign(window, {
-        __MANORAMA_IOS_FOLD__: {
+        __MANORAMA_IOS_LAYOUT__: {
+          viewport: { width: 1440, height: 900 },
           horizontalSizeClass: 'regular',
           verticalSizeClass: 'regular',
-          hinge: { axis: 'vertical', start: 700, size: 40 },
+          verticalBarEdge: 'unspecified',
+          safeAreaInsets: { top: 24, right: 16, bottom: 24, left: 16 },
+          regions: [{ kind: 'division', active: true, frame: { x: 700, y: 0, width: 40, height: 900 } }],
         },
       })
       document.addEventListener('DOMContentLoaded', () => {
@@ -166,6 +200,11 @@ describeIfConfigured('native fold runtime', () => {
         document.head.appendChild(style)
       })
     })
+    await page.route(apiPattern, (route) => route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ ...manifest, settings: { ...manifest.settings, defaultMode: 'spread' } }),
+    }))
     await page.goto(`${nativeUrl}/?owner=fixture&slug=fold-fixture`, { waitUntil: 'domcontentloaded' })
     await expect(page.locator('[data-curtain]')).toBeVisible()
     await page.locator('[data-curtain]').click()

@@ -5,7 +5,7 @@ import { encryptedSourceFromGalleryHash, type MediaReference } from '../../packa
 import { rewriteGalleryHistory } from '../lib/gallery-url'
 import type { EncryptedMediaResolver } from '../lib/encrypted-resolver'
 import type { WebGalleryKeyStore } from '../lib/key-store'
-import { imageWithSettings, loadStoredGallerySettings, type GallerySettings } from '../lib/gallery-settings'
+import { imageWithSettings, loadStoredGallerySettings, type GallerySettings, type ViewerMode } from '../lib/gallery-settings'
 import { attachMagnifier, magnifierSupported, type MagnifierHandle } from '../lib/magnifier'
 import { deviceImageDpr, effectiveImageDpr, imageStageSize, videoStageSize } from '../lib/image-staging'
 import VideoSlide, { formatDuration } from './VideoSlide'
@@ -23,7 +23,7 @@ import SeededDoodleBackground from './SeededDoodleBackground'
 import { type BackgroundPreference } from '../lib/background-preference'
 import { singlePlatePositionsFor, type AdFrame } from '../lib/adframe'
 import { advanceEasedPosition, clamp, glideEase } from '../lib/sizing'
-import type { FoldLayout, FoldSegment } from '../../packages/core/fold'
+import type { FoldLayout, FoldSegment, FoldVerticalBarEdge } from '../../packages/core/fold'
 
 // A Tauri or Capacitor webview reports the real backing scale; the open web
 // cannot be trusted to — pinch zoom and compat shims lie about the ratio.
@@ -35,7 +35,7 @@ const reportedDpr = () => deviceReportedDpr
   ? deviceImageDpr(window.devicePixelRatio)
   : effectiveImageDpr(window.devicePixelRatio)
 
-type Mode = 'strip' | 'vertical' | 'single'
+type Mode = ViewerMode
 type DragSample = { x: number; time: number }
 
 const EMBEDDED_FOLD_GLIDE_MS = 1600
@@ -163,11 +163,15 @@ type Props = {
   onGalleryRefreshed?: () => void
   onGalleryRemoved?: () => void
   foldLayout?: FoldLayout | null
+  /** Homepage-only system-bar presentation; native geometry stays authoritative. */
+  demoVerticalBarEdge?: FoldVerticalBarEdge
+  demoVerticalStyle?: Record<string, string | undefined>
   foldRenderer?: (props: {
     frames: readonly GalleryMediaItem[]
     activeIndex: number
     segments: readonly FoldSegment[]
     dpr: number
+    renderVideo: (video: VideoItem, context: { width: number; height: number; active: boolean }) => unknown
   }) => unknown
 }
 
@@ -282,7 +286,7 @@ const readViewPrefs = (slug: string): ViewPrefs => {
   try {
     const stored = JSON.parse(localStorage.getItem(`manorama:view:${slug}`) ?? '{}') as ViewPrefs
     return {
-      mode: stored.mode && ['strip', 'vertical', 'single'].includes(stored.mode) ? stored.mode : undefined,
+      mode: stored.mode && ['strip', 'vertical', 'single', 'spread'].includes(stored.mode) ? stored.mode : undefined,
       background: stored.background && ['none', 'light', 'dark'].includes(stored.background) ? stored.background : undefined,
     }
   } catch {
@@ -300,7 +304,7 @@ const writeViewPrefs = (slug: string, patch: Partial<ViewPrefs>) => {
 /** Renders a gallery in strip, vertical, or single-image mode. Still images
  *  preserve their aspect ratio, fit height-first in strip mode, width-first in
  *  vertical mode, and within both axes in single mode without upscaling. */
-export default function Viewer({ slug, galleryTitle, images: sourceImages, encryptedResolver = null, galleryId, settings: initialSettings, plate = null, onOpenGlobalView, onReturnToGalleries, allowFullscreen = true, initialIndex = 0, navigationRef, embedded = false, demoRef, demoDisplayScaleRef, suspended = false, onPositionChange, onOpenDetails, viewerRole, galleryOwner, onAddToLibrary, addToLibraryBusy, addToLibraryLabel, signInHref, libraryHref, apiBase = '', authToken, ownerGallery, initialEdit = false, editStore, foldLayout = null, foldRenderer, keyStore, shareHref, onEditSaved, onGalleryRenamed, onGalleryRefreshed, onGalleryRemoved }: Props) {
+export default function Viewer({ slug, galleryTitle, images: sourceImages, encryptedResolver = null, galleryId, settings: initialSettings, plate = null, onOpenGlobalView, onReturnToGalleries, allowFullscreen = true, initialIndex = 0, navigationRef, embedded = false, demoRef, demoDisplayScaleRef, suspended = false, onPositionChange, onOpenDetails, viewerRole, galleryOwner, onAddToLibrary, addToLibraryBusy, addToLibraryLabel, signInHref, libraryHref, apiBase = '', authToken, ownerGallery, initialEdit = false, editStore, foldLayout = null, demoVerticalBarEdge, demoVerticalStyle, foldRenderer, keyStore, shareHref, onEditSaved, onGalleryRenamed, onGalleryRefreshed, onGalleryRemoved }: Props) {
   const [settings, setSettings] = useState<GallerySettings>(initialSettings)
   const viewPrefs = useMemo(() => (embedded || typeof localStorage === 'undefined' ? {} : readViewPrefs(slug)), [slug, embedded])
   const [mode, setMode] = useState<Mode>(viewPrefs.mode ?? initialSettings.defaultMode)
@@ -429,6 +433,11 @@ export default function Viewer({ slug, galleryTitle, images: sourceImages, encry
   const watchdogSeenRef = useRef(new WeakMap<HTMLImageElement, number>())
   const watchdogAttemptsRef = useRef<Record<string, number>>({})
   const [stageSize, setStageSize] = useState({ width: 0, height: 0, dpr: typeof window === 'undefined' ? 1 : reportedDpr() })
+  const regularWidth = foldLayout?.source === 'ios'
+    ? foldLayout.horizontalSizeClass === 'regular'
+    : stageSize.width >= 1024
+  const spreadAvailable = !embedded && regularWidth && Boolean(foldRenderer)
+  const effectiveMode: Mode = mode === 'spread' && !spreadAvailable ? 'strip' : mode
   // Under a visible background (Light/Dark) every image carries a 10px
   // margin: strip frames stage against a stage 20px shorter so height-fit
   // images get 10px bands top and bottom, vertical rows against a stage
@@ -436,8 +445,8 @@ export default function Viewer({ slug, galleryTitle, images: sourceImages, encry
   // right in strip, bottom in vertical — is frame margin in CSS. 'none'
   // stages against the raw stage, so photographs abut edge to edge.
   const imageMarginPx = background !== 'none' ? 10 : 0
-  const stagingWidth = Math.max(0, stageSize.width - (mode === 'vertical' ? imageMarginPx * 2 : 0))
-  const stagingHeight = Math.max(0, stageSize.height - (mode === 'strip' ? imageMarginPx * 2 : 0))
+  const stagingWidth = Math.max(0, stageSize.width - (effectiveMode === 'vertical' ? imageMarginPx * 2 : 0))
+  const stagingHeight = Math.max(0, stageSize.height - (effectiveMode === 'strip' ? imageMarginPx * 2 : 0))
   // Viewer-level sound: once a visitor unmutes, every subsequently
   // activated video starts audible. Deliberately NOT persisted — it
   // resets when the viewer unmounts, so a fresh visit is always quiet.
@@ -683,13 +692,13 @@ export default function Viewer({ slug, galleryTitle, images: sourceImages, encry
   // the strip N photos instead of collapsing into a single hop.
   const navDestXRef = useRef<number | null>(null)
   const indexRef = useRef(index)
-  const modeRef = useRef(mode)
+  const modeRef = useRef(effectiveMode)
   const plateRef = useRef(plate)
-  const foldActiveRef = useRef(false)
+  const spreadActiveRef = useRef(false)
   // The fold index an in-flight step is heading for. Rapid wheel ticks and
   // key repeats land before the next render commits, so each step anchors
   // at this pending destination — the fold twin of navDestXRef.
-  const pendingFoldIndexRef = useRef<number | null>(null)
+  const pendingSpreadIndexRef = useRef<number | null>(null)
   const reportedIndexRef = useRef(index)
   // The frame a programmatic goTo was asked to land on. Position
   // reporting may not override it while that frame is on stage —
@@ -725,58 +734,90 @@ export default function Viewer({ slug, galleryTitle, images: sourceImages, encry
   const [armedPlatePos, setArmedPlatePos] = useState<number | null>(null)
 
   const currentImage = images[index] ?? images[0]
-  // Fold presentation is a native enhancement of strip mode. A diptych spread
-  // cannot carry a plate, so book pose suppresses the cadence entirely rather
-  // than cropping it into a segment.
-  const foldActive = mode === 'strip' && foldLayout?.mode === 'diptych' && Boolean(foldRenderer)
-  foldActiveRef.current = foldActive
-  // Controls are chrome, not canvas. On a Duo the second safe region is the
-  // right or lower pane, so anchoring the dot and selector there guarantees
-  // that neither the hinge nor the physical split becomes a hit target.
-  const foldControlRegion = foldActive && foldLayout?.controlRegions.length === 2
-    ? foldLayout.controlRegions[1]
+  // Spread is explicit. A physical division only supplies its geometry; it
+  // never substitutes a spread for Strip or another saved mode.
+  const spreadActive = effectiveMode === 'spread' && Boolean(foldRenderer)
+  spreadActiveRef.current = spreadActive
+  const dividedControls = foldLayout?.mode === 'diptych' && foldLayout.controlRegions.length === 2
+  const foldControlRegion = dividedControls ? foldLayout!.controlRegions[1] : null
+  const verticalBarEdge = foldLayout?.verticalBarEdge ?? demoVerticalBarEdge ?? 'unspecified'
+  const verticalSystemBars = verticalBarEdge === 'leading' || verticalBarEdge === 'trailing'
+  const verticalControlRegion = verticalSystemBars && dividedControls
+    ? foldLayout!.controlRegions[verticalBarEdge === 'leading' ? 0 : 1]
     : null
-  const foldControlStyle = foldControlRegion ? {
-    left: `${foldControlRegion.x + foldControlRegion.width / 2}px`,
-    top: `${foldControlRegion.y + foldControlRegion.height - 62}px`,
-    bottom: 'auto',
-    transform: 'translateX(-50%)',
-  } : undefined
   const foldChromeStyle = foldControlRegion ? {
     left: `${foldControlRegion.x}px`,
+    right: 'auto',
     width: `${foldControlRegion.width}px`,
   } : undefined
+  const verticalChromeStyle = verticalControlRegion ? {
+    left: `${verticalControlRegion.x}px`,
+    top: `${verticalControlRegion.y}px`,
+    right: 'auto',
+    bottom: 'auto',
+    width: `${verticalControlRegion.width}px`,
+    height: `${verticalControlRegion.height}px`,
+  } : embedded ? demoVerticalStyle : undefined
+  const foldArrowStyle = verticalControlRegion ? {
+    ...verticalChromeStyle,
+    display: 'flex',
+    flexDirection: 'column',
+    justifyContent: 'center',
+  } : foldChromeStyle
   const demoFoldTopStyle = embedded && foldControlRegion ? {
     ...foldChromeStyle,
     top: `${foldControlRegion.y}px`,
-    right: 'auto',
     padding: '0',
   } : foldChromeStyle
   const demoFoldBottomStyle = embedded && foldControlRegion ? {
     ...foldChromeStyle,
     top: `${foldControlRegion.y + 56}px`,
     bottom: 'auto',
-    right: 'auto',
     padding: '0',
   } : foldChromeStyle
-  const foldPanelStyle = foldControlRegion ? {
+  const panelRegion = verticalControlRegion ?? foldControlRegion
+  const foldPanelStyle = panelRegion ? {
     position: 'absolute',
-    left: `${foldControlRegion.x}px`,
-    top: `${foldControlRegion.y}px`,
-    width: `${foldControlRegion.width}px`,
-    height: `${foldControlRegion.height}px`,
+    left: `${panelRegion.x}px`,
+    top: `${panelRegion.y}px`,
+    width: `${panelRegion.width}px`,
+    height: `${panelRegion.height}px`,
     maxWidth: 'none',
     maxHeight: 'none',
     margin: '0',
     overflow: 'auto',
+    boxSizing: 'border-box',
   } : undefined
+  const foldStripEndcapStyle = foldControlRegion ? {
+    flex: `0 0 ${foldControlRegion.width}px`,
+    marginRight: '0',
+    boxSizing: 'border-box',
+    minWidth: '0',
+  } : undefined
+  const foldFeedEndcapStyle = foldControlRegion ? {
+    width: `${foldControlRegion.width}px`,
+    marginLeft: `${Math.max(0, foldControlRegion.x - (background === 'none' ? 0 : 10))}px`,
+    boxSizing: 'border-box',
+    minWidth: '0',
+  } : undefined
+  useEffect(() => {
+    const curtain = curtainElement()
+    if (!curtain) return
+    if (foldControlRegion) {
+      curtain.style.paddingLeft = `${foldControlRegion.x + 28}px`
+      curtain.style.paddingRight = `${Math.max(28, (foldLayout?.viewport.width ?? 0) - foldControlRegion.x - foldControlRegion.width + 28)}px`
+    } else {
+      curtain.style.removeProperty('padding-left')
+      curtain.style.removeProperty('padding-right')
+    }
+  }, [embedded, foldControlRegion?.x, foldControlRegion?.width, foldLayout?.viewport.width])
   // The interim single-plate rule while dummy house creatives stand in for
   // the rented network: exactly one seeded interior position per gallery,
   // re-rolled per UTC day — a re-opened strip keeps the morning's layout
   // instead of re-shuffling on every mount.
   const platePositions = useMemo(
-    () => (plate && !foldActive ? singlePlatePositionsFor(images.length, `${slug}:${new Date().toISOString().slice(0, 10)}`) : []),
-    [plate, foldActive, images.length, slug],
+    () => (plate && !spreadActive ? singlePlatePositionsFor(images.length, `${slug}:${new Date().toISOString().slice(0, 10)}`) : []),
+    [plate, spreadActive, images.length, slug],
   )
   // The info panel speaks about whichever medium is on screen, and EXIF
   // only exists on photographs — narrow once here rather than at each use.
@@ -798,7 +839,7 @@ export default function Viewer({ slug, galleryTitle, images: sourceImages, encry
   // Several plates can ride one strip; only the settled, centred one arms its
   // CTA — they are far enough apart that at most one can ever be centred.
   const centeredPlatePosition = (): number | null => {
-    if (!plateRef.current || mode !== 'strip' || draggingRef.current || momentumRef.current !== null) return null
+    if (!plateRef.current || effectiveMode !== 'strip' || draggingRef.current || momentumRef.current !== null) return null
     for (const mount of trackRef.current?.querySelectorAll<HTMLElement>('[data-ad-frame]') ?? []) {
       if (plateMountCentered(mount)) return Number(mount.dataset.adPosition)
     }
@@ -833,9 +874,9 @@ export default function Viewer({ slug, galleryTitle, images: sourceImages, encry
       if (plateActionFrameRef.current !== null) cancelAnimationFrame(plateActionFrameRef.current)
       plateActionFrameRef.current = null
     }
-  }, [plate, mode, images.length])
+  }, [plate, effectiveMode, images.length])
 
-  useLayoutEffect(() => { indexRef.current = index; pendingFoldIndexRef.current = null }, [index])
+  useLayoutEffect(() => { indexRef.current = index; pendingSpreadIndexRef.current = null }, [index])
   const previousPlateRef = useRef(plate)
   useLayoutEffect(() => {
     // A plate resolving after mount inserts before its seeded position and
@@ -844,7 +885,7 @@ export default function Viewer({ slug, galleryTitle, images: sourceImages, encry
     // insert widened the track, so drop the cached bounds first — settleTo
     // clamps through getBounds and a stale max would dock the anchor a
     // plate-width short near the end of the strip.
-    if (!previousPlateRef.current && plate && modeRef.current === 'strip' && !foldActiveRef.current
+    if (!previousPlateRef.current && plate && modeRef.current === 'strip' && !spreadActiveRef.current
       && !draggingRef.current && momentumRef.current === null) {
       boundsDirtyRef.current = true
       settleTo(-imageStart(pendingEntryRef.current ?? indexRef.current), true)
@@ -852,7 +893,7 @@ export default function Viewer({ slug, galleryTitle, images: sourceImages, encry
     previousPlateRef.current = plate
     plateRef.current = plate
   })
-  useEffect(() => { modeRef.current = mode }, [mode])
+  useEffect(() => { modeRef.current = effectiveMode }, [effectiveMode])
 
   // The canvas default is always Blank — photographs abut edge-to-edge
   // unless this gallery carries its own stored Light/Dark choice. The
@@ -932,7 +973,7 @@ export default function Viewer({ slug, galleryTitle, images: sourceImages, encry
   }, [embedded])
 
   const hasMultiple = images.length > 1
-  const arrowsOn = mode === 'vertical' ? showArrowsVertical : showArrows
+  const arrowsOn = effectiveMode === 'vertical' ? showArrowsVertical : showArrows
   // The end card carries Rewind only — the chrome's own Library pill is
   // the way back, not a second exit under "The End."
   // Reorder moved from a dashboard overlay into this picker — the
@@ -1122,8 +1163,8 @@ export default function Viewer({ slug, galleryTitle, images: sourceImages, encry
     singleEndcapRef.current = false
     setSingleEndcap(false)
     const reduced = typeof window !== 'undefined' && window.matchMedia('(prefers-reduced-motion: reduce)').matches
-    if (mode === 'single') { disarmEndcap(); goTo(0); onComplete?.(); return }
-    if (mode === 'vertical') {
+    if (effectiveMode === 'single') { disarmEndcap(); goTo(0); onComplete?.(); return }
+    if (effectiveMode === 'vertical') {
       const stage = stageRef.current
       reportedIndexRef.current = 0
       explicitIndexRef.current = 0
@@ -1234,7 +1275,7 @@ export default function Viewer({ slug, galleryTitle, images: sourceImages, encry
     // carries straight into the reveal. Programmatic re-docks settle
     // silently instead, so entering at the tail never shows the card
     // uninvited.
-    if (shouldReport && mode === 'strip' && !foldActiveRef.current && !endcapRevealedRef.current && next < -bounds.max - 1) {
+    if (shouldReport && effectiveMode === 'strip' && !spreadActiveRef.current && !endcapRevealedRef.current && next < -bounds.max - 1) {
       revealEndcap()
       bounds = getBounds()
     }
@@ -1242,7 +1283,7 @@ export default function Viewer({ slug, galleryTitle, images: sourceImages, encry
     const moved = value !== currentXRef.current
     currentXRef.current = value
     trackRef.current?.style.setProperty('transform', `translate3d(${value}px, 0, 0)`)
-    if (mode === 'strip' && !foldActiveRef.current) {
+    if (effectiveMode === 'strip' && !spreadActiveRef.current) {
       setPlateActionability(null)
       queuePlateActionability()
     }
@@ -1362,7 +1403,7 @@ export default function Viewer({ slug, galleryTitle, images: sourceImages, encry
           // re-dock waits two: the anchor must read the post-glide
           // position, not the pre-glide one a paging advance just left.
           requestAnimationFrame(() => requestAnimationFrame(() => {
-            if (modeRef.current !== 'strip' || foldActiveRef.current || draggingRef.current || momentumRef.current !== null) return
+            if (modeRef.current !== 'strip' || spreadActiveRef.current || draggingRef.current || momentumRef.current !== null) return
             if (endcapRevealedRef.current && -currentXRef.current >= getBounds().max - 1) {
               settleTo(-getBounds().max, true)
               return
@@ -1394,7 +1435,7 @@ export default function Viewer({ slug, galleryTitle, images: sourceImages, encry
     const next = clamp(nextIndex, 0, images.length - 1)
     // The sequential fade locks input for its whole run: a press that
     // lands mid-fade is dropped, never queued or overlapped.
-    if (mode === 'single' && !instant && singleFadeBusyRef.current) return
+    if (effectiveMode === 'single' && !instant && singleFadeBusyRef.current) return
     // A later navigation retires the entry anchor. The entry call itself
     // passes the pending target and must keep it.
     if (pendingEntryRef.current !== null && pendingEntryRef.current !== next) pendingEntryRef.current = null
@@ -1403,7 +1444,7 @@ export default function Viewer({ slug, galleryTitle, images: sourceImages, encry
     explicitIndexRef.current = next
     singleEndcapRef.current = false
     setSingleEndcap(false)
-    if (mode === 'single' && next !== index && !instant) {
+    if (effectiveMode === 'single' && next !== index && !instant) {
       singleFadeBusyRef.current = true
       const seq = ++singleFadeSeqRef.current
       const from = indexRef.current
@@ -1438,11 +1479,11 @@ export default function Viewer({ slug, galleryTitle, images: sourceImages, encry
       }
       setIndex(next)
     }
-    if (mode === 'strip' && !foldActiveRef.current) {
+    if (effectiveMode === 'strip' && !spreadActiveRef.current) {
       navDestXRef.current = -imageStart(next)
       settleTo(navDestXRef.current, instant)
     }
-    if (mode === 'vertical') {
+    if (effectiveMode === 'vertical') {
       requestAnimationFrame(() => {
         const target = stageRef.current?.querySelector<HTMLElement>(`[data-image-id="${images[next]?.id}"]`)
         if (target) dockVerticalFrame(target, instant ? 'auto' : 'smooth')
@@ -1472,14 +1513,14 @@ export default function Viewer({ slug, galleryTitle, images: sourceImages, encry
 
   const step = (direction: -1 | 1) => {
     if (!hasMultiple) return
-    if (foldActiveRef.current) {
-      const next = clamp((pendingFoldIndexRef.current ?? index) + direction, 0, images.length - 1)
-      pendingFoldIndexRef.current = next
+    if (spreadActiveRef.current) {
+      const next = clamp((pendingSpreadIndexRef.current ?? index) + direction, 0, images.length - 1)
+      pendingSpreadIndexRef.current = next
       goTo(next)
-    } else if (mode === 'strip') {
+    } else if (effectiveMode === 'strip') {
       const next = clamp(index + direction, 0, images.length - 1)
       goTo(next)
-    } else if (mode === 'vertical') {
+    } else if (effectiveMode === 'vertical') {
       verticalStep(direction)
     } else {
       // One-by-one has no pan range: next on the last photograph fades
@@ -1501,7 +1542,7 @@ export default function Viewer({ slug, galleryTitle, images: sourceImages, encry
 
   const advanceStripByViewport = (direction: -1 | 1, onComplete?: (result: 'photo' | 'end') => void) => {
     pendingEntryRef.current = null
-    if (foldActiveRef.current) {
+    if (spreadActiveRef.current) {
       if (embedded && onComplete && direction === 1) {
         const from = indexRef.current
         if (from >= images.length - 1) { onComplete('end'); return }
@@ -1526,9 +1567,9 @@ export default function Viewer({ slug, galleryTitle, images: sourceImages, encry
       onComplete?.('photo')
       return
     }
-    if (mode !== 'strip') {
+    if (effectiveMode !== 'strip') {
       if (!embedded || !onComplete || direction === -1) { step(direction); onComplete?.('photo'); return }
-      if (mode === 'single') {
+      if (effectiveMode === 'single') {
         const from = indexRef.current
         if (singleEndcapRef.current) { onComplete('end'); return }
         if (from === images.length - 1) {
@@ -1817,15 +1858,15 @@ export default function Viewer({ slug, galleryTitle, images: sourceImages, encry
   useEffect(() => {
     const stage = stageRef.current
     if (!stage) return
-    if (foldActive) return
+    if (spreadActive) return
     boundsDirtyRef.current = true
-    const target = mode === 'strip' ? -imageStart(index) : 0
+    const target = effectiveMode === 'strip' ? -imageStart(index) : 0
     renderX(target, false)
-    if (mode === 'vertical') requestAnimationFrame(() => {
+    if (effectiveMode === 'vertical') requestAnimationFrame(() => {
       const target = stageRef.current?.querySelector<HTMLElement>(`[data-image-id="${currentImage?.id}"]`)
       if (target) dockVerticalFrame(target, 'auto')
     })
-  }, [mode, foldActive])
+  }, [effectiveMode, spreadActive])
 
   const applyStageMetrics = () => {
     const stage = stageRef.current
@@ -1845,7 +1886,7 @@ export default function Viewer({ slug, galleryTitle, images: sourceImages, encry
     stageMeasurementsRef.current = measured
     setStageSize((previous) => previous.width === measured.width && previous.height === measured.height && previous.dpr === measured.dpr ? previous : measured)
     boundsDirtyRef.current = true
-    if (modeRef.current === 'strip' && !foldActiveRef.current) {
+    if (modeRef.current === 'strip' && !spreadActiveRef.current) {
       const anchor = pendingEntryRef.current ?? indexRef.current
       settleTo(-imageStart(anchor), true)
     }
@@ -1957,13 +1998,13 @@ export default function Viewer({ slug, galleryTitle, images: sourceImages, encry
 
   useEffect(() => {
     boundsDirtyRef.current = true
-    if (modeRef.current !== 'strip' || foldActiveRef.current) return
+    if (modeRef.current !== 'strip' || spreadActiveRef.current) return
     const frame = requestAnimationFrame(() => {
       const anchor = pendingEntryRef.current ?? indexRef.current
       settleTo(-imageStart(anchor), true, pendingEntryRef.current === null)
     })
     return () => cancelAnimationFrame(frame)
-  }, [stageSize, foldActive])
+  }, [stageSize, spreadActive])
 
   // A canvas switch restages every strip frame — the 10px image margin
   // appears or disappears — but nothing else notices: bounds and the
@@ -1989,7 +2030,7 @@ export default function Viewer({ slug, galleryTitle, images: sourceImages, encry
     const wasAtEnd = endcapRevealedRef.current
       && -currentXRef.current >= boundsRef.current.max - 1
     boundsDirtyRef.current = true
-    if (modeRef.current !== 'strip' || foldActiveRef.current || draggingRef.current) return
+    if (modeRef.current !== 'strip' || spreadActiveRef.current || draggingRef.current) return
     if (momentumRef.current !== null) {
       marginRedockPendingRef.current = true
       return
@@ -2055,7 +2096,7 @@ export default function Viewer({ slug, galleryTitle, images: sourceImages, encry
     // listener at commit and re-arms it in a later async flush, so every
     // modal transition would unplug the handler for a few frames. The
     // gate reads anyModalOpenRef (written at event time) instead.
-  }, [index, mode, images.length, embedded])
+  }, [index, effectiveMode, images.length, embedded])
 
   useEffect(() => {
     if (embedded) return
@@ -2378,7 +2419,7 @@ export default function Viewer({ slug, galleryTitle, images: sourceImages, encry
     const stage = stageRef.current
     if (!stage) return
     const onWheel = (event: WheelEvent) => {
-      if (mode === 'vertical') return
+      if (effectiveMode === 'vertical') return
       event.preventDefault()
       // Normalise to pixels before any threshold or travel math: line- and
       // page-mode wheels emit small deltas that would never reach the fold
@@ -2386,11 +2427,11 @@ export default function Viewer({ slug, galleryTitle, images: sourceImages, encry
       const factor = event.deltaMode === 1 ? 16 : event.deltaMode === 2 ? stage.clientWidth : 1
       const rawDelta = Math.abs(event.deltaY) > Math.abs(event.deltaX) ? event.deltaY : event.deltaX
       const delta = rawDelta * factor
-      if (foldActiveRef.current) {
+      if (spreadActiveRef.current) {
         if (Math.abs(delta) > 8) step(delta > 0 ? 1 : -1)
         return
       }
-      if (mode === 'single') {
+      if (effectiveMode === 'single') {
         if (Math.abs(rawDelta) > 8) step(rawDelta > 0 ? 1 : -1)
         return
       }
@@ -2398,11 +2439,11 @@ export default function Viewer({ slug, galleryTitle, images: sourceImages, encry
     }
     stage.addEventListener('wheel', onWheel, { passive: false })
     return () => stage.removeEventListener('wheel', onWheel)
-  }, [mode, index, foldActive])
+  }, [effectiveMode, index, spreadActive])
 
   useEffect(() => {
     const stage = stageRef.current
-    if (!stage || mode !== 'single') return
+    if (!stage || effectiveMode !== 'single') return
     let startX = 0
     let swiping = false
     const onPointerDown = (event: PointerEvent) => {
@@ -2429,11 +2470,11 @@ export default function Viewer({ slug, galleryTitle, images: sourceImages, encry
       stage.removeEventListener('pointerup', onPointerUp)
       stage.removeEventListener('pointercancel', onPointerUp)
     }
-  }, [mode, index])
+  }, [effectiveMode, index])
 
   useLayoutEffect(() => {
     const stage = stageRef.current
-    if (!stage || !foldActive) return
+    if (!stage || !spreadActive) return
     let startX = 0
     let pointerId: number | null = null
     const onPointerDown = (event: PointerEvent) => {
@@ -2464,7 +2505,7 @@ export default function Viewer({ slug, galleryTitle, images: sourceImages, encry
       stage.removeEventListener('pointerup', onPointerUp)
       stage.removeEventListener('pointercancel', onPointerCancel)
     }
-  }, [foldActive, index])
+  }, [spreadActive, index])
 
   useEffect(() => {
     const stage = stageRef.current
@@ -2531,7 +2572,7 @@ export default function Viewer({ slug, galleryTitle, images: sourceImages, encry
       stage.classList.add('is-dragging')
     }
     const onPointerDown = (event: PointerEvent) => {
-      if (mode !== 'strip' || foldActiveRef.current || (event.target as HTMLElement).closest('button')) return
+      if (effectiveMode !== 'strip' || spreadActiveRef.current || (event.target as HTMLElement).closest('button')) return
       const adAnchor = (event.target as HTMLElement).closest('a[href]')
       const adFrame = adAnchor?.closest('[data-ad-frame]')
       if (adAnchor && adFrame) {
@@ -2612,7 +2653,7 @@ export default function Viewer({ slug, galleryTitle, images: sourceImages, encry
       if (dragFrameRef.current !== null) cancelAnimationFrame(dragFrameRef.current)
       stopMomentum()
     }
-  }, [mode])
+  }, [effectiveMode])
 
   // Vertical mode scrolls natively for touch and wheel; map a mouse or
   // pen drag onto scrollTop so the feed answers a grabbed drag too.
@@ -2620,7 +2661,7 @@ export default function Viewer({ slug, galleryTitle, images: sourceImages, encry
   // turned into a drag.
   useEffect(() => {
     const stage = stageRef.current
-    if (!stage || mode !== 'vertical') return
+    if (!stage || effectiveMode !== 'vertical') return
     let dragging = false
     let lastY = 0
     const beginDrag = (event: PointerEvent) => {
@@ -2657,7 +2698,7 @@ export default function Viewer({ slug, galleryTitle, images: sourceImages, encry
       stage.removeEventListener('pointerup', onPointerUp)
       stage.removeEventListener('pointercancel', onPointerUp)
     }
-  }, [mode])
+  }, [effectiveMode])
 
   // Escape and the Tab trap live on the dialog element itself — attached
   // at commit — while a render-synced ref lets the always-on window key
@@ -2802,7 +2843,7 @@ export default function Viewer({ slug, galleryTitle, images: sourceImages, encry
   // only what intersects (with a viewport of preload margin) plus a small
   // MRU tail of recently visible frames.
   useEffect(() => {
-    if (mode !== 'vertical' || typeof IntersectionObserver === 'undefined') return
+    if (effectiveMode !== 'vertical' || typeof IntersectionObserver === 'undefined') return
     const track = trackRef.current
     if (!track) return
     const visible = new Set<number>()
@@ -2826,14 +2867,14 @@ export default function Viewer({ slug, galleryTitle, images: sourceImages, encry
       verticalMruRef.current = []
       setVerticalActive(new Set())
     }
-  }, [mode, images])
+  }, [effectiveMode, images])
 
   // Strip's decoded window slides with `index`; a bounded MRU tail of
   // frames that just left it stays mounted so quick pans back don't
   // re-mount and re-fetch. Bounded so eager media and decoded HEIC blobs
   // still get released once truly out of play.
   useEffect(() => {
-    if (mode !== 'strip') {
+    if (effectiveMode !== 'strip') {
       stripMruRef.current = []
       return
     }
@@ -2842,7 +2883,7 @@ export default function Viewer({ slug, galleryTitle, images: sourceImages, encry
     const tail = stripMruRef.current.filter((i) => !base.has(i))
     stripMruRef.current = [...base, ...tail].slice(0, base.size + STRIP_RETAIN)
     setStripActive(new Set(stripMruRef.current))
-  }, [index, mode, images.length])
+  }, [index, effectiveMode, images.length])
 
   /**
    * Which frames may own a media element. `isFrameActive` is a window
@@ -2863,12 +2904,12 @@ export default function Viewer({ slug, galleryTitle, images: sourceImages, encry
     })
 
   const isFrameActive = (imageIndex: number) => {
-    if (mode === 'vertical') {
+    if (effectiveMode === 'vertical') {
       return typeof IntersectionObserver === 'undefined'
         ? Math.abs(imageIndex - index) <= 3
         : verticalActive.has(imageIndex)
     }
-    return mode === 'strip' ? stripActive.has(imageIndex) : imageIndex === index
+    return effectiveMode === 'strip' ? stripActive.has(imageIndex) : imageIndex === index
   }
 
   useEffect(() => {
@@ -2896,7 +2937,7 @@ export default function Viewer({ slug, galleryTitle, images: sourceImages, encry
       }
       return next
     })
-  }, [index, mode, images, heicSrc, verticalActive, stripActive])
+  }, [index, effectiveMode, images, heicSrc, verticalActive, stripActive])
 
   useEffect(() => () => {
     unmountedRef.current = true
@@ -2998,16 +3039,29 @@ export default function Viewer({ slug, galleryTitle, images: sourceImages, encry
     if (image && onPositionChange) onPositionChange({ imageId: image.id, index })
   }, [index])
 
-  const foldStartIndex = Math.min(index % 2 === 0 ? index : index - 1, Math.max(0, images.length - 2))
+  const pairedStart = Math.min(index % 2 === 0 ? index : index - 1, Math.max(0, images.length - 2))
+  const spreadStartIndex = currentIsVideo || (images[pairedStart] && isVideoItem(images[pairedStart])) ? index : pairedStart
+  const spreadEndIndex = Math.min(images.length, spreadStartIndex + (currentIsVideo || (images[spreadStartIndex + 1] && isVideoItem(images[spreadStartIndex + 1])) ? 1 : 2))
   // Resolve displayable sources here — heicSrc lives in this component, so
   // the renderer receives frames it can paint without knowing about HEIC.
-  // Undecoded HEICs show their 256px variant or placeholder, mirroring the
-  // ordinary frame's placeholder layer while libheif works.
-  const foldFrames = images.slice(foldStartIndex, foldStartIndex + 2).map((image) =>
+  const spreadFrames = images.slice(spreadStartIndex, spreadEndIndex).map((image) =>
     isHeic(image)
       ? { ...image, src: heicSrc[image.id] ?? image.variants?.[0]?.src ?? image.placeholder }
       : image)
-  const foldActiveIndex = Math.max(0, index - foldStartIndex)
+  const spreadActiveIndex = Math.max(0, index - spreadStartIndex)
+  const flatSpreadWidth = stageSize.width || foldLayout?.viewport.width || 0
+  const flatSpreadHeight = stageSize.height || foldLayout?.viewport.height || 0
+  const flatSpreadGutter = Math.min(32, flatSpreadWidth * 0.04)
+  const flatSpreadPaneWidth = Math.max(0, (flatSpreadWidth - flatSpreadGutter) / 2)
+  const spreadSegments = foldLayout?.mode === 'diptych' && foldLayout.segments.length === 2
+    ? foldLayout.segments
+    : [
+        { x: 0, y: 0, width: flatSpreadPaneWidth, height: flatSpreadHeight },
+        { x: flatSpreadPaneWidth + flatSpreadGutter, y: 0, width: flatSpreadPaneWidth, height: flatSpreadHeight },
+      ]
+  const spreadRenderSegments = spreadFrames.length === 1
+    ? [{ x: 0, y: 0, width: flatSpreadWidth, height: flatSpreadHeight }]
+    : spreadSegments
 
   // Suspension must make the WHOLE viewer subtree unreachable — the pill,
   // arrows, bubble and modals render outside the stage, so inerting only
@@ -3021,7 +3075,7 @@ export default function Viewer({ slug, galleryTitle, images: sourceImages, encry
           track scrolls. */}
       <div
         ref={stageRef}
-        class={`viewer-stage mode-${mode} bg-${background}${arrowsVisible ? ' has-arrow-bar' : ''}${chromeVisible && !suspended ? ' chrome-on' : ''}`}
+        class={`viewer-stage mode-${effectiveMode} bg-${background}${arrowsVisible ? ' has-arrow-bar' : ''}${chromeVisible && !suspended ? ' chrome-on' : ''}`}
         data-stage
         aria-label={`${slug} photograph viewer`}
         tabIndex={-1}
@@ -3031,14 +3085,36 @@ export default function Viewer({ slug, galleryTitle, images: sourceImages, encry
             through only the transparent gaps between tiles and the
             exposed canvas — never over photographs or UI. */}
         {embedded ? null : <SeededDoodleBackground enabled={background !== 'none'} />}
-        {foldActive && foldLayout && foldRenderer ? foldRenderer({
-          frames: foldFrames,
-          activeIndex: foldActiveIndex,
-          segments: foldLayout.segments,
+        {spreadActive && foldRenderer ? foldRenderer({
+          frames: spreadFrames,
+          activeIndex: spreadActiveIndex,
+          segments: spreadRenderSegments,
           dpr: stageSize.dpr,
+          renderVideo: (video, { width, height, active }) => isVideoSlideActive(index) ? (
+            <VideoSlide
+              item={video}
+              isActive={active}
+              soundOn={soundOn}
+              prefersReducedMotion={reducedMotion}
+              suspended={suspended}
+              onToggleSound={setSoundOn}
+              boxStyle={{ width: `${width}px`, height: `${height}px` }}
+              onActivity={pauseChrome}
+              onIdle={scheduleChromeHide}
+            />
+          ) : (
+            <img
+              src={video.poster.src}
+              alt={video.alt}
+              width={video.width}
+              height={video.height}
+              style={{ width: `${width}px`, height: `${height}px`, objectFit: 'contain' }}
+              decoding="async"
+            />
+          ),
         }) : <div
           ref={trackRef}
-          class={`viewer-track ${mode === 'vertical' ? 'viewer-track--vertical' : ''} ${mode === 'single' ? 'viewer-track--single' : ''}`}
+          class={`viewer-track ${effectiveMode === 'vertical' ? 'viewer-track--vertical' : ''} ${effectiveMode === 'single' ? 'viewer-track--single' : ''}`}
           data-track
           data-demo-strip={embedded ? '' : undefined}
         >
@@ -3047,14 +3123,14 @@ export default function Viewer({ slug, galleryTitle, images: sourceImages, encry
             // Single mode also keeps the outgoing frame's media mounted
             // through the whole fade, and pre-mounts the immediate
             // neighbours so a step starts from decoded pixels, not a fetch.
-            const mountsMedia = isActive || (mode === 'single' && (imageIndex === singleFade?.from || Math.abs(imageIndex - index) <= 1))
+            const mountsMedia = isActive || (effectiveMode === 'single' && (imageIndex === singleFade?.from || Math.abs(imageIndex - index) <= 1))
             const healed = healedDims[image.id]
             const frameW = healed?.w ?? image.width
             const frameH = healed?.h ?? image.height
             const isPortrait = frameH > frameW
             const video = isVideoItem(image) ? image : null
             const staged = video ? null : imageStageSize({
-              mode,
+              mode: effectiveMode === 'spread' ? 'single' : effectiveMode,
               naturalWidthPx: frameW,
               naturalHeightPx: frameH,
               stageWidthCssPx: stagingWidth,
@@ -3067,7 +3143,7 @@ export default function Viewer({ slug, galleryTitle, images: sourceImages, encry
             // the rule does not apply (mobile, single mode, unmeasured
             // stage) and the frame keeps its previous full-bleed sizing.
             const stagedVideo = video ? videoStageSize({
-              mode,
+              mode: effectiveMode === 'spread' ? 'single' : effectiveMode,
               naturalWidthPx: frameW,
               naturalHeightPx: frameH,
               stageWidthCssPx: stagingWidth,
@@ -3086,7 +3162,7 @@ export default function Viewer({ slug, galleryTitle, images: sourceImages, encry
             // stage's full height, the photograph stays centred inside it at
             // its honest size, and `.viewer-frame--short` marks the plate so the
             // canvas around it can read as a mount.
-            const plateShort = staged !== null && mode === 'strip' && stagingHeight > 0 && staged.height > 0 && staged.height < stagingHeight - 1
+            const plateShort = staged !== null && effectiveMode === 'strip' && stagingHeight > 0 && staged.height > 0 && staged.height < stagingHeight - 1
             // A capped video gets an explicit box. Strip frames are laid
             // out edge-to-edge, so the frame keeps full stage height and
             // only the media inside it shrinks — that is what centres the
@@ -3094,7 +3170,7 @@ export default function Viewer({ slug, galleryTitle, images: sourceImages, encry
             // gap. Vertical frames are full-width rows, so the row height
             // follows the capped media height.
             const cappedVideo = stagedVideo?.capped && stagedVideo.width > 0 && stagedVideo.height > 0 ? stagedVideo : null
-            const frameStyle = mode === 'strip'
+            const frameStyle = effectiveMode === 'strip'
               ? cappedVideo
                 ? { width: `${cappedVideo.width}px`, height: stagingHeight > 0 ? `${stagingHeight}px` : '100%' }
                 : staged && staged.width > 0 && staged.height > 0
@@ -3102,7 +3178,7 @@ export default function Viewer({ slug, galleryTitle, images: sourceImages, encry
                   : video && stagingHeight > 0 && frameW > 0 && frameH > 0
                     ? { width: `${(stagingHeight * frameW) / frameH}px`, aspectRatio: `${frameW} / ${frameH}` }
                     : { aspectRatio: `${frameW} / ${frameH}` }
-              : mode === 'vertical'
+              : effectiveMode === 'vertical'
                 ? video
                   ? cappedVideo
                     ? { width: '100%', height: `${cappedVideo.height}px` }
@@ -3115,14 +3191,14 @@ export default function Viewer({ slug, galleryTitle, images: sourceImages, encry
             const cappedMediaStyle = cappedVideo ? { width: `${cappedVideo.width}px`, height: `${cappedVideo.height}px` } : undefined
             const photoFrame = (
               <figure
-                class={`viewer-frame ${isPortrait ? 'viewer-frame--portrait' : 'viewer-frame--landscape'} ${mode === 'single' ? (singleFade?.phase === 'out' && imageIndex === singleFade.from ? 'viewer-frame--leaving' : singleFade?.phase === 'in' && imageIndex === singleFade.to ? 'viewer-frame--entering' : imageIndex === index ? '' : 'viewer-frame--hidden') : ''} ${video ? 'viewer-frame--video' : ''} ${cappedVideo ? 'viewer-frame--video-capped' : ''} ${plateShort ? 'viewer-frame--short' : ''}`}
+                class={`viewer-frame ${isPortrait ? 'viewer-frame--portrait' : 'viewer-frame--landscape'} ${effectiveMode === 'single' ? (singleFade?.phase === 'out' && imageIndex === singleFade.from ? 'viewer-frame--leaving' : singleFade?.phase === 'in' && imageIndex === singleFade.to ? 'viewer-frame--entering' : imageIndex === index ? '' : 'viewer-frame--hidden') : ''} ${video ? 'viewer-frame--video' : ''} ${cappedVideo ? 'viewer-frame--video-capped' : ''} ${plateShort ? 'viewer-frame--short' : ''}`}
                 data-image-id={image.id}
                 data-photo-id={embedded ? image.id : undefined}
                 data-index={imageIndex + 1}
                 data-orientation={isPortrait ? 'portrait' : 'landscape'}
                 data-media-type={video ? 'video' : 'image'}
                 aria-current={imageIndex === index ? 'true' : undefined}
-                aria-hidden={mode === 'single' && imageIndex !== index ? 'true' : undefined}
+                aria-hidden={effectiveMode === 'single' && imageIndex !== index ? 'true' : undefined}
                 style={frameStyle}
               >
                 {video ? (
@@ -3212,7 +3288,7 @@ export default function Viewer({ slug, galleryTitle, images: sourceImages, encry
                         if (frame) {
                           const healed = { w: img.naturalWidth, h: img.naturalHeight }
                           setHealedDims((previous) => previous[image.id]?.w === healed.w && previous[image.id]?.h === healed.h ? previous : { ...previous, [image.id]: healed })
-                          if (mode === 'strip') {
+                          if (effectiveMode === 'strip') {
                             const oldWidth = frame.offsetWidth
                             // The strip frame hugs the staged image, so the
                             // heal must land the new dims now — before the
@@ -3290,7 +3366,7 @@ export default function Viewer({ slug, galleryTitle, images: sourceImages, encry
             // A plate is a borderless faux frame in the track — same language
             // as the "The End." card, set in the wordmark's display face with
             // the disclosure label kept small above the headline.
-            if (plate && mode === 'strip' && platePositions.includes(imageIndex)) {
+            if (plate && effectiveMode === 'strip' && platePositions.includes(imageIndex)) {
               return <>
                 <div
                   class="viewer-endcap viewer-ad-frame"
@@ -3358,8 +3434,8 @@ export default function Viewer({ slug, galleryTitle, images: sourceImages, encry
               end reads as an ending instead of a jarring wrap to the
               start. `inert` until revealed — it sits past the pan bound
               before then, so its links must not take focus or announce. */}
-          {mode === 'strip' ? (
-            <div class="viewer-endcap" data-endcard data-demo-endcard={embedded ? '' : undefined} inert={!endcapRevealed}>
+          {effectiveMode === 'strip' ? (
+            <div class="viewer-endcap" data-endcard data-demo-endcard={embedded ? '' : undefined} inert={!endcapRevealed} style={foldStripEndcapStyle}>
               <span class="endcap-line">The End.</span>
               <div class="endcap-actions">
                 <button class="endcap-reset" onClick={() => rewind()}>Rewind</button>
@@ -3369,8 +3445,8 @@ export default function Viewer({ slug, galleryTitle, images: sourceImages, encry
           {/* The same card ends the vertical feed — a footer frame in the
               scroll, always revealed, since the feed has no pan bound to
               keep it out of. */}
-          {mode === 'vertical' ? (
-            <div class="viewer-endcap viewer-endcap--feed" data-endcard>
+          {effectiveMode === 'vertical' ? (
+            <div class="viewer-endcap viewer-endcap--feed" data-endcard style={foldFeedEndcapStyle}>
               <span class="endcap-line">The End.</span>
               <div class="endcap-actions">
                 <button class="endcap-reset" onClick={() => rewind()}>Rewind</button>
@@ -3380,8 +3456,8 @@ export default function Viewer({ slug, galleryTitle, images: sourceImages, encry
         </div>}
         {/* One-by-one: the same card fades in over the last photograph —
             no pan range exists to hold it, so it mounts as a stage overlay. */}
-        {mode === 'single' ? (
-          <div class={`viewer-endcap viewer-endcap--single${singleEndcap ? ' is-open' : ''}`} data-endcard inert={!singleEndcap}>
+        {effectiveMode === 'single' ? (
+          <div class={`viewer-endcap viewer-endcap--single${singleEndcap ? ' is-open' : ''}`} data-endcard inert={!singleEndcap} style={foldPanelStyle}>
             <span class="endcap-line">The End.</span>
             <div class="endcap-actions">
               <button class="endcap-reset" onClick={() => rewind()}>Rewind</button>
@@ -3391,11 +3467,11 @@ export default function Viewer({ slug, galleryTitle, images: sourceImages, encry
         {/* data-magnifier-ignore: the lens mirrors photographs, not the
             page's own controls. The container always renders so the
             sequence bubble keeps its dock when arrows are opted out. */}
-        <div class={`stage-arrows ${mode === 'vertical' ? 'stage-arrows--vertical' : ''} ${arrowsVisible ? '' : 'stage-arrows--bare'}`} data-magnifier-ignore role="group" aria-label="Image navigation">
+        <div class={`stage-arrows ${effectiveMode === 'vertical' ? 'stage-arrows--vertical' : ''} ${verticalSystemBars ? `stage-arrows--system-side stage-arrows--system-${verticalBarEdge}` : ''} ${arrowsVisible ? '' : 'stage-arrows--bare'}`} style={foldArrowStyle} data-magnifier-ignore role="group" aria-label="Image navigation">
           {arrowsVisible ? (
             <>
-              <button class="stage-nav-arrow stage-nav-arrow--previous" data-nav-arrow aria-label="Previous photograph" onClick={() => advanceStripByViewport(-1)} disabled={mode === 'single' && index === 0 && !singleEndcap}>{mode === 'vertical' ? '↑' : '←'}</button>
-              <button class="stage-nav-arrow stage-nav-arrow--next" ref={nextArrowRef} data-nav-arrow aria-label="Next photograph" onClick={() => advanceStripByViewport(1)} disabled={mode === 'single' && singleEndcap}>{mode === 'vertical' ? '↓' : '→'}</button>
+              <button class="stage-nav-arrow stage-nav-arrow--previous" data-nav-arrow aria-label="Previous photograph" onClick={() => advanceStripByViewport(-1)} disabled={effectiveMode === 'single' && index === 0 && !singleEndcap}>{effectiveMode === 'vertical' ? '↑' : '←'}</button>
+              <button class="stage-nav-arrow stage-nav-arrow--next" ref={nextArrowRef} data-nav-arrow aria-label="Next photograph" onClick={() => advanceStripByViewport(1)} disabled={effectiveMode === 'single' && singleEndcap}>{effectiveMode === 'vertical' ? '↓' : '→'}</button>
             </>
           ) : null}
         </div>
@@ -3406,9 +3482,10 @@ export default function Viewer({ slug, galleryTitle, images: sourceImages, encry
           bar stays pointer-transparent; only the pill is clickable. */}
       {!galleryEntered && hasCurtainLibrary ? (
         <header
-          class={`m-chrome m-chrome--top ${curtainLibraryShown && !suspended ? 'is-visible' : ''}`}
+          class={`m-chrome ${verticalSystemBars ? `m-chrome--side m-chrome--side-${verticalBarEdge}` : 'm-chrome--top'} ${curtainLibraryShown && !suspended ? 'is-visible' : ''}`}
           inert={curtainLibraryShown && !suspended ? undefined : true}
           aria-hidden={curtainLibraryShown && !suspended ? undefined : 'true'}
+          style={verticalSystemBars ? verticalChromeStyle : demoFoldTopStyle}
           data-veil-chrome
         >
           {curtainLibraryHref ? (
@@ -3427,8 +3504,10 @@ export default function Viewer({ slug, galleryTitle, images: sourceImages, encry
         visible={chromeVisible && !suspended}
         demo={embedded}
         position={{ index, total: images.length }}
-        positionLabel={embedded && foldActive
-          ? `${foldStartIndex + 1}-${Math.min(foldStartIndex + 2, images.length)} of ${images.length}`
+        positionLabel={embedded && spreadActive
+          ? spreadFrames.length === 1
+            ? `${spreadStartIndex + 1} of ${images.length}`
+            : `${spreadStartIndex + 1}-${spreadStartIndex + spreadFrames.length} of ${images.length}`
           : undefined}
         onReturnToGalleries={onReturnToGalleries}
         libraryHref={viewerRole && viewerRole !== 'visitor' ? libraryHref : undefined}
@@ -3441,8 +3520,10 @@ export default function Viewer({ slug, galleryTitle, images: sourceImages, encry
         onIdle={scheduleChromeHide}
         settingsRef={(el) => { displayButtonRef.current = el }}
         positionRef={(el) => { positionPillRef.current = el }}
+        verticalBarEdge={verticalBarEdge}
         topStyle={demoFoldTopStyle}
         bottomStyle={demoFoldBottomStyle}
+        verticalStyle={verticalChromeStyle}
       />
 
       {gridOpen ? <>
@@ -3582,12 +3663,13 @@ export default function Viewer({ slug, galleryTitle, images: sourceImages, encry
         <SettingsSheet
           open={modalOpen}
           onClose={requestCloseModals}
-          mode={mode}
+          mode={effectiveMode}
           onMode={setMode}
+          spreadAvailable={spreadAvailable}
           background={background}
           onBackground={(next) => { setBackground(next); writeViewPrefs(slug, { background: next }) }}
           arrowsOn={arrowsOn}
-          onArrows={(on) => { if (mode === 'vertical') setShowArrowsVertical(on); else setShowArrows(on) }}
+          onArrows={(on) => { if (effectiveMode === 'vertical') setShowArrowsVertical(on); else setShowArrows(on) }}
           fullscreenAvailable={fullscreenAvailable}
           fullscreenActive={fullscreenActive}
           onFullscreen={() => { void toggleFullscreen() }}
