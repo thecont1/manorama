@@ -112,10 +112,17 @@ class SceneDelegate: UIResponder, UIWindowSceneDelegate {
               let webView = (window?.rootViewController as? CAPBridgeViewController)?.webView else { return }
         let javaScript = Self.layoutJavaScript(for: webView, windowScene: windowScene, dispatchEvent: true)
         guard javaScript != lastInjectedLayout else { return }
+        let previousLayout = lastInjectedLayout
+        // The cache tracks the most recently dispatched payload so a changed
+        // geometry still goes out while an earlier evaluation is in flight.
+        lastInjectedLayout = javaScript
         webView.evaluateJavaScript(javaScript) { [weak self] _, error in
-            // Record only a successful delivery — a failed evaluation must not
-            // suppress the retry the next layout pass would send.
-            if error == nil { self?.lastInjectedLayout = javaScript }
+            // A failed delivery restores the last good payload, keeping this
+            // geometry retry-eligible without clobbering a newer dispatch.
+            guard error != nil else { return }
+            if self?.lastInjectedLayout == javaScript {
+                self?.lastInjectedLayout = previousLayout
+            }
         }
     }
 
