@@ -1,4 +1,5 @@
 import { describe, expect, test } from 'bun:test'
+import { readFileSync } from 'node:fs'
 import { foldInputFromRuntime, __private__ } from './fold'
 
 const values: Record<string, string> = {
@@ -13,6 +14,19 @@ const values: Record<string, string> = {
 }
 
 describe('fold runtime adapter', () => {
+  test('the iOS bridge reads reserved regions synchronously during constraint updates', () => {
+    const source = readFileSync(new URL('../../ios/App/App/SceneDelegate.swift', import.meta.url), 'utf8')
+    const update = source.match(/override func updateConstraints\(\) \{([\s\S]*?)\n    \}/)?.[1]
+    expect(update).toBeDefined()
+    expect(update).toContain('onReservedRegionsChange?()')
+    expect(update).toContain('super.updateConstraints()')
+    expect(update).not.toMatch(/DispatchQueue|Task\s*\{|await/)
+    expect(source).toContain('let webView = ManoramaWebView(frame: frame, configuration: configuration)')
+    expect(source).toContain('webView.onReservedRegionsChange = { [weak self] in self?.onLayoutChange?() }')
+    expect(source).toContain('self?.injectLayout(for: scene)')
+    expect(source).toContain('webView.reservedRegions(kind: .division, options: .includeInactive)')
+  })
+
   test('reads the CSS environment bridge without importing a browser API into core', () => {
     const input = foldInputFromRuntime({
       viewport: { width: 1440, height: 900 },

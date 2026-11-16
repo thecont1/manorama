@@ -2,12 +2,23 @@ import UIKit
 import Capacitor
 import WebKit
 
+private final class ManoramaWebView: WKWebView {
+    var onReservedRegionsChange: (() -> Void)?
+
+    override func updateConstraints() {
+        // UIKit tracks reserved-region reads only inside this synchronous update.
+        onReservedRegionsChange?()
+        super.updateConstraints()
+    }
+}
+
 private final class ManoramaBridgeViewController: CAPBridgeViewController {
     var windowScene: UIWindowScene?
     var onLayoutChange: (() -> Void)?
 
     override func webView(with frame: CGRect, configuration: WKWebViewConfiguration) -> WKWebView {
-        let webView = super.webView(with: frame, configuration: configuration)
+        let webView = ManoramaWebView(frame: frame, configuration: configuration)
+        webView.onReservedRegionsChange = { [weak self] in self?.onLayoutChange?() }
         guard let windowScene else { return webView }
 
         webView.configuration.userContentController.addUserScript(
