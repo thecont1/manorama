@@ -86,6 +86,19 @@ body.manorama-native .stage-arrows .stage-nav-arrow {
   }
 }
 
+@media (vertical-viewport-segments: 2) {
+  :root {
+    --manorama-segment-left-0: env(viewport-segment-left 0 0);
+    --manorama-segment-top-0: env(viewport-segment-top 0 0);
+    --manorama-segment-width-0: env(viewport-segment-width 0 0);
+    --manorama-segment-height-0: env(viewport-segment-height 0 0);
+    --manorama-segment-left-1: env(viewport-segment-left 0 1);
+    --manorama-segment-top-1: env(viewport-segment-top 0 1);
+    --manorama-segment-width-1: env(viewport-segment-width 0 1);
+    --manorama-segment-height-1: env(viewport-segment-height 0 1);
+  }
+}
+
 body.manorama-native[data-native-fold-divided] :is(.m-sheet, .m-screen--fixed, .native-editor, .native-global-view, .native-welcome) {
   left: var(--native-fold-x);
   top: var(--native-fold-y);

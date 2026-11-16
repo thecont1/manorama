@@ -73,7 +73,7 @@ describe('postToXPhotos', () => {
 
   test('carries the encrypted reference, so the device can decrypt it', () => {
     const media = { kind: 'encrypted', provider: 'mega', sourceKind: 'folder', sourceId: 'F', nodeId: 'N' } as const
-    const [only] = postToXPhotos([photo('a', { src: '', media }) as Partial<GalleryMediaItem>])
+    const [only] = postToXPhotos([photo('a', { src: '', media })])
     expect(only.media).toEqual(media)
   })
 })

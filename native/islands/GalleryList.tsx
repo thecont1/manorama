@@ -831,8 +831,10 @@ export default function GalleryList({ apiBase, owner, slug, deepLinkSelection, o
 
   useEffect(() => {
     const body = document.body
-    const [, right] = foldLayout?.controlRegions ?? []
-    const divided = foldLayout?.mode === 'diptych' && foldLayout.controlRegions.length === 2
+    const [left, right] = foldLayout?.controlRegions ?? []
+    const sideBySide = Boolean(left && right && right.x > left.x + left.width)
+    const stacked = Boolean(left && right && right.y > left.y + left.height)
+    const divided = Boolean(foldLayout && (sideBySide || stacked))
     const properties = ['--native-fold-x', '--native-fold-y', '--native-fold-width', '--native-fold-height', '--native-fold-right']
     const clear = () => {
       body.removeAttribute('data-native-fold-divided')
@@ -1234,8 +1236,8 @@ export default function GalleryList({ apiBase, owner, slug, deepLinkSelection, o
       activeIndex: number
       segments: NonNullable<FoldLayout>['segments']
       dpr: number
-      onImageLoad: (id: string, src: string, width: number, height: number) => void
       renderVideo: (video: VideoItem, context: { width: number; height: number; active: boolean }) => unknown
+      onImageLoad: (id: string, src: string, width: number, height: number) => void
     }) => {
       const diptychFrames: DiptychFrame[] = frames.map((image) => ({
         id: image.id,

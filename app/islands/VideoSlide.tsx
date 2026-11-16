@@ -77,16 +77,19 @@ export default function VideoSlide({ item, isActive, soundOn, prefersReducedMoti
     try {
       await video.play()
       onPlaybackEvent?.('playing')
-    } catch {
-      if (!video.muted) {
+    } catch (error) {
+      // AbortError means play() was cancelled — usually by pause() — not that
+      // autoplay was refused. Honour the pause; do not retry or report blocked.
+      if ((error as DOMException | null)?.name === 'AbortError') return
+      if (!video.muted && !explicitlyPausedRef.current) {
         // Sound was refused, motion probably isn't — fall back seamlessly.
         video.muted = true
         try {
           await video.play()
           onPlaybackEvent?.('playing')
           return
-        } catch {
-          // fall through
+        } catch (retryError) {
+          if ((retryError as DOMException | null)?.name === 'AbortError') return
         }
       }
       setIsPlaying(false)

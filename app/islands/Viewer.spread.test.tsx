@@ -67,7 +67,7 @@ beforeAll(() => {
   prev = {
     window: globals.window, document: globals.document,
     raf: globals.requestAnimationFrame, caf: globals.cancelAnimationFrame,
-    svg: globals.SVGElement, fetch: globals.fetch,
+    svg: globals.SVGElement, fetch: globals.fetch, localStorage: globals.localStorage,
   }
   dom = new Window({ url: 'http://localhost/spread' })
   globals.window = dom
@@ -78,11 +78,16 @@ beforeAll(() => {
   globals.fetch = (async () => new Response('{}', { status: 200 })) as unknown as typeof fetch
   ;(dom.window as unknown as { matchMedia: () => { matches: boolean } }).matchMedia = () => ({ matches: false })
   ;(dom.window as unknown as { devicePixelRatio: number }).devicePixelRatio = 1
+  globals.localStorage = dom.localStorage
 })
 
+const disposers: (() => void)[] = []
+
 afterEach(() => {
+  for (const dispose of disposers.splice(0)) dispose()
   dom.document.body.innerHTML = ''
   dom.document.body.classList.remove('gallery-entered')
+  dom.localStorage.clear()
 })
 
 afterAll(() => {
@@ -92,6 +97,7 @@ afterAll(() => {
   globals.requestAnimationFrame = prev.raf
   globals.cancelAnimationFrame = prev.caf
   globals.fetch = prev.fetch
+  globals.localStorage = prev.localStorage
 })
 
 const mount = async ({ mode = 'spread', initialIndex = 0, foldLayout = layoutFor('regular'), items = images, withCurtain = false }: {
@@ -108,8 +114,8 @@ const mount = async ({ mode = 'spread', initialIndex = 0, foldLayout = layoutFor
     ...defaultGallerySettings({ slug: 'spread', title: 'Spread', caption: '', date: '', images: items }),
     defaultMode: mode,
   }
-  if (withCurtain) {
-    const curtainRoot = dom.document.createElement('div')
+  const curtainRoot = withCurtain ? dom.document.createElement('div') : undefined
+  if (curtainRoot) {
     root.appendChild(curtainRoot)
     render(<GalleryCurtain settings={settings} />, curtainRoot as unknown as HTMLElement)
   }
@@ -130,9 +136,16 @@ const mount = async ({ mode = 'spread', initialIndex = 0, foldLayout = layoutFor
     />,
     viewerRoot as unknown as HTMLElement,
   )
+  // Renders into distinct containers: unmount each through the renderer so
+  // effect cleanups run — deleting DOM alone skips them.
+  const dispose = () => {
+    render(null, viewerRoot as unknown as HTMLElement)
+    if (curtainRoot) render(null, curtainRoot as unknown as HTMLElement)
+  }
+  disposers.push(dispose)
   await settle()
   await settle()
-  return { root: root as unknown as HTMLElement, calls }
+  return { root: root as unknown as HTMLElement, calls, dispose }
 }
 
 describe('explicit Spread', () => {
@@ -188,13 +201,15 @@ describe('explicit Spread', () => {
   })
 
   test('compact fallback presents Strip without discarding the saved Spread preference', async () => {
+    dom.localStorage.setItem('manorama:view:spread-resize', JSON.stringify({ mode: 'spread' }))
     const root = dom.document.createElement('div')
     dom.document.body.appendChild(root)
+    disposers.push(() => render(null, root as unknown as HTMLElement))
     const calls: SpreadCall[] = []
     let widen: (() => void) | null = null
     const settings = {
       ...defaultGallerySettings({ slug: 'spread-resize', title: 'Spread', caption: '', date: '', images }),
-      defaultMode: 'spread' as const,
+      defaultMode: 'strip' as const,
     }
     const Harness = () => {
       const [foldLayout, setFoldLayout] = useState(layoutFor('compact'))
@@ -213,12 +228,32 @@ describe('explicit Spread', () => {
     expect(root.querySelector('.viewer-stage.mode-strip')).not.toBeNull()
     expect(calls).toHaveLength(0)
     expect(root.querySelector('[data-chrome-position]')?.getAttribute('aria-label')).toContain('Photograph 3 of 4')
+    // The fold fallback is temporary — it never rewrites the stored choice.
+    expect(JSON.parse(dom.localStorage.getItem('manorama:view:spread-resize') ?? '{}')).toEqual({ mode: 'spread' })
 
     flushSync(() => widen?.())
     await settle()
     expect(calls.length).toBeGreaterThan(0)
     expect(root.querySelector('[data-spread-stage]')).not.toBeNull()
     expect(root.querySelector('[data-chrome-position]')?.getAttribute('aria-label')).toContain('Photograph 3 of 4')
+
+    render(null, root as unknown as HTMLElement)
+    const remount = dom.document.createElement('div')
+    dom.document.body.appendChild(remount)
+    disposers.push(() => render(null, remount as unknown as HTMLElement))
+    render(
+      <Viewer
+        slug="spread-resize"
+        images={images}
+        settings={settings}
+        initialIndex={2}
+        foldLayout={layoutFor('regular')}
+        foldRenderer={(props) => { calls.push(props); return <div data-spread-stage /> }}
+      />,
+      remount as unknown as HTMLElement,
+    )
+    await settle()
+    expect(remount.querySelector('[data-spread-stage]')).not.toBeNull()
   })
 
   test('an active division confines curtain copy and every end-card presentation to the trailing region', async () => {
