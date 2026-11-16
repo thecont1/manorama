@@ -823,7 +823,9 @@ export default function GalleryList({ apiBase, owner, slug, deepLinkSelection, o
   useEffect(() => {
     const body = document.body
     const [left, right] = foldLayout?.controlRegions ?? []
-    const divided = Boolean(left && right && right.x > left.x + left.width && foldLayout)
+    const sideBySide = Boolean(left && right && right.x > left.x + left.width)
+    const stacked = Boolean(left && right && right.y > left.y + left.height)
+    const divided = Boolean(foldLayout && (sideBySide || stacked))
     const properties = ['--native-fold-x', '--native-fold-y', '--native-fold-width', '--native-fold-height', '--native-fold-right']
     const clear = () => {
       body.removeAttribute('data-native-fold-divided')
@@ -1165,12 +1167,13 @@ export default function GalleryList({ apiBase, owner, slug, deepLinkSelection, o
 
   if (manifest && settings) {
     const source = new BundledSource(manifest)
-    const renderFold = ({ frames, activeIndex, segments, dpr, renderVideo }: {
+    const renderFold = ({ frames, activeIndex, segments, dpr, renderVideo, onImageLoad }: {
       frames: readonly GalleryMediaItem[]
       activeIndex: number
       segments: NonNullable<FoldLayout>['segments']
       dpr: number
       renderVideo: (video: VideoItem, context: { width: number; height: number; active: boolean }) => unknown
+      onImageLoad: (id: string, src: string, width: number, height: number) => void
     }) => {
       const diptychFrames: DiptychFrame[] = frames.map((image) => ({
         id: image.id,
@@ -1181,7 +1184,7 @@ export default function GalleryList({ apiBase, owner, slug, deepLinkSelection, o
         placeholder: image.placeholder,
         video: isVideoItem(image) ? image : undefined,
       }))
-      return <Diptych frames={diptychFrames} segments={segments} dpr={dpr} activeIndex={activeIndex} renderVideo={renderVideo} />
+      return <Diptych frames={diptychFrames} segments={segments} dpr={dpr} activeIndex={activeIndex} renderVideo={renderVideo} onImageLoad={onImageLoad} />
     }
     return (
       <>
