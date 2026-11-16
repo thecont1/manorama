@@ -155,6 +155,11 @@ jobs:
           security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$KEYCHAIN_PASSWORD" build.keychain
           rm signing.p12
 
+      - uses: astral-sh/setup-uv@d0d8abe699bfb85fec6de9f7adb5ae17292296ff # v6
+        if: matrix.swiftui == true
+        with:
+          enable-cache: false
+
       # The SwiftUI shell is the only Mac build — swiftc + codesign via
       # scripts/build-macos.sh, then a drag-install DMG. The credential
       # check above guarantees the APPLE_* set, so notarytool + stapler run
@@ -177,11 +182,16 @@ jobs:
           scripts/build-macos.sh release
           APP_BUNDLE=macos/ManoramaMac/build/manorama.app
           VERSION=$(/usr/libexec/PlistBuddy -c 'Print CFBundleShortVersionString' "$APP_BUNDLE/Contents/Info.plist")
-          mkdir -p build/dmg-stage build/dmg
-          cp -R "$APP_BUNDLE" build/dmg-stage/
-          ln -s /Applications build/dmg-stage/Applications
           DMG="build/dmg/manorama_${VERSION}_aarch64.dmg"
-          hdiutil create -volname manorama -srcfolder build/dmg-stage -ov -format UDZO "$DMG"
+          if [ -f scripts/build-dmg.sh ]; then
+            scripts/build-dmg.sh "$APP_BUNDLE" "$DMG"
+          else
+            # Manual dispatch can check out a tag predating styled DMGs.
+            mkdir -p build/dmg-stage build/dmg
+            cp -R "$APP_BUNDLE" build/dmg-stage/
+            ln -s /Applications build/dmg-stage/Applications
+            hdiutil create -volname manorama -srcfolder build/dmg-stage -ov -format UDZO "$DMG"
+          fi
           xcrun notarytool submit "$DMG" --apple-id "$APPLE_ID" --password "$APPLE_PASSWORD" --team-id "$APPLE_TEAM_ID" --wait
           xcrun stapler staple "$DMG"
           xcrun stapler validate "$DMG"
