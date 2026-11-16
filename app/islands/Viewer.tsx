@@ -817,6 +817,9 @@ export default function Viewer({ slug, galleryTitle, images: sourceImages, encry
   } : undefined
   const foldStripEndcapStyle = foldControlRegion ? {
     flex: `0 0 ${foldControlRegion.width}px`,
+    alignSelf: 'flex-start',
+    marginTop: `${foldControlRegion.y}px`,
+    height: `${foldControlRegion.height}px`,
     marginRight: '0',
     boxSizing: 'border-box',
     minWidth: '0',
