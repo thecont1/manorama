@@ -3,92 +3,167 @@ import Capacitor
 import WebKit
 
 private final class ManoramaBridgeViewController: CAPBridgeViewController {
-    var foldDocumentStartScript = ""
+    var windowScene: UIWindowScene?
+    var onLayoutChange: (() -> Void)?
 
-    // Two iOS 27.1 refinements — the vertical-bar opt-out and the hinge reader —
-    // need the iOS 27 SDK, which is still beta, and App Review rejects binaries
-    // built with beta Xcode. This file therefore compiles against the current
-    // public SDK; both refinements return with the iOS 27 GM SDK. Nothing else
-    // depends on them: the JS contract in packages/core/fold.ts already reads a
-    // missing hinge as a non-folded display.
     override func webView(with frame: CGRect, configuration: WKWebViewConfiguration) -> WKWebView {
         let webView = super.webView(with: frame, configuration: configuration)
-        guard !foldDocumentStartScript.isEmpty else { return webView }
+        guard let windowScene else { return webView }
 
         webView.configuration.userContentController.addUserScript(
             WKUserScript(
-                source: foldDocumentStartScript,
+                source: SceneDelegate.layoutJavaScript(for: webView, windowScene: windowScene, dispatchEvent: false),
                 injectionTime: .atDocumentStart,
                 forMainFrameOnly: true
             )
         )
         return webView
     }
+
+    override func viewDidLoad() {
+        super.viewDidLoad()
+        if #available(iOS 17.0, *) {
+            registerForTraitChanges([UITraitHorizontalSizeClass.self, UITraitVerticalSizeClass.self]) {
+                (self: ManoramaBridgeViewController, _) in
+                self.onLayoutChange?()
+            }
+        }
+        if #available(iOS 27.1, *) {
+            registerForTraitChanges(UITraitCollection.systemTraitsAffectingVerticalBarEdge) {
+                (self: ManoramaBridgeViewController, _) in
+                self.onLayoutChange?()
+            }
+        }
+    }
+
+    override func viewSafeAreaInsetsDidChange() {
+        super.viewSafeAreaInsetsDidChange()
+        onLayoutChange?()
+    }
+
+    override func viewDidLayoutSubviews() {
+        super.viewDidLayoutSubviews()
+        DispatchQueue.main.async { [weak self] in
+            self?.onLayoutChange?()
+        }
+    }
 }
 
 class SceneDelegate: UIResponder, UIWindowSceneDelegate {
     var window: UIWindow?
+    private var lastInjectedLayout: String?
 
     /// Creates the Capacitor bridge and forwards the scene connection to its proxy.
     func scene(_ scene: UIScene, willConnectTo session: UISceneSession, options connectionOptions: UIScene.ConnectionOptions) {
         guard let windowScene = scene as? UIWindowScene else { return }
 
         let bridgeViewController = ManoramaBridgeViewController()
-        bridgeViewController.foldDocumentStartScript = foldJavaScript(for: windowScene)
+        bridgeViewController.windowScene = windowScene
+        bridgeViewController.onLayoutChange = { [weak self] in
+            guard let scene = self?.window?.windowScene else { return }
+            self?.injectLayout(for: scene)
+        }
 
         window = UIWindow(windowScene: windowScene)
         window?.rootViewController = bridgeViewController
         window?.makeKeyAndVisible()
 
         SceneDelegateProxy.shared.scene(scene, willConnectTo: session, options: connectionOptions)
-        injectFoldGeometry(for: scene)
+        injectLayout(for: scene)
     }
 
     func sceneDidBecomeActive(_ scene: UIScene) {
-        injectFoldGeometry(for: scene)
+        injectLayout(for: scene)
     }
 
     func sceneWillEnterForeground(_ scene: UIScene) {
-        injectFoldGeometry(for: scene)
+        injectLayout(for: scene)
     }
 
-    /// Refreshes fold geometry when the system changes the scene's effective geometry,
-    /// including posture changes that do not recreate or foreground the scene.
     @available(iOS 26.0, *)
     func windowScene(_ windowScene: UIWindowScene, didUpdateEffectiveGeometry previousEffectiveGeometry: UIWindowScene.Geometry) {
-        injectFoldGeometry(for: windowScene)
+        injectLayout(for: windowScene)
     }
 
-    /// Populates `window.__MANORAMA_IOS_FOLD__` with size classes and hinge
-    /// geometry so the platform-free core layer can resolve diptych layouts.
-    /// Safe-area insets are provided by the WebView CSS env() vars and are not
-    /// duplicated here. See packages/core/fold.ts.
-    private func injectFoldGeometry(for scene: UIScene) {
-        guard let windowScene = scene as? UIWindowScene else { return }
-
-        let js = foldJavaScript(for: windowScene)
-        (window?.rootViewController as? CAPBridgeViewController)?
-            .webView?
-            .evaluateJavaScript(js, completionHandler: nil)
+    private func injectLayout(for scene: UIScene) {
+        guard let windowScene = scene as? UIWindowScene,
+              let webView = (window?.rootViewController as? CAPBridgeViewController)?.webView else { return }
+        let javaScript = Self.layoutJavaScript(for: webView, windowScene: windowScene, dispatchEvent: true)
+        guard javaScript != lastInjectedLayout else { return }
+        lastInjectedLayout = javaScript
+        webView.evaluateJavaScript(javaScript, completionHandler: nil)
     }
 
-    private func foldJavaScript(for windowScene: UIWindowScene) -> String {
+    fileprivate static func layoutJavaScript(for webView: WKWebView, windowScene: UIWindowScene, dispatchEvent: Bool) -> String {
+        let viewportSize: CGSize
+        if webView.bounds.width > 0, webView.bounds.height > 0 {
+            viewportSize = webView.bounds.size
+        } else if #available(iOS 26.0, *) {
+            viewportSize = windowScene.effectiveGeometry.coordinateSpace.bounds.size
+        } else {
+            viewportSize = windowScene.coordinateSpace.bounds.size
+        }
 
-        let horizontal = Self.sizeClassToString(windowScene.traitCollection.horizontalSizeClass)
-        let vertical = Self.sizeClassToString(windowScene.traitCollection.verticalSizeClass)
+        let snapshot: [String: Any] = [
+            "viewport": ["width": Double(viewportSize.width), "height": Double(viewportSize.height)],
+            "horizontalSizeClass": sizeClassToString(webView.traitCollection.horizontalSizeClass),
+            "verticalSizeClass": sizeClassToString(webView.traitCollection.verticalSizeClass),
+            "verticalBarEdge": verticalBarEdgeToString(webView.traitCollection),
+            "safeAreaInsets": insetsDictionary(webView.safeAreaInsets),
+            "regions": reservedRegionDictionaries(for: webView),
+        ]
 
-        var json = "{\"horizontalSizeClass\":\"\(horizontal)\",\"verticalSizeClass\":\"\(vertical)\""
+        guard let data = try? JSONSerialization.data(withJSONObject: snapshot),
+              let json = String(data: data, encoding: .utf8) else {
+            return "window.__MANORAMA_IOS_LAYOUT__ = {\"viewport\":{\"width\":0,\"height\":0},\"horizontalSizeClass\":\"unspecified\",\"verticalSizeClass\":\"unspecified\",\"verticalBarEdge\":\"unspecified\",\"safeAreaInsets\":{\"top\":0,\"right\":0,\"bottom\":0,\"left\":0},\"regions\":[]};"
+        }
 
-        json += "}"
-
-        return "window.__MANORAMA_IOS_FOLD__ = \(json);"
+        let assignment = "window.__MANORAMA_IOS_LAYOUT__ = \(json);"
+        guard dispatchEvent else { return assignment }
+        return assignment + "window.dispatchEvent(new CustomEvent('manorama:layout', { detail: window.__MANORAMA_IOS_LAYOUT__ }));"
     }
 
-    private static func sizeClassToString(_ cls: UIUserInterfaceSizeClass?) -> String {
-        switch cls {
+    private static func reservedRegionDictionaries(for webView: WKWebView) -> [[String: Any]] {
+        guard #available(iOS 27.1, *) else { return [] }
+        let regions = webView.reservedRegions(kind: .division, options: .includeInactive) +
+            webView.reservedRegions(kind: .occlusion, options: .includeInactive)
+        return regions.map { region in
+            [
+                "kind": region.kind == .division ? "division" : "occlusion",
+                "active": region.isActive,
+                "frame": [
+                    "x": Double(region.frame.origin.x),
+                    "y": Double(region.frame.origin.y),
+                    "width": Double(region.frame.width),
+                    "height": Double(region.frame.height),
+                ],
+            ]
+        }
+    }
+
+    private static func insetsDictionary(_ insets: UIEdgeInsets) -> [String: Double] {
+        [
+            "top": Double(insets.top),
+            "right": Double(insets.right),
+            "bottom": Double(insets.bottom),
+            "left": Double(insets.left),
+        ]
+    }
+
+    private static func sizeClassToString(_ sizeClass: UIUserInterfaceSizeClass) -> String {
+        switch sizeClass {
         case .regular: return "regular"
         case .compact: return "compact"
-        default: return "regular"
+        default: return "unspecified"
+        }
+    }
+
+    private static func verticalBarEdgeToString(_ traits: UITraitCollection) -> String {
+        guard #available(iOS 27.1, *) else { return "unspecified" }
+        switch traits.verticalBarEdge {
+        case .leading: return "leading"
+        case .trailing: return "trailing"
+        default: return "unspecified"
         }
     }
 

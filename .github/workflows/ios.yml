@@ -63,31 +63,28 @@ env:
 
 jobs:
   archive:
-    # The macos-15 image carries Xcode 26.x, but its default is 16.4 — and the
-    # app needs the iOS 26 SDK, so the toolchain is chosen explicitly below.
-    runs-on: macos-15
+    # iPhone Duo reserved-region APIs require the public iOS 27.1 SDK.
+    runs-on: xcode-27
     timeout-minutes: 90
     steps:
       - uses: actions/checkout@v7
 
-      - name: Select an Xcode with the iOS 26 SDK
+      - name: Select Xcode 27.1 and require the iOS 27.1 SDK
         run: |
           set -euo pipefail
-          latest="$(ls -d /Applications/Xcode_*.app 2>/dev/null | sort -V | tail -1)"
-          if [ -z "$latest" ]; then
-            echo "::error::no Xcode found on the runner image"
+          xcode="/Applications/Xcode_27.1.app"
+          if [ ! -d "$xcode" ]; then
+            echo "::error::Xcode 27.1 is not installed at $xcode"
             exit 1
           fi
-          sudo xcode-select -s "$latest/Contents/Developer"
+          sudo xcode-select -s "$xcode/Contents/Developer"
           xcodebuild -version
           sdk="$(xcrun --sdk iphoneos --show-sdk-version)"
           echo "iOS SDK: $sdk"
-          # App Review rejects binaries built with a beta SDK, and the app needs
-          # iOS 26 APIs, so accept 26 or newer and refuse anything else here
-          # rather than inside the Swift compiler.
+          # Reserved-region APIs are available only in the public 27.1 SDK.
           case "$sdk" in
-            2[6-9]*|[3-9][0-9]*) ;;
-            *) echo "::error::$latest provides iOS SDK $sdk, but the app needs 26 or newer — move this job to a newer runner image."; exit 1 ;;
+            27.[1-9]*|2[8-9]*|[3-9][0-9]*) ;;
+            *) echo "::error::$xcode provides iOS SDK $sdk, but the app needs 27.1 or newer."; exit 1 ;;
           esac
 
       - uses: oven-sh/setup-bun@v2
