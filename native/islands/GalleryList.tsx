@@ -13,6 +13,7 @@ import GalleryShell from '../../app/components/GalleryShell'
 import Viewer from '../../app/islands/Viewer'
 import GalleryEditor from './GalleryEditor'
 import GalleryDetails from './GalleryDetails'
+import PostToX from './PostToX'
 import AddGallerySheet from '../../app/components/AddGallerySheet'
 import GalleryShareSheet from '../../app/components/GalleryShareSheet'
 import { CloseIcon, QuietIcon } from '../../app/components/admin-icons'
@@ -46,6 +47,7 @@ import { copyText, type GallerySharePayload } from '../../app/lib/gallery-share'
 import { shareGalleryNative } from '../lib/gallery-share'
 import { LibraryCover, LibraryRail } from './LibraryRail'
 import { libraryLayout } from '../../packages/core/library-layout'
+import { deviceImageDpr } from '../../packages/core/image-staging'
 import { productionVault } from '../lib/vault'
 import { adFrameFor, fetchAdVisibility, HOUSE_AD_FRAME, type AdPolicyInput, type AdVisibility } from '../lib/ads'
 import { createAccountAdAdapter } from '../lib/admob-account-adapter'
@@ -247,6 +249,7 @@ export default function GalleryList({ apiBase, owner, slug, deepLinkSelection, o
   const [settings, setSettings] = useState<GallerySettings | null>(null)
   const [plate, setPlate] = useState<Awaited<ReturnType<typeof adFrameFor>>>(null)
   const [accountAd, setAccountAd] = useState<AdFrame | null>(null)
+  const [accountAdDimensions, setAccountAdDimensions] = useState<{ src: string; width: number; height: number } | null>(null)
   // The master's day/region kill switch — answered by the Worker, failed open.
   const [visibility, setVisibility] = useState<AdVisibility | null>(null)
   // Suppressions are readable only with a session: a signed-in operator gets
@@ -327,6 +330,9 @@ export default function GalleryList({ apiBase, owner, slug, deepLinkSelection, o
   const [frameKick, setFrameKick] = useState({ index: 0, nonce: 0 })
   const [activePhotoIndex, setActivePhotoIndex] = useState(0)
   const [openMenuSlug, setOpenMenuSlug] = useState<string | null>(null)
+  // The gallery whose photographs are being posted to X, and the address the
+  // post carries back to it.
+  const [postToX, setPostToX] = useState<{ gallery: GallerySummary; url: string } | null>(null)
   const [vaultGalleries, setVaultGalleries] = useState<ReadonlyMap<string, OfflineGallerySummary>>(new Map())
   const [cachedLibraryGalleries, setCachedLibraryGalleries] = useState<OfflineGridGallery[]>([])
   const [cachedMenuGallery, setCachedMenuGallery] = useState<OfflineGridGallery | null>(null)
@@ -1017,6 +1023,23 @@ export default function GalleryList({ apiBase, owner, slug, deepLinkSelection, o
     if (result === 'shared') setGalleryActionNote('Gallery shared')
   }
 
+  /** Opens the photograph picker for a post to X. The post carries the
+   *  gallery's own address, so the gallery has to be reachable — an encrypted
+   *  gallery needs the key this device already holds. */
+  const openPostToX = async (gallery: GallerySummary) => {
+    if (!ownerSlug) return
+    let hash = ''
+    if (gallery.manifestVersion === 2 && gallery.id) {
+      const source = await resolveEncryptedSourceForSelection(gallery.id)
+      if (!source) {
+        setGalleryActionNote('This device does not hold the key. Open the full gallery link before posting to X.')
+        return
+      }
+      hash = galleryHashForSource(source, gallery.id)
+    }
+    setPostToX({ gallery, url: `https://manorama.xyz/${ownerSlug}/${gallery.slug}${hash}` })
+  }
+
   const purgeSavedCopy = async (gallery: GallerySummary) => {
     const galleryId = galleryIds[gallery.slug]
     if (!galleryId) return
@@ -1697,6 +1720,9 @@ export default function GalleryList({ apiBase, owner, slug, deepLinkSelection, o
   // rect, so it has to exist before the fill is asked for. Until a rented
   // rectangle paints over it, the reserve carries the house creative.
   const accountAdCreative = accountAdFrame ?? HOUSE_AD_FRAME
+  const accountAdImage = accountAdCreative.image
+  const accountAdSize = accountAdDimensions && accountAdDimensions.src === accountAdImage?.src ? accountAdDimensions : accountAdImage
+  const accountAdDpr = deviceImageDpr(typeof window === 'undefined' ? 1 : window.devicePixelRatio)
   // The status line under the title reports vault activity first, then how
   // many galleries live on the device. Kept means what the cards mean: not
   // stream-only, with a committed vault copy holding every image.
@@ -1714,8 +1740,6 @@ export default function GalleryList({ apiBase, owner, slug, deepLinkSelection, o
       : ''
 
   const accountAdAside = billingState?.tier && visibility?.show !== false ? (
-    /* Its own surface panel — a vertical photograph slot beside the copy —
-       so it reads as a sponsored plate, not the first gallery. */
     <aside
       class={`native-account-ad${accountAdFrame?.provider === 'admob-banner' ? ' native-account-ad--live' : ''}`}
       data-account-ad
@@ -1723,9 +1747,12 @@ export default function GalleryList({ apiBase, owner, slug, deepLinkSelection, o
     >
       <span class="native-account-ad-badge">{accountAdCreative.badge}</span>
       <div class="native-account-ad-slot">
-        <div class="native-account-ad-frame">
-          {accountAdCreative.image ? (
-            <img src={accountAdCreative.image.src} width={accountAdCreative.image.width} height={accountAdCreative.image.height} alt="" />
+        <div class="native-account-ad-frame" style={accountAdSize ? { maxWidth: `${accountAdSize.width / accountAdDpr}px`, aspectRatio: `${accountAdSize.width} / ${accountAdSize.height}` } : undefined}>
+          {accountAdImage ? (
+            <img src={accountAdImage.src} width={accountAdImage.width} height={accountAdImage.height} alt="" onLoad={(event: Event) => {
+              const image = event.currentTarget as HTMLImageElement
+              setAccountAdDimensions({ src: accountAdImage.src, width: image.naturalWidth, height: image.naturalHeight })
+            }} />
           ) : (
             <span class="native-account-ad-placeholder">Vertical photograph, fit to height</span>
           )}
@@ -1896,6 +1923,10 @@ export default function GalleryList({ apiBase, owner, slug, deepLinkSelection, o
           </footer>
         ) : null}
         {accountAdAside}
+        <footer class="site-footer native-library-footer">
+          <button type="button" class="site-footer-link" onClick={() => dispatchNav({ type: 'open-privacy', from: 'library' })}>Privacy Policy</button>
+          <p class="site-footer-copy">© 2026 Mahesh Shantaram / <button type="button" onClick={() => openExternal(AUTHOR_URL)}>thecontrarian.in</button><br />Photographs in galleries belong to their respective owners.</p>
+        </footer>
         </div>
       </aside>
       <section class={quiet ? 'native-list-card lib-quiet' : 'native-list-card'} style={libraryRegionStyle(galleryRegion)} aria-label="Galleries" aria-live="polite" aria-busy={status === 'loading'} hidden={nav.screen.kind === 'settings' || undefined}>
@@ -2034,6 +2065,7 @@ export default function GalleryList({ apiBase, owner, slug, deepLinkSelection, o
         <div class="lib-menu" role="menu" aria-label={`${galleryName(menuGallery)} actions`}>
           <button type="button" role="menuitem" disabled={galleryActionBusy !== null} onClick={() => void toggleGalleryPin(menuGallery)}>{menuGallery.pinnedAt ? 'Unpin gallery' : 'Pin gallery'}</button>
           <button type="button" role="menuitem" onClick={() => { setOpenMenuSlug(null); void shareGallery(menuGallery) }}>Share link</button>
+          <button type="button" role="menuitem" disabled={!ownerSlug} onClick={() => { setOpenMenuSlug(null); void openPostToX(menuGallery) }}>Post to X</button>
           <button type="button" role="menuitem" disabled={!ownerSlug} onClick={() => {
             if (!ownerSlug) return
             setOpenMenuSlug(null)
@@ -2060,6 +2092,17 @@ export default function GalleryList({ apiBase, owner, slug, deepLinkSelection, o
           <button type="button" role="menuitem" class="lib-menu-danger" disabled={galleryActionBusy !== null} onClick={() => { setOpenMenuSlug(null); setRemoveGallerySlug(menuGallery.slug) }}>Remove gallery</button>
         </div>
       </Sheet>
+    ) : null}
+    {postToX ? (
+      <PostToX
+        apiBase={apiBase}
+        owner={ownerSlug}
+        slug={postToX.gallery.slug}
+        title={galleryName(postToX.gallery)}
+        galleryUrl={postToX.url}
+        onClose={() => setPostToX(null)}
+        onPosted={(note) => setGalleryActionNote(note)}
+      />
     ) : null}
     {nav.screen.kind === 'reorder' && editorGallery ? (
       <GalleryEditor

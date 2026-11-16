@@ -828,17 +828,21 @@ html.light body.manorama-native :is(.native-welcome, .native-list-shell, .native
 .native-library-tools > .m-topbar-logo { display: block; margin: 0 auto 12px; }
 .native-library-actions { display: flex; gap: 8px; align-items: center; }
 .native-library-actions > .m-btn--primary { padding-inline: 14px; }
+.native-library-actions > .m-iconbtn { width: 44px; height: 44px; flex: none; border: 1px solid var(--m-secondary); border-radius: 50%; }
 .native-library-heading { margin-bottom: 12px; }
 .native-library-heading h1 { color: var(--m-ink); }
 .native-library-tools .native-library-finding { margin: 14px 0 0; min-height: 0; font-size: 13px; }
 .native-library-layout .native-lib-foot { margin: 0 0 20px; padding: 0; border: 0; font-size: 13px; flex-wrap: wrap; }
 .native-library-layout .native-library-sponsor { grid-area: sponsor; padding: 0 20px 20px; }
 .native-library-layout .native-account-ad { margin: 16px 0 0; padding: 0; background: none; border-radius: 0; }
-.native-library-layout .native-account-ad-slot { flex-wrap: nowrap; gap: 12px; }
-.native-library-layout .native-account-ad-frame { width: 64px; height: 96px; background: none; }
-.native-library-layout .native-account-ad-sub { display: none; }
-.native-library-layout .native-account-ad-headline { font-size: 13px; }
+.native-library-layout .native-account-ad-slot { display: grid; grid-template-columns: minmax(0, 1fr); gap: 12px; }
+.native-library-layout .native-account-ad-frame { width: 100%; height: auto; aspect-ratio: 2 / 3; justify-self: center; background: none; }
+.native-library-layout .native-account-ad-frame img { height: auto; }
 .native-library-layout .native-account-ad-cta { min-height: 44px; display: inline-flex; align-items: center; margin: 0; }
+.native-library-footer { flex-direction: column; align-items: flex-start; gap: 0; margin-top: 24px; padding: 0; }
+.native-library-footer button { min-height: 44px; padding: 0; border: 0; background: none; color: inherit; font: inherit; cursor: pointer; }
+.native-library-footer :is(.site-footer-link, .site-footer-copy) { color: var(--m-secondary); line-height: 1.6; }
+.native-library-footer button:hover { text-decoration: underline; }
 .native-library-layout .native-list-card {
   grid-area: galleries;
   container: native-galleries / inline-size;

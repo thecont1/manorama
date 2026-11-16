@@ -164,6 +164,26 @@ describe('account slot entitlement', () => {
     expect(cta?.textContent).toContain('Explore manorama')
   })
 
+  test('ad artwork respects decoded pixels at the device density', async () => {
+    const dpr = dom.devicePixelRatio
+    Object.defineProperty(dom, 'devicePixelRatio', { configurable: true, value: 3 })
+    try {
+      const { container, controls } = mount({ billing: entitlement('free'), loader: async () => houseFrame({ image: { src: '/ads/house-1.jpg', width: 900, height: 1200 } }) })
+      await settle()
+      const image = container.querySelector('.native-account-ad-frame img') as HTMLImageElement
+      Object.defineProperties(image, { naturalWidth: { value: 180 }, naturalHeight: { value: 240 } })
+      image.dispatchEvent(new dom.Event('load') as unknown as Event)
+      await settle()
+      const frame = container.querySelector('.native-account-ad-frame') as HTMLElement
+      expect(frame.style.maxWidth).toBe('60px')
+      expect(frame.style.aspectRatio).toBe('180 / 240')
+      controls.setSurface(false)
+      await settle()
+    } finally {
+      Object.defineProperty(dom, 'devicePixelRatio', { configurable: true, value: dpr })
+    }
+  })
+
   test('pro renders the slot under its own tier — the loader sees pro', async () => {
     const inputs: AdPolicyInput[] = []
     const loader: Loader = async (input) => {
@@ -534,6 +554,25 @@ describe('signed-in account area', () => {
     globalThis.fetch = originalFetch
     restoreLocalStorage()
     dom.document.body.innerHTML = ''
+  })
+
+  test('the Library footer opens privacy and returns to the Library even without an ad', async () => {
+    installLocalStorage()
+    signInStorage()
+    stubFetch({ galleries: json({ galleries: [] }) })
+    const { container } = mountAccount()
+    await settle()
+    const footer = container.querySelector('.native-library-footer')!
+    expect(footer.textContent).toContain('© 2026 Mahesh Shantaram / thecontrarian.in')
+    expect(footer.textContent).toContain('Photographs in galleries belong to their respective owners.')
+    expect(container.querySelector('[data-account-ad]')).toBeNull()
+    ;(footer.querySelector('.site-footer-link') as HTMLButtonElement).click()
+    await settle()
+    expect(container.querySelector('[data-screen="privacy"]')).not.toBeNull()
+    ;(container.querySelector('.privacy-view .m-backbtn') as HTMLButtonElement).click()
+    await settle()
+    expect(container.querySelector('.native-library-layout')).not.toBeNull()
+    expect(container.querySelector('.native-library-footer')).not.toBeNull()
   })
 
   test('lists the account galleries and tapping one opens it under the owner slug', async () => {
