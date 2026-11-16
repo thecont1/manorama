@@ -68,6 +68,64 @@ describe('native gallery HTTP errors', () => {
   })
 })
 
+describe('the manifest rewrite', () => {
+  test('an encrypted photograph keeps its empty address', async () => {
+    globalThis.fetch = (async () => json({
+      manifest: {
+        slug: 'secret-album',
+        title: 'Secret album',
+        caption: '',
+        date: '',
+        images: [{
+          id: 'node-1',
+          filename: 'IMG_0001.jpg',
+          // An encrypted source has no address at all.
+          src: '',
+          media: { kind: 'encrypted', provider: 'mega', sourceKind: 'folder', sourceId: 'F', nodeId: 'N' },
+          width: 3000,
+          height: 2000,
+          alt: 'A photograph',
+          c2pa: false,
+          placeholder: 'data:image/svg+xml,svg',
+        }],
+      },
+      settings: {},
+    })) as typeof fetch
+
+    const response = await fetchGallery('https://manorama.xyz', 'photographer', 'secret-album')
+
+    // Resolving an empty address against the API base would hand the caller
+    // the site's own front page where the original should have been.
+    expect(response.manifest.images[0]?.src).toBe('')
+  })
+
+  test('a provider address becomes absolute', async () => {
+    globalThis.fetch = (async () => json({
+      manifest: {
+        slug: 'quiet-album',
+        title: 'Quiet album',
+        caption: '',
+        date: '',
+        images: [{
+          id: 'one',
+          filename: 'one.jpg',
+          src: '/api/dropbox/file?filename=one.jpg',
+          width: 3000,
+          height: 2000,
+          alt: 'A photograph',
+          c2pa: false,
+          placeholder: 'data:image/svg+xml,svg',
+        }],
+      },
+      settings: {},
+    })) as typeof fetch
+
+    const response = await fetchGallery('https://manorama.xyz', 'photographer', 'quiet-album')
+
+    expect(response.manifest.images[0]?.src).toBe('https://manorama.xyz/api/dropbox/file?filename=one.jpg')
+  })
+})
+
 describe('native quick-add', () => {
   test('creates from the wrapped provider URL and returns its canonical selection', async () => {
     installLocalStorage().set(TOKEN_KEY, 'session-token-1')
