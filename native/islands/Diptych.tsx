@@ -43,6 +43,7 @@ export type DiptychProps = {
   activeIndex?: number
   class?: string
   renderFrame?: (frame: DiptychFrame, context: DiptychRenderContext) => unknown
+  onImageLoad?: (id: string, src: string, width: number, height: number) => void
   renderVideo?: (video: VideoItem, context: { width: number; height: number; active: boolean }) => unknown
 }
 
@@ -152,13 +153,20 @@ const segmentStyle = (segment: DiptychSegment) => ({
   overflow: 'hidden',
 })
 
-const defaultFrame = (frame: DiptychFrame, context: DiptychRenderContext) => (
+const defaultFrame = (frame: DiptychFrame, context: DiptychRenderContext, dpr?: number, onImageLoad?: DiptychProps['onImageLoad']) => (
   <img
     src={frame.video?.poster.src ?? frame.src}
     alt={frame.alt}
     width={frame.width}
     height={frame.height}
-    loading={context.active ? 'eager' : 'lazy'}
+    loading="eager"
+    onLoad={(event: Event) => {
+      const image = event.currentTarget as HTMLImageElement
+      const size = diptychFrameSize({ width: image.naturalWidth, height: image.naturalHeight }, context.segment, dpr)
+      image.style.width = `${size.width}px`
+      image.style.height = `${size.height}px`
+      onImageLoad?.(frame.id, frame.src, image.naturalWidth, image.naturalHeight)
+    }}
     decoding="async"
     draggable={false}
     style={{
@@ -180,7 +188,8 @@ export default function Diptych({
   dpr,
   activeIndex = 0,
   class: className,
-  renderFrame = defaultFrame,
+  renderFrame,
+  onImageLoad,
   renderVideo,
 }: DiptychProps) {
   const layout = resolveDiptychLayout(frames, segments, dpr, activeIndex)
@@ -216,7 +225,7 @@ export default function Diptych({
           aria-current={context.active ? 'true' : undefined}
           style={{ ...segmentStyle(context.segment), margin: '0', pointerEvents: frame.video ? 'auto' : undefined }}
         >
-          {frame.video && renderVideo ? renderVideo(frame.video, { width: context.size.width, height: context.size.height, active: context.active }) : renderFrame(frame, context)}
+          {frame.video && renderVideo ? renderVideo(frame.video, { width: context.size.width, height: context.size.height, active: context.active }) : renderFrame ? renderFrame(frame, context) : defaultFrame(frame, context, dpr, onImageLoad)}
         </figure>
       ))}
     </div>

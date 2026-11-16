@@ -359,7 +359,13 @@ test.describe('the mounted homepage photo demo', () => {
     const column = page.locator('.m-chrome--side-trailing[data-chrome-top][data-chrome-bottom]')
     await expect(column).toHaveCount(1)
     await expect(column).toHaveClass(/is-visible/)
-    await expect(column.locator('.m-chrome-pill')).toHaveText(['‹ Library', '1 of 15', 'Gallery Settings', 'Info'])
+    await expect(column.locator('.m-chrome-pill')).toHaveCount(4)
+    await expect(column.locator('[data-chrome-library]')).toHaveAttribute('aria-label', 'Library')
+    await expect(column.locator('[data-chrome-position]')).toHaveAttribute('aria-label', /Photograph 1 of 15/)
+    await expect(column.locator('[data-chrome-position]')).toHaveText('1of 15')
+    await expect(column.locator('button[aria-label="Gallery Settings"]')).toHaveCount(1)
+    await expect(column.locator('button[aria-label="Info"]')).toHaveCount(1)
+    await expect(column.locator('svg[aria-hidden="true"]')).toHaveCount(3)
 
     const geometry = await column.evaluate((element) => {
       const box = (node: Element) => {

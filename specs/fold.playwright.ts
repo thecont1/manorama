@@ -79,6 +79,7 @@ const openFoldFixture = async (
   await expect(page.locator('[data-curtain]')).toBeVisible()
   await page.locator('[data-curtain]').click()
   await expect(page.locator('[data-diptych-stage]')).toBeVisible()
+  await expect(page.locator('[data-curtain]')).toBeHidden()
 }
 
 const seqLabel = (photo: number) => `Photograph ${photo} of 6 — open Fold fixture`
@@ -166,15 +167,16 @@ describeIfConfigured('native fold runtime', () => {
     await page.locator('[data-curtain]').click()
     await expect(page.locator('[data-diptych-stage]')).toBeVisible()
     await expect(page.locator('[data-diptych-frame]')).toHaveCount(2)
-    // Each frame must fill exactly its injected segment — a misplaced or
-    // overlapping pane fails here even though the count and order pass.
     const first = await page.locator('[data-diptych-frame="1"]').boundingBox()
     const second = await page.locator('[data-diptych-frame="2"]').boundingBox()
-    expect(first).toMatchObject({ x: 0, y: 0, width: 680, height: 900 })
-    expect(second).toMatchObject({ x: 760, y: 0, width: 680, height: 900 })
+    expect(first).toMatchObject({ x: 8, y: 8, width: 664, height: 884 })
+    expect(second).toMatchObject({ x: 768, y: 8, width: 604, height: 884 })
     await expect(page.locator('[data-diptych-frame="1"]')).toHaveAttribute('aria-current', 'true')
     await page.keyboard.press('ArrowRight')
-    await expect(page.locator('[data-diptych-frame="2"]')).toHaveAttribute('aria-current', 'true')
+    await expect(page.locator('[data-endcard]')).toHaveClass(/is-open/)
+    await page.getByRole('button', { name: 'Rewind', exact: true }).click()
+    await expect(page.locator('[data-endcard]')).not.toHaveClass(/is-open/)
+    await expect(page.locator('[data-diptych-frame="1"]')).toHaveAttribute('data-image-id', 'fold-0')
   })
 
   test('aligns panes to physical segment origins despite safe-area insets', async ({ page }) => {
@@ -215,8 +217,8 @@ describeIfConfigured('native fold runtime', () => {
     // photograph canvas off the physical pane origins.
     const first = await page.locator('[data-diptych-frame="1"]').boundingBox()
     const second = await page.locator('[data-diptych-frame="2"]').boundingBox()
-    expect(first).toMatchObject({ x: 0, y: 0, width: 700, height: 900 })
-    expect(second).toMatchObject({ x: 740, y: 0, width: 700, height: 900 })
+    expect(first).toMatchObject({ x: 8, y: 8, width: 684, height: 884 })
+    expect(second).toMatchObject({ x: 748, y: 8, width: 608, height: 884 })
   })
 
   test('steps accumulate from the pending fold destination within one task', async ({ page }) => {
@@ -226,19 +228,20 @@ describeIfConfigured('native fold runtime', () => {
       window.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight' }))
       window.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight' }))
     })
-    await expect(seq).toHaveAttribute('aria-label', seqLabel(3))
-    await expect(page.locator('[data-diptych-frame="1"]')).toHaveAttribute('data-image-id', 'fold-2')
-    await expect(page.locator('[data-diptych-frame="2"]')).toHaveAttribute('data-image-id', 'fold-3')
+    await expect(seq).toHaveAttribute('aria-label', seqLabel(5))
+    await expect(page.locator('[data-diptych-frame="1"]')).toHaveAttribute('data-image-id', 'fold-4')
+    await expect(page.locator('[data-diptych-frame="2"]')).toHaveAttribute('data-image-id', 'fold-5')
     await page.evaluate(() => {
       window.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowLeft' }))
     })
-    await expect(seq).toHaveAttribute('aria-label', seqLabel(2))
+    await expect(seq).toHaveAttribute('aria-label', seqLabel(3))
     await page.evaluate(() => {
       const stage = document.querySelector('[data-stage]')
       stage?.dispatchEvent(new WheelEvent('wheel', { deltaY: 120, bubbles: true, cancelable: true }))
       stage?.dispatchEvent(new WheelEvent('wheel', { deltaY: 120, bubbles: true, cancelable: true }))
     })
-    await expect(seq).toHaveAttribute('aria-label', seqLabel(4))
+    await expect(seq).toHaveAttribute('aria-label', seqLabel(5))
+    await expect(page.locator('[data-endcard]')).toHaveClass(/is-open/)
   })
 
   for (const { deltaMode, deltaY } of [
@@ -253,7 +256,7 @@ describeIfConfigured('native fold runtime', () => {
         document.querySelector('[data-stage]')?.dispatchEvent(
           new WheelEvent('wheel', { deltaY: delta, deltaMode: mode, bubbles: true, cancelable: true }))
       }, [deltaMode, deltaY])
-      await expect(seq).toHaveAttribute('aria-label', seqLabel(2))
+      await expect(seq).toHaveAttribute('aria-label', seqLabel(3))
       await page.evaluate(([mode, delta]) => {
         document.querySelector('[data-stage]')?.dispatchEvent(
           new WheelEvent('wheel', { deltaY: -delta, deltaMode: mode, bubbles: true, cancelable: true }))
@@ -267,14 +270,14 @@ describeIfConfigured('native fold runtime', () => {
     await page.evaluate(() => {
       const seq = document.querySelector('[data-chrome-position]')!
       const observer = new MutationObserver(() => {
-        if (!seq.getAttribute('aria-label')?.startsWith('Photograph 2 of 6')) return
+        if (!seq.getAttribute('aria-label')?.startsWith('Photograph 3 of 6')) return
         observer.disconnect()
         document.querySelector('[data-stage]')!.dispatchEvent(new WheelEvent('wheel', { deltaY: 120, bubbles: true, cancelable: true }))
       })
       observer.observe(seq, { attributes: true, attributeFilter: ['aria-label'] })
       window.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight' }))
     })
-    await expect(page.locator('[data-chrome-position]')).toHaveAttribute('aria-label', seqLabel(3))
+    await expect(page.locator('[data-chrome-position]')).toHaveAttribute('aria-label', seqLabel(5))
   })
 
   test('ignores a canceled fold gesture and steps once on a completed drag', async ({ page }) => {
@@ -304,7 +307,7 @@ describeIfConfigured('native fold runtime', () => {
     await page.mouse.down()
     await page.mouse.move(400, 400)
     await page.mouse.up()
-    await expect(seq).toHaveAttribute('aria-label', seqLabel(2))
+    await expect(seq).toHaveAttribute('aria-label', seqLabel(3))
     expect(pageErrors).toEqual([])
   })
 

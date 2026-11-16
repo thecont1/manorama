@@ -47,27 +47,36 @@ export default function ViewerChrome({
   bottomStyle,
   verticalStyle,
 }: ViewerChromeProps) {
+  const vertical = verticalBarEdge === 'leading' || verticalBarEdge === 'trailing'
+  const label = positionLabel ?? `${position.index + 1} of ${position.total}`
+  const [range, total] = label.split(' of ')
+  const libraryContents = vertical
+    ? <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><path d="m14 5-7 7 7 7" /></svg>
+    : <><span aria-hidden="true">‹</span> Library</>
   const showLibrary = Boolean(onReturnToGalleries || libraryHref)
   const activity = { onFocusCapture: onActivity, onFocusOut: onIdle, onPointerEnter: onActivity, onPointerLeave: onIdle }
   const library = showLibrary ? (
     libraryHref ? (
-      <a class="m-chrome-pill" href={libraryHref} data-chrome-library>
-        <span aria-hidden="true">‹</span> Library
+      <a class="m-chrome-pill" href={libraryHref} aria-label="Library" title="Library" data-chrome-library>
+        {libraryContents}
       </a>
     ) : (
-      <button type="button" class="m-chrome-pill" onClick={onReturnToGalleries} data-chrome-library>
-        <span aria-hidden="true">‹</span> Library
+      <button type="button" class="m-chrome-pill" onClick={onReturnToGalleries} aria-label="Library" title="Library" data-chrome-library>
+        {libraryContents}
       </button>
     )
   ) : null
   const controls = <>
     <button ref={positionRef} type="button" class="m-chrome-pill" onClick={onOpenPicker} aria-label={pickerAriaLabel} data-chrome-position data-demo-position={demo ? '' : undefined}>
-      {positionLabel ?? `${position.index + 1} of ${position.total}`}
+      {vertical ? <><span>{range}</span><span class="m-chrome-total">of {total}</span></> : label}
     </button>
-    <button ref={settingsRef} type="button" class="m-chrome-pill" onClick={onOpenSettings}>Gallery Settings</button>
-    <button type="button" class="m-chrome-pill" onClick={onOpenInfo}>Info</button>
+    <button ref={settingsRef} type="button" class="m-chrome-pill" onClick={onOpenSettings} aria-label="Gallery Settings" title="Gallery Settings">
+      {vertical ? <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><path d="M4 7h16M4 17h16" /><circle cx="9" cy="7" r="3" fill="#0a0a0a" /><circle cx="15" cy="17" r="3" fill="#0a0a0a" /></svg> : 'Gallery Settings'}
+    </button>
+    <button type="button" class="m-chrome-pill" onClick={onOpenInfo} aria-label="Info" title="Info">
+      {vertical ? <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><circle cx="12" cy="12" r="9" /><path d="M12 11v6m0-10v1" /></svg> : 'Info'}
+    </button>
   </>
-  const vertical = verticalBarEdge === 'leading' || verticalBarEdge === 'trailing'
 
   return (
     <>

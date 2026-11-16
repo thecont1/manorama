@@ -24,6 +24,7 @@ import { type BackgroundPreference } from '../lib/background-preference'
 import { singlePlatePositionsFor, type AdFrame } from '../lib/adframe'
 import { advanceEasedPosition, clamp, glideEase } from '../lib/sizing'
 import type { FoldLayout, FoldSegment, FoldVerticalBarEdge } from '../../packages/core/fold'
+import { flatSpreadSegments, insetSpreadRegion, spreadRanges } from '../../packages/core/spread'
 
 // A Tauri or Capacitor webview reports the real backing scale; the open web
 // cannot be trusted to — pinch zoom and compat shims lie about the ratio.
@@ -171,6 +172,7 @@ type Props = {
     activeIndex: number
     segments: readonly FoldSegment[]
     dpr: number
+    onImageLoad: (id: string, src: string, width: number, height: number) => void
     renderVideo: (video: VideoItem, context: { width: number; height: number; active: boolean }) => unknown
   }) => unknown
 }
@@ -427,6 +429,7 @@ export default function Viewer({ slug, galleryTitle, images: sourceImages, encry
   // style.cssText on every render — an imperative aspectRatio write gets
   // reverted by the next state change unless the prop itself carries it.
   const [healedDims, setHealedDims] = useState<Record<string, { w: number; h: number }>>({})
+  const [spreadDims, setSpreadDims] = useState<Record<string, { src: string; width: number; height: number }>>({})
   // Image watchdog bookkeeping: a mounted original that stays undecoded
   // past the stall window gets re-requested (cache-busted) instead of
   // sitting blank. Bounded per image; the retry rewrites src directly.
@@ -451,6 +454,7 @@ export default function Viewer({ slug, galleryTitle, images: sourceImages, encry
   // activated video starts audible. Deliberately NOT persisted — it
   // resets when the viewer unmounts, so a fresh visit is always quiet.
   const [soundOn, setSoundOn] = useState(false)
+  const pausedVideosRef = useRef(new Set<string>())
   const [magnifierActive, setMagnifierActive] = useState(false)
   const [magnifierAvailable, setMagnifierAvailable] = useState(false)
   const [reducedMotion, setReducedMotion] = useState(false)
@@ -734,47 +738,58 @@ export default function Viewer({ slug, galleryTitle, images: sourceImages, encry
   const [armedPlatePos, setArmedPlatePos] = useState<number | null>(null)
 
   const currentImage = images[index] ?? images[0]
+  const spreads = useMemo(() => spreadRanges(images), [images])
+  const spreadNumber = Math.max(0, spreads.findIndex((range) => index >= range.start && index < range.end))
+  const currentSpread = spreads[spreadNumber] ?? { start: 0, end: 0 }
   // Spread is explicit. A physical division only supplies its geometry; it
   // never substitutes a spread for Strip or another saved mode.
   const spreadActive = effectiveMode === 'spread' && Boolean(foldRenderer)
   spreadActiveRef.current = spreadActive
   const dividedControls = foldLayout?.mode === 'diptych' && foldLayout.controlRegions.length === 2
   const foldControlRegion = dividedControls ? foldLayout!.controlRegions[1] : null
-  const verticalBarEdge = foldLayout?.verticalBarEdge ?? demoVerticalBarEdge ?? 'unspecified'
-  const verticalSystemBars = verticalBarEdge === 'leading' || verticalBarEdge === 'trailing'
-  const verticalControlRegion = verticalSystemBars && dividedControls
-    ? foldLayout!.controlRegions[verticalBarEdge === 'leading' ? 0 : 1]
-    : null
+  const systemBarEdge = foldLayout?.verticalBarEdge ?? demoVerticalBarEdge ?? 'unspecified'
+  const verticalSystemBars = spreadActive || systemBarEdge !== 'unspecified'
+  const verticalBarEdge = verticalSystemBars ? 'trailing' : 'unspecified'
+  const verticalControlRegion = verticalSystemBars ? foldLayout?.controlRegions.at(-1) ?? null : null
   const foldChromeStyle = foldControlRegion ? {
     left: `${foldControlRegion.x}px`,
     right: 'auto',
     width: `${foldControlRegion.width}px`,
   } : undefined
+  const hasMultiple = images.length > 1
+  const arrowsOn = effectiveMode === 'vertical' ? showArrowsVertical : showArrows
   const verticalChromeStyle = verticalControlRegion ? {
-    left: `${verticalControlRegion.x}px`,
+    left: `${verticalControlRegion.x + Math.max(0, verticalControlRegion.width - 60)}px`,
     top: `${verticalControlRegion.y}px`,
     right: 'auto',
     bottom: 'auto',
-    width: `${verticalControlRegion.width}px`,
+    width: '60px',
     height: `${verticalControlRegion.height}px`,
+    padding: arrowsOn && images.length > 1 ? '60px 8px' : '8px',
+    gap: '4px',
   } : embedded ? demoVerticalStyle : undefined
   const foldArrowStyle = verticalControlRegion ? {
     ...verticalChromeStyle,
     display: 'flex',
     flexDirection: 'column',
-    justifyContent: 'center',
+    justifyContent: 'space-between',
+    padding: '8px',
   } : foldChromeStyle
-  const demoFoldTopStyle = embedded && foldControlRegion ? {
+  const demoFoldTopStyle = foldControlRegion ? {
     ...foldChromeStyle,
     top: `${foldControlRegion.y}px`,
-    padding: '0',
-  } : foldChromeStyle
-  const demoFoldBottomStyle = embedded && foldControlRegion ? {
+    ...(embedded ? { padding: '0' } : {}),
+  } : undefined
+  const demoFoldBottomStyle = foldControlRegion ? {
     ...foldChromeStyle,
-    top: `${foldControlRegion.y + 56}px`,
-    bottom: 'auto',
-    padding: '0',
-  } : foldChromeStyle
+    ...(embedded ? {
+      top: `${foldControlRegion.y + 56}px`,
+      bottom: 'auto',
+      padding: '0',
+    } : {
+      bottom: `${Math.max(0, foldLayout!.viewport.height - foldControlRegion.y - foldControlRegion.height)}px`,
+    }),
+  } : undefined
   const panelRegion = verticalControlRegion ?? foldControlRegion
   const foldPanelStyle = panelRegion ? {
     position: 'absolute',
@@ -782,11 +797,23 @@ export default function Viewer({ slug, galleryTitle, images: sourceImages, encry
     top: `${panelRegion.y}px`,
     width: `${panelRegion.width}px`,
     height: `${panelRegion.height}px`,
+    right: 'auto',
+    bottom: 'auto',
     maxWidth: 'none',
     maxHeight: 'none',
     margin: '0',
     overflow: 'auto',
     boxSizing: 'border-box',
+  } : undefined
+  const foldSheetStyle = panelRegion ? {
+    ...foldPanelStyle,
+    position: 'fixed',
+    left: `${panelRegion.x + Math.max(8, panelRegion.width - 568)}px`,
+    top: `${panelRegion.y + 8}px`,
+    width: `${Math.max(0, Math.min(560, panelRegion.width - 16))}px`,
+    height: 'auto',
+    maxHeight: `${Math.max(0, panelRegion.height - 16)}px`,
+    transform: 'none',
   } : undefined
   const foldStripEndcapStyle = foldControlRegion ? {
     flex: `0 0 ${foldControlRegion.width}px`,
@@ -806,11 +833,15 @@ export default function Viewer({ slug, galleryTitle, images: sourceImages, encry
     if (foldControlRegion) {
       curtain.style.paddingLeft = `${foldControlRegion.x + 28}px`
       curtain.style.paddingRight = `${Math.max(28, (foldLayout?.viewport.width ?? 0) - foldControlRegion.x - foldControlRegion.width + 28)}px`
+      curtain.style.paddingTop = `${foldControlRegion.y + 28}px`
+      curtain.style.paddingBottom = `${Math.max(28, (foldLayout?.viewport.height ?? 0) - foldControlRegion.y - foldControlRegion.height + 28)}px`
     } else {
       curtain.style.removeProperty('padding-left')
       curtain.style.removeProperty('padding-right')
+      curtain.style.removeProperty('padding-top')
+      curtain.style.removeProperty('padding-bottom')
     }
-  }, [embedded, foldControlRegion?.x, foldControlRegion?.width, foldLayout?.viewport.width])
+  }, [embedded, foldControlRegion?.x, foldControlRegion?.y, foldControlRegion?.width, foldControlRegion?.height, foldLayout?.viewport.width, foldLayout?.viewport.height])
   // The interim single-plate rule while dummy house creatives stand in for
   // the rented network: exactly one seeded interior position per gallery,
   // re-rolled per UTC day — a re-opened strip keeps the morning's layout
@@ -972,8 +1003,6 @@ export default function Viewer({ slug, galleryTitle, images: sourceImages, encry
     return () => document.removeEventListener('mousedown', preventButtonFocus)
   }, [embedded])
 
-  const hasMultiple = images.length > 1
-  const arrowsOn = effectiveMode === 'vertical' ? showArrowsVertical : showArrows
   // The end card carries Rewind only — the chrome's own Library pill is
   // the way back, not a second exit under "The End."
   // Reorder moved from a dashboard overlay into this picker — the
@@ -1163,7 +1192,7 @@ export default function Viewer({ slug, galleryTitle, images: sourceImages, encry
     singleEndcapRef.current = false
     setSingleEndcap(false)
     const reduced = typeof window !== 'undefined' && window.matchMedia('(prefers-reduced-motion: reduce)').matches
-    if (effectiveMode === 'single') { disarmEndcap(); goTo(0); onComplete?.(); return }
+    if (effectiveMode === 'single' || spreadActiveRef.current) { disarmEndcap(); goTo(0); onComplete?.(); return }
     if (effectiveMode === 'vertical') {
       const stage = stageRef.current
       reportedIndexRef.current = 0
@@ -1514,7 +1543,18 @@ export default function Viewer({ slug, galleryTitle, images: sourceImages, encry
   const step = (direction: -1 | 1) => {
     if (!hasMultiple) return
     if (spreadActiveRef.current) {
-      const next = clamp((pendingSpreadIndexRef.current ?? index) + direction, 0, images.length - 1)
+      if (singleEndcapRef.current) {
+        if (direction === -1) { singleEndcapRef.current = false; setSingleEndcap(false) }
+        return
+      }
+      const anchor = pendingSpreadIndexRef.current ?? indexRef.current
+      const current = Math.max(0, spreads.findIndex((range) => anchor >= range.start && anchor < range.end))
+      if (direction === 1 && current === spreads.length - 1) {
+        singleEndcapRef.current = true
+        setSingleEndcap(true)
+        return
+      }
+      const next = spreads[clamp(current + direction, 0, spreads.length - 1)]?.start ?? 0
       pendingSpreadIndexRef.current = next
       goTo(next)
     } else if (effectiveMode === 'strip') {
@@ -1815,6 +1855,9 @@ export default function Viewer({ slug, galleryTitle, images: sourceImages, encry
   // the real chrome takes over without a seam.
   const curtainLibraryHref = viewerRole && viewerRole !== 'visitor' ? libraryHref : undefined
   const hasCurtainLibrary = !embedded && Boolean(onReturnToGalleries || curtainLibraryHref)
+  const curtainLibraryContents = verticalSystemBars
+    ? <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><path d="m14 5-7 7 7 7" /></svg>
+    : <><span aria-hidden="true">‹</span> Library</>
   const [curtainLibraryShown, setCurtainLibraryShown] = useState(false)
   useEffect(() => {
     if (galleryEntered || !hasCurtainLibrary) return
@@ -2909,6 +2952,7 @@ export default function Viewer({ slug, galleryTitle, images: sourceImages, encry
         ? Math.abs(imageIndex - index) <= 3
         : verticalActive.has(imageIndex)
     }
+    if (spreadActive) return imageIndex >= currentSpread.start && imageIndex < currentSpread.end
     return effectiveMode === 'strip' ? stripActive.has(imageIndex) : imageIndex === index
   }
 
@@ -3039,29 +3083,32 @@ export default function Viewer({ slug, galleryTitle, images: sourceImages, encry
     if (image && onPositionChange) onPositionChange({ imageId: image.id, index })
   }, [index])
 
-  const pairedStart = Math.min(index % 2 === 0 ? index : index - 1, Math.max(0, images.length - 2))
-  const spreadStartIndex = currentIsVideo || (images[pairedStart] && isVideoItem(images[pairedStart])) ? index : pairedStart
-  const spreadEndIndex = Math.min(images.length, spreadStartIndex + (currentIsVideo || (images[spreadStartIndex + 1] && isVideoItem(images[spreadStartIndex + 1])) ? 1 : 2))
-  // Resolve displayable sources here — heicSrc lives in this component, so
-  // the renderer receives frames it can paint without knowing about HEIC.
-  const spreadFrames = images.slice(spreadStartIndex, spreadEndIndex).map((image) =>
-    isHeic(image)
-      ? { ...image, src: heicSrc[image.id] ?? image.variants?.[0]?.src ?? image.placeholder }
-      : image)
+  const spreadStartIndex = currentSpread.start
+  const spreadFrames = images.slice(currentSpread.start, currentSpread.end).map((image) => {
+    const src = isHeic(image) ? heicSrc[image.id] ?? image.variants?.[0]?.src ?? image.placeholder : image.src
+    const measured = spreadDims[image.id]
+    const dimensions = measured?.src === src ? measured : image
+    return { ...image, width: dimensions.width, height: dimensions.height, src }
+  })
   const spreadActiveIndex = Math.max(0, index - spreadStartIndex)
   const flatSpreadWidth = stageSize.width || foldLayout?.viewport.width || 0
   const flatSpreadHeight = stageSize.height || foldLayout?.viewport.height || 0
-  const flatSpreadGutter = Math.min(32, flatSpreadWidth * 0.04)
-  const flatSpreadPaneWidth = Math.max(0, (flatSpreadWidth - flatSpreadGutter) / 2)
-  const spreadSegments = foldLayout?.mode === 'diptych' && foldLayout.segments.length === 2
-    ? foldLayout.segments
-    : [
-        { x: 0, y: 0, width: flatSpreadPaneWidth, height: flatSpreadHeight },
-        { x: flatSpreadPaneWidth + flatSpreadGutter, y: 0, width: flatSpreadPaneWidth, height: flatSpreadHeight },
-      ]
-  const spreadRenderSegments = spreadFrames.length === 1
-    ? [{ x: 0, y: 0, width: flatSpreadWidth, height: flatSpreadHeight }]
-    : spreadSegments
+  const railLeft = verticalControlRegion
+    ? verticalControlRegion.x + verticalControlRegion.width - 60
+    : flatSpreadWidth - 60
+  const spreadCanvas = (region: FoldSegment) => {
+    const besideRail = !verticalControlRegion || (region.y < verticalControlRegion.y + verticalControlRegion.height && region.y + region.height > verticalControlRegion.y)
+    return insetSpreadRegion({
+      ...region,
+      width: besideRail ? Math.max(0, Math.min(region.x + region.width, railLeft) - region.x) : region.width,
+    })
+  }
+  const flatCanvas = spreadCanvas({ x: 0, y: 0, width: flatSpreadWidth, height: flatSpreadHeight })
+  const spreadRenderSegments = foldLayout?.mode === 'diptych' && foldLayout.segments.length === 2
+    ? foldLayout.segments.slice(0, spreadFrames.length).map(spreadCanvas)
+    : spreadFrames[0] && isVideoItem(spreadFrames[0])
+      ? [flatCanvas]
+      : flatSpreadSegments(spreadFrames, flatCanvas, stageSize.dpr)
 
   // Suspension must make the WHOLE viewer subtree unreachable — the pill,
   // arrows, bubble and modals render outside the stage, so inerting only
@@ -3090,11 +3137,18 @@ export default function Viewer({ slug, galleryTitle, images: sourceImages, encry
           activeIndex: spreadActiveIndex,
           segments: spreadRenderSegments,
           dpr: stageSize.dpr,
+          onImageLoad: (id, src, width, height) => setSpreadDims((previous) => {
+            const current = previous[id]
+            return current?.src === src && current.width === width && current.height === height
+              ? previous : { ...previous, [id]: { src, width, height } }
+          }),
           renderVideo: (video, { width, height, active }) => isVideoSlideActive(index) ? (
             <VideoSlide
               item={video}
               isActive={active}
               soundOn={soundOn}
+              initiallyPaused={pausedVideosRef.current.has(video.id)}
+              onExplicitPause={(paused) => { if (paused) pausedVideosRef.current.add(video.id); else pausedVideosRef.current.delete(video.id) }}
               prefersReducedMotion={reducedMotion}
               suspended={suspended}
               onToggleSound={setSoundOn}
@@ -3230,6 +3284,8 @@ export default function Viewer({ slug, galleryTitle, images: sourceImages, encry
                         item={video}
                         isActive={imageIndex === index}
                         soundOn={soundOn}
+                        initiallyPaused={pausedVideosRef.current.has(video.id)}
+                        onExplicitPause={(paused) => { if (paused) pausedVideosRef.current.add(video.id); else pausedVideosRef.current.delete(video.id) }}
                         prefersReducedMotion={reducedMotion}
                         suspended={suspended}
                         onToggleSound={setSoundOn}
@@ -3456,7 +3512,7 @@ export default function Viewer({ slug, galleryTitle, images: sourceImages, encry
         </div>}
         {/* One-by-one: the same card fades in over the last photograph —
             no pan range exists to hold it, so it mounts as a stage overlay. */}
-        {effectiveMode === 'single' ? (
+        {effectiveMode === 'single' || spreadActive ? (
           <div class={`viewer-endcap viewer-endcap--single${singleEndcap ? ' is-open' : ''}`} data-endcard inert={!singleEndcap} style={foldPanelStyle}>
             <span class="endcap-line">The End.</span>
             <div class="endcap-actions">
@@ -3489,12 +3545,12 @@ export default function Viewer({ slug, galleryTitle, images: sourceImages, encry
           data-veil-chrome
         >
           {curtainLibraryHref ? (
-            <a class="m-chrome-pill" href={curtainLibraryHref} data-chrome-library onClick={(event) => event.stopPropagation()}>
-              <span aria-hidden="true">‹</span> Library
+            <a class="m-chrome-pill" href={curtainLibraryHref} aria-label="Library" title="Library" data-chrome-library onClick={(event) => event.stopPropagation()}>
+              {curtainLibraryContents}
             </a>
           ) : (
-            <button type="button" class="m-chrome-pill" data-chrome-library onClick={(event) => { event.stopPropagation(); onReturnToGalleries?.() }}>
-              <span aria-hidden="true">‹</span> Library
+            <button type="button" class="m-chrome-pill" aria-label="Library" title="Library" data-chrome-library onClick={(event) => { event.stopPropagation(); onReturnToGalleries?.() }}>
+              {curtainLibraryContents}
             </button>
           )}
         </header>
@@ -3504,10 +3560,10 @@ export default function Viewer({ slug, galleryTitle, images: sourceImages, encry
         visible={chromeVisible && !suspended}
         demo={embedded}
         position={{ index, total: images.length }}
-        positionLabel={embedded && spreadActive
+        positionLabel={spreadActive
           ? spreadFrames.length === 1
             ? `${spreadStartIndex + 1} of ${images.length}`
-            : `${spreadStartIndex + 1}-${spreadStartIndex + spreadFrames.length} of ${images.length}`
+            : `${spreadStartIndex + 1}–${currentSpread.end} of ${images.length}`
           : undefined}
         onReturnToGalleries={onReturnToGalleries}
         libraryHref={viewerRole && viewerRole !== 'visitor' ? libraryHref : undefined}
@@ -3528,7 +3584,7 @@ export default function Viewer({ slug, galleryTitle, images: sourceImages, encry
 
       {gridOpen ? <>
         <div class={`filmstrip-scrim ${gridClosing ? 'is-closing' : ''}`} aria-hidden="true" onPointerDown={() => { if (pickerActionsRef.current) pickerActionsRef.current.cancel(); else requestCloseModals() }} />
-        <div ref={gridModalRef} class={`viewer-filmstrip ${gridClosing ? 'is-closing' : ''}`} style={`--picker-item-h: ${pickerItemH}dvh`} role="dialog" aria-modal="true" aria-label={`${displayTitle || slug} photographs`} onKeyDown={(event) => {
+        <div ref={gridModalRef} class={`viewer-filmstrip ${gridClosing ? 'is-closing' : ''}`} style={{ '--picker-item-h': `${pickerItemH}dvh`, ...foldPanelStyle }} role="dialog" aria-modal="true" aria-label={`${displayTitle || slug} photographs`} onKeyDown={(event) => {
           if (pickerActionsRef.current?.onKey(event)) return
           if (event.key === 'ArrowUp' || event.key === 'ArrowDown' || event.key === 'ArrowLeft' || event.key === 'ArrowRight' || event.key === 'Home' || event.key === 'End') {
             event.preventDefault()
@@ -3679,7 +3735,7 @@ export default function Viewer({ slug, galleryTitle, images: sourceImages, encry
           galleryPanel={galleryPanel}
           galleryIntro={galleryIntro}
           onOpenShortcuts={() => { setModalOpen(false); setShortcutsOpen(true) }}
-          panelStyle={{ ...popoverAnchor, ...foldPanelStyle }}
+          panelStyle={{ ...popoverAnchor, ...foldSheetStyle }}
         />
         <ShortcutsSheet
           open={shortcutsOpen}
@@ -3705,7 +3761,7 @@ export default function Viewer({ slug, galleryTitle, images: sourceImages, encry
           credentialState={currentImage ? credentialState[currentImage.id] : undefined}
           credentialStore={currentImage ? credentialStores[currentImage.id] : undefined}
           onRetryCredentials={openCredentials}
-          panelStyle={foldPanelStyle}
+          panelStyle={foldSheetStyle}
         />
       </div>
     </div>

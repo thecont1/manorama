@@ -7,6 +7,7 @@ import { GalleryCurtain } from '../components/GalleryShell'
 import { defaultGallerySettings } from '../lib/gallery-settings'
 import { resolveFoldLayout, type FoldLayout, type FoldSegment } from '../../packages/core/fold'
 import type { GalleryImage, GalleryMediaItem, VideoItem } from '../../packages/core/imagesource'
+import { flatSpreadSegments } from '../../packages/core/spread'
 
 const globals = globalThis as Record<string, unknown>
 let dom: Window
@@ -149,9 +150,9 @@ describe('explicit Spread', () => {
     })
     const flatChrome = flat.root.querySelector<HTMLElement>('[data-chrome-bottom]')!
     expect(flatChrome.classList.contains('m-chrome--side-trailing')).toBe(true)
-    expect(flatChrome.style.left).toBe('')
-    expect(flatChrome.style.right).toBe('')
-    expect(flatChrome.style.width).toBe('')
+    expect(flatChrome.style.left).toBe('1140px')
+    expect(flatChrome.style.right).toBe('auto')
+    expect(flatChrome.style.width).toBe('60px')
     expect(flat.root.querySelector('.stage-arrows--system-trailing')).not.toBeNull()
 
     const divided = await mount({
@@ -159,8 +160,8 @@ describe('explicit Spread', () => {
       foldLayout: { ...layoutFor('regular', true), verticalBarEdge: 'trailing' },
     })
     const dividedChrome = divided.root.querySelector<HTMLElement>('[data-chrome-bottom]')!
-    expect(dividedChrome.style.left).toBe('610px')
-    expect(dividedChrome.style.width).toBe('590px')
+    expect(dividedChrome.style.left).toBe('1140px')
+    expect(dividedChrome.style.width).toBe('60px')
   })
 
   test('flat Spread keeps photographer order and uses a centred gutter', async () => {
@@ -168,9 +169,9 @@ describe('explicit Spread', () => {
     const call = calls[calls.length - 1]
     expect(call.frames.map((frame) => frame.id)).toEqual(['landscape', 'portrait'])
     expect(call.segments).toHaveLength(2)
-    expect(call.segments[1].x - (call.segments[0].x + call.segments[0].width)).toBe(32)
-    expect(call.segments[0].x).toBe(0)
-    expect(call.segments[1].x + call.segments[1].width).toBe(1200)
+    expect(call.segments).toEqual(flatSpreadSegments(call.frames, { x: 8, y: 8, width: 1124, height: 784 }, 1))
+    expect(call.segments[0].height).toBe(call.segments[1].height)
+    expect(call.segments[0].width).toBeGreaterThan(call.segments[1].width)
   })
 
   test('a video and its neighbouring photographs each keep their ordered spread', async () => {
@@ -180,7 +181,7 @@ describe('explicit Spread', () => {
     const video = await mount({ initialIndex: 1 })
     const videoCall = video.calls[video.calls.length - 1]
     expect(videoCall.frames.map((frame) => frame.id)).toEqual(['v1'])
-    expect(videoCall.segments).toEqual([{ x: 0, y: 0, width: 1200, height: 800 }])
+    expect(videoCall.segments).toEqual([{ x: 8, y: 8, width: 1124, height: 784 }])
 
     const after = await mount({ initialIndex: 2 })
     expect(after.calls[after.calls.length - 1].frames.map((frame) => frame.id)).toEqual(['p2', 'p3'])

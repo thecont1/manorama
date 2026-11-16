@@ -8,15 +8,17 @@ let dom: Window
 let prev: Record<string, unknown>
 
 beforeAll(() => {
-  prev = { window: globals.window, document: globals.document }
+  prev = { window: globals.window, document: globals.document, SVGElement: globals.SVGElement }
   dom = new Window({ url: 'http://localhost/' })
   globals.window = dom
   globals.document = dom.document
+  globals.SVGElement = dom.SVGElement
 })
 
 afterAll(() => {
   globals.window = prev.window
   globals.document = prev.document
+  globals.SVGElement = prev.SVGElement
 })
 
 const base = {
@@ -98,7 +100,9 @@ describe('the viewer chrome bars', () => {
       expect(column.hasAttribute('data-chrome-bottom')).toBe(true)
       expect(column.querySelector('[data-chrome-library]')).not.toBeNull()
       expect(column.querySelector('[data-chrome-position]')).not.toBeNull()
-      expect(pills(root)).toEqual(['‹ Library', '1 of 4', 'Gallery Settings', 'Info'])
+      expect([...column.querySelectorAll('.m-chrome-pill')].map((pill) => pill.getAttribute('aria-label'))).toEqual(['Library', base.pickerAriaLabel, 'Gallery Settings', 'Info'])
+      expect(column.querySelectorAll('svg[aria-hidden="true"]')).toHaveLength(3)
+      expect(column.querySelector('[data-chrome-position]')?.textContent).toBe('1of 4')
     })
   }
 })
