@@ -20,7 +20,7 @@ import { HeicImg } from '../components/ui/HeicImg'
 import { Sheet } from '../components/ui/Sheet'
 import { WebSettings, type AccountIdentityWeb } from '../components/WebSettings'
 import { QuietIcon, SettingsIcon } from '../components/admin-icons'
-import { curtainStagger } from '../components/library/quiet'
+import { syncQuietFade } from '../components/library/quiet'
 import GallerySettingsSheet from '../components/GallerySettingsSheet'
 import { copyText } from '../lib/gallery-share'
 import { cardCountSource, formatMediaCount, summaryMediaCount } from '../lib/imagesource'
@@ -1007,7 +1007,7 @@ export default function Admin({ galleries: initialGalleries, owner, ownerName, p
               aria-pressed={quiet ? 'true' : 'false'}
               aria-label={quiet ? 'Show the words' : 'Quiet view — hide the words'}
               title={quiet ? 'Show the words' : 'Quiet view — hide the words'}
-              onClick={() => { curtainStagger(document.querySelector('.gallery-list')); setQuiet((on) => !on) }}
+              onClick={() => { syncQuietFade(document.querySelector('.gallery-list')); setQuiet((on) => !on) }}
             >
               <QuietIcon />
             </button>

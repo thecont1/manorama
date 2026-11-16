@@ -52,7 +52,7 @@ import ShareFlow from './ShareFlow'
 import LocalGalleryDetails from './LocalGalleryDetails'
 import { Sheet } from '../../app/components/ui/Sheet'
 import { QuietIcon, SettingsIcon, LinkIcon, SourceIcon } from '../../app/components/admin-icons'
-import { curtainStagger } from '../../app/components/library/quiet'
+import { syncQuietFade } from '../../app/components/library/quiet'
 import { AddGallerySheet } from '../../app/components/AddGallerySheet'
 import { GalleryShareSheet } from '../../app/components/GalleryShareSheet'
 import GallerySettingsSheet from '../../app/components/GallerySettingsSheet'
@@ -2653,7 +2653,7 @@ export default function Catalogue({ apiBase }: { apiBase: string }) {
                 aria-pressed={quiet ? 'true' : 'false'}
                 aria-label={quiet ? 'Show the words' : 'Quiet view — hide the words'}
                 title={quiet ? 'Show the words' : 'Quiet view — hide the words'}
-                onClick={() => { curtainStagger(document.querySelector('.gallery-list')); setQuiet((on) => !on) }}
+                onClick={() => { syncQuietFade(document.querySelector('.gallery-list')); setQuiet((on) => !on) }}
               >
                 <QuietIcon />
               </button>

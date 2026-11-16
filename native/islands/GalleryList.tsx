@@ -27,7 +27,7 @@ import type { GallerySummary } from '../../app/lib/gallery-repository'
 import type { DeviceGallery } from '../../packages/core/device-gallery'
 import type { Device } from '../../packages/core/devices'
 import { DeviceGalleriesGrid } from '../../app/components/library/DeviceGalleriesSection'
-import { curtainStagger } from '../../app/components/library/quiet'
+import { syncQuietFade } from '../../app/components/library/quiet'
 import type { BillingState, RevenueCatBilling } from '../lib/billing'
 import {
   OfflineGalleryUnavailableError,
@@ -1928,7 +1928,7 @@ export default function GalleryList({ apiBase, owner, slug, deepLinkSelection, o
           aria-pressed={quiet ? 'true' : 'false'}
           aria-label={quiet ? 'Show the words' : 'Quiet view — hide the words'}
           title={quiet ? 'Show the words' : 'Quiet view — hide the words'}
-          onClick={() => { curtainStagger(document.querySelector('.native-list-card')); setQuiet((on) => !on) }}
+          onClick={() => { syncQuietFade(document.querySelector('.native-list-card')); setQuiet((on) => !on) }}
         >
           <QuietIcon />
         </button>
