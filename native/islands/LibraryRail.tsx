@@ -8,6 +8,7 @@ import {
   type LibraryMediaLoader,
 } from '../lib/library-media'
 import { thumbnailEntryId } from '../lib/thumbs'
+import { deviceImageDpr } from '../../packages/core/image-staging'
 
 export type RailImage = {
   id: string
@@ -48,7 +49,9 @@ const RailCell = ({
   visible,
   loader,
   onOpen,
+  compact = false,
 }: {
+  compact?: boolean
   galleryId: string
   image: RailImage
   index: number
@@ -59,6 +62,7 @@ const RailCell = ({
   onOpen(index: number): void
 }) => {
   const [src, setSrc] = useState<string | undefined>(undefined)
+  const [natural, setNatural] = useState<{ src: string; width: number; height: number } | null>(null)
   const leaseRef = useRef<LibraryMediaLease | null>(null)
   const cell: LibraryMediaCell = {
     galleryId,
@@ -68,7 +72,7 @@ const RailCell = ({
   }
 
   useEffect(() => {
-    if (!visible) return
+    if (!visible) { setSrc(undefined); return }
     let cancelled = false
     const acquire = async () => {
       const lease = await loader.acquire(cell)
@@ -95,26 +99,48 @@ const RailCell = ({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [visible, galleryId, image.id])
 
+  const dimensions = natural && natural.src === src ? natural : image
+  const dpr = deviceImageDpr(typeof window === 'undefined' ? 1 : window.devicePixelRatio)
   return (
     <button
       type="button"
-      class="lib-th"
+      class={compact ? 'lib-th native-library-cover' : 'lib-th'}
       data-rail-cell
       data-at={index}
-      style={{
+      style={compact ? { aspectRatio: `${dimensions.width} / ${dimensions.height}` } : {
         position: 'absolute',
         left: `${left}px`,
         width: `${width}px`,
         height: '100%',
         '--ar': `${image.width} / ${image.height}`,
-        'background-image': image.placeholder?.startsWith('data:image/') ? `url(${JSON.stringify(image.placeholder)})` : undefined,
       }}
       aria-label={image.alt || `Photograph ${index + 1}`}
       onClick={() => onOpen(index)}
     >
-      {src ? <img src={src} alt="" width={image.width} height={image.height} draggable={false} class="on" /> : null}
+      {src ? <img src={src} alt="" width={image.width} height={image.height} draggable={false} class="on"
+        style={{ maxWidth: `${dimensions.width / dpr}px`, maxHeight: `${dimensions.height / dpr}px` }}
+        onLoad={(event: Event) => {
+          const img = event.currentTarget as HTMLImageElement
+          if (img.naturalWidth && img.naturalHeight) setNatural({ src, width: img.naturalWidth, height: img.naturalHeight })
+        }}
+      /> : null}
     </button>
   )
+}
+
+export const LibraryCover = ({ galleryId, images, loader, title, onOpen }: Props) => {
+  const host = useRef<HTMLDivElement>(null)
+  const [visible, setVisible] = useState(false)
+  const image = images[0]
+  useEffect(() => {
+    if (!host.current || typeof IntersectionObserver === 'undefined') { setVisible(true); return }
+    const observer = new IntersectionObserver((entries) => setVisible(Boolean(entries.at(-1)?.isIntersecting)))
+    observer.observe(host.current)
+    return () => observer.disconnect()
+  }, [])
+  return <div ref={host} class="native-library-cover-slot" role="group" aria-label={`${title} — cover`}>
+    {image ? <RailCell compact galleryId={galleryId} image={image} index={0} left={0} width={0} visible={visible} loader={loader} onOpen={onOpen} /> : null}
+  </div>
 }
 
 const firstOffsetAt = (offsets: readonly number[], target: number) => {

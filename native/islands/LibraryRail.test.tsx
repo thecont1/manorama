@@ -3,7 +3,7 @@ import { Capacitor } from '@capacitor/core'
 import { Window } from 'happy-dom'
 import { flushSync, render } from 'hono/jsx/dom'
 import { useState } from 'hono/jsx'
-import { LibraryRail } from './LibraryRail'
+import { LibraryCover, LibraryRail } from './LibraryRail'
 import { LibraryDeviceStatus } from './GalleryList'
 import { cacheFillRegistry } from '../lib/cache-fill'
 import type { LibraryMediaCell, LibraryMediaLease } from '../lib/library-media'
@@ -154,6 +154,50 @@ describe('LibraryRail', () => {
     // The remote preview is what lands in the <img>.
     const imgs = [...container.querySelectorAll('.lib-th img')]
     expect((imgs[0] as unknown as HTMLImageElement).src).toBe('https://cdn.example/photo-0.jpg')
+  })
+
+  test('compact covers acquire only on screen and use decoded pixel budgets', async () => {
+    let intersect: (visible: boolean) => void = () => {}
+    const observerBefore = globals.IntersectionObserver
+    const dpr = dom.devicePixelRatio
+    globals.IntersectionObserver = class {
+      constructor(callback: IntersectionObserverCallback) {
+        intersect = (visible: boolean) => callback([{ isIntersecting: visible }] as IntersectionObserverEntry[], this as unknown as IntersectionObserver)
+      }
+      observe() {}
+      disconnect() {}
+    }
+    Object.defineProperty(dom, 'devicePixelRatio', { configurable: true, value: 3 })
+    const container = dom.document.createElement('div') as unknown as HTMLElement
+    dom.document.body.appendChild(container as never)
+    const recorded = recordedLoader()
+    const opened: number[] = []
+    try {
+      render(<LibraryCover galleryId="g-1" images={images(3)} loader={recorded.loader as never} title="Kashmir" onOpen={(index) => opened.push(index)} />, container)
+      await settle()
+      expect(recorded.cells).toHaveLength(0)
+      intersect(true)
+      await settle()
+      expect(recorded.cells.map((cell) => cell.entryId)).toEqual(['thumb:photo-0'])
+      const image = container.querySelector('img')!
+      Object.defineProperties(image, { naturalWidth: { value: 180 }, naturalHeight: { value: 120 } })
+      image.dispatchEvent(new dom.Event('load') as unknown as Event)
+      await settle()
+      expect(image.style.maxWidth).toBe('60px')
+      expect(image.style.maxHeight).toBe('40px')
+      expect(container.querySelector<HTMLElement>('.native-library-cover')!.style.aspectRatio).toBe('180 / 120')
+      container.querySelector<HTMLButtonElement>('.native-library-cover')!.click()
+      await settle()
+      expect(opened).toEqual([0])
+      intersect(false)
+      await settle()
+      expect(recorded.releases).toBe(1)
+      expect(container.querySelector('img')).toBeNull()
+    } finally {
+      render(null, container)
+      globals.IntersectionObserver = observerBefore
+      Object.defineProperty(dom, 'devicePixelRatio', { configurable: true, value: dpr })
+    }
   })
 
   test('a 1,000-item rail mounts only the visible window', async () => {

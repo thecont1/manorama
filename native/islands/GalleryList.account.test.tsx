@@ -541,6 +541,7 @@ describe('signed-in account area', () => {
     signInStorage()
     stubFetch({ galleries: json({ galleries: [accountSummary({
       caption: 'A winter album',
+      pinnedAt: '2026-11-16T00:00:00Z',
       images: [
         { id: 'first', ref: 'first', filename: 'first.jpg', src: 'https://cdn.example/first.jpg', width: 1200, height: 800 },
         { id: 'second', ref: 'second', filename: 'second.jpg', src: 'https://cdn.example/second.jpg', width: 800, height: 1200 },
@@ -866,8 +867,8 @@ describe('signed-in account area', () => {
       { id: 'first', ref: 'first', filename: 'first.jpg', src: 'https://cdn.example/first.jpg', width: 1200, height: 800 },
     ]
     stubFetch({ galleries: json({ galleries: [
-      accountSummary({ slug: 'kashmir', title: 'Kashmir', images: cover }),
-      accountSummary({ slug: 'italy', title: 'Italy', images: cover }),
+      accountSummary({ slug: 'kashmir', title: 'Kashmir', images: cover, pinnedAt: '2026-11-16T00:00:00Z' }),
+      accountSummary({ slug: 'italy', title: 'Italy', images: cover, pinnedAt: '2026-11-16T01:00:00Z' }),
     ] }) })
     const { container } = mountAccount()
     await settle()
@@ -890,6 +891,37 @@ describe('signed-in account area', () => {
     }
   })
 
+  test('Library partitions pins, compact covers and hidden galleries without changing retention', async () => {
+    installLocalStorage()
+    signInStorage()
+    const images = [
+      { id: 'hidden', filename: 'hidden.jpg', src: 'https://cdn.example/hidden.jpg', width: 1200, height: 800, hidden: true },
+      { id: 'first', filename: 'first.jpg', src: 'https://cdn.example/first.jpg', width: 800, height: 1200 },
+      { id: 'second', filename: 'second.jpg', src: 'https://cdn.example/second.jpg', width: 1200, height: 800 },
+    ]
+    stubFetch({ galleries: json({ galleries: [
+      accountSummary({ slug: 'compact', images }),
+      accountSummary({ slug: 'pinned', images, pinnedAt: '2026-11-16T00:00:00Z', retention: 'pipeline' }),
+      accountSummary({ slug: 'hidden-gallery', images, hiddenAt: '2026-11-16T00:00:00Z' }),
+    ] }) })
+    const { container } = mountAccount()
+    await settle()
+    expect(container.querySelector('[aria-label="Pinned galleries"] [data-lib-card="pinned"] .lib-rail')).not.toBeNull()
+    expect(container.querySelectorAll('[data-lib-card="pinned"] .lib-th')).toHaveLength(2)
+    expect(container.querySelector('[data-lib-card="pinned"]')?.textContent).toContain('Temporary gallery')
+    expect(container.querySelectorAll('[aria-label="Your galleries"] .native-library-cover')).toHaveLength(1)
+    expect(container.querySelector('[data-lib-card="compact"] img')?.getAttribute('src')).toBe('https://cdn.example/first.jpg')
+    expect(container.querySelector('details:not([open]) [data-lib-card="hidden-gallery"]')).not.toBeNull()
+    expect(container.querySelector('[aria-label="Your galleries"] [data-lib-card="hidden-gallery"]')).toBeNull()
+    ;(container.querySelector('[data-lib-card="pinned"] .lib-card-menu') as HTMLButtonElement).click()
+    await settle()
+    ;([...container.querySelectorAll<HTMLButtonElement>('[role="menuitem"]')].find((button) => button.textContent === 'Unpin gallery'))!.click()
+    await settle()
+    const pin = calls.find((call) => call.url.endsWith('/pinned/pin'))
+    expect(pin?.init?.method).toBe('PATCH')
+    expect(JSON.parse(String(pin?.init?.body))).toEqual({ pinned: false })
+  })
+
   test('gallery actions live in the card menu and deletion waits for confirmation', async () => {
     installLocalStorage()
     signInStorage()
@@ -903,7 +935,7 @@ describe('signed-in account area', () => {
     await settle()
     const items = [...container.querySelectorAll('[role="menuitem"]')] as HTMLButtonElement[]
     expect(items.map((item) => item.textContent)).toEqual([
-      'Share link', 'Gallery details', 'Reorder photographs', 'Refresh gallery contents', 'Remove gallery',
+      'Pin gallery', 'Share link', 'Gallery details', 'Reorder photographs', 'Refresh gallery contents', 'Remove gallery',
     ])
     ;(items.find((item) => item.textContent === 'Remove gallery'))!.click()
     await settle()
@@ -1607,7 +1639,7 @@ describe('signed-in account area', () => {
     await settle()
     const items = [...container.querySelectorAll('[role="menuitem"]')] as HTMLButtonElement[]
     expect(items.map((item) => item.textContent)).toEqual([
-      'Share link', 'Gallery details', 'Reorder photographs', 'Refresh gallery contents', 'Remove gallery',
+      'Pin gallery', 'Share link', 'Gallery details', 'Reorder photographs', 'Refresh gallery contents', 'Remove gallery',
     ])
     // Words, not drawings — the sheet is a list of sentences.
     expect(items.every((item) => item.querySelector('svg') === null)).toBe(true)
@@ -1667,7 +1699,7 @@ describe('signed-in account area', () => {
     // chrome — and starts off.
     const toggle = container.querySelector('.lib-quiet-toggle') as HTMLButtonElement
     expect(toggle).not.toBeNull()
-    expect(toggle.closest('.m-topbar')).not.toBeNull()
+    expect(toggle.closest('.native-library-rail')).not.toBeNull()
     expect(toggle.getAttribute('aria-pressed')).toBe('false')
     expect(container.querySelector('.native-list-card')?.classList.contains('lib-quiet')).toBe(false)
 
@@ -1678,8 +1710,8 @@ describe('signed-in account area', () => {
     // while the rail's photographs and the topbar stay at full strength.
     expect(container.querySelector('.native-list-card')?.classList.contains('lib-quiet')).toBe(true)
     expect(toggle.getAttribute('aria-pressed')).toBe('true')
-    expect(container.querySelector('.m-topbar')?.classList.contains('lib-quiet')).toBe(false)
-    expect(container.querySelectorAll('.lib-rail .lib-th').length).toBeGreaterThan(0)
+    expect(container.querySelector('.native-library-rail')?.classList.contains('lib-quiet')).toBe(false)
+    expect(container.querySelectorAll('.native-library-cover-slot .lib-th').length).toBe(1)
 
     toggle.click()
     await settle()

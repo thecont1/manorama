@@ -103,16 +103,24 @@ body.manorama-native[data-native-fold-divided] :is(.m-sheet, .m-screen--fixed, .
 }
 body.manorama-native[data-native-fold-divided] .native-welcome { position: fixed; padding-inline: 48px; }
 body.manorama-native[data-native-fold-divided] .native-global-header {
-  left: calc(var(--native-fold-x) + 12px);
-  right: calc(var(--native-fold-right) + 12px);
+  position: absolute;
+  left: 12px;
+  right: 12px;
+  bottom: 14px;
 }
 body.manorama-native[data-native-fold-divided] .native-global-scroll {
-  left: var(--native-fold-x);
-  right: var(--native-fold-right);
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 0;
+  bottom: 92px;
+  padding-top: 0;
 }
 body.manorama-native[data-native-fold-divided] .native-global-view > .native-global-note {
-  left: var(--native-fold-x);
-  right: var(--native-fold-right);
+  position: absolute;
+  top: 50%;
+  left: 0;
+  right: 0;
   width: max-content;
   max-width: calc(var(--native-fold-width) - 40px);
   margin-inline: auto;
@@ -123,16 +131,13 @@ body {
   padding: var(--native-safe-top) var(--native-safe-right) var(--native-safe-bottom) var(--native-safe-left);
 }
 
-/* The diptych stage positions each figure by physical pane coordinates —
-   segment x/y are measured from the screen's corner, not from inside the
-   safe area. As an ordinary descendant of the padded body its origin would
-   sit one inset in, pushing both panes right and down off their physical
-   screens. While a diptych is mounted the body drops its padding so the
-   stage owns the whole viewport; controls keep their own env() insets, so
-   nothing interactive slides under the notch or the hinge. */
-body:has(.native-diptych) {
+/* All viewer modes share the bridge's viewport origin; only controls take safe insets. */
+body:has(.viewer-stage) {
   padding: 0;
 }
+
+body.manorama-native .viewer-stage:has(.stage-arrows--system-side) { --viewer-arrows-bar: 0px; }
+body.manorama-native .stage-arrows--system-side > button { width: 44px; height: 44px; flex-shrink: 0; }
 
 .native-diptych {
   z-index: 1;
@@ -142,6 +147,9 @@ body:has(.native-diptych) {
 .native-diptych figure {
   pointer-events: none;
 }
+.native-diptych .video-controls { left: 8px; bottom: 8px; }
+.native-diptych .video-control { width: 44px; height: 44px; flex-shrink: 0; }
+.native-diptych .frame-video { width: 100%; height: 100%; object-fit: contain; }
 
 .native-list-shell {
   min-height: 100svh;
@@ -637,14 +645,15 @@ html.light body.manorama-native :is(.native-welcome, .native-list-shell, .native
 .native-gallery-list .lib-card .lib-th,
 .lib-th {
   flex: none;
-  display: block;
+  display: grid;
+  place-items: center;
   width: auto;
   height: 100%;
   aspect-ratio: var(--ar, auto);
   padding: 0;
   border: 0;
   border-radius: 0;
-  background: rgba(var(--ink), .07) center / cover no-repeat;
+  background: transparent;
   overflow: hidden;
   cursor: pointer;
 }
@@ -652,7 +661,7 @@ html.light body.manorama-native :is(.native-welcome, .native-list-shell, .native
   display: block;
   width: 100%;
   height: 100%;
-  object-fit: cover;
+  object-fit: contain;
   opacity: 0;
   transition: opacity .25s ease;
 }
@@ -798,6 +807,112 @@ html.light body.manorama-native :is(.native-welcome, .native-list-shell, .native
 /* `hidden` on the foot loses to its own display:flex — Settings needs the
    attribute to actually hide it while the pane is up. */
 .native-lib-foot[hidden] { display: none; }
+
+.native-library-layout {
+  position: fixed;
+  inset: 0;
+  display: grid;
+  grid-template-areas: 'tools' 'galleries' 'sponsor';
+  grid-template-columns: minmax(0, 1fr);
+  place-items: stretch;
+  align-content: start;
+  gap: 0;
+  min-height: 0;
+  height: 100%;
+  padding: var(--native-safe-top) var(--native-safe-right) var(--native-safe-bottom) var(--native-safe-left);
+  overflow: auto;
+  background: var(--m-ground);
+}
+.native-library-layout .native-library-rail { display: contents; }
+.native-library-tools { grid-area: tools; padding: 12px 20px 16px; min-width: 0; }
+.native-library-tools > .m-topbar-logo { display: block; margin: 0 auto 12px; }
+.native-library-actions { display: flex; gap: 8px; align-items: center; }
+.native-library-actions > .m-btn--primary { padding-inline: 14px; }
+.native-library-heading { margin-bottom: 12px; }
+.native-library-heading h1 { color: var(--m-ink); }
+.native-library-tools .native-library-finding { margin: 14px 0 0; min-height: 0; font-size: 13px; }
+.native-library-layout .native-lib-foot { margin: 0 0 20px; padding: 0; border: 0; font-size: 13px; flex-wrap: wrap; }
+.native-library-layout .native-library-sponsor { grid-area: sponsor; padding: 0 20px 20px; }
+.native-library-layout .native-account-ad { margin: 16px 0 0; padding: 0; background: none; border-radius: 0; }
+.native-library-layout .native-account-ad-slot { flex-wrap: nowrap; gap: 12px; }
+.native-library-layout .native-account-ad-frame { width: 64px; height: 96px; background: none; }
+.native-library-layout .native-account-ad-sub { display: none; }
+.native-library-layout .native-account-ad-headline { font-size: 13px; }
+.native-library-layout .native-account-ad-cta { min-height: 44px; display: inline-flex; align-items: center; margin: 0; }
+.native-library-layout .native-list-card {
+  grid-area: galleries;
+  container: native-galleries / inline-size;
+  width: 100%;
+  max-width: none;
+  min-width: 0;
+  padding: 12px 20px 24px;
+  margin: 0;
+  box-sizing: border-box;
+}
+.native-library-layout .native-list-card[hidden] { display: none; }
+.native-library-layout .native-account-note { font: inherit; font-size: 13px; letter-spacing: 0; color: var(--m-secondary); }
+.native-library-layout .native-library-section-title {
+  margin: 0 0 16px;
+  color: var(--m-ink);
+  font-size: 17px;
+  font-weight: 650;
+  line-height: 1.4;
+}
+.native-library-section-title > span { color: var(--m-secondary); font-size: 13px; font-weight: 400; }
+.native-library-layout .native-gallery-list { margin: 0 0 28px; }
+.native-library-layout .native-gallery-list > li + li { border: 0; }
+.native-library-layout .lib-rail { margin-inline: 0; height: 148px; }
+.native-library-layout .native-library-grid { grid-template-columns: minmax(0, 1fr); gap: 24px 16px; }
+.native-library-layout .native-library-compact-card { padding: 0; min-width: 0; }
+.native-library-layout .native-library-compact-card .lib-card-head { margin-top: 6px; gap: 8px; }
+.native-library-layout .native-library-compact-card .lib-card-title { font-size: 16px; overflow-wrap: anywhere; }
+.native-library-layout .native-library-compact-card .lib-card-sub { font-size: 13px; line-height: 1.5; }
+.native-library-layout .native-library-compact-card .native-gallery-caption { font-size: 13px; }
+.native-library-layout .native-library-cover-slot { width: 100%; min-width: 0; }
+.native-library-layout .native-library-cover {
+  position: relative;
+  display: grid;
+  width: 100%;
+  height: auto;
+  max-height: 280px;
+  min-height: 44px;
+  min-width: 44px;
+  padding: 0;
+  border: 0;
+}
+.native-library-layout .native-library-hidden > summary { min-height: 44px; cursor: pointer; }
+.native-library-layout[data-library-divided] { display: block; padding: 0; }
+.native-library-layout[data-library-divided] .native-library-rail,
+.native-library-layout[data-library-divided] .native-list-card { display: block; box-sizing: border-box; overflow: auto; overscroll-behavior: contain; }
+.native-library-layout[data-library-divided] .native-list-card[hidden] { display: none; }
+.native-library-layout[data-library-settings] { display: block; }
+.native-library-layout[data-library-settings] .native-library-rail { display: none; }
+.native-library-layout[data-library-settings] .native-settings--pane { padding: 20px; }
+body.manorama-native[data-native-fold-divided] .native-library-layout .native-settings--pane {
+  position: absolute;
+  left: var(--native-fold-x); top: var(--native-fold-y);
+  width: var(--native-fold-width); height: var(--native-fold-height);
+  overflow: auto; box-sizing: border-box;
+}
+@container native-galleries (min-width: 380px) {
+  .native-library-layout .native-library-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+@container native-galleries (min-width: 700px) {
+  .native-library-layout .native-library-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+}
+@media (min-width: 760px) {
+  .native-library-layout:not([data-library-divided]):not([data-library-settings]) {
+    grid-template-areas: 'rail galleries';
+    grid-template-columns: 288px minmax(0, 1fr);
+    grid-template-rows: minmax(0, 1fr);
+    align-content: stretch;
+    overflow: hidden;
+  }
+  .native-library-layout:not([data-library-divided]) .native-library-rail {
+    grid-area: rail; display: block; overflow: auto; min-height: 0;
+  }
+  .native-library-layout:not([data-library-divided]) .native-list-card { overflow: auto; min-height: 0; padding-top: 24px; }
+}
 
 /* Settings keeps the shared owner grammar while embedding the live vault
    controls rather than mounting a second settings shell. */
