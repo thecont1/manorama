@@ -61,6 +61,14 @@ final class AppModel {
     /// actions cannot land on the wrong window. Weak: a window that is
     /// released on close must not be resurrected through the delegate.
     @ObservationIgnored weak var window: NSWindow?
+    /// The Library WindowGroup's identity — the AppDelegate's reopen path
+    /// targets it by name rather than guessing at a scene.
+    static let libraryWindowID = "library"
+    /// The scene's `openWindow` action, installed by the ContentView whose
+    /// environment owns it. The AppDelegate reads no environment, so this
+    /// is how the Dock-reopen path mints a replacement Library window
+    /// once the weak reference above has been released.
+    @ObservationIgnored var openLibraryWindow: (() -> Void)?
 
     /// The bundle's root on disk.
     private let bundleRoot: URL

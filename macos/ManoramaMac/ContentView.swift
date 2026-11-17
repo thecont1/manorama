@@ -35,6 +35,10 @@ struct ContentView: View {
     @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
     /// Reduced motion keeps the opacity swap but drops the easing.
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    /// The WindowGroup's own opener — handed to the model so the
+    /// AppDelegate, which reads no environment, can still restore the
+    /// Library window on a Dock reopen.
+    @Environment(\.openWindow) private var openWindow
     /// The cluster rides one glass surface until the pointer asks for
     /// more — then the controls separate into their own pills.
     @State private var clusterExpanded = false
@@ -125,6 +129,12 @@ struct ContentView: View {
             }
         }
         .onPreferenceChange(SettingsAnchorKey.self) { model.settingsAnchor = $0 }
+        .onAppear {
+            // The delegate's reopen path needs the scene's own opener —
+            // it is the supported way to mint a window after the weak
+            // window reference has already been released.
+            model.openLibraryWindow = { openWindow(id: AppModel.libraryWindowID) }
+        }
         .onReceive(chromeKeepAlive) { _ in
             if nativeChromeHovered { model.keepViewerChromeAlive() }
         }

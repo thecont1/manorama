@@ -605,6 +605,11 @@ if [ -z "$CLOSED" ]; then
 else
   bad "the capsule returns to the Library" "still reporting ${CLOSED}"
 fi
+else
+  # Skipping the whole section on a setup failure would let the capsule
+  # pass untested — the open ran its five attempts, so the failure is a
+  # finding, not an absence.
+  bad "the glass capsule is present and pressable" "the gallery never opened for the capsule test"
 fi
 
 echo

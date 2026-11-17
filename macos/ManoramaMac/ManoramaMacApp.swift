@@ -37,7 +37,7 @@ struct ManoramaMacApp: App {
     }
 
     var body: some Scene {
-        WindowGroup {
+        WindowGroup(id: AppModel.libraryWindowID) {
             ContentView(model: model)
                 .environment(model)
                 .frame(minWidth: 760, minHeight: 520)
@@ -148,13 +148,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
         // Only the Library window counts — `NSApp.windows.first` could be
         // the Settings window, and ordering it would leave the real window
-        // hidden and break the reopen contract. With no recorded window
-        // the default reopen behaviour creates one.
+        // hidden and break the reopen contract.
         if let window = model?.window {
             if window.isMiniaturized {
                 window.deminiaturize(nil)
             }
             window.makeKeyAndOrderFront(nil)
+        } else {
+            // The weak reference is gone — the Library window was closed
+            // (or never mounted). With the Settings scene still on screen
+            // hasVisibleWindows is true, so the default reopen path would
+            // order nothing at all: a Dock click would land on a window-
+            // less app. Restore the Library through the scene's own
+            // opener instead.
+            model?.openLibraryWindow?()
         }
         return true
     }
