@@ -129,7 +129,17 @@ guard let running = NSRunningApplication.runningApplications(withBundleIdentifie
     exit(1)
 }
 let app = AXUIElementCreateApplication(running.processIdentifier)
-let windows = value(app, kAXWindowsAttribute, as: [AXUIElement].self) ?? []
+// A failed windows query is not the same answer as zero windows: the app
+// can be up and running while the attribute is unreadable (no UI yet, AX
+// denied mid-transition). Propagate the AX error so a caller can never
+// mistake a read failure for a closed window set.
+var rawWindows: CFTypeRef?
+let windowsResult = AXUIElementCopyAttributeValue(app, kAXWindowsAttribute as CFString, &rawWindows)
+guard windowsResult == .success else {
+    print("AX windows query failed: \(windowsResult.rawValue)")
+    exit(2)
+}
+let windows = (rawWindows as? [AXUIElement]) ?? []
 
 // Answered before the window guard so the count can honestly say zero —
 // the close-the-Library step is precisely the zero case.
@@ -137,11 +147,46 @@ if command == "wincount" {
     // How many windows the app is showing — a Settings pane makes it two,
     // and a closed Library makes it zero without quitting the app.
     print("windows=\(windows.count)")
+    func hasWebArea(_ element: AXUIElement, _ depth: Int = 0) -> Bool {
+        guard depth < 12 else { return false }
+        if role(element) == "AXWebArea" { return true }
+        return children(element).contains { hasWebArea($0, depth + 1) }
+    }
     for w in windows {
         let fullscreen = value(w, "AXFullScreen", as: Bool.self) ?? false
-        print("  \(describe(w))\(fullscreen ? " [fullscreen]" : "")")
+        let key = value(w, kAXMainAttribute, as: Bool.self) ?? false
+        // [web] marks the Library: it is the only window that carries a
+        // web area, so the suite can tell it from Settings without
+        // trusting a title. [key] is the key window.
+        print("  \(describe(w))\(fullscreen ? " [fullscreen]" : "")\(key ? " [key]" : "")\(hasWebArea(w) ? " [web]" : "")")
     }
     exit(0)
+}
+
+if command == "pressui" {
+    // Press a native control by its label — the Settings checkbox, for
+    // instance. Searches every window, so it does not matter which one
+    // happens to be key when the probe runs.
+    let label = CommandLine.arguments.count >= 4 ? CommandLine.arguments[3] : ""
+    var target: AXUIElement?
+    func findControl(_ element: AXUIElement, _ depth: Int) {
+        guard depth < 16, target == nil else { return }
+        let r = role(element)
+        if ["AXCheckBox", "AXButton", "AXRadioButton", "AXSwitch", "AXToggle"].contains(r),
+           title(element).contains(label) {
+            target = element
+            return
+        }
+        for child in children(element) { findControl(child, depth + 1) }
+    }
+    for w in windows { findControl(w, 0) }
+    guard let found = target else {
+        print("control not found: \(label)")
+        exit(3)
+    }
+    let result = AXUIElementPerformAction(found, kAXPressAction as CFString)
+    print("press ui \"\(title(found))\" → \(result.rawValue)")
+    exit(result == .success ? 0 : 4)
 }
 
 guard let window = windows.first else {

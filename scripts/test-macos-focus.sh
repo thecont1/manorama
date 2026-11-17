@@ -16,15 +16,23 @@
 # opened from the Library's own card.
 #
 # Usage:
-#   scripts/test-macos-focus.sh [view-dir] [disposable-dir]
+#   MANORAMA_FOCUS_SESSION=/path/to/session.json \
+#     scripts/test-macos-focus.sh [view-dir] [disposable-dir]
 #
 #   view-dir       a folder of photographs to open and navigate. Read-only:
 #                  nothing in this script writes to it.
 #   disposable-dir a folder this script DELETES to test error recovery.
-#                  Never point it at anything you want to keep.
+#                  Must live inside the focus-test container; defaults to a
+#                  fresh one there.
+#
+# MANORAMA_FOCUS_SESSION names a session.json to seed into the test's
+# isolated config — local galleries are a Visionary feature, so the suite
+# needs a signed-in account to have anything to open. It is never guessed:
+# pointing the suite at an account is an explicit act, not a silent
+# borrow, because the session belongs to a real owner.
 #
 # Defaults: the ETHIOPIA originals for viewing, and a throwaway copy in
-# /tmp for the deletion test.
+# the focus-test container for the deletion test.
 
 set -uo pipefail
 
@@ -32,7 +40,6 @@ cd "$(dirname "$0")/.."
 ROOT="$(pwd)"
 
 VIEW_DIR="${1:-/Users/home/DEV/websites/thecontrarian.in-original/public/library/originals/ETHIOPIA}"
-DISPOSABLE="${2:-$HOME/Library/Containers/in.thecontrarian.manorama.desktop/Data/tmp/manorama-boundary-disposable}"
 
 if [ ! -d "$VIEW_DIR" ]; then
   echo "FATAL: view-dir does not exist: $VIEW_DIR" >&2
@@ -54,6 +61,32 @@ BUNDLE_ID="in.thecontrarian.manorama.desktop.focus-test"
 # so every scratch artefact the suite hands it lives in the container tmp.
 CTMP="$HOME/Library/Containers/$BUNDLE_ID/Data/tmp"
 mkdir -p "$CTMP"
+
+# The disposable folder lives inside the focus-test container, never the
+# installed app's: a supplied path outside this container is refused,
+# because the test deletes it and deletion belongs inside the sandbox's
+# own scratch.
+DISPOSABLE="${2:-$CTMP/disposable-$$}"
+case "$DISPOSABLE" in
+  "$CTMP"/*) ;;
+  *)
+    echo "FATAL: disposable-dir must live inside $CTMP" >&2
+    echo "       got: $DISPOSABLE" >&2
+    exit 1
+    ;;
+esac
+
+# The account session is an explicit argument, not something found on
+# disk. Seeding the test config from a file the caller chose is what keeps
+# an "isolated" run honest about which account it touches.
+SESSION_FILE="${MANORAMA_FOCUS_SESSION:-}"
+if [ -z "$SESSION_FILE" ] || [ ! -f "$SESSION_FILE" ]; then
+  echo "FATAL: MANORAMA_FOCUS_SESSION does not name a session.json" >&2
+  echo "       the suite needs an explicitly authorized test account —" >&2
+  echo "       point it at a session.json for the account it may use" >&2
+  exit 1
+fi
+
 PROBE="/tmp/focusprobe"
 TRACE="$CTMP/manorama-mac-trace.log"
 SHOTS="$CTMP/manorama-mac-shots"
@@ -68,12 +101,16 @@ SEED_DIR="$CTMP/seed-$(basename "$VIEW_DIR")"
 rm -rf "$SEED_DIR"
 cp -Rc "$VIEW_DIR" "$SEED_DIR"
 
-# Where the real app keeps its account. The test borrows the session —
-# the account is what says whether local galleries are allowed — and keeps
-# everything else to itself. Under the sandbox the live config is in the
-# container; an unsandboxed or Tauri install is the fallback source.
-REAL_CONFIG="$HOME/Library/Containers/in.thecontrarian.manorama.desktop/Data/Library/Application Support/in.thecontrarian.manorama.desktop"
-[ -f "$REAL_CONFIG/session.json" ] || REAL_CONFIG="$HOME/Library/Application Support/in.thecontrarian.manorama.desktop"
+# Every exit — pass, fail or a mid-suite abort — retires the test app and
+# its scratch. A failure must not leave a running instance writing the
+# next run's store, and the disposable fixture is always under the
+# focus-test container, so its removal is bounded by construction.
+cleanup() {
+  pkill -f "build-focus-test/manorama.app/Contents/MacOS/manorama" 2>/dev/null
+  rm -rf "$SEED_DIR" "$DISPOSABLE" "$CONFIG" 2>/dev/null
+  rm -f "$STORE" 2>/dev/null
+}
+trap cleanup EXIT
 
 # The title the Library gives a local gallery: the folder's own name.
 TITLE="$(basename "$VIEW_DIR")"
@@ -204,18 +241,22 @@ wait_for_window() {
 }
 
 # The window's own state, once the app has a window to report. A launch
-# into a Space animates, and until it has, the app has no window to ask.
+# into a Space animates, and until it has, the app has no window to ask —
+# and the first readable answer is not the settled one. Poll until the
+# expected fullscreen state arrives; on timeout return the last state
+# seen so the caller can report what the window actually did.
 wait_window() {
-  local deadline=$((SECONDS + ${1:-25}))
+  local want="$1" deadline=$((SECONDS + ${2:-25})) last=""
   while [ $SECONDS -lt $deadline ]; do
     act
     S=$(/tmp/focusprobe "$BUNDLE_ID" fullscreen 2>/dev/null)
     case "$S" in
-      *fullscreen=*) echo "$S"; return 0 ;;
+      *fullscreen=$want*) echo "$S"; return 0 ;;
+      *fullscreen=*) last="$S" ;;
     esac
     sleep 1
   done
-  echo ""
+  echo "$last"
   return 1
 }
 
@@ -246,15 +287,13 @@ launch() {
     rm -f "$STORE"
     rm -rf "$CONFIG"
     mkdir -p "$CONFIG"
-    # The account is borrowed, not invented: local galleries are a Visionary
-    # feature, so the test needs a signed-in session to have a local
-    # gallery to open at all.
-    if [ -f "$REAL_CONFIG/session.json" ]; then
-      cp "$REAL_CONFIG/session.json" "$CONFIG/session.json"
-    else
-      echo "FATAL: no session at $REAL_CONFIG/session.json — the test cannot sign in"
+    # The session the caller named is copied in — the account is what says
+    # whether local galleries are allowed, and the caller's explicit file
+    # is the only credential this suite will ever use.
+    cp "$SESSION_FILE" "$CONFIG/session.json" || {
+      echo "FATAL: could not seed $SESSION_FILE into the test config"
       exit 1
-    fi
+    }
   fi
   rm -f "$TRACE"
   PROBE_JS='JSON.stringify({cls:document.body.className,active:(document.activeElement||{}).tagName,curtain:!!document.querySelector("[data-curtain]")})'
@@ -477,6 +516,22 @@ else
   grep "media read failed\|media refused" "$TRACE" | head -3 | sed 's/^/      /'
 fi
 
+# Isolation is only proven if it was exercised: a signed-in Library
+# registers the device with PUT /api/devices/{id} on mount, so by this
+# point the guard must have answered at least one mutating call locally.
+# An empty marker list means either registration never fired or the guard
+# never logged — either way the "isolated" claim is unproven.
+GUARDED=$(grep -c "isolated: answered" "$TRACE" 2>/dev/null)
+GUARDED=${GUARDED:-0}
+note "mutations answered locally by the guard: $GUARDED"
+if [ "$GUARDED" -gt 0 ]; then
+  ok "the isolation guard intercepted mutating calls"
+  grep "isolated: answered" "$TRACE" | head -3 | sed 's/^/      /'
+else
+  bad "the isolation guard intercepted mutating calls" \
+      "no mutation reached the scheme handler across the run"
+fi
+
 echo
 echo "== 9. Escape leaves the gallery =="
 act
@@ -589,7 +644,7 @@ rm -f "$TRACE"
 rm -f "$STORE"
 rm -rf "$CONFIG"
 mkdir -p "$CONFIG"
-cp "$REAL_CONFIG/session.json" "$CONFIG/session.json"
+cp "$SESSION_FILE" "$CONFIG/session.json"
 open -n "$APP" --args --seed-folder "$SEED_DIR" --store "$STORE" --config "$CONFIG" --trace --eval "$JUMP_PROBE" --windowed
 wait_for_window 45 || true
 wait_gallery_card 30 >/dev/null
@@ -626,26 +681,51 @@ echo "== 13. the window mode is the user's choice =="
 # normal window. The setting is a UserDefaults value in the focus-test
 # app's own domain, so these runs can flip it between launches without
 # touching the installed app's preferences.
-defaults write "$BUNDLE_ID" openInFullScreen -bool false
+#
+# The fresh-install case deletes the key rather than writing false: an
+# explicit false is a decision the user made, an absent key is a default
+# the app must supply — only the second proves what a new owner gets.
+defaults delete "$BUNDLE_ID" openInFullScreen 2>/dev/null
 stop_app || { echo "FATAL: the shell would not quit"; exit 1; }
 # EXTRA_ARGS="" means no --windowed: the one place a launch may enter a
 # Space, because the setting is what is being measured.
 EXTRA_ARGS=""
 launch "$SEED_DIR" keep
-FULL=$(wait_window 30)
-note "at launch, setting off: ${FULL:-no window}"
+FULL=$(wait_window false 30)
+note "at launch, fresh default: ${FULL:-no window}"
 case "$FULL" in
-  *fullscreen=false*) ok "a default launch stays windowed" ;;
-  *) bad "a default launch stays windowed" "at launch: ${FULL:-no window}" ;;
+  *fullscreen=false*) ok "a launch with no preference stays windowed" ;;
+  *) bad "a launch with no preference stays windowed" "at launch: ${FULL:-no window}" ;;
 esac
 
-# The setting decides: write it, relaunch, and the window enters its own
-# Space once — the same path the green light takes, applied at launch.
-defaults write "$BUNDLE_ID" openInFullScreen -bool true
+# The setting is the Settings scene's own toggle, so the test drives the
+# real control rather than an outside defaults write: open the pane,
+# press the checkbox, prove the value persisted, and only then prove the
+# next launch honours it.
+act
+/tmp/focusprobe "$BUNDLE_ID" press manorama "Settings" >/dev/null 2>&1 \
+  || /tmp/focusprobe "$BUNDLE_ID" key 43 1 - cmd >/dev/null 2>&1
+sleep 2
+if /tmp/focusprobe "$BUNDLE_ID" pressui "Open in full screen" >/dev/null 2>&1; then
+  sleep 1
+  PERSISTED=$(defaults read "$BUNDLE_ID" openInFullScreen 2>/dev/null || echo absent)
+  note "after pressing the toggle, persisted: $PERSISTED"
+  if [ "$PERSISTED" = "1" ]; then
+    ok "the Settings toggle persists the fullscreen preference"
+  else
+    bad "the Settings toggle persists the fullscreen preference" "persisted: $PERSISTED"
+  fi
+else
+  bad "the Settings toggle persists the fullscreen preference" "no toggle in Settings"
+fi
+# Close the pane before measuring the launch it configured.
+act
+/tmp/focusprobe "$BUNDLE_ID" key 13 1 - cmd >/dev/null 2>&1
+sleep 1
 stop_app || { echo "FATAL: the shell would not quit"; exit 1; }
 EXTRA_ARGS=""
 launch "$SEED_DIR" keep
-FULL=$(wait_window 30)
+FULL=$(wait_window true 30)
 note "at launch, setting on: ${FULL:-no window}"
 case "$FULL" in
   *fullscreen=true*) ok "the fullscreen setting opens into its own Space" ;;
@@ -657,14 +737,14 @@ esac
 stop_app || { echo "FATAL: the shell would not quit"; exit 1; }
 EXTRA_ARGS="--windowed"
 launch "$SEED_DIR" keep
-FULL=$(wait_window 30)
+FULL=$(wait_window false 30)
 note "at launch, setting on + --windowed: ${FULL:-no window}"
 case "$FULL" in
   *fullscreen=false*) ok "--windowed overrides the fullscreen setting" ;;
   *) bad "--windowed overrides the fullscreen setting" "at launch: ${FULL:-no window}" ;;
 esac
 # Leave the test domain the way a default install finds it.
-defaults write "$BUNDLE_ID" openInFullScreen -bool false
+defaults delete "$BUNDLE_ID" openInFullScreen 2>/dev/null
 
 echo
 echo "== 14. fullscreen is a trip the user controls =="
@@ -673,21 +753,19 @@ echo "== 14. fullscreen is a trip the user controls =="
 # items, not shell commands.
 act
 /tmp/focusprobe "$BUNDLE_ID" press View "Enter Full Screen" >/dev/null 2>&1
-sleep 2.5
-FULL=$(/tmp/focusprobe "$BUNDLE_ID" fullscreen 2>/dev/null)
-note "after Enter Full Screen: $FULL"
+FULL=$(wait_window true 15)
+note "after Enter Full Screen: ${FULL:-no window}"
 case "$FULL" in
   *fullscreen=true*) ok "the user can enter fullscreen" ;;
-  *) bad "the user can enter fullscreen" "after Enter Full Screen: $FULL" ;;
+  *) bad "the user can enter fullscreen" "after Enter Full Screen: ${FULL:-no window}" ;;
 esac
 act
 /tmp/focusprobe "$BUNDLE_ID" press View "Exit Full Screen" >/dev/null 2>&1
-sleep 2.5
-FULL=$(/tmp/focusprobe "$BUNDLE_ID" fullscreen 2>/dev/null)
-note "after Exit Full Screen: $FULL"
+FULL=$(wait_window false 15)
+note "after Exit Full Screen: ${FULL:-no window}"
 case "$FULL" in
   *fullscreen=false*) ok "the user can bring the window back" ;;
-  *) bad "the user can bring the window back" "after Exit Full Screen: $FULL" ;;
+  *) bad "the user can bring the window back" "after Exit Full Screen: ${FULL:-no window}" ;;
 esac
 
 echo
@@ -697,38 +775,53 @@ echo "== 15. the window remembers its frame =="
 # through the representable's update path would loop resize → update →
 # resize. What is asserted here is the user's experience: move the window,
 # relaunch, and it comes back where it was left.
-/tmp/focusprobe "$BUNDLE_ID" setbounds 140 90 900 620 >/dev/null 2>&1
+SET_RESULT=$(/tmp/focusprobe "$BUNDLE_ID" setbounds 140 90 900 620 2>/dev/null)
+note "setbounds: ${SET_RESULT:-none}"
 sleep 1
 SET=$(/tmp/focusprobe "$BUNDLE_ID" bounds 2>/dev/null)
 note "frame set to: ${SET:-none}"
-stop_app || { echo "FATAL: the shell would not quit"; exit 1; }
-EXTRA_ARGS="--windowed"
-launch "$SEED_DIR" keep
-sleep 2
-BACK=$(/tmp/focusprobe "$BUNDLE_ID" bounds 2>/dev/null)
-note "frame after relaunch: ${BACK:-none}"
 read SX SY SW SH <<EOF
 $(echo "$SET" | sed -n 's/bounds=\([0-9-]*\),\([0-9-]*\) \([0-9]*\)x\([0-9]*\)/\1 \2 \3 \4/p')
 EOF
-read BX BY BW BH <<EOF
+# The assertion only means something if the window actually moved: a
+# failed resize read back twice passes as "restored" on the default frame.
+MOVED=yes
+for pair in "${SX:-9999} 140" "${SY:-9999} 90" "${SW:-0} 900" "${SH:-0} 620"; do
+  set -- $pair
+  diff=$(( $1 - $2 ))
+  [ $diff -lt 0 ] && diff=$(( -diff ))
+  [ $diff -gt 8 ] && MOVED=no
+done
+if [ "$MOVED" != yes ]; then
+  bad "the window's frame survives a relaunch" \
+      "window never took the nondefault frame (setbounds: ${SET_RESULT:-none}, got ${SET:-none})"
+else
+  stop_app || { echo "FATAL: the shell would not quit"; exit 1; }
+  EXTRA_ARGS="--windowed"
+  launch "$SEED_DIR" keep
+  sleep 2
+  BACK=$(/tmp/focusprobe "$BUNDLE_ID" bounds 2>/dev/null)
+  note "frame after relaunch: ${BACK:-none}"
+  read BX BY BW BH <<EOF
 $(echo "$BACK" | sed -n 's/bounds=\([0-9-]*\),\([0-9-]*\) \([0-9]*\)x\([0-9]*\)/\1 \2 \3 \4/p')
 EOF
-RESTORED=no
-if [ -n "${SX:-}" ] && [ -n "${BX:-}" ]; then
-  # A few points of slack is honest — display bookkeeping can nudge the
-  # rectangle — but a default-size window means the frame was forgotten.
-  RESTORED=yes
-  for pair in "$SX $BX" "$SY $BY" "$SW $BW" "$SH $BH"; do
-    set -- $pair
-    diff=$(( $1 - $2 ))
-    [ $diff -lt 0 ] && diff=$(( -diff ))
-    [ $diff -gt 8 ] && RESTORED=no
-  done
-fi
-if [ "$RESTORED" = yes ]; then
-  ok "the window's frame survives a relaunch"
-else
-  bad "the window's frame survives a relaunch" "set ${SET:-none}, got ${BACK:-none}"
+  RESTORED=no
+  if [ -n "${SX:-}" ] && [ -n "${BX:-}" ]; then
+    # A few points of slack is honest — display bookkeeping can nudge the
+    # rectangle — but a default-size window means the frame was forgotten.
+    RESTORED=yes
+    for pair in "$SX $BX" "$SY $BY" "$SW $BW" "$SH $BH"; do
+      set -- $pair
+      diff=$(( $1 - $2 ))
+      [ $diff -lt 0 ] && diff=$(( -diff ))
+      [ $diff -gt 8 ] && RESTORED=no
+    done
+  fi
+  if [ "$RESTORED" = yes ]; then
+    ok "the window's frame survives a relaunch"
+  else
+    bad "the window's frame survives a relaunch" "set ${SET:-none}, got ${BACK:-none}"
+  fi
 fi
 
 echo
@@ -742,20 +835,26 @@ act
 sleep 2
 WINS=$(/tmp/focusprobe "$BUNDLE_ID" wincount 2>/dev/null)
 note "after opening Settings: $(echo "$WINS" | tr '\n' ' ' | cut -c1-200)"
-case "$WINS" in
-  windows=2*) ok "Settings opens as its own window" ;;
-  *) bad "Settings opens as its own window" "$(echo "$WINS" | head -1)" ;;
-esac
-# The pane just opened is the key window, so ⌘W closes it rather than the
-# Library beneath.
+# Counts alone cannot say WHICH windows these are: the pair must be a
+# pane without the web surface beside the window that still carries it.
+if echo "$WINS" | grep -q "^windows=2" \
+   && [ "$(echo "$WINS" | grep -c "\[web\]")" = "1" ]; then
+  ok "Settings opens as its own window beside the Library"
+else
+  bad "Settings opens as its own window beside the Library" "$(echo "$WINS" | head -3 | tr '\n' ' ')"
+fi
+# ⌘W goes to the key window. The pane is key from opening, so it goes —
+# and what must be left is the window with the web area, not just any one.
+act
 /tmp/focusprobe "$BUNDLE_ID" key 13 1 - cmd >/dev/null 2>&1
 sleep 1.5
 WINS=$(/tmp/focusprobe "$BUNDLE_ID" wincount 2>/dev/null)
 note "after closing Settings: $(echo "$WINS" | tr '\n' ' ' | cut -c1-200)"
-case "$WINS" in
-  windows=1*) ok "Settings closes without taking the Library" ;;
-  *) bad "Settings closes without taking the Library" "$(echo "$WINS" | head -1)" ;;
-esac
+if echo "$WINS" | grep -q "^windows=1" && echo "$WINS" | grep -q "\[web\]"; then
+  ok "Settings closes without taking the Library"
+else
+  bad "Settings closes without taking the Library" "$(echo "$WINS" | head -3 | tr '\n' ' ')"
+fi
 
 echo
 echo "== 17. the Library reopens after its window closes =="
@@ -769,8 +868,15 @@ WINS=$(/tmp/focusprobe "$BUNDLE_ID" wincount 2>/dev/null)
 note "after closing the Library: $(echo "$WINS" | tr '\n' ' ' | cut -c1-120)"
 case "$WINS" in
   windows=0*) ok "the Library window closes without quitting the app" ;;
-  *) bad "the Library window closes without quitting the app" "$(echo "$WINS" | head -1)" ;;
+  *) bad "the Library window closes without quitting the app" "$(echo "$WINS" | head -3 | tr '\n' ' ')" ;;
 esac
+# The harder case: Settings is the only window left. It is not the app's
+# content window, so a Dock reopen must still bring the Library back
+# rather than ordering the pane forward and calling it done.
+act
+/tmp/focusprobe "$BUNDLE_ID" press manorama "Settings" >/dev/null 2>&1 \
+  || /tmp/focusprobe "$BUNDLE_ID" key 43 1 - cmd >/dev/null 2>&1
+sleep 2
 osascript -e "tell application id \"$BUNDLE_ID\" to reopen" >/dev/null 2>&1
 if wait_for_window 20; then
   # The window returning is only half of it — the page has to remount the
@@ -781,11 +887,13 @@ if wait_for_window 20; then
     echo "$REOPENED" | grep -qi "Add Gallery\|$TITLE" && break
     sleep 1
   done
-  note "after reopen: ${REOPENED:-no text}"
-  if echo "$REOPENED" | grep -qi "Add Gallery\|$TITLE"; then
+  WINS=$(/tmp/focusprobe "$BUNDLE_ID" wincount 2>/dev/null)
+  note "after reopen: ${REOPENED:-no text}; $(echo "$WINS" | tr '\n' ' ' | cut -c1-120)"
+  if echo "$WINS" | grep -q "\[web\]" \
+     && echo "$REOPENED" | grep -qi "Add Gallery\|$TITLE"; then
     ok "reopening brings the Library back"
   else
-    bad "reopening brings the Library back" "window returned but no Library (${REOPENED:-empty})"
+    bad "reopening brings the Library back" "no [web] window/Library text (${REOPENED:-empty})"
   fi
 else
   bad "reopening brings the Library back" "no window after reopen"
