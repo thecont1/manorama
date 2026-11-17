@@ -54,7 +54,6 @@ type Props = {
   /** Injected by the tests; the default prepares JPEGs and calls `share`. */
   exportPhotos?: (options: {
     photos: readonly PostToXPhoto[]
-    caption: string
     title: string
     url: string
     read: PostPhotoReader
@@ -164,7 +163,6 @@ export default function PostToX({
 }: Props) {
   const [photos, setPhotos] = useState<readonly PostToXPhoto[] | null>(null)
   const [selected, setSelected] = useState<readonly string[]>([])
-  const [caption, setCaption] = useState('')
   const [busy, setBusy] = useState(false)
   const [note, setNote] = useState('')
   const objectUrls = useRef(new Set<string>()).current
@@ -246,7 +244,6 @@ export default function PostToX({
     try {
       report = await exportPhotos({
         photos: chosen,
-        caption,
         title,
         url: galleryUrl,
         read: reader,
@@ -318,19 +315,6 @@ export default function PostToX({
             <button type="button" class="native-global-close" onClick={onClose} disabled={busy} aria-label="Close">Close</button>
           </div>
         </div>
-
-        <label class="m-field native-postto-caption">
-          <span>Caption <small>(optional)</small></span>
-          <textarea
-            class="m-input m-input--textarea"
-            rows={2}
-            value={caption}
-            disabled={busy}
-            aria-label="Caption"
-            placeholder="Say something about these photographs"
-            onInput={(event) => setCaption((event.currentTarget as HTMLTextAreaElement).value)}
-          />
-        </label>
 
         <button
           type="button"

@@ -1,7 +1,6 @@
 import {
   exportFileName,
   photoMimeType,
-  postToXText,
   POST_TO_X_MAX_EDGE,
   type PostToXPhoto,
 } from '../../native/lib/post-to-x'
@@ -146,8 +145,6 @@ export const withEncryptedMaterialize = (
 export type PostExportOptions = {
   /** The photographs to post, already in the order they are posted in. */
   photos: readonly PostToXPhoto[]
-  /** The text the photographer typed; the gallery's address is appended. */
-  caption: string
   title: string
   /** The gallery's own address — empty for a local gallery not yet published. */
   url: string
@@ -155,6 +152,17 @@ export type PostExportOptions = {
   share: PostShareBridge
   runtime?: ImageProgramRuntime
 }
+
+/**
+ * The first line of the draft: the paste step, told where the post is
+ * written. The owner deletes it and types the post — the instruction
+ * self-destructs instead of asking for a caption in-app. The gallery's
+ * address rides below it so the post still carries the way back.
+ */
+export const POST_TO_X_PASTE_LINE = 'Press ⌘V to paste the photographs.'
+
+const postDraftText = (galleryUrl: string): string =>
+    galleryUrl ? `${POST_TO_X_PASTE_LINE}\n\n${galleryUrl}` : POST_TO_X_PASTE_LINE
 
 /**
  * Prepares the photographs and hands them to the shell in one call.
@@ -208,7 +216,7 @@ export const exportPostToX = async (options: PostExportOptions): Promise<PostExp
 
   let tail: string | void
   try {
-    tail = await options.share(files, postToXText(options.caption, options.url), options.url, options.title)
+    tail = await options.share(files, postDraftText(options.url), options.url, options.title)
   } catch {
     return { outcome: 'failed', posted: 0, skipped, note: 'The photographs could not be handed to the system.' }
   }

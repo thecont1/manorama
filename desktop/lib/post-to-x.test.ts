@@ -5,6 +5,7 @@ import {
   localPhotoReader,
   localPostPhotos,
   toBase64,
+  POST_TO_X_PASTE_LINE,
   type PostShareFile,
 } from './post-to-x'
 import type { PostToXPhoto } from '../../native/lib/post-to-x'
@@ -81,7 +82,6 @@ describe('exportPostToX', () => {
     const shared: { files: PostShareFile[]; text: string; url: string; title: string }[] = []
     const report = await exportPostToX({
       photos: [photo({ id: 'a', filename: 'a.jpg' }), photo({ id: 'b', filename: 'b.jpg' })],
-      caption: 'winter light',
       title: 'italy, amore mio',
       url: 'https://manorama.xyz/thecontrarian/italy',
       read: async () => ({ bytes: new Uint8Array([9, 9]), mimeType: 'image/jpeg' }),
@@ -96,29 +96,27 @@ describe('exportPostToX', () => {
     expect(report.note).toBe('The photographs are on your clipboard.')
     expect(shared).toHaveLength(1)
     expect(shared[0]!.files.map((f) => f.name)).toEqual(['01-a.jpg', '02-b.jpg'])
-    expect(shared[0]!.text).toBe('winter light\nhttps://manorama.xyz/thecontrarian/italy')
+    expect(shared[0]!.text).toBe(`${POST_TO_X_PASTE_LINE}\n\nhttps://manorama.xyz/thecontrarian/italy`)
     expect(shared[0]!.files[0]!.data).toBe(toBase64(new Uint8Array([7, 7, 7])))
   })
 
-  test('a local gallery without a published address posts the caption alone', async () => {
+  test('a local gallery without a published address drafts the paste line alone', async () => {
     const texts: string[] = []
     await exportPostToX({
       photos: [photo()],
-      caption: '',
       title: 'italy',
       url: '',
       read: async () => ({ bytes: new Uint8Array([1]), mimeType: 'image/jpeg' }),
       share: async (_files, text) => { texts.push(text) },
       runtime: fakeRuntime(() => new Uint8Array([1])),
     })
-    expect(texts[0]).toBe('')
+    expect(texts[0]).toBe(POST_TO_X_PASTE_LINE)
   })
 
   test('a photograph that cannot be prepared is left out and counted', async () => {
     const shared: PostShareFile[][] = []
     const report = await exportPostToX({
       photos: [photo({ id: 'a' }), photo({ id: 'b' })],
-      caption: '',
       title: 'italy',
       url: 'https://manorama.xyz/italy',
       read: async (p) => p.id === 'a' ? undefined : { bytes: new Uint8Array([1]), mimeType: 'image/jpeg' },
@@ -133,7 +131,6 @@ describe('exportPostToX', () => {
   test('fails honestly when nothing could be prepared, and again when the shell rejects', async () => {
     const empty = await exportPostToX({
       photos: [photo()],
-      caption: '',
       title: 'italy',
       url: '',
       read: async () => undefined,
@@ -145,7 +142,6 @@ describe('exportPostToX', () => {
 
     const rejected = await exportPostToX({
       photos: [photo()],
-      caption: '',
       title: 'italy',
       url: '',
       read: async () => ({ bytes: new Uint8Array([1]), mimeType: 'image/jpeg' }),

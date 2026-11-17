@@ -697,7 +697,7 @@ final class NativeBridge {
         guard let intent = parts.url, NSWorkspace.shared.open(intent) else {
             throw BridgeError.failed("The X composer could not be opened")
         }
-        showPostPasteHint(autoPaste: attemptPostPaste(into: intent))
+        attemptPostPaste(into: intent)
         return "The photographs are on your clipboard — paste them into the post."
     }
 
@@ -707,23 +707,22 @@ final class NativeBridge {
 
     /// Best-effort automatic paste: an Accessibility-trusted app may press
     /// ⌘V in the browser for the owner. Trust is asked for exactly once;
-    /// without it, or when the browser cannot be resolved, this returns
-    /// false and the hint card carries the instruction instead.
-    private func attemptPostPaste(into intent: URL) -> Bool {
+    /// without it, or when the browser cannot be resolved, this returns and
+    /// the draft's own first line teaches the paste by hand.
+    private func attemptPostPaste(into intent: URL) {
         guard AXIsProcessTrusted() else {
-            guard !UserDefaults.standard.bool(forKey: Self.postPastePromptedKey) else { return false }
+            guard !UserDefaults.standard.bool(forKey: Self.postPastePromptedKey) else { return }
             UserDefaults.standard.set(true, forKey: Self.postPastePromptedKey)
             _ = AXIsProcessTrustedWithOptions(
                 ["AXTrustedCheckOptionPrompt": true] as CFDictionary
             )
-            return false
+            return
         }
         guard let browser = NSWorkspace.shared.urlForApplication(toOpen: intent),
-              let bundleID = Bundle(url: browser)?.bundleIdentifier else { return false }
+              let bundleID = Bundle(url: browser)?.bundleIdentifier else { return }
         Task { [weak self] in
             await self?.pasteWhenComposerReady(bundleID)
         }
-        return true
     }
 
     /// There is no way to watch the composer's text field take focus — the
@@ -747,80 +746,6 @@ final class NativeBridge {
         up.flags = .maskCommand
         down.post(tap: .cghidEventTap)
         up.post(tap: .cghidEventTap)
-    }
-
-    /// A floating hint that survives the browser coming forward — the paste
-    /// step is invisible in the app window behind it. When the app may
-    /// press ⌘V itself the same card carries the fallback instead. It
-    /// closes on a click, when the clipboard moves on, or after ninety
-    /// seconds.
-    private var postHintPanel: NSPanel?
-    private var postHintChangeCount = 0
-
-    private func showPostPasteHint(autoPaste: Bool) {
-        postHintPanel?.close()
-
-        let hint = PostHintView()
-        hint.material = .hudWindow
-        hint.state = .active
-        hint.wantsLayer = true
-        hint.layer?.cornerRadius = 12
-        hint.layer?.masksToBounds = true
-
-        let label = NSTextField(wrappingLabelWithString: autoPaste
-            ? "The photographs should attach on their own — press ⌘V in the post if they don't."
-            : "The photographs are on your clipboard — press ⌘V in the post to attach them.")
-        label.font = .systemFont(ofSize: 13, weight: .medium)
-        label.alignment = .center
-        label.translatesAutoresizingMaskIntoConstraints = false
-        hint.addSubview(label)
-        NSLayoutConstraint.activate([
-            label.leadingAnchor.constraint(equalTo: hint.leadingAnchor, constant: 16),
-            label.trailingAnchor.constraint(equalTo: hint.trailingAnchor, constant: -16),
-            label.topAnchor.constraint(equalTo: hint.topAnchor, constant: 12),
-            label.bottomAnchor.constraint(equalTo: hint.bottomAnchor, constant: -12),
-        ])
-
-        let panel = NSPanel(
-            contentRect: NSRect(origin: .zero, size: NSSize(width: 340, height: 64)),
-            styleMask: [.borderless, .nonactivatingPanel],
-            backing: .buffered, defer: false
-        )
-        panel.isFloatingPanel = true
-        panel.level = .floating
-        panel.isOpaque = false
-        panel.backgroundColor = .clear
-        panel.hasShadow = true
-        panel.isMovableByWindowBackground = true
-        panel.contentView = hint
-
-        if let screen = NSScreen.main {
-            let frame = screen.visibleFrame
-            panel.setFrameOrigin(NSPoint(x: frame.maxX - 356, y: frame.maxY - 96))
-        }
-        hint.onClick = { [weak panel] in panel?.close() }
-        panel.orderFrontRegardless()
-        postHintPanel = panel
-        postHintChangeCount = NSPasteboard.general.changeCount
-
-        Task { [weak self, weak panel] in
-            // The hint's work is done when the clipboard moves on — the
-            // owner copied something else — or on the click/timeout above.
-            var waited = 0
-            while let panel, panel.isVisible, waited < 90 {
-                try? await Task.sleep(nanoseconds: 1_000_000_000)
-                waited += 1
-                if NSPasteboard.general.changeCount != self?.postHintChangeCount { break }
-            }
-            panel?.close()
-            if self?.postHintPanel === panel { self?.postHintPanel = nil }
-        }
-    }
-
-    /// The hint's content view — one click anywhere dismisses it.
-    private final class PostHintView: NSVisualEffectView {
-        var onClick: (() -> Void)?
-        override func mouseDown(with event: NSEvent) { onClick?() }
     }
 
     /// The picker-approved roots, as paths.
