@@ -68,7 +68,7 @@ private final class ManoramaBridgeViewController: CAPBridgeViewController {
             // The capsules ride above the webView in a pass-through
             // container; touches off-capsule belong to the page.
             glassModel.webView = webView
-            GlassChromeInstaller.install(over: webView, in: view, model: glassModel)
+            GlassChromeInstaller.install(over: webView, in: self, model: glassModel)
         }
         if #available(iOS 17.0, *) {
             registerForTraitChanges([UITraitHorizontalSizeClass.self, UITraitVerticalSizeClass.self]) {

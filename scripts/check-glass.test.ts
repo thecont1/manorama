@@ -95,7 +95,39 @@ const isExempt = (r: CssRule) => glassExemptDims.some((d) => r.selector.includes
 const inReducedTransparency = (r: CssRule) =>
   r.atRules.some((a) => /prefers-reduced-transparency|prefers-contrast/.test(a))
 const inNoBackdropSupports = (r: CssRule) =>
-  r.atRules.some((a) => /@supports\s+not\s+\(backdrop-filter/.test(a))
+  r.atRules.some((a) => /@supports\s+not\b/.test(a) && /backdrop-filter/.test(a))
+
+/** Splits a selector prelude into its comma-separated branches. Commas
+ *  inside :is()/:not()/:where() parens and [attr="a,b"] brackets do not
+ *  split — only top-level ones do. */
+const selectorBranches = (selector: string): string[] => {
+  const branches: string[] = []
+  let depth = 0
+  let attr = 0
+  let start = 0
+  let quote: string | null = null
+  for (let i = 0; i < selector.length; i++) {
+    const c = selector[i]
+    if (quote) {
+      if (c === quote) quote = null
+    } else if (c === '"' || c === "'") {
+      quote = c
+    } else if (c === '[') {
+      attr++
+    } else if (c === ']') {
+      attr--
+    } else if (attr === 0 && c === '(') {
+      depth++
+    } else if (attr === 0 && c === ')') {
+      depth--
+    } else if (attr === 0 && depth === 0 && c === ',') {
+      branches.push(selector.slice(start, i))
+      start = i + 1
+    }
+  }
+  branches.push(selector.slice(start))
+  return branches.map((b) => b.trim()).filter(Boolean)
+}
 
 // Resolve --glass-* token values (px only) from :root blocks.
 const glassVars = new Map<string, number>()
@@ -170,9 +202,22 @@ describe('glass gate — fallbacks', () => {
 })
 
 describe('glass gate — gating', () => {
-  test('every .glass-* rule is scoped under a frost attribute', () => {
-    const ungated = glassRules.filter((r) => !hasFrostAttr(r)).map((r) => `${r.file} ${r.selector}`)
-    expect(ungated).toEqual([])
+  test('every .glass-* selector branch is frost-gated and never takeover-gated', () => {
+    // A selector LIST is only as safe as its weakest branch — a combined
+    // ":root[data-x] .glass-a, .glass-b" leaves the second branch bare.
+    const violations: string[] = []
+    for (const r of glassRules) {
+      for (const branch of selectorBranches(r.selector)) {
+        if (!/\.glass-[a-z-]+/i.test(branch)) continue
+        if (!frostGateAttributes.some((a) => branch.includes(`[${a}]`))) {
+          violations.push(`${r.file} ${branch} — no frost attribute`)
+        }
+        if (takeoverGateAttributes.some((a) => branch.includes(`[${a}]`))) {
+          violations.push(`${r.file} ${branch} — takeover attribute`)
+        }
+      }
+    }
+    expect(violations).toEqual([])
   })
 
   test('no rule hides an element under a frost attribute', () => {

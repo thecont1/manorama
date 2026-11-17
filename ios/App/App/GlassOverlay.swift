@@ -136,7 +136,12 @@ final class GlassChromeModel: ObservableObject {
     func handle(_ body: [String: Any]) {
         switch body["type"] as? String {
         case "chrome":
-            chromeVisible = body["visible"] as? Bool ?? false
+            let visible = body["visible"] as? Bool ?? false
+            chromeVisible = visible
+            // Backstop: when chrome reports hidden, a resting-finger ping
+            // has nothing left to protect — clear it so a missed gesture
+            // end can never leave the timer running.
+            if !visible { setFingerDown(false) }
         case "entered":
             curtainRaised = body["raised"] as? Bool ?? false
         case "sheet":
@@ -204,6 +209,10 @@ struct GlassChromeOverlay: View {
     /// The Settings seat in window coordinates — where a sheet's glass
     /// morph launches from.
     @State private var settingsSeat: CGRect = .zero
+    /// Tracks a finger resting on a capsule. @GestureState resets itself on
+    /// release AND on cancellation — a plain onChanged/onEnded pair leaves
+    /// the keep-alive running when the system interrupts the touch.
+    @GestureState private var fingerDown = false
 
     var body: some View {
         GeometryReader { geometry in
@@ -229,16 +238,15 @@ struct GlassChromeOverlay: View {
         // identical; the capsules compensate with the explicit inset above.
         .ignoresSafeArea()
         .onPreferenceChange(GlassHitRectsKey.self) { model.hitRects = $0 }
+        .onChange(of: fingerDown) { _, down in model.setFingerDown(down) }
+        .onDisappear { model.setFingerDown(false) }
     }
 
-    /// Tracks the finger resting on a capsule so the keep-alive ping can run
-    /// for exactly that span — the only moment the idle clock threatens.
-    /// DragGesture(0) fires onChanged on touch-down and onEnded on lift;
-    /// LongPressGesture(.infinity) never fires at all.
+    /// Feeds the capsule's touch into the shared @GestureState — true while
+    /// the finger is down, automatically false again on end or cancellation.
     private var touchProbe: some Gesture {
         DragGesture(minimumDistance: 0)
-            .onChanged { _ in model.setFingerDown(true) }
-            .onEnded { _ in model.setFingerDown(false) }
+            .updating($fingerDown) { _, state, _ in state = true }
     }
 
     private var libraryCapsule: some View {
@@ -382,14 +390,19 @@ private struct SheetGlassSurface: View {
     }
 }
 
-/// Installs the glass overlay over the bridge's webView. Returns nil on
-/// older systems — they keep the web pills, repainted under the frost gate.
+/// Installs the glass overlay over the bridge's webView. Nothing is
+/// installed on older systems — they keep the web pills, repainted under
+/// the frost gate.
 @MainActor
 enum GlassChromeInstaller {
     @available(iOS 26.0, *)
-    static func install(over webView: WKWebView, in container: UIView, model: GlassChromeModel) {
+    static func install(over webView: WKWebView, in owner: UIViewController, model: GlassChromeModel) {
         let host = UIHostingController(rootView: GlassChromeOverlay(model: model))
         host.view.backgroundColor = .clear
+        // UIKit containment keeps the hosting controller alive for the
+        // overlay's lifetime — capsule taps, onAppear and Dynamic Type
+        // updates all depend on it.
+        owner.addChild(host)
 
         let passthrough = GlassPassthroughView(frame: webView.bounds)
         passthrough.autoresizingMask = [.flexibleWidth, .flexibleHeight]
@@ -397,9 +410,10 @@ enum GlassChromeInstaller {
         passthrough.hitRectsProvider = { [weak model] in model?.hitRects ?? [] }
         passthrough.isUserInteractionEnabled = true
 
-        container.addSubview(passthrough)
+        owner.view.addSubview(passthrough)
         passthrough.addSubview(host.view)
         host.view.frame = passthrough.bounds
         host.view.autoresizingMask = [.flexibleWidth, .flexibleHeight]
+        host.didMove(toParent: owner)
     }
 }

@@ -28,16 +28,20 @@ const devEnv = (() => {
 
 const sessionSecret = process.env.HOST_API_JWT_SECRET ?? devEnv.HOST_API_JWT_SECRET ?? "";
 
-const sessionCookie = async (accountId = DEV_ACCOUNT): Promise<string> =>
-  `manorama_session=${await new SignJWT({ sub: accountId })
+const sessionJwt = async (accountId = DEV_ACCOUNT): Promise<string> =>
+  new SignJWT({ sub: accountId })
     .setProtectedHeader({ alg: "HS256" })
     .setIssuedAt()
     .setExpirationTime("2h")
-    .sign(new TextEncoder().encode(sessionSecret))}`;
+    .sign(new TextEncoder().encode(sessionSecret));
 
 const test = base.extend({
   context: async ({ context }, use) => {
-    await context.setExtraHTTPHeaders({ Cookie: await sessionCookie() });
+    // Origin-scoped cookie, never a context-wide header — and only when a
+    // secret exists at all, so unauthenticated runs still execute.
+    if (sessionSecret) {
+      await context.addCookies([{ name: "manorama_session", value: await sessionJwt(), url: BASE }]);
+    }
     await use(context);
   },
 });
@@ -133,7 +137,7 @@ test("no backdrop-filter ancestor within 3 levels of a viewer or picker image", 
   await dismissCurtain(page);
   await page.keyboard.press("g");
   await page.waitForSelector(".viewer-filmstrip", { state: "attached", timeout: 10_000 });
-  const offenders = await page.evaluate((exempt) => {
+  const { count, offenders } = await page.evaluate((exempt) => {
     const hits: string[] = [];
     const imgs = document.querySelectorAll(".viewer-frame img, .viewer-filmstrip-item img");
     for (const img of imgs) {
@@ -145,7 +149,10 @@ test("no backdrop-filter ancestor within 3 levels of a viewer or picker image", 
         }
       }
     }
-    return hits;
+    return { count: imgs.length, offenders: hits };
   }, EXEMPT_DIMS);
+  // An empty match means the probe looked at nothing — that is a failure,
+  // not a pass.
+  expect(count).toBeGreaterThan(0);
   expect(offenders).toEqual([]);
 });
