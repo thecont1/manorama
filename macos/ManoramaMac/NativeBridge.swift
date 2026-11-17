@@ -4,7 +4,6 @@ import Carbon.HIToolbox
 import Foundation
 import ImageIO
 import Security
-import UserNotifications
 import WebKit
 
 /// The native shell's implementation of the desktop bundle's runtime API.
@@ -299,7 +298,7 @@ final class NativeBridge {
             return nil
 
         case "share_post":
-            return try await sharePost(args)
+            return try sharePost(args)
 
         case "plugin:deep-link|get_current":
             pageReadyForDeepLinks = true
@@ -649,7 +648,7 @@ final class NativeBridge {
     /// directory, are never a saved copy, and the previous post's staging
     /// is swept on every call — what is on the clipboard is always the
     /// latest set.
-    private func sharePost(_ args: [String: Any]) async throws -> Any? {
+    private func sharePost(_ args: [String: Any]) throws -> Any? {
         guard let files = args["files"] as? [[String: Any]], !files.isEmpty else {
             throw BridgeError.badArguments("share_post needs files")
         }
@@ -698,8 +697,7 @@ final class NativeBridge {
         guard let intent = parts.url, NSWorkspace.shared.open(intent) else {
             throw BridgeError.failed("The X composer could not be opened")
         }
-        await announcePostClipboard()
-        attemptPostPaste(into: intent)
+        showPostPasteHint(autoPaste: attemptPostPaste(into: intent))
         return "The photographs are on your clipboard — paste them into the post."
     }
 
@@ -709,22 +707,23 @@ final class NativeBridge {
 
     /// Best-effort automatic paste: an Accessibility-trusted app may press
     /// ⌘V in the browser for the owner. Trust is asked for exactly once;
-    /// without it this returns and the banner + clipboard still carry the
-    /// post by hand.
-    private func attemptPostPaste(into intent: URL) {
+    /// without it, or when the browser cannot be resolved, this returns
+    /// false and the hint card carries the instruction instead.
+    private func attemptPostPaste(into intent: URL) -> Bool {
         guard AXIsProcessTrusted() else {
-            guard !UserDefaults.standard.bool(forKey: Self.postPastePromptedKey) else { return }
+            guard !UserDefaults.standard.bool(forKey: Self.postPastePromptedKey) else { return false }
             UserDefaults.standard.set(true, forKey: Self.postPastePromptedKey)
             _ = AXIsProcessTrustedWithOptions(
                 ["AXTrustedCheckOptionPrompt": true] as CFDictionary
             )
-            return
+            return false
         }
         guard let browser = NSWorkspace.shared.urlForApplication(toOpen: intent),
-              let bundleID = Bundle(url: browser)?.bundleIdentifier else { return }
+              let bundleID = Bundle(url: browser)?.bundleIdentifier else { return false }
         Task { [weak self] in
             await self?.pasteWhenComposerReady(bundleID)
         }
+        return true
     }
 
     /// There is no way to watch the composer's text field take focus — the
@@ -750,26 +749,78 @@ final class NativeBridge {
         up.post(tap: .cghidEventTap)
     }
 
-    /// The paste instruction has to reach the user while the browser is
-    /// frontmost — a notice inside the app sits behind the window that just
-    /// opened. A notification banner follows them. Denied or undecided
-    /// permission quietly leaves the in-app note as the only instruction.
-    private func announcePostClipboard() async {
-        let center = UNUserNotificationCenter.current()
-        let settings = await center.notificationSettings()
-        var allowed = settings.authorizationStatus == .authorized ||
-            settings.authorizationStatus == .provisional
-        if settings.authorizationStatus == .notDetermined {
-            allowed = (try? await center.requestAuthorization(options: [.alert])) ?? false
-        }
-        guard allowed else { return }
-        let content = UNMutableNotificationContent()
-        content.title = "Photographs on your clipboard"
-        content.body = "The X composer just opened — paste them into the post."
-        let request = UNNotificationRequest(
-            identifier: "post-to-x-\(UUID().uuidString)", content: content, trigger: nil
+    /// A floating hint that survives the browser coming forward — the paste
+    /// step is invisible in the app window behind it. When the app may
+    /// press ⌘V itself the same card carries the fallback instead. It
+    /// closes on a click, when the clipboard moves on, or after ninety
+    /// seconds.
+    private var postHintPanel: NSPanel?
+    private var postHintChangeCount = 0
+
+    private func showPostPasteHint(autoPaste: Bool) {
+        postHintPanel?.close()
+
+        let hint = PostHintView()
+        hint.material = .hudWindow
+        hint.state = .active
+        hint.wantsLayer = true
+        hint.layer?.cornerRadius = 12
+        hint.layer?.masksToBounds = true
+
+        let label = NSTextField(wrappingLabelWithString: autoPaste
+            ? "The photographs should attach on their own — press ⌘V in the post if they don't."
+            : "The photographs are on your clipboard — press ⌘V in the post to attach them.")
+        label.font = .systemFont(ofSize: 13, weight: .medium)
+        label.alignment = .center
+        label.translatesAutoresizingMaskIntoConstraints = false
+        hint.addSubview(label)
+        NSLayoutConstraint.activate([
+            label.leadingAnchor.constraint(equalTo: hint.leadingAnchor, constant: 16),
+            label.trailingAnchor.constraint(equalTo: hint.trailingAnchor, constant: -16),
+            label.topAnchor.constraint(equalTo: hint.topAnchor, constant: 12),
+            label.bottomAnchor.constraint(equalTo: hint.bottomAnchor, constant: -12),
+        ])
+
+        let panel = NSPanel(
+            contentRect: NSRect(origin: .zero, size: NSSize(width: 340, height: 64)),
+            styleMask: [.borderless, .nonactivatingPanel],
+            backing: .buffered, defer: false
         )
-        try? await center.add(request)
+        panel.isFloatingPanel = true
+        panel.level = .floating
+        panel.isOpaque = false
+        panel.backgroundColor = .clear
+        panel.hasShadow = true
+        panel.isMovableByWindowBackground = true
+        panel.contentView = hint
+
+        if let screen = NSScreen.main {
+            let frame = screen.visibleFrame
+            panel.setFrameOrigin(NSPoint(x: frame.maxX - 356, y: frame.maxY - 96))
+        }
+        hint.onClick = { [weak panel] in panel?.close() }
+        panel.orderFrontRegardless()
+        postHintPanel = panel
+        postHintChangeCount = NSPasteboard.general.changeCount
+
+        Task { [weak self, weak panel] in
+            // The hint's work is done when the clipboard moves on — the
+            // owner copied something else — or on the click/timeout above.
+            var waited = 0
+            while let panel, panel.isVisible, waited < 90 {
+                try? await Task.sleep(nanoseconds: 1_000_000_000)
+                waited += 1
+                if NSPasteboard.general.changeCount != self?.postHintChangeCount { break }
+            }
+            panel?.close()
+            if self?.postHintPanel === panel { self?.postHintPanel = nil }
+        }
+    }
+
+    /// The hint's content view — one click anywhere dismisses it.
+    private final class PostHintView: NSVisualEffectView {
+        var onClick: (() -> Void)?
+        override func mouseDown(with event: NSEvent) { onClick?() }
     }
 
     /// The picker-approved roots, as paths.
