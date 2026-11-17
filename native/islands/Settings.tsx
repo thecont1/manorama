@@ -154,7 +154,9 @@ export default function Settings(props: Props) {
           control={<Switch checked={globalViewEnabled === true} label={`Let galleries show photographs already saved on ${nativeDeviceLabel()}`} disabled={props.globalViewBusy || globalViewEnabled === null} onChange={props.onGlobalView} />}
         />
         {globalViewEnabled ? <ActionRow label="Open photo picker" onClick={props.onOpenPicker} /> : null}
-        <p class="m-note m-panel-note">Everything stays encrypted and on the device. The picker lets galleries show photographs already saved on {nativeDeviceLabel()}.</p>
+        <p class="m-note m-panel-note">The picker lets galleries show photographs already saved on {nativeDeviceLabel()}.</p>
+      </ActionGroup>
+      <ActionGroup label="Vault" note="Everything stays encrypted and on the device.">
         <VaultSettings controller={props.controller} tier={tier} embedded />
       </ActionGroup>
 
