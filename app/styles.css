@@ -2197,10 +2197,8 @@ a.m-btn { text-decoration: none; }
 .web-settings--pane .m-actiongroup-note { grid-column: 1; margin: 8px 0 0; font-size: 14px; line-height: 1.5; }
 .web-settings--pane .m-actiongroup { grid-column: 2; grid-row: 1 / span 2; }
 @media (max-width: 720px) {
-  .web-settings--pane .m-owner-content > section:has(> .m-actiongroup),
-  .web-settings--pane .m-owner-content > section.native-vault-card { grid-template-columns: 1fr; }
-  .web-settings--pane .native-vault-card > *:not(.native-vault-header) { grid-column: auto; }
-  .web-settings--pane .m-actiongroup { grid-row: auto; }
+  .web-settings--pane .m-owner-content > section:has(> .m-actiongroup) { grid-template-columns: 1fr; }
+  .web-settings--pane .m-actiongroup { grid-column: auto; grid-row: auto; }
   .web-settings--pane .m-actiongroup-label { margin-bottom: 8px; }
 }
 .web-settings--pane .m-actiongroup > .m-panel { background: none; border-radius: 0; }
@@ -2250,6 +2248,10 @@ a.m-btn { text-decoration: none; }
 .web-settings--pane .native-vault-card h2 { margin: 12px 0 -6px; font-size: 14px; font-weight: 600; color: var(--m-ink); }
 .web-settings--pane .native-vault-card > .native-vault-note { margin-top: -6px; }
 .web-settings--pane .native-vault-cap select { background: var(--m-raised); border-color: var(--m-control); }
+@media (max-width: 720px) {
+  .web-settings--pane .m-owner-content > section.native-vault-card { grid-template-columns: 1fr; }
+  .web-settings--pane .native-vault-card > *:not(.native-vault-header) { grid-column: auto; }
+}
 .web-settings .m-settings-delete > p { margin: 0; color: var(--m-secondary); line-height: 1.5; }
 .web-settings .m-settings-delete > div { display: flex; flex-wrap: wrap; gap: 10px; }
 
