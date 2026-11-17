@@ -31,7 +31,7 @@ private final class ManoramaBridgeViewController: CAPBridgeViewController {
 
         webView.configuration.userContentController.addUserScript(
             WKUserScript(
-                source: SceneDelegate.layoutJavaScript(for: webView, windowScene: windowScene, dispatchEvent: false),
+                source: "document.documentElement.dataset.iosShell = '1';" + SceneDelegate.layoutJavaScript(for: webView, windowScene: windowScene, dispatchEvent: false),
                 injectionTime: .atDocumentStart,
                 forMainFrameOnly: true
             )
