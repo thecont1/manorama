@@ -98,10 +98,30 @@ final class GlassChromeModel: ObservableObject {
     /// Capsule frames in window coordinates, published by the overlay so the
     /// pass-through container can hand every other touch to the WKWebView.
     @Published var hitRects: [CGRect] = []
+    /// The real safe-area insets, reported by the UIKit container — a
+    /// GeometryReader under .ignoresSafeArea() reports zero, which was
+    /// pinning the capsules into the status bar and home indicator.
+    @Published var safeInsets: UIEdgeInsets = .zero
+    /// Set the moment the position capsule is tapped — the picker's own
+    /// chrome:false report follows a bridge round-trip behind it, so
+    /// without this the capsules linger ~300ms over the opening filmstrip.
+    @Published var pickerSuppress = false
 
     weak var webView: WKWebView?
     private var keepAliveTimer: Timer?
     private var touchActive = false
+
+    /// The position capsule opens the picker — hide the capsules now rather
+    /// than waiting on the observer's filmstrip report. If the picker never
+    /// opens (invoke missed its pill), the timeout hands the capsules back
+    /// instead of leaving them stuck off.
+    func openPicker(_ selector: String) {
+        pickerSuppress = true
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) { [weak self] in
+            self?.pickerSuppress = false
+        }
+        invoke(selector)
+    }
 
     /// Fire the page's own pill — mounted but hidden under data-ios-glass,
     /// still owning the focus path, the modal wiring and the handlers.
@@ -149,6 +169,7 @@ final class GlassChromeModel: ObservableObject {
         switch body["type"] as? String {
         case "chrome":
             let visible = body["visible"] as? Bool ?? false
+            if visible { pickerSuppress = false }
             chromeVisible = visible
             // Backstop: when chrome reports hidden, a resting-finger ping
             // has nothing left to protect — clear it so a missed gesture
@@ -199,11 +220,22 @@ final class GlassScriptHandler: NSObject, WKScriptMessageHandler {
 /// the Mac port (an always-on top view would eat the photograph's gestures).
 final class GlassPassthroughView: UIView {
     var hitRectsProvider: (() -> [CGRect]) = { [] }
+    var onSafeAreaInsets: ((UIEdgeInsets) -> Void)?
 
     override func point(inside point: CGPoint, with event: UIEvent?) -> Bool {
         // Capsule frames are published in window coordinates.
         let windowPoint = convert(point, to: nil)
         return hitRectsProvider().contains { $0.insetBy(dx: -8, dy: -8).contains(windowPoint) }
+    }
+
+    override func safeAreaInsetsDidChange() {
+        super.safeAreaInsetsDidChange()
+        onSafeAreaInsets?(safeAreaInsets)
+    }
+
+    override func didMoveToWindow() {
+        super.didMoveToWindow()
+        onSafeAreaInsets?(safeAreaInsets)
     }
 }
 
@@ -218,29 +250,32 @@ struct GlassChromeOverlay: View {
     @ObservedObject var model: GlassChromeModel
     @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    /// The Settings seat in window coordinates — where a sheet's glass
-    /// morph launches from.
-    @State private var settingsSeat: CGRect = .zero
+    /// Each capsule's frame in window coordinates — a sheet's glass morph
+    /// launches from the capsule that was pressed, so the travel reads as
+    /// that control growing into the panel. Launching every sheet from the
+    /// Settings seat made the Info morph appear as a stray flash of glass.
+    @State private var capsuleSeats: [String: CGRect] = [:]
+    @State private var sheetSeat: CGRect = .zero
     /// Tracks a finger resting on a capsule. @GestureState resets itself on
     /// release AND on cancellation — a plain onChanged/onEnded pair leaves
     /// the keep-alive running when the system interrupts the touch.
     @GestureState private var fingerDown = false
 
     var body: some View {
-        GeometryReader { geometry in
+        GeometryReader { _ in
             ZStack(alignment: .topLeading) {
-                if model.chromeVisible {
+                if model.chromeVisible && !model.pickerSuppress {
                     libraryCapsule
                         .padding(.leading, 16)
-                        .padding(.top, geometry.safeAreaInsets.top + 8)
+                        .padding(.top, model.safeInsets.top + 8)
                 }
-                if model.chromeVisible && model.curtainRaised {
+                if model.chromeVisible && model.curtainRaised && !model.pickerSuppress {
                     controlsCluster
                         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
-                        .padding(.bottom, geometry.safeAreaInsets.bottom + 16)
+                        .padding(.bottom, model.safeInsets.bottom + 16)
                 }
                 if let sheet = model.sheetRect {
-                    SheetGlassSurface(start: settingsSeat, end: sheet, reduceMotion: reduceMotion, reduceTransparency: reduceTransparency)
+                    SheetGlassSurface(start: sheetSeat, end: sheet, reduceMotion: reduceMotion, reduceTransparency: reduceTransparency)
                 }
             }
         }
@@ -267,10 +302,13 @@ struct GlassChromeOverlay: View {
         } label: {
             Label("Library", systemImage: "chevron.left")
                 .frame(minHeight: 44)
-                .padding(.horizontal, 14)
-                .font(.system(size: 16, weight: .semibold))
+                .padding(.horizontal, 12)
+                .font(.system(size: 15, weight: .semibold))
         }
-        .controlSize(.large)
+        // .clear keeps the glyphs at whatever colour we set — .glass styled
+        // them adaptively, .plain leaves .primary, which renders dark over
+        // the dark letterbox.
+        .foregroundStyle(Color(red: 0.95, green: 0.94, blue: 0.91))
         .simultaneousGesture(touchProbe)
 
         return Group {
@@ -282,7 +320,15 @@ struct GlassChromeOverlay: View {
                     .background(Capsule().fill(Color(white: 0.06, opacity: 0.92)))
                     .foregroundStyle(Color(red: 0.95, green: 0.94, blue: 0.91))
             } else {
-                button.buttonStyle(.glass)
+                // .clear over a dim underlay — .regular is the adaptive
+                // milky variant and reads as frost over the dark letterbox.
+                // The dim goes on the button's own background so it hugs
+                // the capsule: a ZStack sibling would expand to fill the
+                // overlay's proposal and swallow every touch.
+                button
+                    .buttonStyle(.plain)
+                    .background(Capsule().fill(Color.black.opacity(0.28)))
+                    .glassEffect(.clear.interactive(), in: .capsule)
             }
         }
         .background(rectProbe)
@@ -294,14 +340,13 @@ struct GlassChromeOverlay: View {
     /// minimum so Dynamic Type can grow the capsule.
     private var controlsCluster: some View {
         HStack(spacing: 8) {
-            clusterButton(label: Text(model.positionLabel).monospacedDigit(),
-                          action: "[data-chrome-position]",
+            clusterButton(key: "position", label: Text(model.positionLabel).monospacedDigit(),
+                          action: "[data-chrome-position]", opensPicker: true,
                           accessibilityLabel: "Go to a photograph")
-            clusterButton(label: Image(systemName: "slider.horizontal.3"),
+            clusterButton(key: "settings", label: Image(systemName: "slider.horizontal.3"),
                           action: "[data-chrome-bottom] [aria-label='Gallery Settings']",
                           accessibilityLabel: "Gallery Settings")
-                .background(seatProbe)
-            clusterButton(label: Image(systemName: "info"),
+            clusterButton(key: "info", label: Image(systemName: "info"),
                           action: "[data-chrome-bottom] [aria-label='Info']",
                           accessibilityLabel: "Info")
         }
@@ -309,9 +354,10 @@ struct GlassChromeOverlay: View {
         .background(rectProbe)
     }
 
-    private func clusterButton(label: some View, action: String, accessibilityLabel: String) -> some View {
+    private func clusterButton(key: String, label: some View, action: String, opensPicker: Bool = false, accessibilityLabel: String) -> some View {
         let button = Button {
-            model.invoke(action)
+            sheetSeat = capsuleSeats[key] ?? .zero
+            if opensPicker { model.openPicker(action) } else { model.invoke(action) }
         } label: {
             label
                 .font(.system(size: 15, weight: .semibold))
@@ -328,7 +374,11 @@ struct GlassChromeOverlay: View {
                     .padding(.horizontal, 4)
                     .background(Capsule().fill(Color(white: 0.06, opacity: 0.92)))
             } else {
-                button.glassEffect(.regular.interactive(), in: .capsule)
+                // Clear glass + a dim underlay so the refracted photo stays
+                // legible — the camera-app pattern for floating controls.
+                button
+                    .background(Capsule().fill(Color.black.opacity(0.28)))
+                    .glassEffect(.clear.interactive(), in: .capsule)
             }
         }
     }
@@ -341,22 +391,25 @@ struct GlassChromeOverlay: View {
         .allowsHitTesting(false)
     }
 
-    /// The Settings segment's seat — the sheet morph's launch frame.
-    private var seatProbe: some View {
+    /// A capsule's seat — where its sheet morph's glass launches from.
+    private func seatProbe(_ key: String) -> some View {
         GeometryReader { geometry in
             Color.clear
-                .onAppear { settingsSeat = geometry.frame(in: .global) }
-                .onChange(of: geometry.size) { _, _ in settingsSeat = geometry.frame(in: .global) }
+                .onAppear { capsuleSeats[key] = geometry.frame(in: .global) }
+                .onChange(of: geometry.size) { _, _ in capsuleSeats[key] = geometry.frame(in: .global) }
         }
         .allowsHitTesting(false)
     }
 }
 
-/// The travelling glass that carries a cluster segment into a sheet — the
+/// The travelling glass that carries a cluster capsule into a sheet — the
 /// iOS port of the Mac's SheetGlassSurface. Native glass always renders
-/// above the webview, so it launches from the Settings seat, lands on the
-/// sheet's reported box, and fades out as the web panel's own surface takes
-/// over. To the eye the control simply grew into the panel.
+/// above the webview, so it launches from the pressed capsule's seat and
+/// lands on the sheet's reported box. The fade must run WITH the travel:
+/// the web sheet slides itself up at the same time, so a surface that
+/// lands first and only then starts fading reads as a foreign panel
+/// flashing on top of the sheet. Dissolving during the flight hands the
+/// surface off exactly as the web panel covers it.
 @available(iOS 26.0, *)
 private struct SheetGlassSurface: View {
     let start: CGRect
@@ -387,8 +440,6 @@ private struct SheetGlassSurface: View {
             held = end
             withAnimation(reduceMotion ? nil : .spring(response: 0.38, dampingFraction: 0.82)) {
                 arrived = true
-            }
-            withAnimation(reduceMotion ? nil : .easeOut(duration: 0.3).delay(0.5)) {
                 opacity = 0
             }
         }
@@ -420,6 +471,7 @@ enum GlassChromeInstaller {
         passthrough.autoresizingMask = [.flexibleWidth, .flexibleHeight]
         passthrough.backgroundColor = .clear
         passthrough.hitRectsProvider = { [weak model] in model?.hitRects ?? [] }
+        passthrough.onSafeAreaInsets = { [weak model] in model?.safeInsets = $0 }
         passthrough.isUserInteractionEnabled = true
 
         owner.view.addSubview(passthrough)
