@@ -1845,15 +1845,18 @@ export default function Catalogue({ apiBase }: { apiBase: string }) {
       return
     }
     if (!settingsOpen) return
-    setSettingsClosing(true)
     // On the split layout the library remounts beneath the fading pane —
     // the two share the galleries cell and the exit reads as a dissolve
     // instead of a blank column followed by a flash. On a stacked page
-    // the surfaces cannot overlap, so the list waits out the fade.
+    // the surfaces cannot overlap, so the swap lands in one frame —
+    // waiting out the fade would leave an empty column first.
     if (typeof window.matchMedia === 'function' &&
-        window.matchMedia('(min-width: 860px)').matches) {
+        !window.matchMedia('(min-width: 860px)').matches) {
       setSettingsOpen(false)
+      return
     }
+    setSettingsClosing(true)
+    setSettingsOpen(false)
     settingsCloseTimerRef.current = setTimeout(() => {
       settingsCloseTimerRef.current = null
       setSettingsOpen(false)
