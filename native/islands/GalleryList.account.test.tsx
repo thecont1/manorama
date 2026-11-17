@@ -11,6 +11,7 @@ import type { AdFrame } from '../../packages/core/adframe'
 import type { AdPolicyInput } from '../lib/ads'
 import type { BillingState, RevenueCatBilling } from '../lib/billing'
 import { offlineGalleryId, type OfflineGalleryStore, type OfflineGridGallery } from '../lib/offline-gallery'
+import { GALLERY_STREAM_ONLY_KEY, galleryPolicyKey } from '../lib/vault-settings'
 
 /**
  * The account slot is a lifecycle feature — entitlement flips and slow
@@ -175,7 +176,7 @@ describe('account slot entitlement', () => {
       image.dispatchEvent(new dom.Event('load') as unknown as Event)
       await settle()
       const frame = container.querySelector('.native-account-ad-frame') as HTMLElement
-      expect(frame.style.maxWidth).toBe('60px')
+      expect(image.style.height).toBe('80px')
       expect(frame.style.aspectRatio).toBe('180 / 240')
       controls.setSurface(false)
       await settle()
@@ -586,7 +587,7 @@ describe('signed-in account area', () => {
         { id: 'second', ref: 'second', filename: 'second.jpg', src: 'https://cdn.example/second.jpg', width: 800, height: 1200 },
       ],
     })] }) })
-    const { container } = mountAccount()
+    const { container } = mountAccount({ billing: entitlement('free') })
     await settle()
 
     const html = container.innerHTML
@@ -601,7 +602,7 @@ describe('signed-in account area', () => {
     expect(html).not.toContain('You are a Free User')
     // The status line under the heading reports vault state first — kept
     // means a complete committed copy, and nothing is saved yet.
-    expect(container.querySelector('.native-library-finding')?.textContent).toBe('1 gallery, 0 kept on this iPhone.')
+    expect(container.querySelector('.native-lib-foot')?.textContent).toContain('0 galleries on this iPhone')
     expect(html).toContain('Kashmir')
     expect(html).toContain('A winter album')
     expect(html).toContain('kashmir')
@@ -870,7 +871,7 @@ describe('signed-in account area', () => {
     expect(policy).not.toBeNull()
     const policyOptions = [...policy.querySelectorAll('[role="radio"]')] as HTMLButtonElement[]
     expect(policyOptions.map((option) => option.textContent)).toEqual([
-      'Keep a copy',
+      'Keep copy on this device',
       'Stream only',
     ])
     // Stream is the default — bytes only enter the vault on express request.
@@ -948,10 +949,10 @@ describe('signed-in account area', () => {
     expect(container.querySelector('[aria-label="Pinned galleries"] [data-lib-card="pinned"] .lib-rail')).not.toBeNull()
     expect(container.querySelectorAll('[data-lib-card="pinned"] .lib-th')).toHaveLength(2)
     expect(container.querySelector('[data-lib-card="pinned"]')?.textContent).toContain('Temporary gallery')
-    expect(container.querySelectorAll('[aria-label="Your galleries"] .native-library-cover')).toHaveLength(1)
+    expect(container.querySelectorAll('[aria-label="Cloud galleries"] .native-library-cover')).toHaveLength(1)
     expect(container.querySelector('[data-lib-card="compact"] img')?.getAttribute('src')).toBe('https://cdn.example/first.jpg')
     expect(container.querySelector('details:not([open]) [data-lib-card="hidden-gallery"]')).not.toBeNull()
-    expect(container.querySelector('[aria-label="Your galleries"] [data-lib-card="hidden-gallery"]')).toBeNull()
+    expect(container.querySelector('[aria-label="Cloud galleries"] [data-lib-card="hidden-gallery"]')).toBeNull()
     ;(container.querySelector('[data-lib-card="pinned"] .lib-card-menu') as HTMLButtonElement).click()
     await settle()
     ;([...container.querySelectorAll<HTMLButtonElement>('[role="menuitem"]')].find((button) => button.textContent === 'Unpin gallery'))!.click()
@@ -974,7 +975,7 @@ describe('signed-in account area', () => {
     await settle()
     const items = [...container.querySelectorAll('[role="menuitem"]')] as HTMLButtonElement[]
     expect(items.map((item) => item.textContent)).toEqual([
-      'Pin gallery', 'Share link', 'Post to X', 'Gallery details', 'Reorder photographs', 'Refresh gallery contents', 'Remove gallery',
+      'Pin gallery', 'Copy link', 'Post to X', 'Gallery details', 'Reorder photographs', 'Refresh gallery contents', 'Remove gallery',
     ])
     ;(items.find((item) => item.textContent === 'Remove gallery'))!.click()
     await settle()
@@ -1027,7 +1028,7 @@ describe('signed-in account area', () => {
     expect(container.querySelectorAll('.native-gallery-list > li')).toHaveLength(5)
     // The plan line at the foot is the warning now — every gallery still lists.
     const foot = container.querySelector('.native-lib-foot')
-    expect(foot?.textContent).toContain('All 5 of 3 free galleries used.')
+    expect(foot?.textContent).toContain('5 of 3 Cloud galleries')
     expect(foot?.textContent).toContain('Go Visionary')
     expect(container.querySelectorAll('.lib-th.is-active')).toHaveLength(0)
     expect(container.querySelector('main .native-account-delete')).toBeNull()
@@ -1159,7 +1160,12 @@ describe('signed-in account area', () => {
     signInStorage()
     stubFetch({ galleries: json({ galleries: [accountSummary({ slug: 'kashmir' })] }) })
     // A committed vault copy: status cached, images meeting the list's count.
+    // It counts as kept only while the gallery is still meant to be kept —
+    // the default stream policy alone never earns the word.
     const kashmirId = await offlineGalleryId({ owner: 'quiet-owner', slug: 'kashmir' })
+    // Preferences reads window.localStorage, not the SecureStorage fallback
+    // globalThis.localStorage the rest of this file stubs.
+    window.localStorage.setItem(`CapacitorStorage.${GALLERY_STREAM_ONLY_KEY}`, JSON.stringify({ [galleryPolicyKey('quiet-owner', 'kashmir')]: 'vault' }))
     const store = {
       listGalleries: async () => [
         { status: 'cached', galleryId: kashmirId, owner: 'quiet-owner', slug: 'kashmir', title: 'Kashmir', images: 12 },
@@ -1167,12 +1173,18 @@ describe('signed-in account area', () => {
       listGridGalleries: async () => [],
       readThumbnail: async () => undefined,
     } as unknown as OfflineGalleryStore
-    const { container } = mountAccount({ store })
-    await settle()
+    const { container } = mountAccount({ store, billing: entitlement('free') })
+    try {
+      await settle()
 
-    expect(container.querySelector('.native-library-finding')?.textContent).toBe('1 gallery, 1 kept on this iPhone.')
-    // The card agrees — the same predicate drives its device word.
-    expect(container.querySelector('.lib-card-sub')?.textContent).toContain('On this iPhone')
+      expect(container.querySelector('.native-lib-foot')?.textContent).toContain('1 gallery on this iPhone')
+      // The card agrees — the same predicate drives its device word.
+      expect(container.querySelector('.lib-card-sub')?.textContent).toContain('On this iPhone')
+    } finally {
+      // The seed lives in the real localStorage — it must not leak into the
+      // next test's policy reads, even when an assertion throws.
+      window.localStorage.removeItem(`CapacitorStorage.${GALLERY_STREAM_ONLY_KEY}`)
+    }
   })
 
   test('sign out clears the session, the owner slug, and billing', async () => {
@@ -1609,10 +1621,10 @@ describe('signed-in account area', () => {
     ;([...container.querySelectorAll('[role="menuitem"]')].find((item) => item.textContent === 'Gallery details') as HTMLButtonElement).click()
     await settle()
     const keep = container.querySelector('[role="switch"]') as HTMLButtonElement
-    expect(keep.getAttribute('aria-checked')).toBe('true')
+    expect(keep.getAttribute('aria-checked')).toBe('false')
     keep.click()
     await settle()
-    expect(keep.getAttribute('aria-checked')).toBe('false')
+    expect(keep.getAttribute('aria-checked')).toBe('true')
     ;([...container.querySelectorAll('.m-actionrow')].find((row) => row.textContent?.includes('Remove from Library')) as HTMLButtonElement).click()
     await settle()
     const confirmation = container.querySelector('.m-sheet') as HTMLElement
@@ -1678,7 +1690,7 @@ describe('signed-in account area', () => {
     await settle()
     const items = [...container.querySelectorAll('[role="menuitem"]')] as HTMLButtonElement[]
     expect(items.map((item) => item.textContent)).toEqual([
-      'Pin gallery', 'Share link', 'Post to X', 'Gallery details', 'Reorder photographs', 'Refresh gallery contents', 'Remove gallery',
+      'Pin gallery', 'Copy link', 'Post to X', 'Gallery details', 'Reorder photographs', 'Refresh gallery contents', 'Remove gallery',
     ])
     // Words, not drawings — the sheet is a list of sentences.
     expect(items.every((item) => item.querySelector('svg') === null)).toBe(true)
@@ -1695,7 +1707,7 @@ describe('signed-in account area', () => {
     expect(reorder.disabled).toBe(true)
     expect(refresh.disabled).toBe(true)
     expect(reorder.title).toBe('Temporary galleries cannot be edited on this plan')
-    expect(pipelineItems.find((item) => item.textContent === 'Share link')!.disabled).toBe(false)
+    expect(pipelineItems.find((item) => item.textContent === 'Copy link')!.disabled).toBe(false)
   })
 
   test('Add is a deliberate sheet and the gear returns to the Library', async () => {

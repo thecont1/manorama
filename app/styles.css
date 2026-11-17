@@ -2168,6 +2168,9 @@ body:has(.viewer-stage.has-arrow-bar) .m-chrome--bottom { bottom: calc(env(safe-
    caption, address — then the unlabelled action groups at 14px. */
 .d-content { gap: 20px; }
 .d-head { display: grid; }
+/* The rail's min-content is the whole strip — without a shrinkable grid
+   item the strip pushes the page itself wide instead of scrolling inside. */
+.d-head > * { min-width: 0; }
 .d-rail { margin: 0 calc(var(--m-pad) * -1); }
 .d-rail .lib-rail { margin-inline: 0; }
 .d-name { margin-top: 12px; font-size: 19px; font-weight: 650; letter-spacing: -.01em; overflow-wrap: anywhere; }

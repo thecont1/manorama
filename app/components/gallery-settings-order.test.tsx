@@ -183,10 +183,9 @@ describe('the gallery-settings row contract', () => {
       />,
     )
     expectCanonical(root, [
-      'Open gallery', 'Share link',
-      'Name', 'Caption', 'Address', 'Reorder photographs',
-      'Refresh gallery contents', 'Open source',
-      'Keep a copy', 'Remove saved copy',
+      'Name', 'Caption', 'Address', 'Copy link',
+      'Reorder photographs', 'Refresh gallery contents', 'Open source',
+      'Keep copy on this device', 'Remove saved copy',
       'Remove from Library',
     ])
     expect(root.querySelector('.m-actiongroup-label')?.textContent).toBe('On this iPhone')
@@ -198,9 +197,8 @@ describe('the gallery-settings row contract', () => {
   test('the web details view drops the device group entirely', () => {
     const root = mount(<GalleryDetailsView {...detailsProps} platform="web" />)
     expectCanonical(root, [
-      'Open gallery', 'Share link',
-      'Name', 'Caption', 'Address', 'Reorder photographs',
-      'Refresh gallery contents', 'Open source',
+      'Name', 'Caption', 'Address', 'Copy link',
+      'Reorder photographs', 'Refresh gallery contents', 'Open source',
       'Remove from Library',
     ])
     expect(root.querySelector('.m-actiongroup-label')).toBeNull()

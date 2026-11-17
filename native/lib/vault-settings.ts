@@ -165,16 +165,25 @@ export const applyVaultCap = (
   return cap
 }
 
-/** An opt-out belongs to this gallery on this device, not to the account.
- * Turning it on cancels future fills; it never deletes an existing vault copy. */
+/** A load override belongs to this gallery on this device, not to the
+ *  account: 'stream' cancels a default that would save, 'vault' saves where
+ *  the default would stream. Either way it never deletes a copy already in
+ *  the vault. */
+export type GalleryLoadOverride = VaultLoadPolicy
 export const GALLERY_STREAM_ONLY_KEY = 'manorama.vault.stream-only-galleries'
 export const galleryPolicyKey = (owner: string, slug: string) => JSON.stringify([owner, slug])
-export const loadGalleryStreamOnly = async (persistence: VaultCapPersistence = preferencesPersistence): Promise<Record<string, boolean>> => {
+export const loadGalleryStreamOnly = async (persistence: VaultCapPersistence = preferencesPersistence): Promise<Record<string, GalleryLoadOverride>> => {
   try {
     const parsed: unknown = JSON.parse(await persistence.get(GALLERY_STREAM_ONLY_KEY) ?? '{}')
     if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return {}
-    return Object.fromEntries(Object.entries(parsed).filter(([, value]) => value === true))
+    // The map used to store bare stream-only flags: `true` migrates to the
+    // 'stream' override it always meant; `false` was "not opted out", which
+    // is the same as an absent key under overrides and drops out.
+    return Object.fromEntries(Object.entries(parsed).flatMap(([key, value]) =>
+      value === 'vault' || value === 'stream' ? [[key, value]]
+        : value === true ? [[key, 'stream' as const]]
+        : []))
   } catch { return {} }
 }
-export const saveGalleryStreamOnly = async (policies: Record<string, boolean>, persistence: VaultCapPersistence = preferencesPersistence) =>
+export const saveGalleryStreamOnly = async (policies: Record<string, GalleryLoadOverride>, persistence: VaultCapPersistence = preferencesPersistence) =>
   persistence.set(GALLERY_STREAM_ONLY_KEY, JSON.stringify(policies))

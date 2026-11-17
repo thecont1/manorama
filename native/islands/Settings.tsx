@@ -159,7 +159,7 @@ export default function Settings(props: Props) {
             : <Segmented
                 label="New galleries"
                 value={loadPolicy}
-                options={[{ value: 'vault', label: 'Keep a copy' }, { value: 'stream', label: 'Stream only' }]}
+                options={[{ value: 'vault', label: 'Keep copy on this device' }, { value: 'stream', label: 'Stream only' }]}
                 onChange={(value) => { if (!props.loadPolicyBusy) props.onLoadPolicy(value as VaultLoadPolicy) }}
               />}
         </div>

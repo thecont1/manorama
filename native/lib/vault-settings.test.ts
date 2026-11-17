@@ -4,6 +4,7 @@ import { defaultGallerySettings } from '../../app/lib/gallery-settings'
 import { EncryptedOfflineGalleryStore } from './offline-gallery'
 import type { NativeTier } from './billing'
 import {
+  GALLERY_STREAM_ONLY_KEY,
   galleryPolicyKey, loadGalleryStreamOnly, saveGalleryStreamOnly,
   applyVaultCap,
   assertCapAllowed,
@@ -244,13 +245,20 @@ describe('vault settings controller', () => {
 })
 
 
-test('gallery download opt-out defaults off and stays isolated by owner and gallery', async () => {
+test('gallery load override defaults off, migrates legacy flags, and stays isolated by owner and gallery', async () => {
   const persistence = new MemoryPersistence()
   expect(await loadGalleryStreamOnly(persistence)).toEqual({})
   const key = galleryPolicyKey('one', 'album')
-  await saveGalleryStreamOnly({ [key]: true }, persistence)
+  await saveGalleryStreamOnly({ [key]: 'vault' }, persistence)
   const policies = await loadGalleryStreamOnly(persistence)
-  expect(policies[key]).toBe(true)
+  expect(policies[key]).toBe('vault')
   expect(policies[galleryPolicyKey('two', 'album')]).toBeUndefined()
   expect(policies[galleryPolicyKey('one', 'other')]).toBeUndefined()
+  // The map used to store bare stream-only flags: `true` migrates to the
+  // 'stream' override it always meant; `false` was "not opted out" and drops.
+  const optedOut = galleryPolicyKey('one', 'skip')
+  await persistence.set(GALLERY_STREAM_ONLY_KEY, JSON.stringify({ [key]: true, [optedOut]: false }))
+  const migrated = await loadGalleryStreamOnly(persistence)
+  expect(migrated[key]).toBe('stream')
+  expect(migrated[optedOut]).toBeUndefined()
 })
