@@ -83,8 +83,11 @@ mkdir -p "$SHOTS"
 # The probes live in the tree, not in a scratch directory: the suite has to
 # be runnable by someone else.
 if [ ! -x "$PROBE" ] || [ macos/Probes/AXProbe.swift -nt "$PROBE" ]; then
-  echo "building the probes"
+  echo "building the AX probe"
   swiftc -O macos/Probes/AXProbe.swift -framework AppKit -o "$PROBE" || exit 1
+fi
+if [ ! -x /tmp/winlist ] || [ macos/Probes/WindowList.swift -nt /tmp/winlist ]; then
+  echo "building the window probe"
   swiftc -O macos/Probes/WindowList.swift -o /tmp/winlist || exit 1
 fi
 
@@ -617,22 +620,65 @@ else
 fi
 
 echo
-echo "== 13. the window opens in its own Space =="
-# A deliberate kiosk decision: the photographs are the product, and the
-# app gives them the whole screen with no window chrome in the way. The
-# menu still offers a way back to a window.
-#
-# This is the one launch that is allowed to take over the screen, so the
-# app is relaunched WITHOUT `--windowed` — that flag is what every other
-# step uses to stay out of the user's way.
+echo "== 13. the window mode is the user's choice =="
+# The old kiosk behaviour — every launch opening into its own fullscreen
+# Space — is now the "Open in full screen" setting, and the default is a
+# normal window. The setting is a UserDefaults value in the focus-test
+# app's own domain, so these runs can flip it between launches without
+# touching the installed app's preferences.
+defaults write "$BUNDLE_ID" openInFullScreen -bool false
+stop_app || { echo "FATAL: the shell would not quit"; exit 1; }
+# EXTRA_ARGS="" means no --windowed: the one place a launch may enter a
+# Space, because the setting is what is being measured.
+EXTRA_ARGS=""
+launch "$SEED_DIR" keep
+FULL=$(wait_window 30)
+note "at launch, setting off: ${FULL:-no window}"
+case "$FULL" in
+  *fullscreen=false*) ok "a default launch stays windowed" ;;
+  *) bad "a default launch stays windowed" "at launch: ${FULL:-no window}" ;;
+esac
+
+# The setting decides: write it, relaunch, and the window enters its own
+# Space once — the same path the green light takes, applied at launch.
+defaults write "$BUNDLE_ID" openInFullScreen -bool true
 stop_app || { echo "FATAL: the shell would not quit"; exit 1; }
 EXTRA_ARGS=""
 launch "$SEED_DIR" keep
 FULL=$(wait_window 30)
-note "at launch: ${FULL:-no window}"
+note "at launch, setting on: ${FULL:-no window}"
 case "$FULL" in
-  *fullscreen=true*) ok "the app opens fullscreen, in its own Space" ;;
-  *) bad "the app opens fullscreen, in its own Space" "at launch: ${FULL:-no window}" ;;
+  *fullscreen=true*) ok "the fullscreen setting opens into its own Space" ;;
+  *) bad "the fullscreen setting opens into its own Space" "at launch: ${FULL:-no window}" ;;
+esac
+
+# The flag beats the setting: a test launch keeps the screen even when
+# the user asked for fullscreen — the suite itself depends on that.
+stop_app || { echo "FATAL: the shell would not quit"; exit 1; }
+EXTRA_ARGS="--windowed"
+launch "$SEED_DIR" keep
+FULL=$(wait_window 30)
+note "at launch, setting on + --windowed: ${FULL:-no window}"
+case "$FULL" in
+  *fullscreen=false*) ok "--windowed overrides the fullscreen setting" ;;
+  *) bad "--windowed overrides the fullscreen setting" "at launch: ${FULL:-no window}" ;;
+esac
+# Leave the test domain the way a default install finds it.
+defaults write "$BUNDLE_ID" openInFullScreen -bool false
+
+echo
+echo "== 14. fullscreen is a trip the user controls =="
+# The window is windowed after the precedence check. Entering and leaving
+# a Space stays available the whole time — these are the AppKit menu
+# items, not shell commands.
+act
+/tmp/focusprobe "$BUNDLE_ID" press View "Enter Full Screen" >/dev/null 2>&1
+sleep 2.5
+FULL=$(/tmp/focusprobe "$BUNDLE_ID" fullscreen 2>/dev/null)
+note "after Enter Full Screen: $FULL"
+case "$FULL" in
+  *fullscreen=true*) ok "the user can enter fullscreen" ;;
+  *) bad "the user can enter fullscreen" "after Enter Full Screen: $FULL" ;;
 esac
 act
 /tmp/focusprobe "$BUNDLE_ID" press View "Exit Full Screen" >/dev/null 2>&1
@@ -643,18 +689,103 @@ case "$FULL" in
   *fullscreen=false*) ok "the user can bring the window back" ;;
   *) bad "the user can bring the window back" "after Exit Full Screen: $FULL" ;;
 esac
+
+echo
+echo "== 15. the window remembers its frame =="
+# The scene's own restoration is the mechanism — the shell deliberately
+# does not set a frame autosave name, because a saved frame applied
+# through the representable's update path would loop resize → update →
+# resize. What is asserted here is the user's experience: move the window,
+# relaunch, and it comes back where it was left.
+/tmp/focusprobe "$BUNDLE_ID" setbounds 140 90 900 620 >/dev/null 2>&1
+sleep 1
+SET=$(/tmp/focusprobe "$BUNDLE_ID" bounds 2>/dev/null)
+note "frame set to: ${SET:-none}"
+stop_app || { echo "FATAL: the shell would not quit"; exit 1; }
+EXTRA_ARGS="--windowed"
+launch "$SEED_DIR" keep
+sleep 2
+BACK=$(/tmp/focusprobe "$BUNDLE_ID" bounds 2>/dev/null)
+note "frame after relaunch: ${BACK:-none}"
+read SX SY SW SH <<EOF
+$(echo "$SET" | sed -n 's/bounds=\([0-9-]*\),\([0-9-]*\) \([0-9]*\)x\([0-9]*\)/\1 \2 \3 \4/p')
+EOF
+read BX BY BW BH <<EOF
+$(echo "$BACK" | sed -n 's/bounds=\([0-9-]*\),\([0-9-]*\) \([0-9]*\)x\([0-9]*\)/\1 \2 \3 \4/p')
+EOF
+RESTORED=no
+if [ -n "${SX:-}" ] && [ -n "${BX:-}" ]; then
+  # A few points of slack is honest — display bookkeeping can nudge the
+  # rectangle — but a default-size window means the frame was forgotten.
+  RESTORED=yes
+  for pair in "$SX $BX" "$SY $BY" "$SW $BW" "$SH $BH"; do
+    set -- $pair
+    diff=$(( $1 - $2 ))
+    [ $diff -lt 0 ] && diff=$(( -diff ))
+    [ $diff -gt 8 ] && RESTORED=no
+  done
+fi
+if [ "$RESTORED" = yes ]; then
+  ok "the window's frame survives a relaunch"
+else
+  bad "the window's frame survives a relaunch" "set ${SET:-none}, got ${BACK:-none}"
+fi
+
+echo
+echo "== 16. Settings is a real window =="
+# The Settings scene is the app's own — the system menu item under the
+# app menu opens it, it arrives as a second window, and it closes without
+# taking the Library with it.
 act
-/tmp/focusprobe "$BUNDLE_ID" press View "Enter Full Screen" >/dev/null 2>&1
-sleep 2.5
-FULL=$(/tmp/focusprobe "$BUNDLE_ID" fullscreen 2>/dev/null)
-note "after Enter Full Screen: $FULL"
-case "$FULL" in
-  *fullscreen=true*) ok "the user can go back to fullscreen" ;;
-  *) bad "the user can go back to fullscreen" "after Enter Full Screen: $FULL" ;;
+/tmp/focusprobe "$BUNDLE_ID" press manorama "Settings" >/dev/null 2>&1 \
+  || /tmp/focusprobe "$BUNDLE_ID" key 43 1 - cmd >/dev/null 2>&1
+sleep 2
+WINS=$(/tmp/focusprobe "$BUNDLE_ID" wincount 2>/dev/null)
+note "after opening Settings: $(echo "$WINS" | tr '\n' ' ' | cut -c1-200)"
+case "$WINS" in
+  windows=2*) ok "Settings opens as its own window" ;;
+  *) bad "Settings opens as its own window" "$(echo "$WINS" | head -1)" ;;
+esac
+# The pane just opened is the key window, so ⌘W closes it rather than the
+# Library beneath.
+/tmp/focusprobe "$BUNDLE_ID" key 13 1 - cmd >/dev/null 2>&1
+sleep 1.5
+WINS=$(/tmp/focusprobe "$BUNDLE_ID" wincount 2>/dev/null)
+note "after closing Settings: $(echo "$WINS" | tr '\n' ' ' | cut -c1-200)"
+case "$WINS" in
+  windows=1*) ok "Settings closes without taking the Library" ;;
+  *) bad "Settings closes without taking the Library" "$(echo "$WINS" | head -1)" ;;
 esac
 
 echo
-echo "== 14. the app survived =="
+echo "== 17. the Library reopens after its window closes =="
+# Closing the last window does not quit the app — and a reopen (the Dock
+# click a person would make) must bring the Library back, because a shell
+# that cannot be reached after ⌘W is a shell you have to relaunch.
+act
+/tmp/focusprobe "$BUNDLE_ID" key 13 1 - cmd >/dev/null 2>&1
+sleep 1.5
+WINS=$(/tmp/focusprobe "$BUNDLE_ID" wincount 2>/dev/null)
+note "after closing the Library: $(echo "$WINS" | tr '\n' ' ' | cut -c1-120)"
+case "$WINS" in
+  windows=0*) ok "the Library window closes without quitting the app" ;;
+  *) bad "the Library window closes without quitting the app" "$(echo "$WINS" | head -1)" ;;
+esac
+osascript -e "tell application id \"$BUNDLE_ID\" to reopen" >/dev/null 2>&1
+if wait_for_window 20; then
+  REOPENED=$(library_texts | head -4 | tr '\n' ' ')
+  note "after reopen: ${REOPENED:-no text}"
+  if echo "$REOPENED" | grep -qi "Add Gallery\|$TITLE"; then
+    ok "reopening brings the Library back"
+  else
+    bad "reopening brings the Library back" "window returned but no Library (${REOPENED:-empty})"
+  fi
+else
+  bad "reopening brings the Library back" "no window after reopen"
+fi
+
+echo
+echo "== 18. the app survived =="
 act
 if /tmp/focusprobe "$BUNDLE_ID" tree >/dev/null 2>&1; then
   ok "the app is still alive and has a window"

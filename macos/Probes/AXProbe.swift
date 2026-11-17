@@ -130,6 +130,20 @@ guard let running = NSRunningApplication.runningApplications(withBundleIdentifie
 }
 let app = AXUIElementCreateApplication(running.processIdentifier)
 let windows = value(app, kAXWindowsAttribute, as: [AXUIElement].self) ?? []
+
+// Answered before the window guard so the count can honestly say zero —
+// the close-the-Library step is precisely the zero case.
+if command == "wincount" {
+    // How many windows the app is showing — a Settings pane makes it two,
+    // and a closed Library makes it zero without quitting the app.
+    print("windows=\(windows.count)")
+    for w in windows {
+        let fullscreen = value(w, "AXFullScreen", as: Bool.self) ?? false
+        print("  \(describe(w))\(fullscreen ? " [fullscreen]" : "")")
+    }
+    exit(0)
+}
+
 guard let window = windows.first else {
     print("no window")
     exit(1)
@@ -383,6 +397,43 @@ case "fullscreen":
     let fullscreen = value(window, "AXFullScreen", as: Bool.self) ?? false
     let minimized = value(window, kAXMinimizedAttribute, as: Bool.self) ?? false
     print("fullscreen=\(fullscreen) minimized=\(minimized) title=\(title(window))")
+
+case "bounds":
+    // The window's frame, for the frame-restoration check. CGWindowList
+    // answers the same question but its names are not the AX titles, so
+    // this probe reports the same window every other command drives.
+    guard let pos = axPoint(window, kAXPositionAttribute),
+          let size = axSize(window, kAXSizeAttribute) else {
+        print("bounds: none")
+        exit(1)
+    }
+    print("bounds=\(Int(pos.x)),\(Int(pos.y)) \(Int(size.width))x\(Int(size.height))")
+
+case "setbounds":
+    // setbounds <x> <y> <w> <h> — move and size the window the way the
+    // accessibility API lets a person with a window manager, so the next
+    // launch can prove the frame was remembered.
+    guard CommandLine.arguments.count >= 7,
+          let x = Double(CommandLine.arguments[3]),
+          let y = Double(CommandLine.arguments[4]),
+          let w = Double(CommandLine.arguments[5]),
+          let h = Double(CommandLine.arguments[6]) else {
+        print("usage: setbounds <x> <y> <w> <h>")
+        exit(1)
+    }
+    var size = CGSize(width: w, height: h)
+    var point = CGPoint(x: x, y: y)
+    guard let sizeValue = AXValueCreate(.cgSize, &size),
+          let pointValue = AXValueCreate(.cgPoint, &point) else {
+        print("could not build AX values")
+        exit(1)
+    }
+    // Size first: a position set while the window still carries a larger
+    // frame can be clamped to the visible screen instead of obeyed.
+    let sizeResult = AXUIElementSetAttributeValue(window, kAXSizeAttribute as CFString, sizeValue)
+    let posResult = AXUIElementSetAttributeValue(window, kAXPositionAttribute as CFString, pointValue)
+    print("setbounds \(Int(x)),\(Int(y)) \(Int(w))x\(Int(h)) → size \(sizeResult.rawValue) position \(posResult.rawValue)")
+    exit(sizeResult == .success && posResult == .success ? 0 : 4)
 
 case "menus":
     // Dump the app's menu bar with the key equivalents, so a menu can be
