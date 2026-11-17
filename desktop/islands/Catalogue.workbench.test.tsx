@@ -2384,7 +2384,9 @@ describe('the Library quiet view', () => {
     expect(css).not.toMatch(/\.lib-quiet[^{}]*img[^{}]*opacity/)
     expect(css).toContain('.admin-rail { min-width: 0; transition: opacity .7s cubic-bezier(.4, 0, .2, 1); }')
     expect(css).toContain('.lib-quiet-rail { opacity: .05; }')
-    expect(css).toContain('.lib-quiet-rail:hover { opacity: .5; }')
+    // Hover and keyboard focus both restore the rail — a tabbed-in user
+    // must never aim at a nearly invisible surface.
+    expect(css).toContain('.lib-quiet-rail:hover, .lib-quiet-rail:focus-within { opacity: .5; }')
     expect(css).toContain('.lib-quiet-toggle')
   })
 })

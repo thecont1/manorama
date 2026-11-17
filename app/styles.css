@@ -1885,10 +1885,12 @@ html.light .lib-quiet-toggle[aria-pressed="true"] { color: #e9e5dc; }
    solids inside a quieted card, so they sink whole. */
 .lib-quiet :where(svg, .device-pill, .lib-temp-flag, .admin-strip-badge, .app-update-banner, .m-btn--primary, [data-account-ad]) { opacity: .05; }
 /* Quiet view sinks the rail with the list — photographs only. The way
-   back is still there: the rail lifts back to its half-dim on hover so
-   the toggle is findable without standing bright over the pictures. */
+   back is still there: the rail lifts back to its half-dim on hover or
+   when keyboard focus lands inside it, so the toggle is findable without
+   standing bright over the pictures — and a tabbed-in user is never
+   left aiming at a nearly invisible rail. */
 .lib-quiet-rail { opacity: .05; }
-.lib-quiet-rail:hover { opacity: .5; }
+.lib-quiet-rail:hover, .lib-quiet-rail:focus-within { opacity: .5; }
 /* And the photographs step a touch forward while the words step back. */
 .lib-quiet img { filter: brightness(1.12); }
 
