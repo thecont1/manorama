@@ -228,11 +228,46 @@ final class AppModel {
         if self.window !== window {
             self.window = window
         }
+        applyWindowChrome(window)
         guard !configuredWindows.contains(window) else { return }
         configuredWindows.add(window)
-        window.titlebarAppearsTransparent = true
+        // The attach callback can run while SwiftUI is still constructing
+        // the window — and SwiftUI's own chrome setup lands after it,
+        // silently resetting the transparent titlebar on the launches
+        // where the attach happened to be early. Re-assert once the
+        // window is visible: by then the scene's construction has
+        // finished, so this write is the one that stays.
+        guard !window.isVisible else { return }
+        let center = NotificationCenter.default
+        var token: NSObjectProtocol?
+        token = center.addObserver(
+            forName: NSWindow.didChangeOcclusionStateNotification,
+            object: window,
+            queue: .main
+        ) { [weak self, weak window] _ in
+            MainActor.assumeIsolated {
+                guard let self, let window,
+                      window.occlusionState.contains(.visible) else { return }
+                self.applyWindowChrome(window)
+                if let token {
+                    NotificationCenter.default.removeObserver(token)
+                }
+            }
+        }
+    }
+
+    /// The shell's own chrome on a Library window — applied idempotently,
+    /// because the same set lands at attach and again at visibility.
+    /// The hiddenTitleBar scene style owns the titlebar itself; what stays
+    /// here is what the style does not cover.
+    private func applyWindowChrome(_ window: NSWindow) {
         window.backgroundColor = NSColor(red: 0x11 / 255.0, green: 0x13 / 255.0, blue: 0x12 / 255.0, alpha: 1.0)
         window.isMovableByWindowBackground = false
+        // The hiddenTitleBar style marks the window fullScreenNone,
+        // which disables the green light and ⌃⌘F outright. Restoring
+        // the transition means removing the refusal, not just asking.
+        window.collectionBehavior.remove(.fullScreenNone)
+        window.collectionBehavior.insert(.fullScreenPrimary)
     }
 
     /// The windows whose chrome has been configured. Weakly held: a dead
@@ -274,6 +309,10 @@ final class AppModel {
     @ObservationIgnored private var launchModeObserver: NSObjectProtocol?
     /// Retires a pending launch-mode request if its window goes away.
     @ObservationIgnored private var launchModeCloseObserver: NSObjectProtocol?
+    /// Retires the restoration correction once the window is on screen —
+    /// a person cannot act before then, so every entry after visibility
+    /// is intent.
+    @ObservationIgnored private var launchModeVisibilityObserver: NSObjectProtocol?
 
     /// Enter fullscreen once the window is ready — only if the launch
     /// decision asked for it and the window is not already there. AppKit
@@ -356,6 +395,24 @@ final class AppModel {
         ) { [weak self] _ in
             MainActor.assumeIsolated { self?.disarmLaunchMode() }
         }
+        // The correction only guards the launch itself: restoration
+        // records replay while the window orders in, so once it is
+        // visible the judgement is done and the observer retires.
+        if window.isVisible {
+            disarmLaunchMode()
+        } else {
+            launchModeVisibilityObserver = center.addObserver(
+                forName: NSWindow.didChangeOcclusionStateNotification,
+                object: window,
+                queue: .main
+            ) { [weak self, weak window] _ in
+                MainActor.assumeIsolated {
+                    guard let window,
+                          window.occlusionState.contains(.visible) else { return }
+                    self?.disarmLaunchMode()
+                }
+            }
+        }
     }
 
     /// Whether the event that entered fullscreen was a person's input.
@@ -376,8 +433,10 @@ final class AppModel {
         let center = NotificationCenter.default
         if let launchModeObserver { center.removeObserver(launchModeObserver) }
         if let launchModeCloseObserver { center.removeObserver(launchModeCloseObserver) }
+        if let launchModeVisibilityObserver { center.removeObserver(launchModeVisibilityObserver) }
         launchModeObserver = nil
         launchModeCloseObserver = nil
+        launchModeVisibilityObserver = nil
     }
 
     // MARK: - The probe

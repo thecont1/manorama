@@ -49,6 +49,12 @@ struct ManoramaMacApp: App {
                     delegate.pendingOpenURLs.removeAll()
                 }
         }
+        // The page owns everything behind the traffic lights: no drawn
+        // titlebar, no title text. On macOS 27 the flag-era approach
+        // (titlebarAppearsTransparent) still lands but the system draws
+        // its own opaque bar over it — hiddenTitleBar is the style that
+        // actually removes the chrome.
+        .windowStyle(.hiddenTitleBar)
         .windowToolbarStyle(.unified(showsTitle: false))
         .defaultSize(width: 1280, height: 840)
         .commands {
