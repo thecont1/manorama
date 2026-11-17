@@ -77,8 +77,8 @@ mkdir -p "$BUILD_DIR"
 
 # The Mach-O headers are the truth about what the compiler emitted: the
 # build fails if the minimum-OS version or the SDK it linked against does
-# not agree with the plist generated below. The `sdk` field must record
-# the real SDK — see the SDKROOT note above.
+# not agree with the toolchain this script resolved. The `sdk` field must
+# record the real SDK — see the SDKROOT note above.
 MINOS="$(vtool -show-build "$BUILD_DIR/manorama" | awk '/minos/ {print $2}')"
 LINKED_SDK="$(vtool -show-build "$BUILD_DIR/manorama" | awk '/sdk/ {print $2}')"
 echo "binary: minos $MINOS, linked sdk $LINKED_SDK"
@@ -86,7 +86,7 @@ if [ "$MINOS" != "15.0" ]; then
   echo "FATAL: the binary reports minimum macOS $MINOS, expected 15.0" >&2
   exit 1
 fi
-if [ "${LINKED_SDK%%.*}" -lt 26 ]; then
+if [ "$LINKED_SDK" != "$SDK_VERSION" ]; then
   echo "FATAL: the binary was linked against macOS SDK $LINKED_SDK, expected $SDK_VERSION" >&2
   exit 1
 fi
