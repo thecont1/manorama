@@ -275,22 +275,35 @@ struct NativeCommands: Commands {
 
 /// Bridges SwiftUI to AppKit window behaviour the SwiftUI API does not
 /// expose directly (fullscreen toggling, the key window).
+///
+/// The window is reported through `viewDidMoveToWindow`, not a one-shot
+/// async hop: a deferred main-queue call can run before the view is in a
+/// window, and a representable that only checks once leaves the window
+/// permanently unconfigured on a slow attach.
 struct WindowAccessor: NSViewRepresentable {
     var onWindow: (NSWindow) -> Void
 
     func makeNSView(context: Context) -> NSView {
-        let view = NSView()
-        DispatchQueue.main.async {
-            guard let window = view.window else { return }
-            self.onWindow(window)
-        }
+        let view = ProbeView()
+        view.onWindow = onWindow
         return view
     }
 
     func updateNSView(_ nsView: NSView, context: Context) {
-        DispatchQueue.main.async {
-            guard let window = nsView.window else { return }
-            self.onWindow(window)
+        (nsView as? ProbeView)?.onWindow = onWindow
+        if let window = nsView.window {
+            onWindow(window)
+        }
+    }
+
+    final class ProbeView: NSView {
+        var onWindow: ((NSWindow) -> Void)?
+
+        override func viewDidMoveToWindow() {
+            super.viewDidMoveToWindow()
+            if let window {
+                onWindow?(window)
+            }
         }
     }
 }
