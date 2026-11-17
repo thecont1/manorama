@@ -5,14 +5,14 @@ import type { Child, JSX } from 'hono/jsx'
  *  `control` slot (e.g. a Switch) replaces the chevron; a row carrying a
  *  control is not itself a button, so the control keeps its own events. */
 
-type GroupProps = { label?: string; note?: string; children?: Child }
+type GroupProps = { label?: string; note?: string; class?: string; children?: Child }
 
-export function ActionGroup({ label, note, children }: GroupProps) {
+export function ActionGroup({ label, note, class: cls, children }: GroupProps) {
   return (
     <section>
       {label ? <h3 class="m-actiongroup-label">{label}</h3> : null}
       {note ? <p class="m-actiongroup-note">{note}</p> : null}
-      <div class="m-panel m-actiongroup">{children}</div>
+      <div class={`m-panel m-actiongroup${cls ? ` ${cls}` : ''}`}>{children}</div>
     </section>
   )
 }

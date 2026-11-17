@@ -246,6 +246,22 @@ html.light {
 }
 a.m-actionrow, button.m-actionrow { cursor: pointer; }
 .m-actionrow + .m-actionrow { border-top: 1px solid var(--m-rule); }
+/* Sign-in rows carry a 44px Unlink control, so the group takes a uniform
+   64px floor — linked rows, connect rows and pending rows all measure the
+   same, and the panel never shifts when the identities answer lands. */
+.m-actiongroup--signin .m-actionrow { min-height: 64px; }
+/* Pending rows hold a loaded surface's seats — same metrics, muted fills. */
+.m-actionrow-label--pending { color: var(--m-meta); }
+.m-skeleton {
+  flex: 1;
+  max-width: 140px;
+  height: 13px;
+  border-radius: 6px;
+  background: rgba(var(--ink), .08);
+  animation: m-skeleton-pulse 1.8s ease-in-out infinite;
+}
+@keyframes m-skeleton-pulse { 0%, 100% { opacity: .5; } 50% { opacity: 1; } }
+@media (prefers-reduced-motion: reduce) { .m-skeleton { animation: none; } }
 .m-actionrow:focus-visible { outline: 2px solid var(--m-focus); outline-offset: -2px; }
 .m-actionrow:disabled { opacity: .45; }
 .m-actionrow-label { flex: 1; min-width: 0; }
