@@ -773,7 +773,14 @@ case "$WINS" in
 esac
 osascript -e "tell application id \"$BUNDLE_ID\" to reopen" >/dev/null 2>&1
 if wait_for_window 20; then
-  REOPENED=$(library_texts | head -4 | tr '\n' ' ')
+  # The window returning is only half of it — the page has to remount the
+  # Library, and a one-shot read can land before the text does.
+  REOPENED=""
+  for _ in $(seq 1 15); do
+    REOPENED=$(library_texts | head -4 | tr '\n' ' ')
+    echo "$REOPENED" | grep -qi "Add Gallery\|$TITLE" && break
+    sleep 1
+  done
   note "after reopen: ${REOPENED:-no text}"
   if echo "$REOPENED" | grep -qi "Add Gallery\|$TITLE"; then
     ok "reopening brings the Library back"
