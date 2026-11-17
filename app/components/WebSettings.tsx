@@ -60,6 +60,9 @@ type Props = {
    *  frame and TopBar so the caller can home the same content inside the
    *  galleries column — the Library's left rail stays in place. */
   presentation?: 'screen' | 'pane'
+  /** The pane's exit fade — the caller keeps the surface mounted for the
+   *  length of the animation, then unmounts it. */
+  closing?: boolean
   /** Native surfaces sign out in-process — there is no /auth/logout form to
    *  post. When present it replaces the web form with a plain button. */
   onSignOut?: () => void
@@ -218,7 +221,7 @@ export function WebSettings(props: Props) {
   )
   if (props.presentation === 'pane') {
     return (
-      <section class="m-owner web-settings web-settings--pane" data-screen="settings" aria-label="Settings">
+      <section class={`m-owner web-settings web-settings--pane${props.closing ? ' is-closing' : ''}`} data-screen="settings" aria-label="Settings">
         <div class="m-owner-content">
           <header class="lib-settings-head">
             <Button variant="quiet" class="m-backbtn" onClick={props.onBack} aria-label="Back to the library">

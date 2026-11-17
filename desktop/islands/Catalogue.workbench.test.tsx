@@ -1500,6 +1500,12 @@ describe('desktop catalogue workbench', () => {
     expect(rail.querySelector('[aria-label="Settings"]')!.getAttribute('aria-expanded')).toBe('true')
     ;(screen.querySelector('[aria-label="Back to the library"]') as HTMLButtonElement).click()
     await settle()
+    // The pane fades out before it leaves — still mounted, mid-exit, while
+    // the list is already back beneath it so the handoff is a dissolve.
+    expect(container.querySelector('.web-settings--pane.is-closing')).not.toBeNull()
+    expect(container.querySelector('.gallery-list')!.hasAttribute('hidden')).toBe(false)
+    await new Promise((resolve) => setTimeout(resolve, 450))
+    await settle()
     expect(container.querySelector('.web-settings')).toBeNull()
     expect(container.querySelector('.gallery-list')!.hasAttribute('hidden')).toBe(false)
   })

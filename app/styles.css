@@ -1823,6 +1823,19 @@ body:has(.ops-page) { overflow: auto; overflow-x: clip; background: #111312; }
   .admin-page--selector .admin-rail::-webkit-scrollbar { display: none; }
   .admin-page--selector .admin-rail .account-ad { margin-top: auto; }
   .admin-page--selector .admin-rail .admin-library-sub + .admin-copyright { margin-top: auto; }
+  /* During the settings pane's exit the library returns beneath it: both
+     surfaces share the galleries cell, the list already mounted under the
+     fading pane, so the handoff reads as a dissolve rather than a blank
+     frame followed by a flash. */
+  .admin-page--selector .admin-content .web-settings--pane {
+    grid-column: 2;
+    grid-row: 1;
+    align-self: stretch;
+  }
+  .admin-page--selector .admin-content:has(.web-settings--pane) > .gallery-list {
+    grid-column: 2;
+    grid-row: 1;
+  }
 }
 .admin-rail { min-width: 0; transition: opacity .7s cubic-bezier(.4, 0, .2, 1); }
 .admin-rail .admin-library-heading { flex-direction: column; align-items: stretch; gap: 14px; }
@@ -2152,6 +2165,13 @@ a.m-btn { text-decoration: none; }
 @keyframes lib-pane-in {
   from { opacity: 0; }
   to { opacity: 1; }
+}
+/* The exit runs quicker than the entrance — the pane is leaving, not
+   arriving — but on the same gentle curve, never a cut. */
+.web-settings--pane.is-closing { animation: lib-pane-out .4s cubic-bezier(.4, 0, .2, 1) forwards; }
+@keyframes lib-pane-out {
+  from { opacity: 1; }
+  to { opacity: 0; }
 }
 /* The head is one baseline row — the title first in the section-title
    slot where a list heading stood, the way back trailing beside it. */

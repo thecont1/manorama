@@ -449,6 +449,10 @@ export default function Catalogue({ apiBase }: { apiBase: string }) {
   // Signed-in gear opens the shared WebSettings — the same groups and
   // options the web dashboard shows, fed by bearer-token API calls.
   const [settingsOpen, setSettingsOpen] = useState(false)
+  // The pane's exit is a fade, not a cut — it stays mounted for the
+  // length of the animation, then the Library returns in the same commit.
+  const [settingsClosing, setSettingsClosing] = useState(false)
+  const settingsCloseTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const [ownerSlugDraft, setOwnerSlugDraft] = useState('')
   const [settingsNote, setSettingsNote] = useState<string | null>(null)
   const [identities, setIdentities] = useState<AccountIdentityWeb[] | null>(null)
@@ -1798,6 +1802,13 @@ export default function Catalogue({ apiBase }: { apiBase: string }) {
 
   const openSettings = () => {
     if (!session) return
+    // Reopening mid-fade cancels the pending unmount — the pane stays up
+    // and the entrance animation replays over the still-visible surface.
+    if (settingsCloseTimerRef.current) {
+      clearTimeout(settingsCloseTimerRef.current)
+      settingsCloseTimerRef.current = null
+    }
+    setSettingsClosing(false)
     setOwnerSlugDraft(ownerSlug ?? session.ownerSlug)
     setSettingsNote(null)
     setIdentityNote(null)
@@ -1805,6 +1816,27 @@ export default function Catalogue({ apiBase }: { apiBase: string }) {
     setDeleteConfirm('')
     setSettingsOpen(true)
   }
+
+  const requestCloseSettings = () => {
+    if (!settingsOpen || settingsClosing) return
+    setSettingsClosing(true)
+    // On the split layout the library remounts beneath the fading pane —
+    // the two share the galleries cell and the exit reads as a dissolve
+    // instead of a blank column followed by a flash. On a stacked page
+    // the surfaces cannot overlap, so the list waits out the fade.
+    if (typeof window.matchMedia === 'function' &&
+        window.matchMedia('(min-width: 860px)').matches) {
+      setSettingsOpen(false)
+    }
+    settingsCloseTimerRef.current = setTimeout(() => {
+      settingsCloseTimerRef.current = null
+      setSettingsOpen(false)
+      setSettingsClosing(false)
+    }, 400)
+  }
+  useEffect(() => () => {
+    if (settingsCloseTimerRef.current) clearTimeout(settingsCloseTimerRef.current)
+  }, [])
 
   // The sign-in methods load with the surface, like the web — a failed
   // read just leaves the list hidden.
@@ -2716,7 +2748,7 @@ export default function Catalogue({ apiBase }: { apiBase: string }) {
                 class="admin-button admin-settings-pill"
                 aria-label="Settings"
                 aria-expanded={settingsOpen ? 'true' : 'false'}
-                onClick={() => { settingsOpen ? setSettingsOpen(false) : openSettings() }}
+                onClick={() => { settingsOpen ? requestCloseSettings() : openSettings() }}
               >
                 <SettingsIcon />
               </button>
@@ -2999,10 +3031,11 @@ export default function Catalogue({ apiBase }: { apiBase: string }) {
         {/* Settings takes over the galleries column itself — the rail stays
             mounted beside it and the gear becomes the way back. Anchors in it
             open in the system browser, same as the rail's. */}
-        {settingsOpen && session ? (
+        {(settingsOpen || settingsClosing) && session ? (
           <div onClick={interceptSettingsLink} style="display: contents">
             <WebSettings
               presentation="pane"
+              closing={settingsClosing}
               ownerSlug={ownerSlug ?? session.ownerSlug}
               ownerSlugDraft={ownerSlugDraft}
               onOwnerSlugDraft={(value) => { setOwnerSlugDraft(value); setSettingsNote(null) }}
@@ -3029,7 +3062,7 @@ export default function Catalogue({ apiBase }: { apiBase: string }) {
               deleteBusy={deleteBusy}
               deleteNote={deleteNote}
               onDeleteAccount={() => void removeAccount()}
-              onBack={() => setSettingsOpen(false)}
+              onBack={requestCloseSettings}
               onSignOut={signOut}
               appUpdate={appUpdate}
               deviceSection={(
