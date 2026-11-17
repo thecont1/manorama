@@ -2,6 +2,7 @@ import AppKit
 import Foundation
 import ImageIO
 import Security
+import UserNotifications
 import WebKit
 
 /// The native shell's implementation of the desktop bundle's runtime API.
@@ -296,7 +297,7 @@ final class NativeBridge {
             return nil
 
         case "share_post":
-            return try sharePost(args)
+            return try await sharePost(args)
 
         case "plugin:deep-link|get_current":
             pageReadyForDeepLinks = true
@@ -646,7 +647,7 @@ final class NativeBridge {
     /// directory, are never a saved copy, and the previous post's staging
     /// is swept on every call — what is on the clipboard is always the
     /// latest set.
-    private func sharePost(_ args: [String: Any]) throws -> Any? {
+    private func sharePost(_ args: [String: Any]) async throws -> Any? {
         guard let files = args["files"] as? [[String: Any]], !files.isEmpty else {
             throw BridgeError.badArguments("share_post needs files")
         }
@@ -695,7 +696,30 @@ final class NativeBridge {
         guard let intent = parts.url, NSWorkspace.shared.open(intent) else {
             throw BridgeError.failed("The X composer could not be opened")
         }
+        await announcePostClipboard()
         return "The photographs are on your clipboard — paste them into the post."
+    }
+
+    /// The paste instruction has to reach the user while the browser is
+    /// frontmost — a notice inside the app sits behind the window that just
+    /// opened. A notification banner follows them. Denied or undecided
+    /// permission quietly leaves the in-app note as the only instruction.
+    private func announcePostClipboard() async {
+        let center = UNUserNotificationCenter.current()
+        let settings = await center.notificationSettings()
+        var allowed = settings.authorizationStatus == .authorized ||
+            settings.authorizationStatus == .provisional
+        if settings.authorizationStatus == .notDetermined {
+            allowed = (try? await center.requestAuthorization(options: [.alert])) ?? false
+        }
+        guard allowed else { return }
+        let content = UNMutableNotificationContent()
+        content.title = "Photographs on your clipboard"
+        content.body = "The X composer just opened — paste them into the post."
+        let request = UNNotificationRequest(
+            identifier: "post-to-x-\(UUID().uuidString)", content: content, trigger: nil
+        )
+        try? await center.add(request)
     }
 
     /// The picker-approved roots, as paths.

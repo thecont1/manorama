@@ -19,6 +19,10 @@ import {
 import '../../native/styles/global-view.css'
 import '../../native/styles/post-to-x.css'
 
+/** The desktop footnote: the shared limits plus the clipboard step the
+ *  share-sheet platforms never see. */
+const POST_TO_X_DESKTOP_NOTE = `${POST_TO_X_LIMIT_NOTE} They land on your clipboard — paste them into the post.`
+
 /**
  * "Post to X" — the photograph picker, opened from a gallery's own menu.
  *
@@ -338,7 +342,7 @@ export default function PostToX({
           {busy ? 'Preparing…' : 'Post to X'}
         </button>
 
-        <p class="native-postto-note" role="status">{note || POST_TO_X_LIMIT_NOTE}</p>
+        <p class="native-postto-note" role="status">{note || POST_TO_X_DESKTOP_NOTE}</p>
       </div>
     </section>
   )
