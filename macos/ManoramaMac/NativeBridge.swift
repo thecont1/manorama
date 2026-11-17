@@ -295,6 +295,9 @@ final class NativeBridge {
             try revealGalleryRoot(raw)
             return nil
 
+        case "share_post":
+            return try sharePost(args)
+
         case "plugin:deep-link|get_current":
             pageReadyForDeepLinks = true
             // Read-once: a handoff that failed (no in-memory verifier, an
@@ -631,6 +634,60 @@ final class NativeBridge {
         guard NSWorkspace.shared.selectFile(nil, inFileViewerRootedAtPath: wanted.path) else {
             throw BridgeError.failed("Finder could not open that folder")
         }
+    }
+
+    /// "Post to X": stage the prepared photographs where the OS can reach
+    /// them, then open the X composer.
+    ///
+    /// X on the Mac is a website, not a sharing service — there is no
+    /// activity sheet to hand files to. The photographs go on the
+    /// pasteboard as file URLs and the composer opens in the browser; a
+    /// paste attaches them to the post. They are staged in the temporary
+    /// directory, are never a saved copy, and the previous post's staging
+    /// is swept on every call — what is on the clipboard is always the
+    /// latest set.
+    private func sharePost(_ args: [String: Any]) throws -> Any? {
+        guard let files = args["files"] as? [[String: Any]], !files.isEmpty else {
+            throw BridgeError.badArguments("share_post needs files")
+        }
+        let text = args["text"] as? String ?? ""
+
+        let temporary = FileManager.default.temporaryDirectory
+        if let stale = try? FileManager.default.contentsOfDirectory(
+            at: temporary, includingPropertiesForKeys: nil
+        ) {
+            for url in stale where url.lastPathComponent.hasPrefix("manorama-post-") {
+                try? FileManager.default.removeItem(at: url)
+            }
+        }
+        let folder = temporary.appendingPathComponent(
+            "manorama-post-\(UUID().uuidString)", isDirectory: true
+        )
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+
+        var urls: [URL] = []
+        for file in files {
+            guard let name = file["name"] as? String, !name.isEmpty, !name.contains("/"),
+                  let data = file["data"] as? String,
+                  let bytes = Data(base64Encoded: data) else {
+                throw BridgeError.badArguments("share_post files need name and data")
+            }
+            let url = folder.appendingPathComponent(name)
+            try bytes.write(to: url)
+            urls.append(url)
+        }
+
+        let pasteboard = NSPasteboard.general
+        pasteboard.clearContents()
+        guard pasteboard.writeObjects(urls as [NSURL]) else {
+            throw BridgeError.failed("The photographs could not be put on the clipboard")
+        }
+        var parts = URLComponents(string: "https://x.com/intent/post")!
+        parts.queryItems = [URLQueryItem(name: "text", value: text)]
+        guard let intent = parts.url, NSWorkspace.shared.open(intent) else {
+            throw BridgeError.failed("The X composer could not be opened")
+        }
+        return "The photographs are on your clipboard — paste them into the post."
     }
 
     /// The picker-approved roots, as paths.

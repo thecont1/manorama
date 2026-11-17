@@ -30,12 +30,15 @@ import {
   type LocalCatalogue,
   type LocalGalleryRecord,
 } from '../lib/catalogue'
-import { assetUrl, isDesktopRuntime, pathExists, pickGalleryFolder, readDirEntries, registerSavedGalleryRoots, revealGalleryRoot } from '../lib/tauri'
+import { assetUrl, isDesktopRuntime, pathExists, pickGalleryFolder, readDirEntries, readFileBytes, registerSavedGalleryRoots, revealGalleryRoot, sharePost } from '../lib/tauri'
 import { invoke } from '@tauri-apps/api/core'
 import { removeDeviceGallery, syncDeviceGalleries } from '../lib/sync'
 import { copyText, shareGalleryOnWeb } from '../../app/lib/gallery-share'
 import { AccountApiError, createAccountGallery, deleteAccount, deleteDeviceGalleryRecord, fetchAccountGalleries, fetchAccountGallery, fetchAccountIdentities, fetchAccountProfile, fetchDeviceGalleries, fetchDevices, forgetDevice, mintLinkHandoff, patchAccountOwnerSlug, probeAccountGallery, refreshAccountGallery, registerDevice, scanGalleryLink, setAccountGalleryHidden, setAccountGalleryPin, setDeviceGalleryHidden, standaloneDeviceGalleries, unlinkAccountIdentity } from '../lib/account'
 import { previewSrcFor, sourceLabelFor } from '../../native/lib/library-media'
+import { postToXPhotos, type PostToXPhoto } from '../../native/lib/post-to-x'
+import { cloudPhotoReader, localPhotoReader, localPostPhotos, type PostPhotoReader } from '../lib/post-to-x'
+import PostToX from './PostToX'
 import type { GallerySummary } from '../../app/lib/gallery-repository'
 import type { DeviceGallery } from '../../packages/core/device-gallery'
 import { DEVICE_KIND_NAME, UNKNOWN_DEVICE_LABEL, findDevice, isDeviceKind, type Device, type DeviceKind } from '../../packages/core/devices'
@@ -54,7 +57,6 @@ import { Sheet } from '../../app/components/ui/Sheet'
 import { QuietIcon, SettingsIcon, LinkIcon, SourceIcon } from '../../app/components/admin-icons'
 import { syncQuietFade } from '../../app/components/library/quiet'
 import { AddGallerySheet } from '../../app/components/AddGallerySheet'
-import { GalleryShareSheet } from '../../app/components/GalleryShareSheet'
 import GallerySettingsSheet from '../../app/components/GallerySettingsSheet'
 import type { PickerEditItem } from '../../app/components/viewer/PickerEditor'
 import { HeicImg } from '../../app/components/ui/HeicImg'
@@ -428,8 +430,18 @@ export default function Catalogue({ apiBase }: { apiBase: string }) {
   // The card menu's own confirmations and sub-surfaces — the web keeps
   // the same range: pin, share, settings, reorder, source, rescan, remove.
   const [menuRemove, setMenuRemove] = useState(false)
-  const [shareGallery, setShareGallery] = useState<GallerySummary | null>(null)
   const [galSettingsSlug, setGalSettingsSlug] = useState<string | null>(null)
+  // "Post to X" — the picker's target. The decryption session for an
+  // encrypted source is held in the ref so closing the picker can dispose
+  // it exactly once.
+  const [postToX, setPostToX] = useState<{
+    title: string
+    url: string
+    loadPhotos: () => Promise<PostToXPhoto[]>
+    read: PostPhotoReader
+    session: EncryptedClientSession | null
+  } | null>(null)
+  const postSessionRef = useRef<EncryptedClientSession | null>(null)
   /** Full-link fragments for encrypted galleries this device can share —
    *  keyed by gallery id, same contract as the web's galleryHashes. */
   const [galleryHashes, setGalleryHashes] = useState<Record<string, string>>({})
@@ -1660,21 +1672,63 @@ export default function Catalogue({ apiBase }: { apiBase: string }) {
     }
   }
 
-  /** The card menu's "Share link" for an already-published local — the
-      same share-or-copy contract the details sheet's link row keeps. */
-  const shareLocalLink = async (record: LocalGalleryRecord, url: string) => {
+  /** The card menu's "Copy link" for a cloud gallery — the address lands
+   *  on the clipboard, ready to paste. Nothing else leaves the app. */
+  const copyGalleryLink = async (gallery: GallerySummary) => {
     setCardMenu(null)
     setMenuRemove(false)
-    setBusy(true)
-    try {
-      const shared = await shareGalleryOnWeb({ title: record.title, caption: '', url })
-      if (shared === 'shared') setNotice('Link shared')
-      else if (shared !== 'cancelled') {
-        setNotice((await copyText(url)) ? 'Link copied — paste it anywhere' : url)
+    const url = `${accountGalleryUrl(gallery)}${gallery.id ? galleryHashes[gallery.id] ?? '' : ''}`
+    setNotice((await copyText(url)) ? 'Link copied — paste it anywhere' : url)
+  }
+
+  /** The card menu's "Post to X" for a cloud gallery. The manifest is
+   *  fetched when the picker mounts; an encrypted source opens its
+   *  decryption session from this device's custody — a Mac without the
+   *  key hears why instead of watching every photograph fail. */
+  const openPostToXAccount = async (gallery: GallerySummary) => {
+    if (!session) return
+    setCardMenu(null)
+    setMenuRemove(false)
+    const owner = ownerSlug ?? session.ownerSlug
+    const url = `${accountGalleryUrl(gallery)}${gallery.id ? galleryHashes[gallery.id] ?? '' : ''}`
+    let encSession: EncryptedClientSession | null = null
+    if (gallery.manifestVersion === 2 && gallery.id && gallery.sourceUrl && isEncryptedSourceUrl(gallery.sourceUrl)) {
+      try {
+        encSession = await openDesktopEncryptedSession({ owner, slug: gallery.slug, galleryId: gallery.id, sourceUrl: gallery.sourceUrl })
+      } catch {
+        setNotice('This device does not hold the key. Open the full gallery link before posting to X.')
+        return
       }
-    } finally {
-      setBusy(false)
     }
+    postSessionRef.current?.dispose()
+    postSessionRef.current = encSession
+    setPostToX({
+      title: gallery.title || gallery.slug,
+      url,
+      loadPhotos: async () => postToXPhotos((await fetchAccountGallery(base, owner, gallery.slug, session.token)).manifest.images),
+      read: cloudPhotoReader(session.token),
+      session: encSession,
+    })
+  }
+
+  /** The card menu's "Post to X" for a local gallery — the files are
+   *  already on this Mac, so the post needs no publish first. */
+  const openPostToXLocal = (record: LocalGalleryRecord) => {
+    setCardMenu(null)
+    setMenuRemove(false)
+    setPostToX({
+      title: record.title,
+      url: publishedUrlFor(record) ?? '',
+      loadPhotos: async () => localPostPhotos(record, assetUrl),
+      read: localPhotoReader(readFileBytes),
+      session: null,
+    })
+  }
+
+  const closePostToX = () => {
+    postSessionRef.current?.dispose()
+    postSessionRef.current = null
+    setPostToX(null)
   }
 
   const handleShareStep = (step: ShareStep) => {
@@ -3149,7 +3203,16 @@ export default function Catalogue({ apiBase }: { apiBase: string }) {
                   {cardMenu.gallery.hiddenAt ? 'Unhide gallery' : 'Hide this gallery'}
                 </button>
               ) : null}
-              <button type="button" onClick={() => { setShareGallery(cardMenu.gallery); setCardMenu(null) }}>Share link</button>
+              {/* Copy link puts the gallery's own address on the clipboard —
+                  no sheet, no system share. A keyless encrypted card keeps
+                  the row but says why the link would open locked. */}
+              <button
+                type="button"
+                disabled={Boolean(cardMenu.gallery.manifestVersion === 2 && cardMenu.gallery.id && !galleryHashes[cardMenu.gallery.id])}
+                title={cardMenu.gallery.manifestVersion === 2 && cardMenu.gallery.id && !galleryHashes[cardMenu.gallery.id] ? 'This device does not hold the key; a copied link would open locked' : undefined}
+                onClick={() => { void copyGalleryLink(cardMenu.gallery) }}
+              >Copy link</button>
+              <button type="button" disabled={busy} onClick={() => { void openPostToXAccount(cardMenu.gallery) }}>Post to X</button>
               {/* The gallery's own Settings — the same two-layer dialog the
                   viewer's Settings popover hosts, so the owner edits in place. */}
               <button type="button" onClick={() => { setGalSettingsSlug(cardMenu.gallery.slug); setCardMenu(null) }}>Gallery Settings</button>
@@ -3161,25 +3224,23 @@ export default function Catalogue({ apiBase }: { apiBase: string }) {
               ) : null}
               <button type="button" class="lib-menu-danger" disabled={busy} onClick={() => setMenuRemove(true)}>Remove gallery</button>
             </>) : (<>
-              {/* The same verbs the account menu carries, in the same order —
-                  Share link swaps to Publish until a public slug exists.
-                  Reorder, Open folder, Refresh and Remove live in the
-                  gallery's settings sheet now. */}
+              {/* The same verbs the account menu carries, in the same
+                  order — Publish names the upload honestly, and Post to X
+                  works straight off the disk, published or not. Reorder,
+                  Open folder, Refresh and Remove live in the gallery's
+                  settings sheet now. */}
               <button type="button" disabled={busy} onClick={() => { void toggleLocalPin(cardMenu.record) }}>{cardMenu.record.pinnedAt ? 'Unpin gallery' : 'Pin gallery'}</button>
               {accountTier === 'pro' ? (
                 <button type="button" disabled={busy} onClick={() => { void setGalleryHidden(cardMenu, !cardMenu.record.hiddenAt) }}>
                   {cardMenu.record.hiddenAt ? 'Unhide gallery' : 'Hide this gallery'}
                 </button>
               ) : null}
-              {publishedUrlFor(cardMenu.record) ? (
-                <button type="button" disabled={busy} onClick={() => { void shareLocalLink(cardMenu.record, publishedUrlFor(cardMenu.record)!) }}>Share link</button>
-              ) : (
-                <button
-                  type="button"
-                  disabled={busy || availability[cardMenu.record.id] === 'unavailable'}
-                  onClick={() => { const record = cardMenu.record; setCardMenu(null); openShareForGallery(record.id) }}
-                >Publish this gallery</button>
-              )}
+              <button
+                type="button"
+                disabled={busy || availability[cardMenu.record.id] === 'unavailable'}
+                onClick={() => { const record = cardMenu.record; setCardMenu(null); openShareForGallery(record.id) }}
+              >Publish this gallery</button>
+              <button type="button" disabled={busy || availability[cardMenu.record.id] === 'unavailable'} onClick={() => openPostToXLocal(cardMenu.record)}>Post to X</button>
               <button type="button" onClick={() => { const record = cardMenu.record; setCardMenu(null); openDetails(record) }}>Gallery settings</button>
             </>)}
           </div>
@@ -3228,20 +3289,17 @@ export default function Catalogue({ apiBase }: { apiBase: string }) {
           </div>
         </Sheet>
       ) : null}
-      {shareGallery ? (
-        <div onClick={interceptSettingsLink}>
-          <GalleryShareSheet
-            payload={{
-              title: shareGallery.title || shareGallery.slug,
-              caption: shareGallery.caption,
-              url: `${accountGalleryUrl(shareGallery)}${shareGallery.id ? galleryHashes[shareGallery.id] ?? '' : ''}`,
-            }}
-            onClose={() => setShareGallery(null)}
-            onCopy={copyText}
-            shareDisabled={Boolean(shareGallery.manifestVersion === 2 && shareGallery.id && !galleryHashes[shareGallery.id])}
-            shareWarning="This device does not hold the key. Open the full gallery link before sharing; a keyless address opens locked."
-          />
-        </div>
+      {postToX ? (
+        <PostToX
+          title={postToX.title}
+          galleryUrl={postToX.url}
+          loadPhotos={postToX.loadPhotos}
+          read={postToX.read}
+          session={postToX.session}
+          share={sharePost}
+          onClose={closePostToX}
+          onPosted={(note) => setNotice(note)}
+        />
       ) : null}
       {galSettingsGallery ? (
         <GallerySettingsSheet

@@ -504,7 +504,7 @@ describe('desktop catalogue workbench', () => {
       // live inside Gallery settings now.
       card.querySelector<HTMLButtonElement>(`[aria-label="kashmir, in winter actions"]`)!.click()
       await settle()
-      for (const item of ['Pin gallery', 'Share link', 'Gallery Settings']) {
+      for (const item of ['Pin gallery', 'Copy link', 'Post to X', 'Gallery Settings']) {
         expect(menuItem(container, item)).toBeDefined()
       }
       for (const item of ['Reorder photographs', 'Open source', 'Refresh gallery contents', 'Remove gallery']) {
@@ -1624,18 +1624,26 @@ describe('desktop catalogue workbench', () => {
     }
   })
 
-  test('the account menu opens the shared share sheet and gallery settings', async () => {
+  test('the account menu copies the gallery link, then opens gallery settings', async () => {
     const calls: { url: string; method?: string; body?: string }[] = []
     const restore = withGallery(calls)
+    const written: string[] = []
+    const previousNavigator = globals.navigator
+    Object.defineProperty(globals, 'navigator', {
+      configurable: true,
+      writable: true,
+      value: { clipboard: { writeText: (text: string) => { written.push(text); return Promise.resolve() } } },
+    })
     try {
       const container = await mount(true)
       container.querySelector<HTMLButtonElement>('[aria-label="kashmir, in winter actions"]')!.click()
       await settle()
-      menuItem(container, 'Share link')!.click()
+      // Copy link is a clipboard copy, nothing more — no sheet, no share UI.
+      menuItem(container, 'Copy link')!.click()
       await settle()
-      expect(container.querySelector('.m-share-address')?.textContent).toContain('manorama.xyz/thecontrarian/kashmir')
-      container.querySelector<HTMLButtonElement>('.m-sheet [aria-label="Close"], .m-sheet .m-sheet-close')?.click()
-      await settle()
+      expect(written).toEqual(['https://manorama.xyz/thecontrarian/kashmir'])
+      expect(container.querySelector('.desktop-toast-stack .admin-toast')?.textContent).toBe('Link copied — paste it anywhere')
+      expect(container.querySelector('.m-share-address')).toBeNull()
 
       container.querySelector<HTMLButtonElement>('[aria-label="kashmir, in winter actions"]')!.click()
       await settle()
@@ -1645,7 +1653,39 @@ describe('desktop catalogue workbench', () => {
       expect(container.querySelector('.m-owner-panel')).not.toBeNull()
     } finally {
       restore()
+      Object.defineProperty(globals, 'navigator', { configurable: true, writable: true, value: previousNavigator })
     }
+  })
+
+  test('the account menu’s Post to X opens the photograph picker', async () => {
+    const calls: { url: string; method?: string; body?: string }[] = []
+    const restore = withGallery(calls)
+    try {
+      const container = await mount(true)
+      container.querySelector<HTMLButtonElement>('[aria-label="kashmir, in winter actions"]')!.click()
+      await settle()
+      menuItem(container, 'Post to X')!.click()
+      await settle()
+      // The picker mounts over the Library and asks for the gallery's
+      // manifest — the photographs it offers come from there.
+      expect(container.querySelector('[data-post-to-x]')).not.toBeNull()
+      expect(calls.some((call) => call.url.includes('/api/gallery/thecontrarian/kashmir'))).toBe(true)
+    } finally {
+      restore()
+    }
+  })
+
+  test('the local card menu’s Post to X opens the picker straight off the disk', async () => {
+    const container = await mount(true)
+    container.querySelector<HTMLButtonElement>(`[aria-label="${TITLE} actions"]`)!.click()
+    await settle()
+    menuItem(container, 'Post to X')!.click()
+    await settle()
+    const picker = container.querySelector<HTMLElement>('[data-post-to-x]')
+    expect(picker).not.toBeNull()
+    // No manifest fetch — the catalogue record is the photo list.
+    expect(picker!.getAttribute('aria-label')).toBe(`Post to X — ${TITLE}`)
+    expect(picker!.querySelectorAll('.native-global-cell')).toHaveLength(2)
   })
 
   test('the local card menu carries the account menu’s relevant verbs', async () => {
@@ -1659,6 +1699,7 @@ describe('desktop catalogue workbench', () => {
       'Pin gallery',
       'Hide this gallery',
       'Publish this gallery',
+      'Post to X',
       'Gallery settings',
     ])
   })

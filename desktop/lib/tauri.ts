@@ -70,3 +70,21 @@ export const assetUrl = (path: string): string => convertFileSrc(path)
  * path outside a picked root rejects.
  */
 export const readFileBytes = async (path: string): Promise<Uint8Array> => readFile(path)
+
+/**
+ * "Post to X": the prepared JPEGs, the post text and the gallery's address,
+ * handed to the shell in one call. The shell stages the files where the OS
+ * can reach them — the macOS shell puts them on the pasteboard and opens
+ * the X composer; the photographs exist only for the post, they are never
+ * a saved copy. A shell with no `share_post` rejects, which the caller
+ * reports instead of pretending the post went out.
+ */
+export const sharePost = async (
+  files: readonly { name: string; data: string }[],
+  text: string,
+  url: string,
+  title: string,
+): Promise<string> => {
+  const note = await invoke<string | null>('share_post', { files, text, url, title })
+  return typeof note === 'string' ? note : ''
+}
