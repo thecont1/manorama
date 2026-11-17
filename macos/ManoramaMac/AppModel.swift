@@ -228,14 +228,17 @@ final class AppModel {
         if self.window !== window {
             self.window = window
         }
-        guard configuredWindows.insert(ObjectIdentifier(window)).inserted else { return }
+        guard !configuredWindows.contains(window) else { return }
+        configuredWindows.add(window)
         window.titlebarAppearsTransparent = true
         window.backgroundColor = NSColor(red: 0x11 / 255.0, green: 0x13 / 255.0, blue: 0x12 / 255.0, alpha: 1.0)
         window.isMovableByWindowBackground = false
     }
 
-    /// The windows whose chrome has been configured.
-    @ObservationIgnored private var configuredWindows: Set<ObjectIdentifier> = []
+    /// The windows whose chrome has been configured. Weakly held: a dead
+    /// window's identifier leaves the set with the window, so a new window
+    /// cannot inherit the mark through a reused address.
+    @ObservationIgnored private var configuredWindows = NSHashTable<NSWindow>.weakObjects()
 
     /// The UserDefaults key the Settings scene writes and the launch
     /// decision reads — one source of truth for both sides.
@@ -267,10 +270,10 @@ final class AppModel {
 
     /// Whether the launch mode has already been applied.
     @ObservationIgnored private var didApplyLaunchMode = false
-    /// The one-shot observer used while the launch mode is pending.
+    /// The observer used while the launch mode is pending.
     @ObservationIgnored private var launchModeObserver: NSObjectProtocol?
-    /// Disarms a pending launch-mode observer once the launch has settled.
-    @ObservationIgnored private var launchModeDeadline: DispatchWorkItem?
+    /// Retires a pending launch-mode request if its window goes away.
+    @ObservationIgnored private var launchModeCloseObserver: NSObjectProtocol?
 
     /// Enter fullscreen once the window is ready — only if the launch
     /// decision asked for it and the window is not already there. AppKit
@@ -283,7 +286,11 @@ final class AppModel {
             window.toggleFullScreen(nil)
             return
         }
-        launchModeObserver = NotificationCenter.default.addObserver(
+        let center = NotificationCenter.default
+        // The observer stays armed until the window is actually visible —
+        // an occlusion notification about any other state does not let the
+        // transition run, so it must not consume the pending request.
+        launchModeObserver = center.addObserver(
             forName: NSWindow.didChangeOcclusionStateNotification,
             object: window,
             queue: .main
@@ -291,12 +298,19 @@ final class AppModel {
             // The observer runs on the main queue, so the main actor is
             // already where this executes.
             MainActor.assumeIsolated {
-                self?.disarmLaunchMode()
                 guard let window,
-                      window.occlusionState.contains(.visible),
-                      !window.styleMask.contains(.fullScreen) else { return }
+                      window.occlusionState.contains(.visible) else { return }
+                self?.disarmLaunchMode()
+                guard !window.styleMask.contains(.fullScreen) else { return }
                 window.toggleFullScreen(nil)
             }
+        }
+        launchModeCloseObserver = center.addObserver(
+            forName: NSWindow.willCloseNotification,
+            object: window,
+            queue: .main
+        ) { [weak self] _ in
+            MainActor.assumeIsolated { self?.disarmLaunchMode() }
         }
         // The visibility check above races the order-in: if the window
         // became visible before the observer landed, act now.
@@ -309,38 +323,61 @@ final class AppModel {
     /// Undo a fullscreen the window restored on its own. A launch that
     /// decided "windowed" can still arrive in a Space when the system
     /// resumes an old fullscreen record — one that predates the setting.
-    /// That record is corrected once, during the launch settle only; a
-    /// fullscreen the user enters afterwards is their own and stands.
+    /// That record is corrected once: the first fullscreen entry the
+    /// window makes is judged by what caused it, not by when it lands.
+    /// A user action — the green light, the View menu, ⌃⌘F — always
+    /// arrives behind a real input event; a restoration record is the
+    /// system replaying saved state and arrives behind none. Only the
+    /// second is undone. Once any entry has been judged the observer
+    /// retires — there is no second record to correct.
     private func leaveFullScreenIfRestored(_ window: NSWindow) {
         if window.styleMask.contains(.fullScreen) {
             window.toggleFullScreen(nil)
             return
         }
-        launchModeObserver = NotificationCenter.default.addObserver(
+        let center = NotificationCenter.default
+        launchModeObserver = center.addObserver(
             forName: NSWindow.didEnterFullScreenNotification,
             object: window,
             queue: .main
         ) { [weak self, weak window] _ in
             MainActor.assumeIsolated {
                 self?.disarmLaunchMode()
-                guard let window, window.styleMask.contains(.fullScreen) else { return }
+                guard let window,
+                      window.styleMask.contains(.fullScreen),
+                      !Self.fullscreenCameFromInput() else { return }
                 window.toggleFullScreen(nil)
             }
         }
-        // Restoration finishes promptly after the window orders in; three
-        // seconds covers a slow Space transition without lingering long
-        // enough to undo a deliberate shortcut.
-        let deadline = DispatchWorkItem { [weak self] in self?.disarmLaunchMode() }
-        launchModeDeadline = deadline
-        DispatchQueue.main.asyncAfter(deadline: .now() + 3, execute: deadline)
+        launchModeCloseObserver = center.addObserver(
+            forName: NSWindow.willCloseNotification,
+            object: window,
+            queue: .main
+        ) { [weak self] _ in
+            MainActor.assumeIsolated { self?.disarmLaunchMode() }
+        }
     }
 
-    /// Drop the pending launch-mode observer, if any.
+    /// Whether the event that entered fullscreen was a person's input.
+    /// Every supported way of asking — keyboard equivalent, menu pick,
+    /// zoom button — dispatches from a real input event; a window that
+    /// enters fullscreen with none in flight was moved by the system.
+    private static func fullscreenCameFromInput() -> Bool {
+        switch NSApp.currentEvent?.type {
+        case .keyDown, .leftMouseDown, .rightMouseDown, .otherMouseDown:
+            return true
+        default:
+            return false
+        }
+    }
+
+    /// Drop the pending launch-mode observers, if any.
     private func disarmLaunchMode() {
-        if let launchModeObserver { NotificationCenter.default.removeObserver(launchModeObserver) }
+        let center = NotificationCenter.default
+        if let launchModeObserver { center.removeObserver(launchModeObserver) }
+        if let launchModeCloseObserver { center.removeObserver(launchModeCloseObserver) }
         launchModeObserver = nil
-        launchModeDeadline?.cancel()
-        launchModeDeadline = nil
+        launchModeCloseObserver = nil
     }
 
     // MARK: - The probe
