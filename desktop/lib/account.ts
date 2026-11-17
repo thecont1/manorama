@@ -38,6 +38,23 @@ const rewriteVariant = (variant: ImageVariant, apiBase: string): ImageVariant =>
 /** GET {apiBase}/api/galleries — the same summaries the web dashboard and the
  *  iOS library list. Image URLs arrive server-relative, so every preview is
  *  rewritten against the API origin before it reaches an <img>. */
+/** PUT {apiBase}/api/library/order — the Library's drag reorder. The
+ *  positions map covers every card in the arranged section; ranks are
+ *  per-section so the same integers may repeat across sections. */
+export const setAccountGalleryPositions = async (
+  apiBase: string,
+  token: string,
+  positions: Record<string, number>,
+  fetcher: typeof fetch = fetch,
+): Promise<boolean> => {
+  const response = await fetcher(`${normalizeApiBase(apiBase)}/api/library/order`, {
+    method: 'PUT',
+    headers: { ...bearer(token), 'Content-Type': 'application/json' },
+    body: JSON.stringify({ positions }),
+  })
+  return response.ok
+}
+
 export const fetchAccountGalleries = async (
   apiBase: string,
   token: string,

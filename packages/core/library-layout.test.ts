@@ -1,7 +1,7 @@
 import { describe, expect, test } from 'bun:test'
 import { libraryLayout } from './library-layout'
 
-const entry = (slug: string, extra: Partial<{ retention: 'retained' | 'pipeline'; pinnedAt: string | null }> = {}) =>
+const entry = (slug: string, extra: Partial<{ retention: 'retained' | 'pipeline'; pinnedAt: string | null; position: number | null }> = {}) =>
   ({ slug, retention: 'retained' as const, pinnedAt: null, ...extra })
 
 const slugs = (count: number, prefix = 'g') => Array.from({ length: count }, (_, index) => entry(`${prefix}-${index}`))
@@ -48,5 +48,29 @@ describe('libraryLayout', () => {
     expect(libraryLayout(slugs(2), 'pro').compact).toEqual(slugs(2).map((item) => item.slug))
     expect(libraryLayout([], 'pro')).toEqual({ strips: [], compact: [] })
     expect(libraryLayout([], 'free')).toEqual({ strips: [], compact: [] })
+  })
+
+  test('a manual position outranks pin date inside the strip section only', () => {
+    const entries = [
+      entry('old-pin', { pinnedAt: '2026-01-01T00:00:00.000Z' }),
+      entry('new-pin', { pinnedAt: '2026-10-01T00:00:00.000Z', position: 0 }),
+      entry('mid-pin', { pinnedAt: '2026-06-01T00:00:00.000Z', position: 1 }),
+      entry('late-pin', { pinnedAt: '2026-12-01T00:00:00.000Z' }),
+    ]
+    // Positioned pins lead in rank order; the unpositioned ones keep
+    // their pin-date order at the tail.
+    expect(libraryLayout(entries, 'pro').strips).toEqual(['new-pin', 'mid-pin', 'old-pin', 'late-pin'])
+  })
+
+  test('a manual position reorders compact cards without disturbing pin membership', () => {
+    const entries = [
+      entry('a'), entry('b', { position: 0 }), entry('c'), entry('d', { position: 1 }),
+      entry('pinned', { pinnedAt: '2026-01-01T00:00:00.000Z', position: 5 }),
+    ]
+    const layout = libraryLayout(entries, 'pro')
+    expect(layout.strips).toEqual(['pinned'])
+    // Positioned compact cards lead in rank order; unpositioned keep
+    // arrival order behind them.
+    expect(layout.compact).toEqual(['b', 'd', 'a', 'c'])
   })
 })

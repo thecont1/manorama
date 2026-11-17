@@ -2453,6 +2453,38 @@ button.lib-card-title {
 @media (min-width: 1400px) { .lib-compact-grid { --cols: 4; } }
 @media (min-width: 1700px) { .lib-compact-grid { --cols: 5; } }
 .lib-compact-grid[data-masonry='on'] { grid-auto-rows: 4px; row-gap: 0; }
+
+/* Library card drag — the ghost chip follows the pointer and the drop
+   line marks the slot the card would take. Both sit above the surface;
+   neither takes pointer events. */
+.lib-drag-ghost {
+  position: fixed;
+  z-index: 80;
+  transform: translate(-50%, -50%);
+  max-width: 240px;
+  padding: 6px 14px;
+  border-radius: 999px;
+  background: rgb(12 12 16 / .92);
+  border: 1px solid #fc0fc0;
+  color: #fff;
+  font-size: 12px;
+  line-height: 1.4;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  pointer-events: none;
+  box-shadow: 0 10px 30px rgb(0 0 0 / .4);
+}
+.lib-drop-line {
+  position: fixed;
+  z-index: 79;
+  height: 2px;
+  border-radius: 1px;
+  background: #fc0fc0;
+  pointer-events: none;
+  box-shadow: 0 0 8px rgb(252 15 192 / .55);
+}
+.lib-card-dragging, .lib-card-dragging * { cursor: grabbing !important; user-select: none !important; -webkit-user-select: none !important; }
 .lib-compact-card { display: block; width: 100%; margin: 0; align-self: start; }
 /* The img's own aspect-ratio owns the cover's slot — seeded from stored
    dims, corrected to the decoded frame after load, so the anchor hugs it

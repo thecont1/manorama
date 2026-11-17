@@ -52,6 +52,7 @@ beforeAll(async () => {
   await applyMigration(db, '0020_gallery_source_check.sql')
   await applyMigration(db, '0021_devices.sql')
   await applyMigration(db, '0022_device_label_drop.sql')
+  await applyMigration(db, '0024_gallery_position.sql')
 }, 15_000)
 
 afterAll(async () => {

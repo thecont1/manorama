@@ -8,7 +8,7 @@ import { fetchICloudCkImage, fetchICloudCkVideo, fetchICloudImage, fetchICloudVi
 import { fetchGPhotosImage } from './lib/gphotos-shared'
 import { canonicalSourceMatches, detectSource, scanSource, UNRECOGNIZED_LINK_MESSAGE } from './lib/sources'
 import { localSourcesEnabled, serveLocalMedia } from './lib/local-source'
-import { createGalleryWithinLimit, deleteGallery, getGallery, getStoredGallery, listGalleries, markGallerySourceChecked, setGalleryHidden, setGalleryPinned, setGalleryRetained, swapGalleryRetention, toLibrarySummaries, toSummary, updateGalleryHidden, updateGalleryImages, updateGalleryMetadata, updateGalleryOrder, updateGalleryRecord, updateGallerySlug, type GalleryEnv, type GalleryRecord } from './lib/gallery-repository'
+import { createGalleryWithinLimit, deleteGallery, getGallery, getStoredGallery, listGalleries, markGallerySourceChecked, setGalleryHidden, setGalleryPinned, setGalleryPositions, setGalleryRetained, swapGalleryRetention, toLibrarySummaries, toSummary, updateGalleryHidden, updateGalleryImages, updateGalleryMetadata, updateGalleryOrder, updateGalleryRecord, updateGallerySlug, type GalleryEnv, type GalleryRecord } from './lib/gallery-repository'
 import { assertGalleryEditable, FREE_RETAINED_LIMIT, GalleryPolicyError, isGalleryExpired, PAID_RETAINED_LIMIT, paidGalleryLimitError, pinLimitError, pipelineGalleryLimitError } from './lib/gallery-policy'
 import { createLinkHandoffToken, createSessionToken, requireMasterSession, requireSession, resolveManoramaSession, SESSION_COOKIE, type HonoSessionEnv, verifyNativeHandoffToken } from './lib/session'
 import { deleteAccount, getUserByAccountId, listUsersForAdmin, OwnerSlugError, setUserDisabled, setUserTier, updateOwnerSlug, getUserByOwnerSlug } from './lib/user-repository'
@@ -617,6 +617,25 @@ export const createManoramaApi = () => {
     } catch {
       return c.json({ error: 'The library is temporarily unavailable' }, 503)
     }
+  })
+
+  /** The Library's drag reorder: one positions map covering every card
+   *  in the section the owner arranged. Ranks are per-section, so the
+   *  same integers may repeat across pinned and compact — each gallery's
+   *  rank only ever competes inside its own section. */
+  api.put('/api/library/order', bodyLimit({ maxSize: 64 * 1024 }), async (c) => {
+    const session = c.get('manoramaSession')
+    const payload = await c.req.json<{ positions?: Record<string, unknown> }>().catch(() => null)
+    const positions = payload?.positions
+    if (!positions || typeof positions !== 'object' || Array.isArray(positions)) {
+      return c.json({ error: 'Provide a positions map to update' }, 400)
+    }
+    const entries = Object.entries(positions)
+      .filter(([slug, position]) => slug.length <= 200 && typeof position === 'number' && Number.isFinite(position))
+      .slice(0, 1000)
+    if (!entries.length) return c.json({ error: 'Provide at least one gallery position' }, 400)
+    await setGalleryPositions(session.accountId, Object.fromEntries(entries) as Record<string, number>, dbEnv(c))
+    return c.json({ ok: true })
   })
 
   api.get('/api/galleries/:slug', async (c) => {

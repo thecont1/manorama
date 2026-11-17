@@ -47,6 +47,11 @@ export type GalleryRecord = GalleryManifest & {
   /** The last completed source-freshness probe. Drives the Library-load
    *  check throttle — a manual refresh stamps it too (a rescan IS a read). */
   lastSourceCheckAt?: string | null
+  /** The owner's manual rank inside whichever Library section the gallery
+   *  currently sits in — written by a drag reorder. NULL keeps the
+   *  default order (pin date for strips, arrival for compact) and sorts
+   *  after every positioned sibling. */
+  position?: number | null
 }
 
 type GalleryRow = {
@@ -66,6 +71,7 @@ type GalleryRow = {
   key_retired_at: string | null
   migration_devices: string | null
   last_source_check_at: string | null
+  position: number | null
 }
 
 export type GalleryEnv = { DB?: D1Database }
@@ -96,6 +102,7 @@ const normalizeRecord = (gallery: GalleryRecord): GalleryRecord => ({
   keyRetiredAt: gallery.keyRetiredAt ?? null,
   migrationDevices: gallery.migrationDevices ?? [],
   lastSourceCheckAt: gallery.lastSourceCheckAt ?? null,
+  position: gallery.position ?? null,
 })
 
 const rowToRecord = (row: GalleryRow | null): GalleryRecord | null => {
@@ -116,6 +123,7 @@ const rowToRecord = (row: GalleryRow | null): GalleryRecord | null => {
     keyRetiredAt: row.key_retired_at ?? null,
     migrationDevices: JSON.parse(row.migration_devices || '[]') as string[],
     lastSourceCheckAt: row.last_source_check_at ?? null,
+    position: row.position ?? null,
     images: [],
   }
   if (row.images_json) {
@@ -129,7 +137,7 @@ const rowToRecord = (row: GalleryRow | null): GalleryRecord | null => {
   return gallery
 }
 
-const GALLERY_COLUMNS = 'id, manifest_version, slug, title, caption, date, source_url, images_json, created_at, retention, expires_at, pinned_at, hidden_at, key_retired_at, migration_devices, last_source_check_at'
+const GALLERY_COLUMNS = 'id, manifest_version, slug, title, caption, date, source_url, images_json, created_at, retention, expires_at, pinned_at, hidden_at, key_retired_at, migration_devices, last_source_check_at, position'
 
 type GalleryInsertRow = {
   id: string
@@ -480,6 +488,25 @@ export const setGalleryPinned = async (ownerId: string, slug: string, pinned: bo
   return updated
 }
 
+/** Writes the owner's manual Library ranks in one pass — the drag
+ *  reorder's persistence. Positions are per-section ranks, so callers
+ *  send dense integers for every card in the section they arranged;
+ *  slugs the account does not own simply match no row. */
+export const setGalleryPositions = async (ownerId: string, positions: Record<string, number>, env?: GalleryEnv): Promise<void> => {
+  const entries = Object.entries(positions).filter(([, position]) => Number.isFinite(position))
+  if (!entries.length) return
+  if (d1Configured(env)) {
+    await env.DB.batch(entries.map(([slug, position]) =>
+      env.DB.prepare(`UPDATE galleries SET position = ? WHERE owner_id = ? AND slug = ?`).bind(position, ownerId, slug)))
+    return
+  }
+  const store = ownerStore(ownerId)
+  for (const [slug, position] of entries) {
+    const current = store.get(slug)
+    if (current) store.set(slug, { ...normalizeRecord(current), position })
+  }
+}
+
 /** Sets or clears the hidden timestamp — the Library's declutter/privacy
  *  flag. Account-wide like the pin (every device and the web Library honor
  *  it), and like the pin it never touches retention, expiry, or images. */
@@ -821,7 +848,7 @@ export const toSummary = (gallery: GalleryRecord) => {
   // vault's "Saving n of imageCount" progress reads it.
   const visible = gallery.images.filter((image) => !image.hidden)
   const { stills, videos } = mediaCountOf(visible)
-  return { id: gallery.id, manifestVersion: gallery.manifestVersion ?? 1, slug: gallery.slug, title: gallery.title, caption: gallery.caption, date: gallery.date, imageCount: gallery.images.length, mediaCount: { stills, videos, hidden: gallery.images.length - visible.length }, sourceUrl: gallery.sourceUrl, createdAt: gallery.createdAt, retention: retentionOf(gallery), expiresAt: gallery.expiresAt ?? null, pinnedAt: gallery.pinnedAt ?? null, hiddenAt: gallery.hiddenAt ?? null, keyRetiredAt: gallery.keyRetiredAt ?? null, lastSourceCheckAt: gallery.lastSourceCheckAt ?? null, images: previewImages(gallery.images) }
+  return { id: gallery.id, manifestVersion: gallery.manifestVersion ?? 1, slug: gallery.slug, title: gallery.title, caption: gallery.caption, date: gallery.date, imageCount: gallery.images.length, mediaCount: { stills, videos, hidden: gallery.images.length - visible.length }, sourceUrl: gallery.sourceUrl, createdAt: gallery.createdAt, retention: retentionOf(gallery), expiresAt: gallery.expiresAt ?? null, pinnedAt: gallery.pinnedAt ?? null, hiddenAt: gallery.hiddenAt ?? null, keyRetiredAt: gallery.keyRetiredAt ?? null, lastSourceCheckAt: gallery.lastSourceCheckAt ?? null, position: gallery.position ?? null, images: previewImages(gallery.images) }
 }
 export type GallerySummary = ReturnType<typeof toSummary>
 

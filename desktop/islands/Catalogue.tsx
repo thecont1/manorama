@@ -34,7 +34,7 @@ import { assetUrl, isDesktopRuntime, pathExists, pickGalleryFolder, readDirEntri
 import { invoke } from '@tauri-apps/api/core'
 import { removeDeviceGallery, syncDeviceGalleries } from '../lib/sync'
 import { copyText, shareGalleryOnWeb } from '../../app/lib/gallery-share'
-import { AccountApiError, createAccountGallery, deleteAccount, deleteDeviceGalleryRecord, fetchAccountGalleries, fetchAccountGallery, fetchAccountIdentities, fetchAccountProfile, fetchDeviceGalleries, fetchDevices, forgetDevice, mintLinkHandoff, patchAccountOwnerSlug, probeAccountGallery, refreshAccountGallery, registerDevice, scanGalleryLink, setAccountGalleryHidden, setAccountGalleryPin, setDeviceGalleryHidden, standaloneDeviceGalleries, unlinkAccountIdentity } from '../lib/account'
+import { AccountApiError, createAccountGallery, deleteAccount, deleteDeviceGalleryRecord, fetchAccountGalleries, fetchAccountGallery, fetchAccountIdentities, fetchAccountProfile, fetchDeviceGalleries, fetchDevices, forgetDevice, mintLinkHandoff, patchAccountOwnerSlug, probeAccountGallery, refreshAccountGallery, registerDevice, scanGalleryLink, setAccountGalleryHidden, setAccountGalleryPin, setAccountGalleryPositions, setDeviceGalleryHidden, standaloneDeviceGalleries, unlinkAccountIdentity } from '../lib/account'
 import { previewSrcFor, sourceLabelFor } from '../../native/lib/library-media'
 import { postToXPhotos, type PostToXPhoto } from '../../native/lib/post-to-x'
 import { cloudPhotoReader, localPhotoReader, localPostPhotos, type PostPhotoReader } from '../lib/post-to-x'
@@ -164,6 +164,69 @@ type CardMenu =
   | { kind: 'account'; gallery: GallerySummary }
   | { kind: 'local'; record: LocalGalleryRecord }
   | { kind: 'device'; gallery: DeviceGallery }
+
+/** A Library card mid-drag: which section owns it, where the pointer is,
+ *  and the slot the drop would take. `key` is the shared layout slug —
+ *  'account:<slug>' or 'local:<recordId>' — the same identity
+ *  libraryLayout partitions on. */
+type LibraryCardDrag = {
+  key: string
+  section: 'pinned' | 'local' | 'cloud'
+  /** The card's data-gallery-card value — its handle inside the section's ul. */
+  ident: string
+  label: string
+  startX: number
+  startY: number
+  x: number
+  y: number
+  active: boolean
+  /** Viewport-space drop line, null until the pointer finds a slot. */
+  line: { top: number; left: number; width: number } | null
+}
+
+/** Where a drop at (x, y) lands inside a section list: the index among
+ *  the remaining cards plus the viewport-space line marking the slot.
+ *  Reading order decides — a card counts as "after" the pointer when its
+ *  centre sits below the pointer's row, or on the pointer's row to its
+ *  right — which reads correctly for both the vertical strip list and
+ *  the row-ordered masonry grid. */
+const cardIdentOf = (item: Element): string | null =>
+  (item as HTMLElement).dataset?.galleryCard
+    ?? item.querySelector<HTMLElement>('[data-gallery-card]')?.dataset.galleryCard
+    ?? null
+
+const insertionSlot = (list: HTMLUListElement, excludeIdent: string, x: number, y: number) => {
+  // Direct children only — strip thumbnails nest their own li's inside a
+  // card, and the card's data attr sits on the li for compact cards but
+  // on the article for strip cards.
+  const items = Array.from(list.children).filter((item) => {
+    const ident = cardIdentOf(item)
+    return ident !== null && ident !== excludeIdent
+  })
+  let index = items.length
+  let target: Element | null = null
+  for (let i = 0; i < items.length; i += 1) {
+    const rect = items[i]!.getBoundingClientRect()
+    const cx = rect.left + rect.width / 2
+    const cy = rect.top + rect.height / 2
+    if (cy > y || (Math.abs(cy - y) <= rect.height / 2 && cx > x)) {
+      index = i
+      target = items[i]!
+      break
+    }
+  }
+  const anchor = target ?? items[items.length - 1]
+  if (!anchor) return { index: 0, line: null }
+  const rect = anchor.getBoundingClientRect()
+  return {
+    index,
+    line: {
+      top: target ? rect.top - 1 : rect.bottom + 1,
+      left: rect.left,
+      width: rect.width,
+    },
+  }
+}
 
 /* The strip/card helpers the web Library uses — same badges, same temp
  *  wording, so an owner sees one product across the two shells. */
@@ -368,6 +431,25 @@ export default function Catalogue({ apiBase }: { apiBase: string }) {
   useMasonry(accountGridRef)
   useMasonry(savedGridRef)
   useMasonry(hiddenGridRef)
+  const pinnedListRef = useRef<HTMLUListElement | null>(null)
+  // Activation state only — the ghost and drop line are positioned by
+  // imperative style writes in the pointermove handler, so a drag never
+  // re-renders the island (or re-runs useMasonry's layout pass) per tick.
+  const [cardDrag, setCardDrag] = useState<{ label: string; x: number; y: number } | null>(null)
+  const dragGhostRef = useRef<HTMLDivElement | null>(null)
+  const dropLineRef = useRef<HTMLDivElement | null>(null)
+  const dragCandidate = useRef<LibraryCardDrag | null>(null)
+  // Set on pointerup after a real drag — the click the release synthesises
+  // must not also open the card. Timestamped so a drag abandoned outside
+  // the window can't eat a later genuine click.
+  const suppressCardClickAt = useRef(0)
+  // The window listeners below register once; everything they need from
+  // the render scope arrives through this ref, reassigned every render.
+  const dragContextRef = useRef<{
+    listFor: (section: LibraryCardDrag['section']) => HTMLUListElement | null
+    sectionKeys: (section: LibraryCardDrag['section'], list: HTMLUListElement) => string[]
+    applyOrder: (section: LibraryCardDrag['section'], keys: string[]) => void
+  } | null>(null)
   const [plate, setPlate] = useState<AdFrame | null>(null)
   const [accountAd, setAccountAd] = useState<AdFrame | null>(null)
   const [adsShow, setAdsShow] = useState(true)
@@ -631,6 +713,96 @@ export default function Catalogue({ apiBase }: { apiBase: string }) {
     }
     window.addEventListener('popstate', followHistory)
     return () => window.removeEventListener('popstate', followHistory)
+  }, [])
+
+  // The drag's pointer tracking lives on window so the gesture survives
+  // the pointer leaving the card. A 6px threshold keeps plain clicks
+  // untouched; touch pointers are ignored so native scrolling stays native.
+  useEffect(() => {
+    const move = (event: PointerEvent) => {
+      const candidate = dragCandidate.current
+      if (!candidate) return
+      if (!candidate.active && Math.hypot(event.clientX - candidate.startX, event.clientY - candidate.startY) < 6) return
+      const next: LibraryCardDrag = { ...candidate, x: event.clientX, y: event.clientY, active: true }
+      const list = dragContextRef.current?.listFor(next.section)
+      if (list) {
+        const slot = insertionSlot(list, next.ident, event.clientX, event.clientY)
+        next.line = slot.line
+      }
+      dragCandidate.current = next
+      if (!candidate.active) setCardDrag({ label: candidate.label, x: event.clientX, y: event.clientY })
+      const ghost = dragGhostRef.current
+      if (ghost) {
+        ghost.style.left = `${event.clientX}px`
+        ghost.style.top = `${event.clientY}px`
+      }
+      const line = dropLineRef.current
+      if (line) {
+        if (next.line) {
+          line.style.top = `${next.line.top}px`
+          line.style.left = `${next.line.left}px`
+          line.style.width = `${next.line.width}px`
+          line.style.display = ''
+        } else {
+          line.style.display = 'none'
+        }
+      }
+      document.body.classList.add('lib-card-dragging')
+    }
+    const up = (event: PointerEvent) => {
+      const candidate = dragCandidate.current
+      dragCandidate.current = null
+      document.body.classList.remove('lib-card-dragging')
+      setCardDrag(null)
+      if (!candidate?.active) return
+      suppressCardClickAt.current = Date.now()
+      const context = dragContextRef.current
+      const list = context?.listFor(candidate.section)
+      if (!context || !list) return
+      const slot = insertionSlot(list, candidate.ident, event.clientX, event.clientY)
+      const keys = context.sectionKeys(candidate.section, list).filter((key) => key !== candidate.key)
+      const at = Math.min(slot.index, keys.length)
+      context.applyOrder(candidate.section, [...keys.slice(0, at), candidate.key, ...keys.slice(at)])
+    }
+    const cancel = () => {
+      dragCandidate.current = null
+      setCardDrag(null)
+      document.body.classList.remove('lib-card-dragging')
+    }
+    window.addEventListener('pointermove', move)
+    window.addEventListener('pointerup', up)
+    window.addEventListener('pointercancel', cancel)
+    window.addEventListener('blur', cancel)
+    return () => {
+      window.removeEventListener('pointermove', move)
+      window.removeEventListener('pointerup', up)
+      window.removeEventListener('pointercancel', cancel)
+      window.removeEventListener('blur', cancel)
+    }
+  }, [])
+
+  // The release of a real drag synthesises a click on whatever sits under
+  // the pointer — swallow it so the card doesn't also open.
+  useEffect(() => {
+    const onClick = (event: MouseEvent) => {
+      if (Date.now() - suppressCardClickAt.current > 400) return
+      suppressCardClickAt.current = 0
+      event.preventDefault()
+      event.stopPropagation()
+    }
+    window.addEventListener('click', onClick, true)
+    return () => window.removeEventListener('click', onClick, true)
+  }, [])
+
+  // Covers and titles carry draggable={false}, but images deeper in a
+  // card don't — a native dragstart would steal the pointer mid-gesture.
+  // Nothing in the Library uses native drag and drop.
+  useEffect(() => {
+    const prevent = (event: DragEvent) => {
+      if ((event.target as HTMLElement | null)?.closest?.('.desktop-catalogue')) event.preventDefault()
+    }
+    document.addEventListener('dragstart', prevent)
+    return () => document.removeEventListener('dragstart', prevent)
   }, [])
 
   const persistCatalogue = useCallback(
@@ -2525,11 +2697,11 @@ export default function Catalogue({ apiBase }: { apiBase: string }) {
   // identity spaces distinct inside the shared layout.
   const accountLayout = libraryLayout(
     [
-      ...liveAccountGalleries.filter((gallery) => !gallery.hiddenAt).map((gallery) => ({ slug: `account:${gallery.slug}`, pinnedAt: gallery.pinnedAt })),
+      ...liveAccountGalleries.filter((gallery) => !gallery.hiddenAt).map((gallery) => ({ slug: `account:${gallery.slug}`, pinnedAt: gallery.pinnedAt, position: gallery.position ?? null })),
       // Free sees no locals anywhere — an ungated pinned local would still
       // surface in "Pinned galleries" after a downgrade even though the
       // Local section is hidden (invariant 12).
-      ...(accountTier === 'pro' ? galleries : []).filter((record) => !record.hiddenAt).map((record) => ({ slug: `local:${record.id}`, pinnedAt: record.pinnedAt })),
+      ...(accountTier === 'pro' ? galleries : []).filter((record) => !record.hiddenAt).map((record) => ({ slug: `local:${record.id}`, pinnedAt: record.pinnedAt, position: record.position ?? null })),
     ],
     accountTier,
   )
@@ -2549,6 +2721,109 @@ export default function Catalogue({ apiBase }: { apiBase: string }) {
   const compactLocalGalleries = accountLayout.compact
     .map((key) => localByCardId.get(key))
     .filter((record): record is LocalGalleryRecord => Boolean(record))
+
+  // --- Library card drag reorder -------------------------------------
+  // Pointer-driven reorder inside each draggable section — pinned strips,
+  // the local compact grid, the cloud compact grid. The DOM stays put
+  // during the gesture (a ghost chip and a drop line carry the feedback)
+  // and the drop rewrites the section's ranks: account cards through
+  // PUT /api/library/order, local records through the catalogue file.
+  // A card can only land inside its own section — the drop index is
+  // computed against that section's list alone, so nothing ever drifts
+  // into another section's rank space.
+  const sectionListFor = (section: LibraryCardDrag['section']): HTMLUListElement | null =>
+    section === 'pinned' ? pinnedListRef.current
+      : section === 'local' ? localGridRef.current
+      : accountGridRef.current
+
+  // The pinned section mixes both identity spaces under bare data attrs
+  // (account slug vs local record id) — resolve through the layout keys,
+  // which are already namespaced.
+  const pinnedKeyByIdent = new Map<string, string>()
+  for (const entry of pinnedStrips) {
+    pinnedKeyByIdent.set(
+      entry.kind === 'local' ? entry.record.id : entry.gallery.slug,
+      entry.kind === 'local' ? `local:${entry.record.id}` : `account:${entry.gallery.slug}`,
+    )
+  }
+  const keyForIdent = (section: LibraryCardDrag['section'], ident: string): string | null =>
+    section === 'pinned' ? pinnedKeyByIdent.get(ident) ?? null
+      : section === 'local' ? `local:${ident}`
+      : `account:${ident}`
+
+  const sectionKeys = (section: LibraryCardDrag['section'], list: HTMLUListElement): string[] =>
+    Array.from(list.children)
+      .map((item) => keyForIdent(section, cardIdentOf(item) ?? ''))
+      .filter((key): key is string => Boolean(key))
+
+  const applySectionOrder = async (section: LibraryCardDrag['section'], keys: string[]) => {
+    const accountPositions: Record<string, number> = {}
+    const localPositions = new Map<string, number>()
+    keys.forEach((key, index) => {
+      if (key.startsWith('account:')) accountPositions[key.slice(8)] = index
+      else if (key.startsWith('local:')) localPositions.set(key.slice(6), index)
+    })
+    const previousGalleries = accountGalleries
+    const previousCatalogue = catalogue
+    // Optimistic — the layout re-derives on the next render, and a failed
+    // write restores the snapshot below.
+    if (accountGalleries && Object.keys(accountPositions).length) {
+      setAccountGalleries(accountGalleries.map((gallery) =>
+        accountPositions[gallery.slug] !== undefined ? { ...gallery, position: accountPositions[gallery.slug] } : gallery))
+    }
+    let localSaved = true
+    if (catalogue && localPositions.size) {
+      const saved = await persistCatalogue((latest) => ({
+        ...latest,
+        galleries: latest.galleries.map((record) =>
+          localPositions.has(record.id) ? { ...record, position: localPositions.get(record.id)! } : record),
+      }))
+      if (saved) setCatalogue(saved)
+      else localSaved = false
+    }
+    let accountSaved = true
+    if (session?.token && Object.keys(accountPositions).length) {
+      accountSaved = await setAccountGalleryPositions(base, session.token, accountPositions).catch(() => false)
+      if (accountSaved) void refreshAccountGalleries(session.token)
+    }
+    if (!localSaved || !accountSaved) {
+      if (!accountSaved && previousGalleries) setAccountGalleries(previousGalleries)
+      if (!localSaved && previousCatalogue) setCatalogue(previousCatalogue)
+      setNotice('That order could not be saved')
+    }
+  }
+
+  dragContextRef.current = {
+    listFor: sectionListFor,
+    sectionKeys,
+    applyOrder: (section, keys) => { void applySectionOrder(section, keys) },
+  }
+
+  const beginCardDrag = (section: LibraryCardDrag['section']) => (event: PointerEvent) => {
+    if (event.button !== 0 || event.pointerType === 'touch') return
+    const target = event.target as HTMLElement | null
+    if (!target?.closest) return
+    // The card menu and inline actions keep their own gestures.
+    if (target.closest('.lib-card-menu, .lib-card-action, input, select, textarea, [contenteditable="true"]')) return
+    // The card is the li that is a direct child of the section list —
+    // strip thumbnails nest their own li's inside it, so walk up until
+    // the parent is the list itself.
+    let item: HTMLElement | null = target.closest('li')
+    while (item && item.parentElement !== event.currentTarget) {
+      item = item.parentElement?.closest('li') ?? null
+    }
+    const ident = item ? cardIdentOf(item) : null
+    if (!item || !ident) return
+    const key = keyForIdent(section, ident)
+    if (!key) return
+    dragCandidate.current = {
+      key, section, ident,
+      label: item.querySelector('.lib-card-title')?.textContent?.trim() || ident,
+      startX: event.clientX, startY: event.clientY,
+      x: event.clientX, y: event.clientY,
+      active: false, line: null,
+    }
+  }
   const galSettingsGallery = galSettingsSlug ? liveAccountGalleries.find((gallery) => gallery.slug === galSettingsSlug) ?? null : null
   const galSettingsStreamOnly = galSettingsGallery
     ? streamOnlyPolicies[galleryPolicyKey(ownerSlug ?? session?.ownerSlug ?? '', galSettingsGallery.slug)] === true
@@ -2864,7 +3139,7 @@ export default function Catalogue({ apiBase }: { apiBase: string }) {
                 Pinned galleries <span class="lib-hidden-count">({pinnedStrips.length})</span>
               </button>
               {pinnedOpen ? (
-              <ul class="lib-list">
+              <ul class="lib-list" ref={pinnedListRef} onPointerDown={beginCardDrag('pinned')}>
                 {pinnedStrips.map((entry) => {
                   if (entry.kind === 'local') return localStripCard(entry.record)
                   const gallery = entry.gallery
@@ -2960,7 +3235,7 @@ export default function Catalogue({ apiBase }: { apiBase: string }) {
                     </ul>
                   ) : null}
                   {compactLocalGalleries.length ? (
-                    <ul class="lib-compact-grid" ref={localGridRef}>
+                    <ul class="lib-compact-grid" ref={localGridRef} onPointerDown={beginCardDrag('local')}>
                       {compactLocalGalleries.map(localCompactCard)}
                     </ul>
                   ) : null}
@@ -2984,7 +3259,7 @@ export default function Catalogue({ apiBase }: { apiBase: string }) {
                 Cloud galleries <span class="lib-hidden-count">({compactAccountGalleries.length})</span>
               </button>
               {cloudOpen ? (
-                <ul class="lib-compact-grid" ref={accountGridRef}>
+                <ul class="lib-compact-grid" ref={accountGridRef} onPointerDown={beginCardDrag('cloud')}>
                   {compactAccountGalleries.map(accountCompactCard)}
                 </ul>
               ) : null}
@@ -3457,6 +3732,12 @@ export default function Catalogue({ apiBase }: { apiBase: string }) {
           {accountNote ? <div class="admin-toast" role="status">{accountNote}</div> : null}
           {slugNote ? <div class="admin-toast" role="status">{slugNote}</div> : null}
         </div>
+      ) : null}
+      {cardDrag ? (
+        <div ref={dragGhostRef} class="lib-drag-ghost" style={{ left: `${cardDrag.x}px`, top: `${cardDrag.y}px` }}>{cardDrag.label}</div>
+      ) : null}
+      {cardDrag ? (
+        <div ref={dropLineRef} class="lib-drop-line" style={{ display: 'none' }} />
       ) : null}
     </main>
   )

@@ -45,6 +45,11 @@ export type LocalGalleryRecord = {
    *  yield readable dimensions are not re-probed on every launch; a
    *  manual rescan always can. */
   dimsScannedAt?: string | null
+  /** The owner's manual rank inside whichever Library section the record
+   *  sits in — a local gallery's drag reorder, mirroring the cloud
+   *  gallery's `position` column. Device-local like the pin: the sync
+   *  projection has no slot for it. */
+  position?: number | null
   addedAt: string
   lastSeenAt: string
 }
@@ -108,6 +113,7 @@ const parseRecord = (value: unknown): LocalGalleryRecord | null => {
     ...(typeof record.pinnedAt === 'string' && record.pinnedAt ? { pinnedAt: record.pinnedAt } : {}),
     ...(typeof record.hiddenAt === 'string' && record.hiddenAt ? { hiddenAt: record.hiddenAt } : {}),
     ...(typeof record.dimsScannedAt === 'string' && record.dimsScannedAt ? { dimsScannedAt: record.dimsScannedAt } : {}),
+    ...(typeof record.position === 'number' && Number.isFinite(record.position) ? { position: record.position } : {}),
     addedAt: typeof record.addedAt === 'string' ? record.addedAt : '',
     lastSeenAt: typeof record.lastSeenAt === 'string' ? record.lastSeenAt : '',
   }

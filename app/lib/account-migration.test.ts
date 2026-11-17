@@ -60,10 +60,11 @@ beforeAll(async () => {
   await applyMigration(db, '0002_gallery_retention.sql')
   await applyMigration(db, '0003_revenuecat_event_ordering.sql')
   await applyMigration(db, '0004_ad_suppressions.sql')
-  // pinned_at joins the gallery row shape — the snapshot below compares
-  // whole rows, so the column must exist on both sides of the rehearsal.
+  // pinned_at and position join the gallery row shape — the snapshot below
+  // compares whole rows, so the columns must exist on both sides of the rehearsal.
   await applyMigration(db, '0012_gallery_pinned.sql')
   await applyMigration(db, '0016_gallery_hidden.sql')
+  await applyMigration(db, '0024_gallery_position.sql')
   await db.prepare(
     `INSERT INTO users (dropbox_account_id, owner_slug, display_name, email, tier, created_at, updated_at, billing_event_timestamp_ms, billing_event_id)
      VALUES (?, ?, ?, ?, 'pro', ?, ?, ?, ?)`,
