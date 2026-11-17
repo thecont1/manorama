@@ -1828,11 +1828,18 @@ body:has(.ops-page) { overflow: auto; overflow-x: clip; background: #111312; }
      them back. Bound it and let it scroll inside itself. The platform
      scrollbar stays on: the page hides its own, but a scroll region
      with no affordance is how content goes missing quietly. The fold
-     layout's static rail is exempt — it flows with the page. */
+     layout's static rail is exempt — it flows with the page.
+     overscroll-behavior-y:contain keeps a wheel gesture that bottoms
+     out here from chaining into the page scroll — without it the page
+     lurches and the sticky rail gets pushed up by its grid row's end.
+     The right padding clears the overlay scrollbar, which floats over
+     the rail's edge rather than taking layout space. */
   .admin-page--selector:not([data-admin-segmented]) .admin-rail {
     max-height: calc(100dvh - 32px - var(--shell-top-inset, 0px));
     overflow-x: clip;
     overflow-y: auto;
+    overscroll-behavior-y: contain;
+    padding-right: 14px;
   }
   .admin-page--selector .admin-rail > * { flex-shrink: 0; }
   .admin-page--selector .admin-rail .account-ad { margin-top: auto; }
