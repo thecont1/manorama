@@ -2,8 +2,7 @@
  * The dashboard's icon set, shared by the web workbench and the native account
  * screen. Both surfaces offer the same actions on a gallery — copy its link,
  * open its cloud folder, refresh it from that folder, remove it — so the
- * drawings live here once, on the same 24px grid with the same 1.5px stroke,
- * and cannot drift apart.
+ * drawings live here once, on the same 24px grid, and cannot drift apart.
  *
  * Every icon is decorative: the button that carries it supplies the accessible
  * name, which is also what keeps the two surfaces' controls identical to a
@@ -75,9 +74,10 @@ export const QuietIcon = () => (
 
 /* The Tabler cog the Settings pill carries. Sizing stays on the element —
    admin-settings-pill has no svg rule, so attribute-less would fill the
-   44px button instead of sitting at 20px like its siblings. */
+   44px button instead of sitting at 20px like its siblings. The 2px stroke
+   sits level with the filled Quiet glyph beside it in the rail. */
 export const SettingsIcon = () => (
-  <svg viewBox="0 0 24 24" aria-hidden="true" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+  <svg viewBox="0 0 24 24" aria-hidden="true" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
     <path d="M10.325 4.317c.426 -1.756 2.924 -1.756 3.35 0a1.724 1.724 0 0 0 2.573 1.066c1.543 -.94 3.31 .826 2.37 2.37a1.724 1.724 0 0 0 1.065 2.572c1.756 .426 1.756 2.924 0 3.35a1.724 1.724 0 0 0 -1.066 2.573c.94 1.543 -.826 3.31 -2.37 2.37a1.724 1.724 0 0 0 -2.572 1.065c-.426 1.756 -2.924 1.756 -3.35 0a1.724 1.724 0 0 0 -2.573 -1.066c-1.543 .94 -3.31 -.826 -2.37 -2.37a1.724 1.724 0 0 0 -1.065 -2.572c-1.756 -.426 -1.756 -2.924 0 -3.35a1.724 1.724 0 0 0 1.066 -2.573c-.94 -1.543 .826 -3.31 2.37 -2.37c1 .608 2.296 .07 2.572 -1.065z" />
     <path d="M9 12a3 3 0 1 0 6 0a3 3 0 0 0 -6 0" />
   </svg>

@@ -16,7 +16,7 @@ import GalleryDetails from './GalleryDetails'
 import PostToX from './PostToX'
 import AddGallerySheet from '../../app/components/AddGallerySheet'
 import GalleryShareSheet from '../../app/components/GalleryShareSheet'
-import { CloseIcon, QuietIcon } from '../../app/components/admin-icons'
+import { CloseIcon, QuietIcon, SettingsIcon } from '../../app/components/admin-icons'
 import { Sheet } from '../../app/components/ui/Sheet'
 import { BundledSource } from '../../app/lib/imagesource'
 import type { AdFrame } from '../../app/lib/adframe'
@@ -1968,7 +1968,7 @@ export default function GalleryList({ apiBase, owner, slug, deepLinkSelection, o
           aria-expanded={nav.screen.kind === 'settings' ? 'true' : 'false'}
           onClick={() => dispatchNav(nav.screen.kind === 'settings' ? { type: 'back' } : { type: 'open-settings' })}
         >
-          <svg viewBox="0 0 24 24" aria-hidden="true" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M10.325 4.317c.426 -1.756 2.924 -1.756 3.35 0a1.724 1.724 0 0 0 2.573 1.066c1.543 -.94 3.31 .826 2.37 2.37a1.724 1.724 0 0 0 1.065 2.572c1.756 .426 1.756 2.924 0 3.35a1.724 1.724 0 0 0 -1.066 2.573c.94 1.543 -.826 3.31 -2.37 2.37a1.724 1.724 0 0 0 -2.572 1.065c-.426 1.756 -2.924 1.756 -3.35 0a1.724 1.724 0 0 0 -2.573 -1.066c-1.543 .94 -3.31 -.826 -2.37 -2.37a1.724 1.724 0 0 0 -1.065 -2.572c-1.756 -.426 -1.756 -2.924 0 -3.35a1.724 1.724 0 0 0 1.066 -2.573c-.94 -1.543 .826 -3.31 2.37 -2.37c1 .608 2.296 .07 2.572 -1.065z" /><path d="M9 12a3 3 0 1 0 6 0a3 3 0 0 0 -6 0" /></svg>
+          <SettingsIcon />
         </button>
         </div>
         {libraryFinding ? <p class="native-library-finding">{libraryFinding}</p> : null}
