@@ -1105,6 +1105,10 @@ export default function GalleryList({ apiBase, owner, slug, deepLinkSelection, o
     postToXIdRef.current++
     encryptedSessionRef.current?.dispose()
     encryptedSessionRef.current = null
+    // A later launch opens its own session rather than inheriting this
+    // in-flight promise — its waiter would otherwise install a session the
+    // stale waiter is about to dispose.
+    encryptedSessionOpeningRef.current = null
     setPostToX(null)
   }
 

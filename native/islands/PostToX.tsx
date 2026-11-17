@@ -20,6 +20,7 @@ import {
   type PostSavedPhotos,
 } from '../lib/post-export'
 import { getSessionToken } from '../lib/session'
+import { pushOverlay } from '../../app/lib/overlay-stack'
 import { GridThumbLoader } from '../lib/global-view'
 import type { OfflineObjectUrlProvider } from '../lib/offline-gallery'
 import '../styles/global-view.css'
@@ -192,6 +193,33 @@ export default function PostToX({
   const [caption, setCaption] = useState('')
   const [busy, setBusy] = useState(false)
   const [note, setNote] = useState('')
+  const dialogRef = useRef<HTMLElement | null>(null)
+  // Refs rather than state: the overlay push and the in-flight export read
+  // them without re-running effects or closures going stale.
+  const onCloseRef = useRef(onClose)
+  onCloseRef.current = onClose
+  const busyRef = useRef(false)
+  busyRef.current = busy
+  const aliveRef = useRef(true)
+
+  // The picker is a modal: focus lands on it, Tab is trapped inside by the
+  // overlay stack, Android Back dismisses it like any sheet, and Escape
+  // honours the export in flight instead of dropping it mid-preparation.
+  useEffect(() => {
+    const dialog = dialogRef.current
+    if (!dialog || typeof document === 'undefined') return
+    const release = pushOverlay({
+      host: dialog,
+      onEscape: () => { if (!busyRef.current) onCloseRef.current() },
+    })
+    dialog.focus()
+    return release
+  }, [])
+
+  useEffect(() => {
+    aliveRef.current = true
+    return () => { aliveRef.current = false }
+  }, [])
 
   useEffect(() => {
     let active = true
@@ -274,6 +302,9 @@ export default function PostToX({
     } catch {
       report = { outcome: 'failed', posted: 0, skipped: 0, note: 'Those photographs could not be prepared for sharing.' }
     }
+    // The picker may have been torn down mid-export — its onClose must
+    // never land on a picker that opened after it.
+    if (!aliveRef.current) return
     setBusy(false)
     if (report.outcome === 'cancelled') {
       onClose()
@@ -291,6 +322,8 @@ export default function PostToX({
 
   return (
     <section
+      ref={dialogRef}
+      tabIndex={-1}
       class="native-global-view native-postto"
       role="dialog"
       aria-modal="true"
@@ -330,7 +363,7 @@ export default function PostToX({
             </p>
           </div>
           <div class="native-global-header-actions">
-            <button type="button" class="native-global-close" onClick={onClose} aria-label="Close">Close</button>
+            <button type="button" class="native-global-close" onClick={onClose} disabled={busy} aria-label="Close">Close</button>
           </div>
         </div>
 

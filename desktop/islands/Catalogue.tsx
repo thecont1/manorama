@@ -1722,7 +1722,7 @@ export default function Catalogue({ apiBase }: { apiBase: string }) {
       title: gallery.title || gallery.slug,
       url,
       loadPhotos: async () => postToXPhotos((await fetchAccountGallery(base, owner, gallery.slug, session.token)).manifest.images),
-      read: cloudPhotoReader(session.token),
+      read: cloudPhotoReader(base, session.token),
       session: encSession,
     })
   }
@@ -1808,6 +1808,7 @@ export default function Catalogue({ apiBase }: { apiBase: string }) {
     // Sign-out releases leases and stops fills, but the vault itself stays:
     // custody is the device's Keychain, not the account — same as iOS,
     // where only "Forget everything" destroys saved copies.
+    closePostToX()
     vaultOpenAbortRef.current?.abort()
     disposeOpenLease()
     setSession(null)

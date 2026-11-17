@@ -110,11 +110,16 @@ export const localPhotoReader = (readFile: (path: string) => Promise<Uint8Array>
  *  the session's bearer — the same delivery the viewer uses. A photograph
  *  with no address (an encrypted source's) is skipped unless the caller
  *  wraps this with a `materialize`. */
-export const cloudPhotoReader = (token?: string): PostPhotoReader =>
+export const cloudPhotoReader = (base: string, token?: string): PostPhotoReader =>
   async (photo) => {
     if (photo.encrypted || !photo.src) return undefined
     try {
-      const response = await fetch(photo.src, token ? { headers: { Authorization: `Bearer ${token}` } } : undefined)
+      const src = new URL(photo.src, base)
+      // The session bearer belongs to our own API: a photograph whose
+      // address resolves anywhere else is fetched without credentials,
+      // never with the owner's token across origins.
+      const authorized = src.origin === new URL(base).origin ? token : undefined
+      const response = await fetch(src.href, authorized ? { headers: { Authorization: `Bearer ${authorized}` } } : undefined)
       if (!response.ok) return undefined
       const bytes = new Uint8Array(await response.arrayBuffer())
       if (bytes.length === 0) return undefined
