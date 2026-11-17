@@ -274,7 +274,11 @@ struct ViewerWebView: NSViewRepresentable {
                         try { window.webkit.messageHandlers.manorama.postMessage(message); } catch (e) {}
                       }
                       function report() {
-                        var on = document.querySelector('.m-chrome.is-visible [data-chrome-library]') !== null;
+                        // The photo picker's modal covers the stage — the
+                        // shell's chrome has nothing to drive there, so it
+                        // counts as chrome-hidden until the picker closes.
+                        var on = document.querySelector('.m-chrome.is-visible [data-chrome-library]') !== null
+                          && document.querySelector('.viewer-filmstrip') === null;
                         if (on !== lastVisible) {
                           lastVisible = on;
                           post({ type: 'chrome', visible: on });

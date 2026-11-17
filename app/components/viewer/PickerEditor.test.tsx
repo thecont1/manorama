@@ -164,6 +164,18 @@ describe('the picker Edit mode', () => {
     expect(saveButton(root2)).toBeTruthy()
   })
 
+  test('the sizer, mode switch, and terminal action sit in the bottom bar, not the top', () => {
+    const root = mounted()
+    const header = root.querySelector('.viewer-picker-header')!
+    expect(header.querySelector('.viewer-edit-sizer input')).toBeTruthy()
+    expect(header.textContent).toContain('Switch to Photo Picker')
+    expect(header.querySelector('.viewer-picker-end')).toBeTruthy()
+    const top = root.querySelector('.viewer-picker-top')!
+    expect(top.querySelector('.viewer-edit-sizer')).toBeNull()
+    expect(top.querySelector('.viewer-picker-end')).toBeNull()
+    expect(top.querySelector('.viewer-picker-actions')).toBeNull()
+  })
+
   test('Save stays disabled until the draft is dirty, then PATCHes order and hidden', async () => {
     calls = []; replaced = []
     const root = mounted()

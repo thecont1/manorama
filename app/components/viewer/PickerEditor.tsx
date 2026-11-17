@@ -2,7 +2,7 @@ import { useRef, useState } from 'hono/jsx'
 import { announce } from '../../lib/announce'
 import { PIPELINE_LOCK_MESSAGE } from '../../lib/gallery-policy'
 import { formatDuration } from '../../islands/VideoSlide'
-import { isVideoItem, type GalleryMediaItem } from '../../lib/imagesource'
+import { formatMediaCount, isVideoItem, type GalleryMediaItem } from '../../lib/imagesource'
 import { isHeicFilename } from '../../lib/heic'
 import type { GallerySummary } from '../../lib/gallery-repository'
 import {
@@ -101,8 +101,18 @@ export const PickerEditButton = ({ temporary, loading, onBegin }: { temporary: b
   )
 
 /** The photograph-size slider — identical markup in both modes so it
- *  never moves a pixel when the mode switches. */
-export const PickerSizer = ({ value, onChange }: { value: number; onChange: (height: number) => void }) => (
+ *  never moves a pixel when the mode switches. The drag writes the
+ *  cells' CSS var straight onto the modal: routing every input tick
+ *  through state re-rendered the whole island and hono's value diff
+ *  wrote the stale position back over the thumb — the slider rubber-
+ *  banded and needed several tries to move. State commits once, when
+ *  the gesture ends (pointer up/cancel, blur, or a key release —
+ *  hono maps onChange onto input, so it cannot serve as the release
+ *  signal), leaving the controlled value untouched mid-drag so its
+ *  diff never fires. */
+export const PickerSizer = ({ value, onChange }: { value: number; onChange: (height: number) => void }) => {
+  const commit = (event: Event) => onChange(Number((event.currentTarget as HTMLInputElement).value))
+  return (
   <label class="viewer-edit-sizer">
     <svg class="s" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="5" width="18" height="14" rx="1"/></svg>
     <span class="sr-only">Photograph size</span>
@@ -113,7 +123,14 @@ export const PickerSizer = ({ value, onChange }: { value: number; onChange: (hei
       step={1}
       value={value}
       aria-label="Photograph size"
-      onInput={(event) => onChange(Number((event.currentTarget as HTMLInputElement).value))}
+      onInput={(event) => {
+        const el = event.currentTarget as HTMLInputElement
+        el.closest<HTMLElement>('.viewer-filmstrip')?.style.setProperty('--picker-item-h', `${el.value}dvh`)
+      }}
+      onPointerUp={commit}
+      onPointerCancel={commit}
+      onBlur={commit}
+      onKeyUp={commit}
       onKeyDown={(event) => {
         // Home/End size the slider natively; the editor's handler
         // would otherwise move a held photograph or the selection.
@@ -122,7 +139,8 @@ export const PickerSizer = ({ value, onChange }: { value: number; onChange: (hei
     />
     <svg class="l" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.6"><rect x="3" y="5" width="18" height="14" rx="1"/><path d="M3 16l5-5 4 4 3-3 6 6"/></svg>
   </label>
-)
+  )
+}
 
 /** One line under the picker title, both modes — the screen reads the
  *  same, only what a tap does changes. */
@@ -134,6 +152,9 @@ const sameKeys = (a: ReadonlySet<string>, b: ReadonlySet<string>) =>
 
 type Props = {
   slug: string
+  /** The gallery's display title for the bottom bar — falls back to the
+   *  slug like the browse mode's header does. */
+  displayTitle?: string
   /** The gallery's immutable id — the key store's lookup key for any
    *  encrypted media refs the items carry. */
   galleryId?: string
@@ -186,7 +207,7 @@ type Props = {
 }
 
 export default function PickerEditor({
-  slug, galleryId, items, apiBase = '', token, selIndex, frameRef, pan, suppressClickRef, actionsRef, itemHeight, onItemHeight, currentPhotoId, onExit, onDone, doneHref, onSaved, onSaveOrder,
+  slug, displayTitle, galleryId, items, apiBase = '', token, selIndex, frameRef, pan, suppressClickRef, actionsRef, itemHeight, onItemHeight, currentPhotoId, onExit, onDone, doneHref, onSaved, onSaveOrder,
 }: Props) {
   const [session, setSession] = useState<ReorderState<PickerEditItem>>(() => createReorderSession(items))
   // Concealment is a draft like order: nothing is hidden until Save
@@ -544,12 +565,9 @@ export default function PickerEditor({
   // A real element diffs in place, so nothing under the pointer moves.
   return (
     <div style="display:contents">
-      {/* The top bar is pixel-identical across modes: the mode title in
-          the brand font and the tap description on the left; the sizer,
-          the mode switch, and the mode's own action on the right, in
-          fixed slots so nothing jumps when the mode flips. The gallery
-          title and count stay in the shared bottom bar the viewer
-          renders. */}
+      {/* The top bar names the mode and what a tap does; the controls —
+          sizer, mode switch, and the mode's own action — live in the
+          bottom bar's right side, beside the gallery title and count. */}
       <div class="viewer-picker-top">
         <div class="viewer-picker-title">
           <strong class="viewer-picker-mode">Reorder Photos</strong>
@@ -558,18 +576,6 @@ export default function PickerEditor({
             {note ? <span class="viewer-edit-alert" role="alert"> {note}</span> : null}
           </p>
         </div>
-        <div class="viewer-picker-actions">
-          <PickerSizer value={itemHeight} onChange={onItemHeight} />
-          <button type="button" class="viewer-picker-switch" onClick={cancel} disabled={saving}>Switch to Photo Picker</button>
-        </div>
-        {/* The terminal slot is always 72px: a Save while the draft is
-            dirty, otherwise a Cancel that exits like browse's Close —
-            an untouched draft must not trap the owner in Reorder. It sits
-            outside actions so the narrow layout pairs it with the mode
-            switch on row two. */}
-        {dirty
-          ? <button type="button" class="viewer-picker-end viewer-edit-save" onClick={save} disabled={saving}>{saving ? 'Saving…' : 'Save'}</button>
-          : <button type="button" class="viewer-picker-end" onClick={onDone}>Cancel</button>}
       </div>
       {/* The tap-raised mark is a touch affordance — a mouse pointer has
           hover, so when it leaves the grid the mark goes with it instead
@@ -591,7 +597,7 @@ export default function PickerEditor({
               <div
                 key={item.id}
                 class={`viewer-edit-cell${hidden ? ' is-hidden' : ''}${revealedId === item.id ? ' is-revealed' : ''}`}
-                style={{ aspectRatio: `${Math.max(1, item.width)} / ${Math.max(1, item.height)}`, height: `${itemHeight}dvh` }}
+                style={{ aspectRatio: `${Math.max(1, item.width)} / ${Math.max(1, item.height)}`, height: 'var(--picker-item-h)' }}
               >
                 <button
                   type="button"
@@ -629,6 +635,32 @@ export default function PickerEditor({
           })}
         </div>
       </div>
+      {/* This mode's own bottom bar — the viewer skips its shared one
+          while the editor is mounted. Same title and count as browse,
+          with the working-set count covering hidden items, and the
+          controls clustered at the right edge. */}
+      <header class="viewer-picker-header">
+        <strong>
+          <span>{displayTitle || slug}</span>
+          <span class="viewer-picker-meta">
+            {formatMediaCount({
+              stills: items.filter((item) => !item.video && !item.hidden).length,
+              videos: items.filter((item) => item.video && !item.hidden).length,
+              hidden: items.filter((item) => item.hidden).length,
+            })}
+          </span>
+        </strong>
+        <div class="viewer-picker-actions">
+          <PickerSizer value={itemHeight} onChange={onItemHeight} />
+          <button type="button" class="viewer-picker-switch" onClick={cancel} disabled={saving}>Switch to Photo Picker</button>
+          {/* The terminal slot is always present: a Save while the draft
+              is dirty, otherwise a Cancel that exits like browse's
+              Close — an untouched draft must not trap the owner. */}
+          {dirty
+            ? <button type="button" class="viewer-picker-end viewer-edit-save" onClick={save} disabled={saving}>{saving ? 'Saving…' : 'Save'}</button>
+            : <button type="button" class="viewer-picker-end" onClick={onDone}>Cancel</button>}
+        </div>
+      </header>
       {/* The dragged photograph's float — a fixed-position copy that rides
           the pointer while the draft reflows beneath it. Its transform is
           written straight onto the element so moves cost no re-render. */}

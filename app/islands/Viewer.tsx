@@ -3604,6 +3604,7 @@ export default function Viewer({ slug, galleryTitle, images: sourceImages, encry
           {pickerEdit && editItems ? (
             <PickerEditor
               slug={slug}
+              displayTitle={displayTitle}
               galleryId={galleryId}
               apiBase={apiBase}
               token={authToken}
@@ -3636,28 +3637,16 @@ export default function Viewer({ slug, galleryTitle, images: sourceImages, encry
             />
           ) : (
           <>
-          {/* The top bar is pixel-identical across modes: the mode title
-              in the brand font and the tap description on the left; the
-              sizer, the mode switch, and the mode's own action on the
-              right, in fixed slots so nothing jumps when the mode
-              flips. While the owner summary is still in flight the
-              picker's cells stay on screen and the description says
-              the mode change is coming. */}
+          {/* The top bar names the mode; the controls — sizer, mode
+              switch, and the mode's own action — live in the bottom
+              bar's right side. While the owner summary is still in
+              flight the picker's cells stay on screen and the
+              description says the mode change is coming. */}
           <div class="viewer-picker-top">
             <div class="viewer-picker-title">
               <strong class="viewer-picker-mode">{pickerEdit ? 'Reorder Photos' : 'Photo Picker'}</strong>
               <p class="viewer-picker-desc">{pickerEdit ? 'Loading the gallery…' : BROWSE_HINT}</p>
             </div>
-            <div class="viewer-picker-actions">
-              <PickerSizer value={pickerItemH} onChange={setPickerItemH} />
-              {canEdit ? (
-                <PickerEditButton temporary={ownerGallery?.temporary ?? false} loading={editLoading} onBegin={beginEdit} />
-              ) : null}
-            </div>
-            {/* Outside actions so the narrow layout can put it beside the
-                mode switch on row two — an orphaned third row read as
-                broken. */}
-            <button type="button" class="viewer-picker-end" onClick={pickerDoneHref ? () => window.location.assign(pickerDoneHref) : requestCloseModals} aria-label={`Close ${displayTitle || slug}`}>Close</button>
           </div>
           <div ref={filmstripFrameRef} class="viewer-filmstrip-frame" onPointerDown={startFilmstripPan} onPointerMove={moveFilmstripPan} onPointerUp={endFilmstripPan} onPointerCancel={endFilmstripPan} onWheel={wheelFilmstrip}>
             <div class="viewer-filmstrip-track">
@@ -3698,8 +3687,11 @@ export default function Viewer({ slug, galleryTitle, images: sourceImages, encry
           )}
           {/* The bottom bar is the same in both modes — the gallery title
               and its media count bottom-left, like the picker's always
-              had. In reorder mode the count covers the working set:
-              hidden items surface as their own part. */}
+              had, with the controls clustered bottom-right. In reorder
+              mode the editor renders its own copy of this bar (its
+              count covers the working set and its actions differ), so
+              the shared one stands down while it is mounted. */}
+          {pickerEdit && editItems ? null : (
           <header class="viewer-picker-header">
             <strong>
               <span>{displayTitle || slug}</span>
@@ -3714,7 +3706,15 @@ export default function Viewer({ slug, galleryTitle, images: sourceImages, encry
               </span>
               {editNote ? <span class="viewer-picker-alert" role="alert">{editNote}</span> : null}
             </strong>
+            <div class="viewer-picker-actions">
+              <PickerSizer value={pickerItemH} onChange={setPickerItemH} />
+              {canEdit ? (
+                <PickerEditButton temporary={ownerGallery?.temporary ?? false} loading={editLoading} onBegin={beginEdit} />
+              ) : null}
+              <button type="button" class="viewer-picker-end" onClick={pickerDoneHref ? () => window.location.assign(pickerDoneHref) : requestCloseModals} aria-label={`Close ${displayTitle || slug}`}>Close</button>
+            </div>
           </header>
+          )}
         </div>
       </> : null}
 

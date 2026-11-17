@@ -1223,21 +1223,19 @@ body.magnifier-paused * { cursor: auto !important; }
   border-bottom: 1px solid rgba(244, 240, 232, .18);
   color: rgba(244, 240, 232, .88);
 }
-/* The top bar is the same layout in both modes — the mode name wears
-   the brand font, the description sits under it, and the controls hold
-   fixed slots so no button jumps when the mode flips. */
+/* The top bar names the mode in both picker modes — the mode name
+   wears the brand font and the description sits under it. The
+   controls live in the bottom bar's right side. */
 .viewer-picker-title { display: flex; flex-direction: column; gap: 3px; flex: 1 1 auto; min-width: 0; }
 .viewer-picker-mode { font-family: var(--m-font); font-size: 17px; font-weight: 600; letter-spacing: -.01em; color: #f4f1ea; }
 .viewer-picker-desc { margin: 0; font-size: 13px; color: rgba(244, 240, 232, .62); }
-/* A third child of the bar now (the terminal button left the group so
-   narrow screens can seat it beside the mode switch on the second row) —
-   the auto margin keeps it clustered right against `space-between`
-   instead of drifting centre. */
+/* The bottom bar's right-side control cluster — sizer, mode switch,
+   and the mode's terminal action in that order. */
 .viewer-picker-actions { display: flex; align-items: center; gap: 12px; margin-left: auto; }
 /* The switch's two labels differ in length — pin the slot so the row
    never shifts between modes. */
-.viewer-picker-top .viewer-picker-switch { min-width: 10.5rem; }
-.viewer-picker-top .viewer-picker-end { min-width: 4.5rem; }
+.viewer-picker-header .viewer-picker-switch { min-width: 10.5rem; }
+.viewer-picker-header .viewer-picker-end { min-width: 4.5rem; }
 .viewer-picker-header {
   order: 2;
   flex: 0 0 auto;
@@ -1398,21 +1396,15 @@ body.magnifier-paused * { cursor: auto !important; }
 .viewer-filmstrip .viewer-picker-header { background: rgb(10, 12, 12); }
 @media (max-width: 720px) {
   /* Portrait phones get their own two-row composition, not a collapsed
-     desktop row: the title takes the whole first row and the two
-     controls share the row beneath at opposite ends — mode switch left,
-     terminal button right. The sizer stays off phones — the default cell
-     height suffices and a squeezed slider was decoration — but remains
-     mounted so its value survives a rotate. When row two's only tenant
-     was the sizer (a non-owner pick) it disappears and the terminal
-     button keeps the row to itself. */
-  .viewer-picker-top { flex-wrap: wrap; }
-  .viewer-picker-title { order: 1; flex: 1 1 100%; }
-  .viewer-picker-actions { order: 2; margin-left: 0; }
-  .viewer-picker-top > .viewer-picker-end { order: 3; }
-  .viewer-picker-actions:not(:has(.viewer-picker-switch, .viewer-picker-lock)) { display: none; }
+     desktop row: the header's title takes the whole first row and the
+     controls share the row beneath, right-aligned. The sizer stays off
+     phones — the default cell height suffices and a squeezed slider was
+     decoration — but remains mounted so its value survives a rotate. */
+  .viewer-picker-header { flex-wrap: wrap; }
+  .viewer-picker-actions { margin-left: auto; }
   .viewer-edit-sizer { display: none; }
-  .viewer-picker-top .viewer-picker-switch { min-width: 9rem; }
-  .viewer-picker-top .viewer-picker-end { min-width: 4rem; }
+  .viewer-picker-header .viewer-picker-switch { min-width: 9rem; }
+  .viewer-picker-header .viewer-picker-end { min-width: 4rem; }
 }
 
 @media (prefers-reduced-motion: reduce) {
