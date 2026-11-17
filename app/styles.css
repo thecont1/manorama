@@ -2140,14 +2140,56 @@ a.m-btn { text-decoration: none; }
 }
 
 /* The settings pane takes over the galleries column while the rail stays —
-   it eases in gently like a sheet would, and its head carries the way back. */
-.web-settings--pane { min-width: 0; animation: lib-pane-in .38s cubic-bezier(.4, 0, .2, 1) both; }
+   it fades in on the quiet view's own clock, fills the column edge to edge
+   exactly as the gallery list did, and its head carries the way back. */
+.web-settings--pane { min-width: 0; padding: clamp(12px, 2vw, 20px) 0 72px; animation: lib-pane-in .7s cubic-bezier(.4, 0, .2, 1) both; }
+.web-settings--pane .m-owner-content { width: 100%; margin: 0; padding: 0; gap: 0; }
 @keyframes lib-pane-in {
-  from { opacity: 0; transform: translateY(10px); }
-  to { opacity: 1; transform: none; }
+  from { opacity: 0; }
+  to { opacity: 1; }
 }
-.lib-settings-head { display: grid; gap: 6px; justify-items: start; }
+.lib-settings-head { display: grid; gap: 6px; justify-items: start; margin: 0 0 24px; }
 .lib-settings-head h1 { margin: 0; font-size: var(--m-fs-title); line-height: 1.15; }
+
+/* Each settings section is a label column beside its panel — the real
+   section title with the group's help on the left, the controls on the
+   right, one rule closing the row. Panels nested inside a group's panel
+   (the address form, the theme control, the delete block) flatten into
+   rows. On narrow panes the label column folds back above the panel. */
+.web-settings--pane .m-owner-content > section { padding: 32px 0; }
+.web-settings--pane .m-owner-content > section:first-of-type { padding-top: 8px; }
+.web-settings--pane .m-owner-content > section + section { border-top: 1px solid var(--m-rule); }
+.web-settings--pane .m-owner-content > section:has(> .m-actiongroup) {
+  display: grid;
+  grid-template-columns: minmax(160px, 240px) minmax(0, 1fr);
+  column-gap: 32px;
+  align-items: start;
+}
+.web-settings--pane .m-actiongroup-label { grid-column: 1; margin: 6px 0 0; font-size: 16px; font-weight: 500; color: var(--m-ink); }
+.web-settings--pane .m-actiongroup-note { grid-column: 1; margin: 8px 0 0; font-size: 14px; line-height: 1.5; }
+.web-settings--pane .m-actiongroup { grid-column: 2; grid-row: 1 / span 2; }
+@media (max-width: 720px) {
+  .web-settings--pane .m-owner-content > section:has(> .m-actiongroup) { grid-template-columns: 1fr; }
+  .web-settings--pane .m-actiongroup { grid-row: auto; }
+  .web-settings--pane .m-actiongroup-label { margin-bottom: 8px; }
+}
+.web-settings--pane .m-actiongroup > .m-panel { background: none; border-radius: 0; }
+.web-settings--pane .m-actiongroup > .m-actionrow + .m-panel { border-top: 1px solid var(--m-rule); }
+/* The owner address reads as one field — the host prefix and the slug
+   inside a single border, the way a joined input and action share one. */
+.web-settings--pane .m-settings-address > label { font-size: 14px; font-weight: 500; color: var(--m-ink); }
+.web-settings--pane .m-settings-address > div {
+  border: 1px solid var(--m-control);
+  border-radius: 10px;
+  background: var(--m-ground);
+  padding: 0 12px;
+  min-height: 44px;
+  gap: 6px;
+}
+.web-settings--pane .m-settings-address > div:focus-within { border-color: var(--m-focus); }
+.web-settings--pane .m-settings-address > div > span { color: var(--m-meta); }
+.web-settings--pane .m-settings-address input { border: 0; background: transparent; padding: 0; min-height: 42px; }
+.web-settings--pane .m-settings-address input:focus-visible { outline: 0; }
 .web-settings .m-settings-address { display: grid; gap: 12px; padding: 16px; }
 .web-settings .m-settings-address > label { color: var(--m-secondary); font-size: 13px; }
 .web-settings .m-settings-address > div { display: grid; grid-template-columns: auto minmax(0, 1fr); align-items: center; gap: 8px; }

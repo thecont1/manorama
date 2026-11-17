@@ -106,7 +106,7 @@ export function WebSettings(props: Props) {
         {props.ownerSlugNote ? <p class="m-error m-panel-note" role="alert">{props.ownerSlugNote}</p> : null}
       </ActionGroup>
 
-      <ActionGroup label="Sign-in methods">
+      <ActionGroup label="Sign-in methods" note="Keep at least one way to sign in.">
         {props.identities === null ? <p class="m-note m-panel-note">Reading sign-in methods…</p> : null}
         {props.identities?.map((identity) => (
           <ActionRow
@@ -128,10 +128,14 @@ export function WebSettings(props: Props) {
           <ActionRow key={method.provider} label={`Connect ${method.name}`} href={`/auth/${method.provider}?link=1`} />
         )) : null}
         {props.identityNote ? <p class="m-note m-panel-note" role="status">{props.identityNote}</p> : null}
-        <p class="m-note m-panel-note">Keep at least one way to sign in.</p>
       </ActionGroup>
 
-      <ActionGroup label="Allowance">
+      <ActionGroup
+        label="Allowance"
+        note={props.tier === 'pro'
+          ? 'Paid accounts retain up to 99 galleries. Retained galleries stay until you delete them.'
+          : FREE_RETENTION_DISCLOSURE}
+      >
         <ActionRow label="Plan" value={props.tier === 'pro' ? 'Visionary' : 'Free User'} chevron={false} />
         <ActionRow label={props.tier === 'pro' ? 'Cloud galleries' : 'Permanent galleries'} value={`${props.retainedCount} of ${props.retainedLimit}`} chevron={false} />
         {/* Temporary galleries are a Free concept — Visionary holds every
@@ -140,16 +144,9 @@ export function WebSettings(props: Props) {
         {props.localCount != null ? <ActionRow label="Local galleries" value={props.tier === 'pro' ? `${props.localCount} of ∞` : '0 of 0'} chevron={false} /> : null}
         {props.tier === 'pro' && props.hiddenCount != null ? <ActionRow label="Hidden galleries" value={props.hiddenCount} chevron={false} /> : null}
         {props.tier === 'free' ? <ActionRow label="Upgrade" href={props.upgradeHref} /> : null}
-        {props.tier === 'pro' ? (
-          <>
-            <p class="m-note m-panel-note">Paid accounts retain up to 99 galleries. Retained galleries stay until you delete them.</p>
-            {props.retainedCount >= props.retainedLimit ? (
-              <p class="m-note m-panel-note" role="status">{paidGalleryLimitError().message}</p>
-            ) : null}
-          </>
-        ) : (
-          <p class="m-note m-panel-note">{FREE_RETENTION_DISCLOSURE}</p>
-        )}
+        {props.tier === 'pro' && props.retainedCount >= props.retainedLimit ? (
+          <p class="m-note m-panel-note" role="status">{paidGalleryLimitError().message}</p>
+        ) : null}
       </ActionGroup>
 
       <ActionGroup label="Appearance">
