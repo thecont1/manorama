@@ -28,6 +28,10 @@ final class AppModel {
     /// capsule is chrome too — it appears and leaves with the page's
     /// pills rather than hanging over a photograph at rest.
     private(set) var viewerChromeVisible = false
+    /// Whether the gallery's opening curtain has lifted. While the veil
+    /// is down the stage wants only the way back to the Library — the
+    /// position cluster joins once the photograph is actually clear.
+    private(set) var galleryEntered = false
     /// The box of the page's open sheet, in window coordinates — the
     /// morph target for the Settings segment's travelling glass. Nil
     /// when no sheet is up.
@@ -174,10 +178,14 @@ final class AppModel {
             if !open {
                 self?.position = (0, 0)
                 self?.viewerChromeVisible = false
+                self?.galleryEntered = false
             }
         }
         coordinator.onChrome = { [weak self] visible in
             self?.viewerChromeVisible = visible
+        }
+        coordinator.onEntered = { [weak self] raised in
+            self?.galleryEntered = raised
         }
         // The sheet's box is the morph target for the Settings segment's
         // travelling glass — it launches from the segment's seat, lands

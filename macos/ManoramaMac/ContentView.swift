@@ -30,6 +30,12 @@ struct ContentView: View {
     /// Matches `src-tauri/tauri.conf.json` `backgroundColor: "#111312"`.
     private static let canvasColor = Color(red: 0x11 / 255.0, green: 0x13 / 255.0, blue: 0x12 / 255.0)
 
+    /// The cluster's smoked glass — clear `.regular` washes the pale
+    /// glyphs out over a light photograph, so the material carries a
+    /// dark tint to keep the controls legible on any frame.
+    @available(macOS 26.0, *)
+    private static let clusterGlass = Glass.regular.tint(Color.black.opacity(0.5)).interactive()
+
     /// Reduced transparency swaps the glass for a surface the system
     /// cannot misread — the capsule stays, its material does not.
     @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
@@ -102,8 +108,12 @@ struct ContentView: View {
             // The viewer's own bottom controls, in the shell's glass:
             // one merged surface at rest that separates under the
             // pointer. The web pills stay mounted behind it — a native
-            // press fires the real handler inside the page.
-            if #available(macOS 26.0, *), model.isGalleryOpen, model.viewerChromeVisible, model.viewerSheetRect == nil {
+            // press fires the real handler inside the page. While the
+            // opening curtain is down the cluster stays off: the veil's
+            // own chrome shows the Library way back on mouse move, and
+            // the position, Settings and Info have no photograph to
+            // describe yet.
+            if #available(macOS 26.0, *), model.isGalleryOpen, model.viewerChromeVisible, model.galleryEntered, model.viewerSheetRect == nil {
                 VStack {
                     Spacer()
                     viewerControlsCluster
@@ -234,7 +244,11 @@ struct ContentView: View {
             // Inside the container, controls nearer than `spacing` blend
             // into one surface; further apart they are their own pills.
             // Rest sits at 0 — a single bar — and the pointer opens the
-            // spacing so the three land as separate glass.
+            // spacing so the three land as separate glass. The smoked
+            // tint is what keeps the pale glyphs legible: clear glass
+            // over a light photograph washes them out, so the material
+            // carries enough dark to read on any frame. Every segment
+            // tints identically or the union would show seams.
             GlassEffectContainer(spacing: 14) {
                 HStack(spacing: clusterExpanded ? 18 : 0) {
                     Button {
@@ -247,7 +261,7 @@ struct ContentView: View {
                             .frame(minHeight: 44)
                     }
                     .accessibilityLabel("Go to a photograph")
-                    .glassEffect(.regular.interactive(), in: .capsule)
+                    .glassEffect(Self.clusterGlass, in: .capsule)
 
                     Button {
                         model.invokeWebControl("[data-chrome-bottom] [aria-label='Gallery Settings']")
@@ -258,7 +272,7 @@ struct ContentView: View {
                             .frame(minHeight: 44)
                     }
                     .accessibilityLabel("Gallery Settings")
-                    .glassEffect(.regular.interactive(), in: .capsule)
+                    .glassEffect(Self.clusterGlass, in: .capsule)
                     .background(anchorProbe)
 
                     Button {
@@ -270,7 +284,7 @@ struct ContentView: View {
                             .frame(minHeight: 44)
                     }
                     .accessibilityLabel("Info")
-                    .glassEffect(.regular.interactive(), in: .capsule)
+                    .glassEffect(Self.clusterGlass, in: .capsule)
                 }
                 // Plain buttons keep reliable press + hit-testing inside
                 // the container; each carries its own glassEffect, which

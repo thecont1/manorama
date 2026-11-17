@@ -21,6 +21,10 @@ final class ViewerCoordinator: NSObject, WKScriptMessageHandler, WKNavigationDel
     /// Called when the viewer's own chrome appears or hides — the shell's
     /// floating Library capsule rides on it.
     var onChrome: ((Bool) -> Void)?
+    /// Called when the opening curtain lifts — the bottom cluster waits
+    /// for it even though the Library capsule rides the curtain's own
+    /// chrome while the veil is down.
+    var onEntered: ((Bool) -> Void)?
     /// Called when a sheet mounts or its box settles — the native glass
     /// that backs the sheet morphs into that rectangle, so the shell needs
     /// it in the webview's own coordinate space (which fills the window).
@@ -114,6 +118,10 @@ final class ViewerCoordinator: NSObject, WKScriptMessageHandler, WKNavigationDel
             // The viewer's chrome appeared or hid — posted by the injected
             // observer, so the shell's capsule can track it.
             onChrome?(body["visible"] as? Bool ?? false)
+        case "entered":
+            // The curtain lifted — the cluster may show now (the capsule
+            // rode the curtain's own chrome the whole time).
+            onEntered?(body["raised"] as? Bool ?? false)
         case "sheet":
             // A `.m-sheet` appeared, moved, or left. The shell draws the
             // sheet's own glass underneath it, so it needs the live box.
@@ -269,6 +277,7 @@ struct ViewerWebView: NSViewRepresentable {
                     document.documentElement.dataset.macosGlass = '1';
                     (function () {
                       var lastVisible = null;
+                      var lastRaised = null;
                       var lastSheetKey = null;
                       function post(message) {
                         try { window.webkit.messageHandlers.manorama.postMessage(message); } catch (e) {}
@@ -282,6 +291,18 @@ struct ViewerWebView: NSViewRepresentable {
                         if (on !== lastVisible) {
                           lastVisible = on;
                           post({ type: 'chrome', visible: on });
+                        }
+                        // The opening curtain veils a fresh gallery: until
+                        // it lifts the stage wants only the way back to
+                        // the Library — the position, settings and info
+                        // cluster has nothing on screen to drive yet. The
+                        // veil dissolves on a class change, so the hidden
+                        // attribute itself needs no observer entry.
+                        var curtain = document.querySelector('[data-curtain]');
+                        var raised = !curtain || curtain.hidden === true;
+                        if (raised !== lastRaised) {
+                          lastRaised = raised;
+                          post({ type: 'entered', raised: raised });
                         }
                         // A mounted sheet's box is the shell's morph
                         // target. The key carries the rect so the settle
