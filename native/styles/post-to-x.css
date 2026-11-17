@@ -60,6 +60,13 @@
   width: 100%;
 }
 
+/* The full-width block is the phone's convention; in the desktop dialog
+   the submit takes its own width at the bar's left. */
+.native-postto--desktop .native-postto-submit {
+  width: auto;
+  align-self: flex-start;
+}
+
 .native-postto-note {
   margin: 0;
   color: rgba(var(--ink), .58);

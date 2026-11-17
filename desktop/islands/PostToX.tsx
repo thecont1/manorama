@@ -274,7 +274,7 @@ export default function PostToX({
     <section
       ref={dialogRef}
       tabIndex={-1}
-      class="native-global-view native-postto"
+      class="native-global-view native-postto native-postto--desktop"
       role="dialog"
       aria-modal="true"
       aria-label={`Post to X — ${title}`}
