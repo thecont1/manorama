@@ -275,6 +275,22 @@ stop_app() {
   [ "$n" = "0" ]
 }
 
+quit_app() {
+  # A graceful quit, the way a person leaves the app. State that only
+  # exists in memory — SwiftUI's window-frame autosave included — is
+  # flushed to defaults here; a SIGTERM skips that flush, so tests that
+  # measure persistence across a relaunch must end the first run this
+  # way. Fall back to the kill if the quit does not take.
+  osascript -e "tell application id \"$BUNDLE_ID\" to quit" >/dev/null 2>&1
+  local n=1
+  for _ in 1 2 3 4 5 6 7 8 9 10 11 12; do
+    sleep 0.5
+    n=$(pgrep -f "build-focus-test/manorama.app/Contents/MacOS/manorama" | wc -l | tr -d ' ')
+    [ "$n" = "0" ] && return 0
+  done
+  stop_app
+}
+
 launch() {
   # Each run gets its own grant list AND its own private documents. The
   # default location is shared with the Tauri build — which is what makes
@@ -557,14 +573,17 @@ echo "== 10. error recovery: the folder disappears under an open gallery =="
 stop_app || { echo "FATAL: the shell would not quit"; exit 1; }
 rm -rf "$DISPOSABLE"
 mkdir -p "$DISPOSABLE"
-# A handful of real photographs, copied. This folder is the one the test
-# deletes, so it is never the user's originals.
+# Thirty real photographs, copied — enough that the viewer's decode
+# window cannot hold them all. With fewer, every frame is fetched before
+# the folder goes and the deletion never reaches the scheme handler.
+# This folder is the one the test deletes, so it is never the user's
+# originals.
 i=0
 for src in "$VIEW_DIR"/*.jpg; do
   [ -e "$src" ] || break
   cp "$src" "$DISPOSABLE/$(basename "$src")"
   i=$((i+1))
-  [ "$i" -ge 12 ] && break
+  [ "$i" -ge 30 ] && break
 done
 DISPOSABLE_TITLE="$(basename "$DISPOSABLE")"
 launch "$DISPOSABLE"
@@ -581,8 +600,8 @@ act
 # Walk past the frames the viewer already decoded. A frame still in
 # memory loads from the cache and never reaches the scheme handler, so
 # the loss only shows when a frame the viewer has never fetched is asked
-# for.
-for _ in $(seq 1 12); do
+# for — twenty arrows into thirty photographs guarantees that.
+for _ in $(seq 1 20); do
   /tmp/focusprobe "$BUNDLE_ID" key 124 >/dev/null 2>&1   # Right, into the missing folder
   sleep 0.4
 done
@@ -775,7 +794,10 @@ echo "== 15. the window remembers its frame =="
 # through the representable's update path would loop resize → update →
 # resize. What is asserted here is the user's experience: move the window,
 # relaunch, and it comes back where it was left.
-SET_RESULT=$(/tmp/focusprobe "$BUNDLE_ID" setbounds 140 90 900 620 2>/dev/null)
+# A mid-screen frame: macOS adjusts restored frames that sit close to a
+# display edge, so an edge-hugging rectangle would come back nudged and
+# read as a failure the user would never see.
+SET_RESULT=$(/tmp/focusprobe "$BUNDLE_ID" setbounds 500 200 900 620 2>/dev/null)
 note "setbounds: ${SET_RESULT:-none}"
 sleep 1
 SET=$(/tmp/focusprobe "$BUNDLE_ID" bounds 2>/dev/null)
@@ -786,7 +808,7 @@ EOF
 # The assertion only means something if the window actually moved: a
 # failed resize read back twice passes as "restored" on the default frame.
 MOVED=yes
-for pair in "${SX:-9999} 140" "${SY:-9999} 90" "${SW:-0} 900" "${SH:-0} 620"; do
+for pair in "${SX:-9999} 500" "${SY:-9999} 200" "${SW:-0} 900" "${SH:-0} 620"; do
   set -- $pair
   diff=$(( $1 - $2 ))
   [ $diff -lt 0 ] && diff=$(( -diff ))
@@ -796,7 +818,9 @@ if [ "$MOVED" != yes ]; then
   bad "the window's frame survives a relaunch" \
       "window never took the nondefault frame (setbounds: ${SET_RESULT:-none}, got ${SET:-none})"
 else
-  stop_app || { echo "FATAL: the shell would not quit"; exit 1; }
+  # Persistence lives in the quit: the scene's frame autosave flushes on
+  # a graceful exit, so ending this run with a kill would test nothing.
+  quit_app || { echo "FATAL: the shell would not quit"; exit 1; }
   EXTRA_ARGS="--windowed"
   launch "$SEED_DIR" keep
   sleep 2
