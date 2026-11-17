@@ -1,4 +1,6 @@
 import AppKit
+import ApplicationServices
+import Carbon.HIToolbox
 import Foundation
 import ImageIO
 import Security
@@ -697,7 +699,55 @@ final class NativeBridge {
             throw BridgeError.failed("The X composer could not be opened")
         }
         await announcePostClipboard()
+        attemptPostPaste(into: intent)
         return "The photographs are on your clipboard — paste them into the post."
+    }
+
+    /// One-time guard for the Accessibility prompt — asked once ever, so a
+    /// denial is a silent fall back to the manual paste, not a nag.
+    private static let postPastePromptedKey = "post-to-x-ax-prompted"
+
+    /// Best-effort automatic paste: an Accessibility-trusted app may press
+    /// ⌘V in the browser for the owner. Trust is asked for exactly once;
+    /// without it this returns and the banner + clipboard still carry the
+    /// post by hand.
+    private func attemptPostPaste(into intent: URL) {
+        guard AXIsProcessTrusted() else {
+            guard !UserDefaults.standard.bool(forKey: Self.postPastePromptedKey) else { return }
+            UserDefaults.standard.set(true, forKey: Self.postPastePromptedKey)
+            _ = AXIsProcessTrustedWithOptions(
+                ["AXTrustedCheckOptionPrompt": true] as CFDictionary
+            )
+            return
+        }
+        guard let browser = NSWorkspace.shared.urlForApplication(toOpen: intent),
+              let bundleID = Bundle(url: browser)?.bundleIdentifier else { return }
+        Task { [weak self] in
+            await self?.pasteWhenComposerReady(bundleID)
+        }
+    }
+
+    /// There is no way to watch the composer's text field take focus — the
+    /// intent page focuses it as the page hydrates. Holding until the
+    /// browser owns the front, then a breath for the page, is the honest
+    /// approximation; posting into a browser that lost the front would be
+    /// worse than not posting at all.
+    private func pasteWhenComposerReady(_ bundleID: String) async {
+        let deadline = Date().addingTimeInterval(6)
+        while NSWorkspace.shared.frontmostApplication?.bundleIdentifier != bundleID,
+              Date() < deadline {
+            try? await Task.sleep(nanoseconds: 150_000_000)
+        }
+        guard NSWorkspace.shared.frontmostApplication?.bundleIdentifier == bundleID else { return }
+        try? await Task.sleep(nanoseconds: 2_500_000_000)
+        guard NSWorkspace.shared.frontmostApplication?.bundleIdentifier == bundleID else { return }
+        let source = CGEventSource(stateID: .hidSystemState)
+        guard let down = CGEvent(keyboardEventSource: source, virtualKey: CGKeyCode(kVK_ANSI_V), keyDown: true),
+              let up = CGEvent(keyboardEventSource: source, virtualKey: CGKeyCode(kVK_ANSI_V), keyDown: false) else { return }
+        down.flags = .maskCommand
+        up.flags = .maskCommand
+        down.post(tap: .cghidEventTap)
+        up.post(tap: .cghidEventTap)
     }
 
     /// The paste instruction has to reach the user while the browser is
