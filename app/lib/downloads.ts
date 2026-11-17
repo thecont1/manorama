@@ -183,7 +183,6 @@ html.light .home-account-panel{background:#fff}
 .dl-shortcuts{font-family:'DM Mono',ui-monospace,monospace;font-size:13px;color:var(--home-ink-muted);margin:0}
 .dl-shortcuts a{color:var(--home-ink-soft);text-decoration:none}
 .dl-shortcuts a:hover{color:var(--home-ink)}
-.dl-latest-line{margin:clamp(24px,3vw,36px) 0 0;font-size:16px;color:var(--home-ink-soft)}
 .dl-history{margin-top:clamp(24px,3vw,44px)}
 .dl-history h2{font-family:'Bricolage Grotesque','Manrope',ui-sans-serif,system-ui,sans-serif;font-size:clamp(28px,3.4vw,40px);font-weight:700;letter-spacing:-.01em;margin:0 0 8px}
 .dl-history-sub{color:var(--home-ink-muted);max-width:62ch;margin:0 0 clamp(28px,3.5vw,44px)}
@@ -203,6 +202,10 @@ html.light .home-account-panel{background:#fff}
 .dl-assets a:hover{background:var(--home-surface-raised)}
 .dl-assets .dl-size{color:var(--home-ink-muted);margin-left:8px}
 .dl-empty{color:var(--home-ink-muted);margin:0}
+/* The device-detected button wears the primary look; every other
+   platform stays quiet so exactly one download reads as the answer. */
+.dl-platforms .home-btn-quiet.dl-recommended{background:var(--home-ink);color:var(--home-bg);box-shadow:none}
+.dl-platforms .home-btn-quiet.dl-recommended:hover{background:var(--home-ink-bright);color:var(--home-bg)}
 `
 
 const THEME_INIT = `<script>
@@ -277,6 +280,19 @@ document.addEventListener('keydown',function(event){
   });
 });
 }catch(e){}
+</script>
+<script>
+/* One primary button, not three: userAgentData is the modern platform
+   signal; the UA string covers the rest. iPadOS reports platform=macOS
+   with mobile=true, so mobile is read first — an iPad never gets the
+   Mac button. */
+try{
+var ua=navigator.userAgent||'',d=navigator.userAgentData,plat=null;
+if(d&&d.platform){var p=String(d.platform).toLowerCase();plat=d.mobile?'ios':(p==='macos'?'mac':p)}
+else{plat=/iPad|iPhone|iPod/.test(ua)?'ios':/Windows/.test(ua)?'windows':/Android/.test(ua)?'android':/Mac/.test(ua)?'mac':/Linux/.test(ua)?'linux':null}
+var btn=plat&&document.querySelector('.dl-platforms a[data-platform="'+plat+'"]');
+if(btn)btn.classList.add('dl-recommended')
+}catch(e){}
 </script>`
 
 const THEME_TOGGLE = `<button type="button" class="home-theme-toggle" data-theme-toggle aria-label="Switch colour theme" hidden>
@@ -314,7 +330,7 @@ ${THEME_TOGGLE}
 </div></header>`
 
 const footerHtml = () => `<footer class="home-footer"><div class="home-wrap home-footer-inner">
-<nav class="home-footer-links" aria-label="Footer"><a href="${SITE}/privacy">Privacy Policy</a></nav>
+<nav class="home-footer-links" aria-label="Footer"><a href="${SITE}/privacy">Privacy Policy</a><a href="${SITE}/about">About</a><a href="${SITE}/techspecs">Tech Specs</a><a href="${SITE}/terms">Terms</a></nav>
 <p class="home-footer-copy"><span class="home-footer-copy-line"><span class="home-footer-brand"><img class="home-logo-dark" src="${SITE}/manorama-merged-logo.png" alt="manorama" width="2027" height="688"><img class="home-logo-light" src="${SITE}/manorama-merged-logo-light.png" alt="" aria-hidden="true" width="2027" height="688"></span><span>© 2026 Mahesh Shantaram / <a href="https://thecontrarian.in" target="_blank" rel="noopener">thecontrarian.in</a></span></span><span class="home-footer-ownership">Photographs in galleries belong to their respective owners.</span></p>
 </div></footer>`
 
@@ -461,18 +477,6 @@ const releaseHtml = (release: ReleaseView) => {
 
 const indexPage = async (env: DownloadsEnv, manifest: LatestManifest | null): Promise<Response> => {
   const releases = await combinedReleases(env, manifest)
-  const current = manifest ? releases.find((release) => release.latest) : null
-  const rows = manifest
-    ? (['mac', 'windows', 'linux'] as const)
-        .map((platform) => {
-          const key = manifest.assets?.[platform]
-          const name = key ? key.split('/').pop() : null
-          return key && name
-            ? `<span class="dl-shortcuts"><a href="/${escapeHtml(key)}">${platform}</a> · ${escapeHtml(name)}</span><br>`
-            : ''
-        })
-        .join('')
-    : '<span class="dl-empty">No release published yet.</span>'
   const hero = `<section class="dl-hero">
 <h1 class="dl-title">${manifest?.version ? `manorama v${escapeHtml(manifest.version)}` : 'manorama downloads'}</h1>
 <p class="dl-lede">Native apps for macOS, Windows and Linux — the same gallery, on your desk. Every release stays here, with its notes.</p>
@@ -482,26 +486,27 @@ ${(['mac', 'windows', 'linux'] as const)
   .map((platform) => {
     const key = manifest?.assets?.[platform]
     return typeof key === 'string' && OBJECT_KEY.test(key)
-      ? `<a class="home-btn${platform === 'mac' ? '' : ' home-btn-quiet'}" href="/${escapeHtml(key)}">${platform === 'mac' ? 'Download for macOS' : platform === 'windows' ? 'Download for Windows' : 'Download for Linux'}</a>`
+      ? `<a class="home-btn home-btn-quiet" data-platform="${platform}" href="/${platform}">${platform === 'mac' ? 'Download for macOS' : platform === 'windows' ? 'Download for Windows' : 'Download for Linux'}</a>`
       : ''
   })
   .join('')}
 </div>
-<p class="dl-shortcuts" style="margin-top:20px">Shortcuts: <a href="/mac">/mac</a> · <a href="/windows">/windows</a> · <a href="/linux">/linux</a> · <a href="/latest.json">/latest.json</a></p>
 <p class="dl-eyebrow" style="margin-top:clamp(30px,4vw,48px)">mobile downloads</p>
 ${(() => {
-  const btn = (label: string, mobile?: MobileRelease | null) =>
-    mobile?.url ? `<a class="home-btn home-btn-quiet" href="${escapeHtml(mobile.url)}">${label}</a>` : ''
+  const btn = (label: string, platform: string, mobile?: MobileRelease | null) =>
+    mobile?.url ? `<a class="home-btn home-btn-quiet" data-platform="${platform}" href="${escapeHtml(mobile.url)}">${label}</a>` : ''
   const note = (name: string, mobile?: MobileRelease | null) =>
     mobile?.url
       ? `<p class="dl-shortcuts">${name}${mobile.version ? ` · v${escapeHtml(mobile.version)}` : ''}</p>`
       : `<p class="dl-shortcuts">${name} — coming soon</p>`
   const ios = manifest?.mobile?.ios
   const android = manifest?.mobile?.android
-  const buttons = btn('Download for iPhone &amp; iPad', ios) + btn('Download for Android', android)
-  return `${buttons ? `<div class="dl-platforms">${buttons}</div>` : ''}${note('iPhone &amp; iPad', ios)}${note('Android', android)}`
+  const buttons = btn('Download for iPhone &amp; iPad', 'ios', ios) + btn('Download for Android', 'android', android)
+  // Android publishes a sideloaded APK, not a store listing — its version
+  // already rides the hero title and every release row, so the section
+  // only carries the iOS placeholder note.
+  return `${buttons ? `<div class="dl-platforms">${buttons}</div>` : ''}${note('iPhone &amp; iPad', ios)}`
 })()}
-${current?.highlights.length ? `<p class="dl-latest-line">Latest: ${escapeHtml(current.highlights[0]!.subject)}</p>` : ''}
 </section>`
   const history = releases.length
     ? `<section class="dl-history"><h2>Release history</h2>

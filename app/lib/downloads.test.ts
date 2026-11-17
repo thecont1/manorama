@@ -210,12 +210,34 @@ describe('handleDownloads', () => {
     const body = await res.text()
     expect(body).not.toContain('vundefined')
     expect(body).toContain('>Download for Android</a>')
-    expect(body).toContain('Android · v1.0')
+    // The version note is gone — the hero title and release rows already
+    // carry it — but the iOS placeholder stays.
+    expect(body).not.toContain('Android · v1.0')
     expect(body).toContain('iPhone &amp; iPad — coming soon')
     expect((await handleDownloads(req('/mac'), mobileEnv)).status).toBe(404)
     const android = await handleDownloads(req('/android'), mobileEnv)
     expect(android.status).toBe(302)
     expect(android.headers.get('location')).toBe('https://downloads.manorama.xyz/v1.0/manorama_1.0_android.apk')
+  })
+
+  test('download buttons use the stable shortcuts and mark their platform', async () => {
+    const body = await (await handleDownloads(req('/'), env)).text()
+    // Buttons resolve through the /mac /windows /linux permanlinks, not
+    // the versioned object keys — the links survive the next release.
+    expect(body).toContain('data-platform="mac" href="/mac"')
+    expect(body).toContain('data-platform="windows" href="/windows"')
+    expect(body).toContain('data-platform="linux" href="/linux"')
+    // No platform is pre-highlighted in the markup — the device script
+    // promotes exactly one via .dl-recommended.
+    expect(body).toContain("classList.add('dl-recommended')")
+    expect(body).not.toContain('Shortcuts:')
+  })
+
+  test('the footer carries the same legal and info links as the homepage', async () => {
+    const body = await (await handleDownloads(req('/'), env)).text()
+    for (const href of ['https://manorama.xyz/privacy', 'https://manorama.xyz/about', 'https://manorama.xyz/techspecs', 'https://manorama.xyz/terms']) {
+      expect(body).toContain(`href="${href}"`)
+    }
   })
 
   test('the header links Home instead of repeating the downloads menu', async () => {
