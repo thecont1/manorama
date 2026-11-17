@@ -1824,7 +1824,7 @@ body:has(.ops-page) { overflow: auto; overflow-x: clip; background: #111312; }
   .admin-page--selector .admin-rail .account-ad { margin-top: auto; }
   .admin-page--selector .admin-rail .admin-library-sub + .admin-copyright { margin-top: auto; }
 }
-.admin-rail { min-width: 0; }
+.admin-rail { min-width: 0; transition: opacity .7s cubic-bezier(.4, 0, .2, 1); }
 .admin-rail .admin-library-heading { flex-direction: column; align-items: stretch; gap: 14px; }
 .admin-rail .admin-heading-actions { justify-content: flex-start; }
 .admin-rail .admin-library-sub { margin-bottom: 24px; }
@@ -1855,6 +1855,10 @@ html.light .lib-quiet-toggle[aria-pressed="true"] { color: #e9e5dc; }
    The primary buttons and the native sponsored slot are the only bright
    solids inside a quieted card, so they sink whole. */
 .lib-quiet :where(svg, .device-pill, .lib-temp-flag, .admin-strip-badge, .app-update-banner, .m-btn--primary, [data-account-ad]) { opacity: .05; }
+/* The rail is the way back, so quiet view dims it to half rather than
+   sinking it with the list — mark, actions and sponsored slot stay
+   legible while the gallery's words fall to whispers. */
+.lib-quiet-rail { opacity: .5; }
 /* And the photographs step a touch forward while the words step back. */
 .lib-quiet img { filter: brightness(1.12); }
 

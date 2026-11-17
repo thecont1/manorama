@@ -2635,7 +2635,7 @@ export default function Catalogue({ apiBase }: { apiBase: string }) {
             copyright; the cards scroll beside it. */}
         {/* Anchors in the rail (the Free tier's upgrade mailto) open in the
             system browser — the same interception the Settings surface uses. */}
-        <aside class="admin-rail" onClick={interceptSettingsLink}>
+        <aside class={quiet ? 'admin-rail lib-quiet-rail' : 'admin-rail'} onClick={interceptSettingsLink}>
           <div class="admin-brand">
             <img class="admin-brand-mark" src="/manorama-merged-logo.png" alt="manorama" width="280" height="94" />
             <p class="admin-version">version {buildCommit}</p>
@@ -2645,8 +2645,8 @@ export default function Catalogue({ apiBase }: { apiBase: string }) {
             <div class="admin-heading-actions">
               <button type="button" class="admin-button admin-button--solid admin-add-pill" onClick={() => setAddChooserOpen(true)} disabled={busy}><span aria-hidden="true">+</span> Add Gallery</button>
               {/* Quiet view: sinks every word in the gallery list to a
-                  whisper so only the photographs remain. The toggle lives
-                  on the rail, which stays untouched — it is the way back. */}
+                  whisper so only the photographs remain. The rail dims to
+                  half — the toggle stays the way back. */}
               <button
                 type="button"
                 class="admin-button lib-quiet-toggle"

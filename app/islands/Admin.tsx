@@ -989,7 +989,7 @@ export default function Admin({ galleries: initialGalleries, owner, ownerName, p
           a narrow sticky rail (mark, heading, actions, sponsored slot) on
           the left, the gallery cards scrolling on the right. Single-column
           screens stack the rail above the list. */}
-      <aside class="admin-rail">
+      <aside class={quiet ? 'admin-rail lib-quiet-rail' : 'admin-rail'}>
         <div class="admin-brand">
           <img class="admin-brand-mark" src="/manorama-merged-logo.png" alt="manorama" width="280" height="94" />
           <p class="admin-version">version {buildCommit}</p>
@@ -999,8 +999,8 @@ export default function Admin({ galleries: initialGalleries, owner, ownerName, p
           <div class="admin-heading-actions">
             <button type="button" class="admin-button admin-button--solid admin-add-pill" onClick={() => { setAddError(null); setAddOpen(true) }} disabled={busy}><span aria-hidden="true">+</span> Add Gallery</button>
             {/* Quiet view: sinks every word in the gallery list to a whisper
-                so only the photographs remain. The toggle lives on the rail,
-                which stays untouched — it is the way back. */}
+                so only the photographs remain. The rail dims to half — the
+                toggle stays the way back. */}
             <button
               type="button"
               class="admin-button lib-quiet-toggle"
