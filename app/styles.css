@@ -1817,29 +1817,43 @@ body:has(.ops-page) { overflow: auto; overflow-x: clip; background: #111312; }
     align-items: start;
   }
   .admin-page--selector .admin-rail {
-    position: sticky;
-    top: calc(16px + var(--shell-top-inset, 0px));
     min-width: 0;
     display: flex;
     flex-direction: column;
   }
-  /* The column can outrun the viewport — Vault, Devices and the
-     copyright would clip below the fold where sticky can never bring
-     them back. Bound it and let it scroll inside itself. The platform
+  /* Sticky pinned the rail only to its grid row, and the row ends with
+     the galleries — scroll far enough and its end shoved the rail up
+     and out of the window. Fixed pins it to the viewport instead: the
+     column never moves no matter how far the page runs. Its grid
+     track stays behind untouched (it is sized by the template, not
+     the item), and the galleries' cell is pinned to column 2 because
+     a fixed item no longer holds column 1 for them. The column can
+     still outrun the viewport — Vault, Devices and the copyright
+     would clip below the fold where nothing brings them back — so it
+     bounds to the viewport and scrolls inside itself. The platform
      scrollbar stays on: the page hides its own, but a scroll region
-     with no affordance is how content goes missing quietly. The fold
-     layout's static rail is exempt — it flows with the page.
+     with no affordance is how content goes missing quietly.
      overscroll-behavior-y:contain keeps a wheel gesture that bottoms
-     out here from chaining into the page scroll — without it the page
-     lurches and the sticky rail gets pushed up by its grid row's end.
-     The right padding clears the overlay scrollbar, which floats over
-     the rail's edge rather than taking layout space. */
+     out here from chaining into the page scroll. The right padding
+     clears the overlay scrollbar, which floats over the rail's edge
+     rather than taking layout space. The fold layout's static rail is
+     exempt — it flows with the page. */
   .admin-page--selector:not([data-admin-segmented]) .admin-rail {
+    position: fixed;
+    top: calc(16px + var(--shell-top-inset, 0px));
+    left: clamp(20px, 7vw, 112px);
+    width: min(300px, var(--admin-pane-limit, 300px));
+    min-width: 225px;
     max-height: calc(100dvh - 32px - var(--shell-top-inset, 0px));
     overflow-x: clip;
     overflow-y: auto;
     overscroll-behavior-y: contain;
     padding-right: 14px;
+  }
+  /* A fixed rail leaves grid flow — pin the list to column 2 so
+     auto-placement cannot slide it under the rail's track. */
+  .admin-page--selector:not([data-admin-segmented]) .admin-content > .gallery-list {
+    grid-column: 2;
   }
   .admin-page--selector .admin-rail > * { flex-shrink: 0; }
   .admin-page--selector .admin-rail .account-ad { margin-top: auto; }
