@@ -2166,9 +2166,9 @@ a.m-btn { text-decoration: none; }
   from { opacity: 0; }
   to { opacity: 1; }
 }
-/* The exit runs quicker than the entrance — the pane is leaving, not
-   arriving — but on the same gentle curve, never a cut. */
-.web-settings--pane.is-closing { animation: lib-pane-out .4s cubic-bezier(.4, 0, .2, 1) forwards; }
+/* The exit runs much quicker than the entrance — the pane is leaving,
+   not arriving — but on the same gentle curve, never a cut. */
+.web-settings--pane.is-closing { animation: lib-pane-out .25s cubic-bezier(.4, 0, .2, 1) forwards; }
 @keyframes lib-pane-out {
   from { opacity: 1; }
   to { opacity: 0; }

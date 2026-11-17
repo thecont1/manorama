@@ -1818,7 +1818,18 @@ export default function Catalogue({ apiBase }: { apiBase: string }) {
   }
 
   const requestCloseSettings = () => {
-    if (!settingsOpen || settingsClosing) return
+    if (settingsClosing) {
+      // A second click during the fade means "now" — finish the exit
+      // immediately instead of reopening or swallowing the press.
+      if (settingsCloseTimerRef.current) {
+        clearTimeout(settingsCloseTimerRef.current)
+        settingsCloseTimerRef.current = null
+      }
+      setSettingsOpen(false)
+      setSettingsClosing(false)
+      return
+    }
+    if (!settingsOpen) return
     setSettingsClosing(true)
     // On the split layout the library remounts beneath the fading pane —
     // the two share the galleries cell and the exit reads as a dissolve
@@ -1832,7 +1843,7 @@ export default function Catalogue({ apiBase }: { apiBase: string }) {
       settingsCloseTimerRef.current = null
       setSettingsOpen(false)
       setSettingsClosing(false)
-    }, 400)
+    }, 250)
   }
   useEffect(() => () => {
     if (settingsCloseTimerRef.current) clearTimeout(settingsCloseTimerRef.current)
@@ -2748,7 +2759,7 @@ export default function Catalogue({ apiBase }: { apiBase: string }) {
                 class="admin-button admin-settings-pill"
                 aria-label="Settings"
                 aria-expanded={settingsOpen ? 'true' : 'false'}
-                onClick={() => { settingsOpen ? requestCloseSettings() : openSettings() }}
+                onClick={() => { (settingsOpen || settingsClosing) ? requestCloseSettings() : openSettings() }}
               >
                 <SettingsIcon />
               </button>

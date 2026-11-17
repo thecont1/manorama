@@ -1504,7 +1504,7 @@ describe('desktop catalogue workbench', () => {
     // the list is already back beneath it so the handoff is a dissolve.
     expect(container.querySelector('.web-settings--pane.is-closing')).not.toBeNull()
     expect(container.querySelector('.gallery-list')!.hasAttribute('hidden')).toBe(false)
-    await new Promise((resolve) => setTimeout(resolve, 450))
+    await new Promise((resolve) => setTimeout(resolve, 300))
     await settle()
     expect(container.querySelector('.web-settings')).toBeNull()
     expect(container.querySelector('.gallery-list')!.hasAttribute('hidden')).toBe(false)
