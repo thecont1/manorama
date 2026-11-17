@@ -942,6 +942,10 @@ body.manorama-native[data-native-fold-divided] .native-library-layout .native-se
 /* Settings keeps the shared owner grammar while embedding the live vault
    controls rather than mounting a second settings shell. */
 .native-settings { background: var(--m-ground); color: var(--m-ink); }
+.native-settings .site-footer { flex-direction: column; align-items: flex-start; gap: 0; margin-top: 24px; padding: 0; }
+.native-settings .site-footer-copy { color: var(--m-secondary); line-height: 1.6; }
+.native-settings .site-footer-copy button { min-height: 0; display: inline; padding: 0; border: 0; background: none; color: inherit; font: inherit; cursor: pointer; }
+.native-settings .site-footer-copy button:hover { text-decoration: underline; }
 /* As a Library pane it takes over the list column under the shared topbar —
    the same gentle enter the web/desktop pane uses. */
 .native-settings--pane { min-width: 0; animation: lib-pane-in .38s cubic-bezier(.4, 0, .2, 1) both; }

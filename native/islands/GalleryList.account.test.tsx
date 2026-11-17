@@ -833,9 +833,11 @@ describe('signed-in account area', () => {
 
     await openSettings(container)
     const headings = [...container.querySelectorAll('.m-actiongroup-label')].map((heading) => heading.textContent)
-    expect(headings).toContain('Your devices')
+    // No heading crowds the box — the device list is the whole group.
+    expect(headings).not.toContain('Your devices')
     const legend = container.querySelector('.lib-devices-legend') as HTMLElement | null
     expect(legend).not.toBeNull()
+    expect(legend!.querySelector('.lib-devices-legend-label')).toBeNull()
     expect(legend!.textContent).toContain('iPhone')
     expect(legend!.textContent).toContain('Mac')
     expect(legend!.querySelectorAll('.device-pill')).toHaveLength(2)

@@ -165,13 +165,14 @@ export default function Settings(props: Props) {
           the legend, and where a device the owner no longer uses is
           forgotten. No device name is ever stored. */}
       {devices.length ? (
-        <ActionGroup label="Your devices" note="No device name is stored — only a random identifier and its type.">
+        <ActionGroup note="No device name is stored — only a random identifier and its type.">
           <div class="m-panel">
             <DeviceLegend
               devices={devices}
               selfId={deviceId}
               onForget={props.onForgetDevice}
               onForgetPending={props.forgetDeviceBusy}
+              hideLabel
             />
           </div>
         </ActionGroup>
@@ -185,7 +186,6 @@ export default function Settings(props: Props) {
       <ActionGroup label="About">
         {props.appUpdate ? <ActionRow label="App update" value={`v${props.appUpdate.version} available`} onClick={props.onOpenUpdate} /> : null}
         <ActionRow label="Privacy Policy" onClick={props.onOpenPrivacy} />
-        <ActionRow label="Mahesh Shantaram · thecontrarian.in" onClick={props.onOpenAuthor} />
         <ActionRow label="Sign out" onClick={props.onSignOut} />
         {deleteConfirming ? <div class="m-panel m-settings-delete">
           <p>This removes your galleries, device catalogue and sign-in methods from manorama. Nothing at the source is touched. If you subscribe, cancel first — App Store: Settings › Subscriptions; web: your Stripe receipt.</p>
@@ -196,6 +196,10 @@ export default function Settings(props: Props) {
         </div> : <ActionRow label="Delete account" tone="destructive" onClick={props.onRequestDelete} />}
         {deleteError ? <p class="m-note m-panel-note" role="alert">{deleteError}</p> : null}
       </ActionGroup>
+
+      <footer class="site-footer">
+        <p class="site-footer-copy">© 2026 Mahesh Shantaram / <button type="button" onClick={props.onOpenAuthor}>thecontrarian.in</button><br />Photographs in galleries belong to their respective owners.</p>
+      </footer>
     </div>
   )
   if (props.presentation === 'pane') {
