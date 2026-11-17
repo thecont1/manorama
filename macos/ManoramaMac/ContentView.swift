@@ -15,7 +15,10 @@ import WebKit
 /// real menu bar, a real Space, and the machine's answers when the Library
 /// asks for a folder or a vault key.
 struct ContentView: View {
-    @EnvironmentObject private var model: AppModel
+    /// The shell's model, passed down from the app. A direct property is
+    /// enough — this view always has the model — and Observation still
+    /// tracks everything the body reads.
+    let model: AppModel
 
     /// Matches `src-tauri/tauri.conf.json` `backgroundColor: "#111312"`.
     private static let canvasColor = Color(red: 0x11 / 255.0, green: 0x13 / 255.0, blue: 0x12 / 255.0)
@@ -45,7 +48,7 @@ struct ContentView: View {
         }
         .background(WindowAccessor { window in
             model.configureWindow(window)
-            model.openInFullScreen()
+            model.applyLaunchWindowMode()
         })
         .alert(
             "Something went wrong",
