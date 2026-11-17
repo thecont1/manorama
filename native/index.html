@@ -10,8 +10,16 @@
     <meta name="theme-color" content="#0a0a0a" />
     <title>manorama</title>
     <script src="/theme-init.js"></script>
+    <script>
+      // Frost-gate marker for the Android shell, set before first paint — the
+      // bundle ships to iOS and Android, and only the iOS shell injects its
+      // own marker natively (SceneDelegate, document start). iOS UA is not
+      // sniffed: iPad can send a desktop UA. No CSP here — the bundle is a
+      // local document, not a Worker page.
+      if (/Android/.test(navigator.userAgent)) document.documentElement.dataset.androidShell = '1';
+    </script>
   </head>
-  <body>
+  <body class="manorama-native">
     <div id="app"></div>
     <script type="module" src="/main.tsx"></script>
   </body>

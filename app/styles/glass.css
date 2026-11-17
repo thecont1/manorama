@@ -1,0 +1,149 @@
+/* Liquid Glass design tokens and material classes — the frost tier (Tier B).
+   Values from the Meniscus design system (dark; light in html.light).
+   Tokens are inert data on :root — material classes and their Tier-0 solid
+   fallbacks are scoped under the frost gate (shell presence, every OS
+   version): only shells see glass paint; manorama.xyz and the homepage demo
+   never do. See docs/liquid-glass-design-system.md. */
+
+:root {
+  /* Fills — glass bodies. */
+  --glass-fill-lens: rgba(18, 18, 24, .14);
+  --glass-fill-regular: rgba(18, 18, 24, .30);
+  --glass-fill-frost: rgba(18, 18, 24, .40);
+  --glass-fill-rim: rgba(18, 18, 24, .22);
+  --glass-fill-tint: rgba(76, 130, 255, .36);
+
+  /* Flat fills inside glass — never a second lens. */
+  --glass-flat-child: rgba(255, 255, 255, .10);
+  --glass-flat-chip: rgba(255, 255, 255, .18);
+  --glass-flat-trough: rgba(0, 0, 0, .28);
+
+  /* Specular rim: bright key (top), dimmer counter (bottom), dark edge line. */
+  --glass-rim-key: rgba(255, 255, 255, .68);
+  --glass-rim-counter: rgba(255, 255, 255, .35);
+  --glass-edge: rgba(0, 0, 0, .32);
+  --glass-rim: inset 0 1px 0 var(--glass-rim-key), inset 0 -1px 0 var(--glass-rim-counter), inset 0 0 0 1px var(--glass-edge);
+
+  /* Ink and actions on glass. */
+  --glass-ink: #ffffff;
+  --glass-ink-secondary: rgba(255, 255, 255, .66);
+  --glass-accent: #4c82ff;
+  --glass-accent-solid: #2b6bff; /* under white labels in dark — 4.5:1 */
+  --glass-accent-ink: #c4d7ff;
+  --glass-danger: #ff5a5f;
+  --glass-danger-solid: #d6363b;
+
+  /* Dim behind modal glass; Tier-0 solid surface. */
+  --glass-dim: rgba(0, 0, 0, .45);
+  --glass-solid: rgba(16, 16, 18, .94);
+  --glass-shadow: 0 10px 32px rgba(0, 0, 0, .35);
+}
+
+html.light {
+  --glass-fill-lens: rgba(255, 255, 255, .06);
+  --glass-fill-regular: rgba(255, 255, 255, .15);
+  --glass-fill-frost: rgba(255, 255, 255, .28);
+  --glass-fill-rim: rgba(255, 255, 255, .08);
+  --glass-flat-child: rgba(255, 255, 255, .34);
+  --glass-flat-chip: rgba(255, 255, 255, .52);
+  --glass-flat-trough: rgba(29, 29, 31, .07);
+  --glass-rim-key: rgba(255, 255, 255, .96);
+  --glass-rim-counter: rgba(255, 255, 255, .56);
+  --glass-edge: rgba(0, 0, 0, .12);
+  --glass-ink: #1d1d1f;
+  --glass-ink-secondary: rgba(29, 29, 31, .72);
+  --glass-accent-ink: #143fa8;
+  --glass-danger: #e5484d;
+  --glass-dim: rgba(0, 0, 0, .25);
+  --glass-solid: rgba(248, 248, 250, .96);
+  --glass-shadow: 0 8px 28px rgba(0, 0, 0, .14), 0 1px 3px rgba(0, 0, 0, .08);
+}
+
+/* Viewer chrome stays dark under html.light — same contract as .m-dark
+   re-pinning the --m-* tokens. */
+.m-dark {
+  --glass-fill-lens: rgba(18, 18, 24, .14);
+  --glass-fill-regular: rgba(18, 18, 24, .30);
+  --glass-fill-frost: rgba(18, 18, 24, .40);
+  --glass-fill-rim: rgba(18, 18, 24, .22);
+  --glass-flat-child: rgba(255, 255, 255, .10);
+  --glass-flat-chip: rgba(255, 255, 255, .18);
+  --glass-flat-trough: rgba(0, 0, 0, .28);
+  --glass-rim-key: rgba(255, 255, 255, .68);
+  --glass-rim-counter: rgba(255, 255, 255, .35);
+  --glass-edge: rgba(0, 0, 0, .32);
+  --glass-ink: #ffffff;
+  --glass-ink-secondary: rgba(255, 255, 255, .66);
+  --glass-accent-ink: #c4d7ff;
+  --glass-danger: #ff5a5f;
+  --glass-dim: rgba(0, 0, 0, .45);
+  --glass-solid: rgba(16, 16, 18, .94);
+  --glass-shadow: 0 10px 32px rgba(0, 0, 0, .35);
+}
+
+/* The frost gate — shell presence on any OS version. Every material rule
+   carries this ancestor; a selector without it is ungated and rejected by
+   scripts/check-glass.test.ts. */
+:root:is([data-ios-shell], [data-android-shell], [data-macos-shell]) .glass-lens {
+  background: var(--glass-fill-lens);
+  backdrop-filter: blur(10px) saturate(1.5);
+  -webkit-backdrop-filter: blur(10px) saturate(1.5);
+  box-shadow: var(--glass-rim), var(--glass-shadow);
+}
+:root:is([data-ios-shell], [data-android-shell], [data-macos-shell]) .glass-regular {
+  background: var(--glass-fill-regular);
+  backdrop-filter: blur(16px) saturate(1.4);
+  -webkit-backdrop-filter: blur(16px) saturate(1.4);
+  box-shadow: var(--glass-rim), var(--glass-shadow);
+}
+:root:is([data-ios-shell], [data-android-shell], [data-macos-shell]) .glass-frost {
+  background: var(--glass-fill-frost);
+  backdrop-filter: blur(24px) saturate(1.4);
+  -webkit-backdrop-filter: blur(24px) saturate(1.4);
+  box-shadow: var(--glass-rim), var(--glass-shadow);
+}
+:root:is([data-ios-shell], [data-android-shell], [data-macos-shell]) .glass-tint {
+  background: var(--glass-fill-tint);
+  backdrop-filter: blur(16px) saturate(1.4);
+  -webkit-backdrop-filter: blur(16px) saturate(1.4);
+  box-shadow: var(--glass-rim), var(--glass-shadow);
+}
+/* Children of glass stay flat — a trough is darker still. */
+:root:is([data-ios-shell], [data-android-shell], [data-macos-shell]) .glass-flat {
+  background: var(--glass-flat-child);
+  box-shadow: none;
+}
+:root:is([data-ios-shell], [data-android-shell], [data-macos-shell]) .glass-trough {
+  background: var(--glass-flat-trough);
+  box-shadow: none;
+}
+/* Dim behind modal glass — a scrim token, applied to dim elements only. */
+:root:is([data-ios-shell], [data-android-shell], [data-macos-shell]) .glass-dim {
+  background: var(--glass-dim);
+  backdrop-filter: blur(4px);
+  -webkit-backdrop-filter: blur(4px);
+}
+/* Press feedback for touch chrome — the only motion glass takes. */
+:root:is([data-ios-shell], [data-android-shell], [data-macos-shell]) .glass-press {
+  transition: transform .12s cubic-bezier(.22, 1, .36, 1);
+}
+:root:is([data-ios-shell], [data-android-shell], [data-macos-shell]) .glass-press:active {
+  transform: scale(1.05);
+}
+
+/* Tier 0 — solid, same geometry. Reduced transparency, increased contrast,
+   or no backdrop-filter at all: the material swaps to a near-solid surface. */
+@media (prefers-reduced-transparency: reduce), (prefers-contrast: more) {
+  :root:is([data-ios-shell], [data-android-shell], [data-macos-shell]) :is(.glass-lens, .glass-regular, .glass-frost, .glass-tint, .glass-dim) {
+    background: var(--glass-solid);
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
+    box-shadow: inset 0 0 0 1px var(--glass-edge);
+  }
+}
+@supports not (backdrop-filter: blur(1px)) {
+  :root:is([data-ios-shell], [data-android-shell], [data-macos-shell]) :is(.glass-lens, .glass-regular, .glass-frost, .glass-tint, .glass-dim) {
+    background: var(--glass-solid);
+    box-shadow: inset 0 0 0 1px var(--glass-edge);
+  }
+}

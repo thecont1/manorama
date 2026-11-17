@@ -1,4 +1,7 @@
 @import '../app/styles.css';
+/* Frost-tier material system — inert until the shell's data-macos-shell
+   marker lands. See docs/liquid-glass-design-system.md. */
+@import '../app/styles/glass.css';
 
 /* The Tauri shell is a desktop-sized native surface, not the legacy web
    catalogue. It shares the native canvas, type scale, quiet controls and
