@@ -1219,7 +1219,7 @@ body.magnifier-paused * { cursor: auto !important; }
   align-items: center;
   justify-content: space-between;
   gap: 16px;
-  padding: max(14px, env(safe-area-inset-top)) max(16px, env(safe-area-inset-right)) 14px max(16px, env(safe-area-inset-left));
+  padding: calc(max(14px, env(safe-area-inset-top)) + var(--shell-top-inset, 0px)) max(16px, env(safe-area-inset-right)) 14px max(16px, env(safe-area-inset-left));
   border-bottom: 1px solid rgba(244, 240, 232, .18);
   color: rgba(244, 240, 232, .88);
 }
