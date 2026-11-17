@@ -413,28 +413,35 @@ case "pressnative":
     // pressweb cannot reach it. Anything inside the AXWebArea subtree is
     // skipped so a web control with the same label is never hit instead.
     let label = CommandLine.arguments.count >= 4 ? CommandLine.arguments[3] : ""
-    var target: AXUIElement?
+    // Collect every match, deepest first: glass containers can surface
+    // merged elements that advertise a child's label but fail AXPress —
+    // try them all until one actually performs.
+    var matches: [(element: AXUIElement, depth: Int)] = []
     func findNative(_ element: AXUIElement, depth: Int) {
-        guard depth < 16, target == nil else { return }
+        guard depth < 16 else { return }
         if role(element) == "AXWebArea" { return }
         if role(element) == "AXButton", title(element).contains(label) {
-            target = element
-            return
+            matches.append((element, depth))
         }
         for child in children(element) { findNative(child, depth: depth + 1) }
     }
     findNative(window, depth: 0)
-    guard let button = target else {
+    guard !matches.isEmpty else {
         print("native button not found: \(label)")
         exit(3)
     }
-    var frameText = "no frame"
-    if let pos = axPoint(button, kAXPositionAttribute), let size = axSize(button, kAXSizeAttribute) {
-        frameText = "frame=\(Int(pos.x)),\(Int(pos.y)) \(Int(size.width))x\(Int(size.height))"
+    matches.sort { $0.depth > $1.depth }
+    for (index, match) in matches.enumerated() {
+        let button = match.element
+        var frameText = "no frame"
+        if let pos = axPoint(button, kAXPositionAttribute), let size = axSize(button, kAXSizeAttribute) {
+            frameText = "frame=\(Int(pos.x)),\(Int(pos.y)) \(Int(size.width))x\(Int(size.height))"
+        }
+        let result = AXUIElementPerformAction(button, kAXPressAction as CFString)
+        print("press native \"\(title(button))\" \(frameText) → \(result.rawValue)")
+        if result == .success { exit(0) }
+        if index == matches.count - 1 { exit(4) }
     }
-    let result = AXUIElementPerformAction(button, kAXPressAction as CFString)
-    print("press native \"\(title(button))\" \(frameText) → \(result.rawValue)")
-    exit(result == .success ? 0 : 4)
 
 case "picker":
     // Does the viewer's own grid picker open? The `g` key is one of the
@@ -559,6 +566,106 @@ case "press":
     }
     print("menu item not found: \(menuName) > \(itemName)")
     exit(3)
+
+case "natactions":
+    // List the AX actions a native element by label supports — for
+    // diagnosing controls that report AXButton but reject AXPress.
+    let label = CommandLine.arguments.count >= 4 ? CommandLine.arguments[3] : ""
+    var matches: [AXUIElement] = []
+    func findAll(_ element: AXUIElement, depth: Int) {
+        guard depth < 16 else { return }
+        if role(element) == "AXWebArea" { return }
+        if role(element) == "AXButton", title(element).contains(label) { matches.append(element) }
+        for child in children(element) { findAll(child, depth: depth + 1) }
+    }
+    findAll(window, depth: 0)
+    guard !matches.isEmpty else {
+        print("native button not found: \(label)")
+        exit(3)
+    }
+    for (index, element) in matches.enumerated() {
+        var names: CFArray?
+        AXUIElementCopyActionNames(element, &names)
+        var frameText = "no frame"
+        if let pos = axPoint(element, kAXPositionAttribute), let size = axSize(element, kAXSizeAttribute) {
+            frameText = "\(Int(pos.x)),\(Int(pos.y)) \(Int(size.width))x\(Int(size.height))"
+        }
+        print("[\(index)] \"\(title(element))\" \(frameText) actions=\(names as? [String] ?? [])")
+    }
+
+case "clicknative":
+    // Click a native chrome button by label through the real pointer
+    // path. The cluster only mounts while the viewer chrome is visible,
+    // so a move is posted first to wake it, then the element's fresh
+    // frame is re-read before the down/up — separate probe invocations
+    // always lose to the chrome's idle auto-hide.
+    let label = CommandLine.arguments.count >= 4 ? CommandLine.arguments[3] : ""
+    func findNative(_ element: AXUIElement, depth: Int) -> AXUIElement? {
+        guard depth < 16 else { return nil }
+        if role(element) == "AXWebArea" { return nil }
+        if role(element) == "AXButton", title(element).contains(label) { return element }
+        for child in children(element) {
+            if let found = findNative(child, depth: depth + 1) { return found }
+        }
+        return nil
+    }
+    let source = CGEventSource(stateID: .hidSystemState)
+    var attempts = 0
+    var target: AXUIElement?
+    var frame: CGRect?
+    while attempts < 20, target == nil {
+        // Hover the bottom-centre of the window — where the cluster
+        // lives — so the move both wakes the chrome and holds it open.
+        if let pos = axPoint(window, kAXPositionAttribute), let size = axSize(window, kAXSizeAttribute) {
+            let hover = CGPoint(x: pos.x + size.width / 2, y: pos.y + size.height - 80)
+            CGEvent(mouseEventSource: source, mouseType: .mouseMoved, mouseCursorPosition: hover, mouseButton: .left)?.post(tap: .cghidEventTap)
+        }
+        usleep(350_000)
+        if let element = findNative(window, depth: 0),
+           let pos = axPoint(element, kAXPositionAttribute), let size = axSize(element, kAXSizeAttribute) {
+            target = element
+            frame = CGRect(x: pos.x, y: pos.y, width: size.width, height: size.height)
+        }
+        attempts += 1
+    }
+    guard let button = target, let rect = frame else {
+        print("clicknative: \(label) never mounted")
+        exit(3)
+    }
+    let centre = CGPoint(x: rect.midX, y: rect.midY)
+    // Hovering expands the cluster's spacing — the frame read above is
+    // pre-animation and the buttons slide apart over ~340ms, so aim a
+    // second time once they have settled.
+    usleep(500_000)
+    if let element = findNative(window, depth: 0),
+       let pos = axPoint(element, kAXPositionAttribute), let size = axSize(element, kAXSizeAttribute) {
+        let settled = CGPoint(x: pos.x + size.width / 2, y: pos.y + size.height / 2)
+        CGEvent(mouseEventSource: source, mouseType: .mouseMoved, mouseCursorPosition: settled, mouseButton: .left)?.post(tap: .cghidEventTap)
+        usleep(120_000)
+        CGEvent(mouseEventSource: source, mouseType: .leftMouseDown, mouseCursorPosition: settled, mouseButton: .left)?.post(tap: .cghidEventTap)
+        usleep(70_000)
+        CGEvent(mouseEventSource: source, mouseType: .leftMouseUp, mouseCursorPosition: settled, mouseButton: .left)?.post(tap: .cghidEventTap)
+        print("clicknative \"\(title(button))\" @ \(Int(settled.x)),\(Int(settled.y)) (settled)")
+        exit(0)
+    }
+    // The window is frontmost in z-order but not necessarily key — an
+    // agent session means the IDE re-activates between probes. A click
+    // on a non-key window is swallowed as activation, so activate the
+    // window through its titlebar first, then send the real click.
+    if let wpos = axPoint(window, kAXPositionAttribute), let wsize = axSize(window, kAXSizeAttribute) {
+        let titlebar = CGPoint(x: wpos.x + wsize.width / 2, y: wpos.y + 8)
+        for event in [CGEventType.leftMouseDown, .leftMouseUp] {
+            CGEvent(mouseEventSource: source, mouseType: event, mouseCursorPosition: titlebar, mouseButton: .left)?.post(tap: .cghidEventTap)
+            usleep(70_000)
+        }
+        usleep(400_000)
+    }
+    CGEvent(mouseEventSource: source, mouseType: .mouseMoved, mouseCursorPosition: centre, mouseButton: .left)?.post(tap: .cghidEventTap)
+    usleep(120_000)
+    CGEvent(mouseEventSource: source, mouseType: .leftMouseDown, mouseCursorPosition: centre, mouseButton: .left)?.post(tap: .cghidEventTap)
+    usleep(70_000)
+    CGEvent(mouseEventSource: source, mouseType: .leftMouseUp, mouseCursorPosition: centre, mouseButton: .left)?.post(tap: .cghidEventTap)
+    print("clicknative \"\(title(button))\" @ \(Int(rect.midX)),\(Int(rect.midY)) after \(attempts) wake(s)")
 
 default:
     print("unknown command")
