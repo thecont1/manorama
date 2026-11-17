@@ -21,6 +21,10 @@ final class ViewerCoordinator: NSObject, WKScriptMessageHandler, WKNavigationDel
     /// Called when the viewer's own chrome appears or hides — the shell's
     /// floating Library capsule rides on it.
     var onChrome: ((Bool) -> Void)?
+    /// Called when a sheet mounts or its box settles — the native glass
+    /// that backs the sheet morphs into that rectangle, so the shell needs
+    /// it in the webview's own coordinate space (which fills the window).
+    var onSheet: ((Bool, CGRect?) -> Void)?
     /// The native shell's runtime API — the commands the app's own bundle
     /// asks of the machine.
     var bridge: NativeBridge?
@@ -110,6 +114,16 @@ final class ViewerCoordinator: NSObject, WKScriptMessageHandler, WKNavigationDel
             // The viewer's chrome appeared or hid — posted by the injected
             // observer, so the shell's capsule can track it.
             onChrome?(body["visible"] as? Bool ?? false)
+        case "sheet":
+            // A `.m-sheet` appeared, moved, or left. The shell draws the
+            // sheet's own glass underneath it, so it needs the live box.
+            var rect: CGRect?
+            if let r = body["rect"] as? [String: Any],
+               let x = r["x"] as? CGFloat, let y = r["y"] as? CGFloat,
+               let w = r["w"] as? CGFloat, let h = r["h"] as? CGFloat {
+                rect = CGRect(x: x, y: y, width: w, height: h)
+            }
+            onSheet?(body["open"] as? Bool ?? false, rect)
         default:
             break
         }
@@ -254,12 +268,31 @@ struct ViewerWebView: NSViewRepresentable {
                 source: """
                     document.documentElement.dataset.macosGlass = '1';
                     (function () {
-                      var last = null;
+                      var lastVisible = null;
+                      var lastSheetKey = null;
+                      function post(message) {
+                        try { window.webkit.messageHandlers.manorama.postMessage(message); } catch (e) {}
+                      }
                       function report() {
                         var on = document.querySelector('.m-chrome.is-visible [data-chrome-library]') !== null;
-                        if (on !== last) {
-                          last = on;
-                          try { window.webkit.messageHandlers.manorama.postMessage({ type: 'chrome', visible: on }); } catch (e) {}
+                        if (on !== lastVisible) {
+                          lastVisible = on;
+                          post({ type: 'chrome', visible: on });
+                        }
+                        // A mounted sheet's box is the shell's morph
+                        // target. The key carries the rect so the settle
+                        // after the sheet's enter animation is posted too.
+                        var sheet = document.querySelector('.m-sheet');
+                        var key = 'closed', rect = null;
+                        if (sheet) {
+                          var r = sheet.getBoundingClientRect();
+                          rect = { x: r.left, y: r.top, w: r.width, h: r.height };
+                          key = 'open:' + r.left + ',' + r.top + ',' + r.width + ',' + r.height;
+                        }
+                        if (key !== lastSheetKey) {
+                          lastSheetKey = key;
+                          document.documentElement.dataset.macosGlassSheet = sheet ? '1' : '';
+                          post({ type: 'sheet', open: sheet !== null, rect: rect });
                         }
                       }
                       // Kept on window: an unretained observer can be

@@ -28,6 +28,14 @@ final class AppModel {
     /// capsule is chrome too — it appears and leaves with the page's
     /// pills rather than hanging over a photograph at rest.
     private(set) var viewerChromeVisible = false
+    /// The box of the page's open sheet, in window coordinates — the
+    /// morph target for the Settings segment's travelling glass. Nil
+    /// when no sheet is up.
+    private(set) var viewerSheetRect: CGRect?
+    /// Where the native Settings segment sits while the cluster is up —
+    /// the morph's launch frame. Written by the cluster's preference, in
+    /// the same window coordinates as `viewerSheetRect`.
+    var settingsAnchor: CGRect = .zero
     /// Something the user must be told about.
     var errorMessage: String?
 
@@ -163,6 +171,13 @@ final class AppModel {
         coordinator.onChrome = { [weak self] visible in
             self?.viewerChromeVisible = visible
         }
+        // The sheet's box is the morph target for the Settings segment's
+        // travelling glass — it launches from the segment's seat, lands
+        // on the reported box, and hands the surface back to the web
+        // sheet's own background as it fades.
+        coordinator.onSheet = { [weak self] open, rect in
+            self?.viewerSheetRect = open ? rect : nil
+        }
     }
 
     // MARK: - The gallery
@@ -200,6 +215,17 @@ final class AppModel {
     /// Leave the gallery and go back to the Library.
     func closeGallery() {
         webViewRef?.evaluateJavaScript("window.__manoramaCloseGallery && window.__manoramaCloseGallery();")
+    }
+
+    /// Press one of the viewer's own pills. On Liquid Glass builds the
+    /// web pill is hidden but still mounted — the real handlers, the
+    /// focus bookkeeping and the modal wiring all live there — so the
+    /// native cluster asks the page to fire it rather than re-inventing
+    /// the click.
+    func invokeWebControl(_ selector: String) {
+        guard let data = try? JSONSerialization.data(withJSONObject: selector),
+              let json = String(data: data, encoding: .utf8) else { return }
+        webViewRef?.evaluateJavaScript("var el = document.querySelector(\(json)); if (el) el.click();")
     }
 
     /// The page asked for the next/previous photograph.
