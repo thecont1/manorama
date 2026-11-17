@@ -1810,7 +1810,7 @@ body:has(.ops-page) { overflow: auto; overflow-x: clip; background: #111312; }
   }
   .admin-page--selector .admin-rail {
     position: sticky;
-    top: 16px;
+    top: calc(16px + var(--shell-top-inset, 0px));
     min-width: 0;
     display: flex;
     flex-direction: column;
@@ -1868,10 +1868,11 @@ html.light .lib-quiet-toggle[aria-pressed="true"] { color: #e9e5dc; }
    The primary buttons and the native sponsored slot are the only bright
    solids inside a quieted card, so they sink whole. */
 .lib-quiet :where(svg, .device-pill, .lib-temp-flag, .admin-strip-badge, .app-update-banner, .m-btn--primary, [data-account-ad]) { opacity: .05; }
-/* The rail is the way back, so quiet view dims it to half rather than
-   sinking it with the list — mark, actions and sponsored slot stay
-   legible while the gallery's words fall to whispers. */
-.lib-quiet-rail { opacity: .5; }
+/* Quiet view sinks the rail with the list — photographs only. The way
+   back is still there: the rail lifts back to its half-dim on hover so
+   the toggle is findable without standing bright over the pictures. */
+.lib-quiet-rail { opacity: .05; }
+.lib-quiet-rail:hover { opacity: .5; }
 /* And the photographs step a touch forward while the words step back. */
 .lib-quiet img { filter: brightness(1.12); }
 
@@ -1995,7 +1996,11 @@ html.light .lib-quiet-toggle[aria-pressed="true"] { color: #e9e5dc; }
    hit-testers read the hidden state per-element, not just the bar's. */
 .m-chrome:not(.is-visible) .m-chrome-pill { opacity: 0; }
 .m-chrome-pill { pointer-events: auto; }
-.m-chrome--top { top: calc(env(safe-area-inset-top, 0px) + 8px); justify-content: space-between; transform: translateY(-8px); }
+/* Inside the macOS shell the window's hiddenTitleBar leaves the traffic
+   lights floating over the page — top-anchored chrome drops below the
+   strip they occupy. Everywhere else the inset is zero. */
+:root[data-macos-shell] { --shell-top-inset: 32px; }
+.m-chrome--top { top: calc(env(safe-area-inset-top, 0px) + 8px + var(--shell-top-inset, 0px)); justify-content: space-between; transform: translateY(-8px); }
 .m-chrome--bottom { bottom: calc(env(safe-area-inset-bottom, 0px) + 16px); justify-content: center; transform: translateY(8px); }
 /* With the arrow bar reserved, the temporary bottom chrome rides just
    above it rather than inside the controls' strip. */

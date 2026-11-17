@@ -229,6 +229,14 @@ struct ViewerWebView: NSViewRepresentable {
     func makeNSView(context: Context) -> WKWebView {
         let configuration = WKWebViewConfiguration()
         configuration.setURLSchemeHandler(schemeHandler, forURLScheme: "manorama")
+        // The hiddenTitleBar window puts content under the traffic lights,
+        // so the page marks itself — top-anchored chrome reserves the strip
+        // the lights occupy instead of landing beneath them.
+        configuration.userContentController.addUserScript(WKUserScript(
+            source: "document.documentElement.dataset.macosShell = '1';",
+            injectionTime: .atDocumentStart,
+            forMainFrameOnly: true
+        ))
         configuration.userContentController.add(coordinator, name: "manorama")
         // A dark webview avoids a white flash before the page's own ground
         // paints.
