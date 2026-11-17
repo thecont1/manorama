@@ -17,6 +17,10 @@ private final class ManoramaBridgeViewController: CAPBridgeViewController {
     var onLayoutChange: (() -> Void)?
     var onNewDocument: (() -> Void)?
     private var documentLoadObservation: NSKeyValueObservation?
+    /// iOS 26+ glass chrome: the model the injected observer feeds and the
+    /// handler registered on the configuration (retained here for routing).
+    private var glassModel: GlassChromeModel?
+    private var glassHandler: GlassScriptHandler?
 
     override func webView(with frame: CGRect, configuration: WKWebViewConfiguration) -> WKWebView {
         let webView = ManoramaWebView(frame: frame, configuration: configuration)
@@ -27,6 +31,25 @@ private final class ManoramaBridgeViewController: CAPBridgeViewController {
         documentLoadObservation = webView.observe(\.isLoading, options: .new) { [weak self] webView, _ in
             if webView.isLoading { self?.onNewDocument?() }
         }
+
+        if #available(iOS 26.0, *) {
+            // Liquid Glass takeover: stamp data-ios-glass and inject the
+            // chrome/sheet/position observer before first paint; the
+            // "manorama" handler is how those posts reach the overlay.
+            let model = GlassChromeModel()
+            let handler = GlassScriptHandler(model: model)
+            configuration.userContentController.add(handler, name: "manorama")
+            configuration.userContentController.addUserScript(
+                WKUserScript(
+                    source: GlassBridgeScript.marker + GlassBridgeScript.observer,
+                    injectionTime: .atDocumentStart,
+                    forMainFrameOnly: true
+                )
+            )
+            glassModel = model
+            glassHandler = handler
+        }
+
         guard let windowScene else { return webView }
 
         webView.configuration.userContentController.addUserScript(
@@ -41,6 +64,12 @@ private final class ManoramaBridgeViewController: CAPBridgeViewController {
 
     override func viewDidLoad() {
         super.viewDidLoad()
+        if #available(iOS 26.0, *), let glassModel, let webView {
+            // The capsules ride above the webView in a pass-through
+            // container; touches off-capsule belong to the page.
+            glassModel.webView = webView
+            GlassChromeInstaller.install(over: webView, in: view, model: glassModel)
+        }
         if #available(iOS 17.0, *) {
             registerForTraitChanges([UITraitHorizontalSizeClass.self, UITraitVerticalSizeClass.self]) {
                 (self: ManoramaBridgeViewController, _) in
