@@ -1822,13 +1822,19 @@ body:has(.ops-page) { overflow: auto; overflow-x: clip; background: #111312; }
     min-width: 0;
     display: flex;
     flex-direction: column;
-    /* Pinned at the top of the viewport while the gallery cards scroll —
-       the column keeps its natural height and never scrolls inside
-       itself, so it stays on-screen without a trapped scroll pane. */
-    scrollbar-width: none;
+  }
+  /* The column can outrun the viewport — Vault, Devices and the
+     copyright would clip below the fold where sticky can never bring
+     them back. Bound it and let it scroll inside itself. The platform
+     scrollbar stays on: the page hides its own, but a scroll region
+     with no affordance is how content goes missing quietly. The fold
+     layout's static rail is exempt — it flows with the page. */
+  .admin-page--selector:not([data-admin-segmented]) .admin-rail {
+    max-height: calc(100dvh - 32px - var(--shell-top-inset, 0px));
+    overflow-x: clip;
+    overflow-y: auto;
   }
   .admin-page--selector .admin-rail > * { flex-shrink: 0; }
-  .admin-page--selector .admin-rail::-webkit-scrollbar { display: none; }
   .admin-page--selector .admin-rail .account-ad { margin-top: auto; }
   .admin-page--selector .admin-rail .admin-library-sub + .admin-copyright { margin-top: auto; }
   /* During the settings pane's exit the library returns beneath it: both
@@ -2012,14 +2018,16 @@ html.light .lib-quiet-toggle[aria-pressed="true"] { color: #e9e5dc; }
 :root[data-macos-shell] { --shell-top-inset: 32px; }
 /* On 26+ the shell renders the Library exit as its own glass capsule —
    the web pill keeps its slot in the bar (the layout does not move) but
-   no longer paints a second way back. */
-:root[data-macos-glass] [data-chrome-library] { visibility: hidden; }
+   no longer paints a second way back. Hide rules key only on the takeover
+   attributes (*-glass, native chrome drawn) — never on shell presence
+   (*-shell), which would retire these elements on every OS version. */
+:root:is([data-macos-glass], [data-ios-glass]) [data-chrome-library] { visibility: hidden; }
 
 /* On Liquid Glass the bottom controls are the shell's own cluster: the
    web pills stay mounted — they own the handlers the shell fires — but
    are never painted. The bar's box is kept because the settings popover
    still anchors to it. */
-:root[data-macos-glass] [data-chrome-bottom] .m-chrome-pill { visibility: hidden; }
+:root:is([data-macos-glass], [data-ios-glass]) [data-chrome-bottom] .m-chrome-pill { visibility: hidden; }
 .m-chrome--top { top: calc(env(safe-area-inset-top, 0px) + 8px + var(--shell-top-inset, 0px)); justify-content: space-between; transform: translateY(-8px); }
 .m-chrome--bottom { bottom: calc(env(safe-area-inset-bottom, 0px) + 16px); justify-content: center; transform: translateY(8px); }
 /* With the arrow bar reserved, the temporary bottom chrome rides just
