@@ -36,7 +36,14 @@ enum GlassBridgeScript {
         try { window.webkit.messageHandlers.manorama.postMessage(message); } catch (e) {}
       }
       function report() {
-        var on = document.querySelector('.m-chrome.is-visible [data-chrome-library]') !== null
+        // is-visible alone is not enough — an open overlay inerts the
+        // chrome's siblings, so a pill can be "visible" yet untouchable.
+        // Native capsules must follow inert state or they float tappable
+        // dead ends over the modal. The sheet morph reads sheetRect on its
+        // own channel and is deliberately unaffected by this check.
+        var chrome = document.querySelector('.m-chrome.is-visible [data-chrome-library]');
+        var on = chrome !== null
+          && chrome.closest('[inert]') === null
           && document.querySelector('.viewer-filmstrip') === null;
         if (on !== lastVisible) {
           lastVisible = on;
@@ -68,7 +75,9 @@ enum GlassBridgeScript {
         }
       }
       window.__manoramaChromeObserver = new MutationObserver(report);
-      window.__manoramaChromeObserver.observe(document.documentElement, { subtree: true, childList: true, attributes: true, attributeFilter: ['class'] });
+      // inert changes availability without touching class; characterData
+      // fires on the position pill's "n of m" text alone.
+      window.__manoramaChromeObserver.observe(document.documentElement, { subtree: true, childList: true, attributes: true, attributeFilter: ['class', 'inert'], characterData: true });
       document.addEventListener('transitionend', function (e) {
         if (e.target && e.target.classList && e.target.classList.contains('m-sheet')) report();
       });
@@ -106,8 +115,11 @@ final class GlassChromeModel: ObservableObject {
     /// A finger resting on a native capsule generates no page pointer
     /// events — the viewer's chrome idles out 3s after the last one and the
     /// pills would unmount beneath it. While any capsule is touched, dispatch
-    /// a synthetic non-touch pointermove on the stage; the y alternates
-    /// because the page's fine-move handler only wakes on travel > 4px.
+    /// a synthetic non-touch pointermove pair on the stage: the page's
+    /// fine-move handler only wakes on travel > 4px, so each ping sends two
+    /// positions 8px apart — the very first call refreshes the idle clock
+    /// instead of only seeding lastFine. The base y alternates between
+    /// pings so successive pairs never settle on the previous point.
     /// Level-based, not counted: a DragGesture re-fires onChanged for every
     /// move, so counting edges would inflate the touch depth. The second
     /// finger landing on another capsule while the first lifts is accepted
@@ -128,7 +140,7 @@ final class GlassChromeModel: ObservableObject {
 
     private func ping() {
         webView?.evaluateJavaScript(
-            "var s = document.querySelector('.viewer-stage'); if (s) { window.__manoramaKeepAlive = !window.__manoramaKeepAlive; var y = s.clientHeight - 40 + (window.__manoramaKeepAlive ? 8 : -8); s.dispatchEvent(new PointerEvent('pointermove', {bubbles: true, clientX: s.clientWidth / 2, clientY: y})); }",
+            "var s = document.querySelector('.viewer-stage'); if (s) { window.__manoramaKeepAlive = !window.__manoramaKeepAlive; var y = s.clientHeight - 40 + (window.__manoramaKeepAlive ? 8 : -8); var x = s.clientWidth / 2; s.dispatchEvent(new PointerEvent('pointermove', {bubbles: true, clientX: x, clientY: y - 8})); s.dispatchEvent(new PointerEvent('pointermove', {bubbles: true, clientX: x, clientY: y})); }",
             completionHandler: nil
         )
     }

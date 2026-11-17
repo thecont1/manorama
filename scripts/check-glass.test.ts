@@ -108,6 +108,13 @@ const selectorBranches = (selector: string): string[] => {
   let quote: string | null = null
   for (let i = 0; i < selector.length; i++) {
     const c = selector[i]
+    // Backslash escapes consume the next char before anything reads it —
+    // a \" inside a quoted string must not close the quote, and an escaped
+    // comma in an ident must not split the list.
+    if (c === '\\') {
+      i++
+      continue
+    }
     if (quote) {
       if (c === quote) quote = null
     } else if (c === '"' || c === "'") {
@@ -202,6 +209,19 @@ describe('glass gate — fallbacks', () => {
 })
 
 describe('glass gate — gating', () => {
+  test('selector branches split on top-level commas only, escapes intact', () => {
+    // Regression: [data-note="a\",b"] — the \" escape inside the attr
+    // string must not close the quote. Without escape handling the comma
+    // inside the string mis-splits and a later branch's gate attribute can
+    // be swallowed into an ungated branch — a hidden ungated rule.
+    expect(selectorBranches('[data-note="a\\",b"] .glass-x, .glass-regular')).toEqual([
+      '[data-note="a\\",b"] .glass-x',
+      '.glass-regular',
+    ])
+    // An escaped comma in an ident never splits at all.
+    expect(selectorBranches('.glass-a\\,b')).toEqual(['.glass-a\\,b'])
+  })
+
   test('every .glass-* selector branch is frost-gated and never takeover-gated', () => {
     // A selector LIST is only as safe as its weakest branch — a combined
     // ":root[data-x] .glass-a, .glass-b" leaves the second branch bare.
