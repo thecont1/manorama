@@ -30,7 +30,9 @@ jobs:
           # The Mac ships only from the SwiftUI shell — the Tauri desktop is
           # deprecated on macOS (scripts/build-macos.sh compiles macos/
           # ManoramaMac with swiftc, arm64 only; there is no Intel build).
-          - os: macos-latest
+          # The xcode-27 image is the one that carries Xcode 27.x — the
+          # generic macos-latest labels track the stable SDK and do not.
+          - os: xcode-27
             swiftui: true
             asset: macos-arm64
             bundles: build/dmg/*.dmg
@@ -129,6 +131,31 @@ jobs:
             -o "$RUNNER_TEMP/require-env.sh"
           bash "$RUNNER_TEMP/require-env.sh" APPLE_CERTIFICATE APPLE_CERTIFICATE_PASSWORD APPLE_ID APPLE_PASSWORD APPLE_TEAM_ID
 
+      # The toolchain is validated before any credential is touched: a
+      # runner that cannot supply the reviewed Xcode fails here, cheaply,
+      # rather than after a keychain exists. The xcode-27 image carries
+      # several Xcode builds, so the pin names the reviewed one; the
+      # directory is exported for the job's later steps rather than through
+      # a system-wide xcode-select.
+      - name: Select Xcode 27.1 and require the macOS SDK
+        if: matrix.swiftui == true
+        run: |
+          set -euo pipefail
+          xcode="/Applications/Xcode_27.1.app"
+          if [ ! -d "$xcode" ]; then
+            echo "::error::Xcode 27.1 is not installed at $xcode"
+            exit 1
+          fi
+          echo "DEVELOPER_DIR=$xcode/Contents/Developer" >> "$GITHUB_ENV"
+          export DEVELOPER_DIR="$xcode/Contents/Developer"
+          xcodebuild -version
+          sdk="$(xcrun --sdk macosx --show-sdk-version)"
+          echo "macOS SDK: $sdk"
+          case "$sdk" in
+            2[6-9]*|[3-9][0-9]*) ;;
+            *) echo "::error::$xcode provides macOS SDK $sdk, but the shell needs 26 or newer."; exit 1 ;;
+          esac
+
       # The macOS leg codesigns through scripts/build-macos.sh, so it fails at
       # codesign until the APPLE_* secrets exist — no unsigned fallback on
       # purpose. The certificate never enters the other legs.
@@ -154,28 +181,6 @@ jobs:
           fi
           security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$KEYCHAIN_PASSWORD" build.keychain
           rm signing.p12
-
-      # A moving macos-latest label is not a toolchain guarantee: pick the
-      # reviewed Xcode explicitly and fail loudly if the runner does not
-      # carry it, so the shell is always compiled against the macOS 26+
-      # SDK it requires.
-      - name: Select Xcode 27.1 and require the macOS SDK
-        if: matrix.swiftui == true
-        run: |
-          set -euo pipefail
-          xcode="/Applications/Xcode_27.1.app"
-          if [ ! -d "$xcode" ]; then
-            echo "::error::Xcode 27.1 is not installed at $xcode"
-            exit 1
-          fi
-          sudo xcode-select -s "$xcode/Contents/Developer"
-          xcodebuild -version
-          sdk="$(xcrun --sdk macosx --show-sdk-version)"
-          echo "macOS SDK: $sdk"
-          case "$sdk" in
-            2[6-9]*|[3-9][0-9]*) ;;
-            *) echo "::error::$xcode provides macOS SDK $sdk, but the shell needs 26 or newer."; exit 1 ;;
-          esac
 
       - uses: astral-sh/setup-uv@d0d8abe699bfb85fec6de9f7adb5ae17292296ff # v6
         if: matrix.swiftui == true
