@@ -78,24 +78,37 @@ describe('imageStageSize in strip mode fits height-first', () => {
   })
 })
 
-describe('imageStageSize in vertical mode fits width-first', () => {
+describe('imageStageSize in vertical mode fits width-first, portraits contain', () => {
   for (const dpr of DPRS) {
     for (const [name, w, h] of SHAPES) {
       test(`${name} ${w}x${h} at ${dpr}x`, () => {
         const eff = Math.min(dpr, 2)
         const result = size('vertical', w, h, dpr)
-        const expectedWidth = Math.min(STAGE.stageWidthCssPx, w / eff)
-        near(result.width, expectedWidth)
-        near(result.height, expectedWidth * (h / w))
+        if (h > w) {
+          const scale = Math.min(STAGE.stageWidthCssPx / w, STAGE.stageHeightCssPx / h, 1 / eff)
+          near(result.width, w * scale)
+          near(result.height, h * scale)
+        } else {
+          const expectedWidth = Math.min(STAGE.stageWidthCssPx, w / eff)
+          near(result.width, expectedWidth)
+          near(result.height, expectedWidth * (h / w))
+        }
       })
     }
   }
 
-  test('a portrait may run taller than the viewport — no height cap', () => {
+  test('a portrait is held to the stage height instead of running past the fold', () => {
     const result = size('vertical', 1600, 2400, 1)
-    expect(result.width).toBe(STAGE.stageWidthCssPx)
-    near(result.height, 2160)
-    expect(result.height).toBeGreaterThan(STAGE.stageHeightCssPx)
+    near(result.height, STAGE.stageHeightCssPx)
+    near(result.width, STAGE.stageHeightCssPx * (1600 / 2400))
+    expect(result.height).toBeLessThanOrEqual(STAGE.stageHeightCssPx + EPSILON)
+  })
+
+  test('landscape and square frames still fit the full width', () => {
+    for (const [w, h] of [[2400, 1600], [1600, 1600]] as const) {
+      const result = size('vertical', w, h, 1)
+      expect(result.width).toBe(STAGE.stageWidthCssPx)
+    }
   })
 })
 

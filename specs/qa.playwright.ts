@@ -3700,7 +3700,7 @@ test.describe("density-aware staging", () => {
     }
   });
 
-  test("vertical fits width-first and portraits run long without cropping", async ({ playwright, browser }) => {
+  test("vertical fits width-first and portraits fit the stage height", async ({ playwright, browser }) => {
     const url = await densityGallery(playwright, "d-vert", [
       { id: "tall", w: 1600, h: 2400 },
       { id: "wide", w: 2400, h: 1600 },
@@ -3717,8 +3717,10 @@ test.describe("density-aware staging", () => {
     const img = page.locator("[aria-current='true'] .frame-img");
     await expect(img).toBeVisible();
     const box = await img.boundingBox();
-    expect(Math.abs(box!.width - 800)).toBeLessThan(2);
-    expect(Math.abs(box!.height - 1200)).toBeLessThan(2);
+    // Portrait contains both axes: 900/2400 binds before the 2x pixel
+    // budget, so the frame is one viewport tall and centred, not 2160px.
+    expect(Math.abs(box!.width - 600)).toBeLessThan(2);
+    expect(Math.abs(box!.height - 900)).toBeLessThan(2);
     await context.close();
   });
 

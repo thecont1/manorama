@@ -81,7 +81,7 @@ export default function SettingsSheet({
 
   const layoutHint =
     mode === 'strip' ? 'Side by side, edge to edge'
-    : mode === 'vertical' ? 'Each photograph fits the width'
+    : mode === 'vertical' ? 'Each photograph fits the screen'
     : mode === 'spread' ? 'Two consecutive photographs, in the photographer’s order'
     : 'One at a time, swipe or tap'
   const canvasHint =
