@@ -95,7 +95,8 @@ const PostCell = ({
   total,
   selected,
   onPick,
-  savedPhotos,
+  galleryKey,
+  entryIdFor,
   loader,
 }: {
   photo: PostToXPhoto
@@ -103,24 +104,24 @@ const PostCell = ({
   total: number
   selected: boolean
   onPick: (id: string) => void
-  savedPhotos?: PostSavedPhotos
+  galleryKey: string
+  entryIdFor: (photoId: string) => string
   loader?: GridThumbLoader
 }) => {
   const [savedUrl, setSavedUrl] = useState<string | null>(null)
   const cellRef = useRef<HTMLButtonElement | null>(null)
   // An encrypted photograph is only ever shown from this device: the provider
   // has no rendition of it to offer.
-  const needsSaved = Boolean(savedPhotos && loader) && (photo.encrypted || !photo.preview)
+  const needsSaved = Boolean(loader) && (photo.encrypted || !photo.preview)
 
   useEffect(() => {
-    if (!needsSaved || !loader || !savedPhotos) return
+    if (!needsSaved || !loader) return
     let cancelled = false
     const materialize = () => {
-      const entryId = savedPhotos.entryIdFor(photo.id)
       void loader
-        .urlFor(savedPhotos.galleryId, {
+        .urlFor(galleryKey, {
           id: photo.id,
-          entryId,
+          entryId: entryIdFor(photo.id),
           mimeType: photoMimeType(photo),
           video: false,
           width: photo.width,
@@ -146,7 +147,7 @@ const PostCell = ({
       cancelled = true
       observer.disconnect()
     }
-  }, [needsSaved, loader, savedPhotos, photo, index])
+  }, [needsSaved, loader, galleryKey, entryIdFor, photo, index])
 
   const src = photo.encrypted ? savedUrl ?? undefined : photo.preview || undefined
   return (
@@ -208,10 +209,34 @@ export default function PostToX({
   }, [apiBase, owner, slug])
 
   // The grid's own copies are materialized lazily and revoked with the picker,
-  // so closing it leaves no decrypted photograph behind in the page.
-  const loader = useMemo(() => savedPhotos
-    ? new GridThumbLoader({ read: (_galleryId, entryId) => savedPhotos.read(entryId), objectUrls: defaultObjectUrls })
-    : undefined, [savedPhotos])
+  // so closing it leaves no decrypted photograph behind in the page. The
+  // device's saved bytes come first; a photograph the device does not hold
+  // falls back to live decryption through the same bounded loader — its LRU
+  // and concurrency caps keep the fallback as flat as the primary path, and
+  // a read that lands after release is revoked on arrival.
+  const photosByEntry = useMemo(() => {
+    const map = new Map<string, PostToXPhoto>()
+    for (const photo of photos ?? []) {
+      map.set(savedPhotos ? savedPhotos.entryIdFor(photo.id) : photo.id, photo)
+    }
+    return map
+  }, [photos, savedPhotos])
+  const entryIdFor = useMemo(() => savedPhotos
+    ? savedPhotos.entryIdFor
+    : (photoId: string) => photoId, [savedPhotos])
+  const loader = useMemo(() => (savedPhotos || materialize)
+    ? new GridThumbLoader({
+        read: async (_galleryId, entryId) => {
+          const saved = await savedPhotos?.read(entryId).catch(() => undefined)
+          if (saved && saved.length > 0) return saved
+          const photo = photosByEntry.get(entryId)
+          if (!photo || !materialize) return undefined
+          const decrypted = await materialize(photo).catch(() => undefined)
+          return decrypted?.bytes
+        },
+        objectUrls: defaultObjectUrls,
+      })
+    : undefined, [savedPhotos, materialize, photosByEntry])
   useEffect(() => () => loader?.release(), [loader])
 
   const pick = (id: string) => {
@@ -287,7 +312,8 @@ export default function PostToX({
                 total={photos.length}
                 selected={selected.includes(photo.id)}
                 onPick={pick}
-                savedPhotos={savedPhotos}
+                galleryKey={savedPhotos?.galleryId ?? slug}
+                entryIdFor={entryIdFor}
                 loader={loader}
               />
             ))}

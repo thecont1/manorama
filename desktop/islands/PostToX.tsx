@@ -8,6 +8,7 @@ import {
   type PostToXPhoto,
 } from '../../native/lib/post-to-x'
 import type { EncryptedClientSession } from '../../app/lib/encrypted-resolver'
+import { pushOverlay } from '../../app/lib/overlay-stack'
 import {
   exportPostToX,
   withEncryptedMaterialize,
@@ -83,21 +84,28 @@ const PostCell = ({
 }) => {
   const [decryptedUrl, setDecryptedUrl] = useState<string | null>(null)
   const cellRef = useRef<HTMLButtonElement | null>(null)
+  // Each cell decrypts at most once — viewport re-entry must not mint
+  // another Blob URL. A failed attempt goes back to idle so a later
+  // intersection may retry.
+  const loadStateRef = useRef<'idle' | 'loading' | 'done'>('idle')
   const needsDecryption = Boolean(session) && (photo.encrypted || !photo.preview)
 
   useEffect(() => {
     if (!needsDecryption || !session || !photo.media) return
     let cancelled = false
     const materialize = () => {
+      if (loadStateRef.current !== 'idle') return
+      loadStateRef.current = 'loading'
       void session
         .materialize(photo.media!, true)
         .then((materialized) => {
+          loadStateRef.current = 'done'
           if (cancelled) return
           const url = URL.createObjectURL(new Blob([materialized.bytes.slice().buffer], { type: materialized.mimeType }))
           objectUrls.add(url)
           setDecryptedUrl(url)
         })
-        .catch(() => undefined)
+        .catch(() => { loadStateRef.current = 'idle' })
     }
     const cell = cellRef.current
     if (typeof IntersectionObserver === 'undefined' || !cell) {
@@ -156,6 +164,33 @@ export default function PostToX({
   const [busy, setBusy] = useState(false)
   const [note, setNote] = useState('')
   const objectUrls = useRef(new Set<string>()).current
+  const dialogRef = useRef<HTMLElement | null>(null)
+  // Refs rather than state: the overlay push and the in-flight export read
+  // them without re-running effects or closures going stale.
+  const onCloseRef = useRef(onClose)
+  onCloseRef.current = onClose
+  const busyRef = useRef(false)
+  busyRef.current = busy
+  const aliveRef = useRef(true)
+
+  // The picker is a modal: focus lands on it, Tab is trapped inside by the
+  // overlay stack, the Library behind goes inert, and Escape honours the
+  // export in flight instead of dropping it mid-preparation.
+  useEffect(() => {
+    const dialog = dialogRef.current
+    if (!dialog || typeof document === 'undefined') return
+    const release = pushOverlay({
+      host: dialog,
+      onEscape: () => { if (!busyRef.current) onCloseRef.current() },
+    })
+    dialog.focus()
+    return release
+  }, [])
+
+  useEffect(() => {
+    aliveRef.current = true
+    return () => { aliveRef.current = false }
+  }, [])
 
   useEffect(() => {
     let active = true
@@ -216,6 +251,9 @@ export default function PostToX({
     } catch {
       report = { outcome: 'failed', posted: 0, skipped: 0, note: 'Those photographs could not be prepared for sharing.' }
     }
+    // The picker may have been torn down mid-export — its onClose must
+    // never land on a picker that opened after it.
+    if (!aliveRef.current) return
     setBusy(false)
     if (report.outcome === 'cancelled') {
       onClose()
@@ -233,6 +271,8 @@ export default function PostToX({
 
   return (
     <section
+      ref={dialogRef}
+      tabIndex={-1}
       class="native-global-view native-postto"
       role="dialog"
       aria-modal="true"
@@ -271,7 +311,7 @@ export default function PostToX({
             </p>
           </div>
           <div class="native-global-header-actions">
-            <button type="button" class="native-global-close" onClick={onClose} aria-label="Close">Close</button>
+            <button type="button" class="native-global-close" onClick={onClose} disabled={busy} aria-label="Close">Close</button>
           </div>
         </div>
 

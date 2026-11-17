@@ -653,34 +653,42 @@ final class NativeBridge {
         let text = args["text"] as? String ?? ""
 
         let temporary = FileManager.default.temporaryDirectory
-        if let stale = try? FileManager.default.contentsOfDirectory(
-            at: temporary, includingPropertiesForKeys: nil
-        ) {
-            for url in stale where url.lastPathComponent.hasPrefix("manorama-post-") {
-                try? FileManager.default.removeItem(at: url)
-            }
-        }
         let folder = temporary.appendingPathComponent(
             "manorama-post-\(UUID().uuidString)", isDirectory: true
         )
-        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        // The previous post's staging is removed only after the new files
+        // are on the clipboard — the pasteboard keeps pointing at files
+        // that exist if this call fails halfway.
+        do {
+            try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
 
-        var urls: [URL] = []
-        for file in files {
-            guard let name = file["name"] as? String, !name.isEmpty, !name.contains("/"),
-                  let data = file["data"] as? String,
-                  let bytes = Data(base64Encoded: data) else {
-                throw BridgeError.badArguments("share_post files need name and data")
+            var urls: [URL] = []
+            for file in files {
+                guard let name = file["name"] as? String, !name.isEmpty, !name.contains("/"),
+                      let data = file["data"] as? String,
+                      let bytes = Data(base64Encoded: data) else {
+                    throw BridgeError.badArguments("share_post files need name and data")
+                }
+                let url = folder.appendingPathComponent(name)
+                try bytes.write(to: url)
+                urls.append(url)
             }
-            let url = folder.appendingPathComponent(name)
-            try bytes.write(to: url)
-            urls.append(url)
-        }
 
-        let pasteboard = NSPasteboard.general
-        pasteboard.clearContents()
-        guard pasteboard.writeObjects(urls as [NSURL]) else {
-            throw BridgeError.failed("The photographs could not be put on the clipboard")
+            let pasteboard = NSPasteboard.general
+            pasteboard.clearContents()
+            guard pasteboard.writeObjects(urls as [NSURL]) else {
+                throw BridgeError.failed("The photographs could not be put on the clipboard")
+            }
+        } catch {
+            try? FileManager.default.removeItem(at: folder)
+            throw error
+        }
+        if let stale = try? FileManager.default.contentsOfDirectory(
+            at: temporary, includingPropertiesForKeys: nil
+        ) {
+            for url in stale where url.lastPathComponent.hasPrefix("manorama-post-") && url != folder {
+                try? FileManager.default.removeItem(at: url)
+            }
         }
         var parts = URLComponents(string: "https://x.com/intent/post")!
         parts.queryItems = [URLQueryItem(name: "text", value: text)]

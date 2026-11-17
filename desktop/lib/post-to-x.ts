@@ -179,7 +179,10 @@ export const exportPostToX = async (options: PostExportOptions): Promise<PostExp
     try {
       output = await runImageProgram(
         fitJpegPayload(POST_TO_X_MAX_EDGE),
-        { bytes: source.bytes, mimeType: source.mimeType, width: photo.width, height: photo.height },
+        // The catalogue's dimensions are deliberately not supplied — they
+        // are metadata, not measurement. The program decodes the bytes and
+        // decides the pass-through on what the photograph actually is.
+        { bytes: source.bytes, mimeType: source.mimeType },
         runtime,
       )
     } catch {

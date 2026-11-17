@@ -442,6 +442,9 @@ export default function Catalogue({ apiBase }: { apiBase: string }) {
     session: EncryptedClientSession | null
   } | null>(null)
   const postSessionRef = useRef<EncryptedClientSession | null>(null)
+  // Opening an encrypted picker awaits the custody session — a second
+  // launch or a close meanwhile must supersede the in-flight open.
+  const postLaunchRef = useRef(0)
   /** Full-link fragments for encrypted galleries this device can share —
    *  keyed by gallery id, same contract as the web's galleryHashes. */
   const [galleryHashes, setGalleryHashes] = useState<Record<string, string>>({})
@@ -1693,6 +1696,7 @@ export default function Catalogue({ apiBase }: { apiBase: string }) {
     if (!session) return
     setCardMenu(null)
     setMenuRemove(false)
+    const launch = ++postLaunchRef.current
     const owner = ownerSlug ?? session.ownerSlug
     const url = `${accountGalleryUrl(gallery)}${gallery.id ? galleryHashes[gallery.id] ?? '' : ''}`
     let encSession: EncryptedClientSession | null = null
@@ -1700,7 +1704,15 @@ export default function Catalogue({ apiBase }: { apiBase: string }) {
       try {
         encSession = await openDesktopEncryptedSession({ owner, slug: gallery.slug, galleryId: gallery.id, sourceUrl: gallery.sourceUrl })
       } catch {
-        setNotice('This device does not hold the key. Open the full gallery link before posting to X.')
+        if (postLaunchRef.current === launch) {
+          setNotice('This device does not hold the key. Open the full gallery link before posting to X.')
+        }
+        return
+      }
+      // A later launch or a close superseded this open — the freshly
+      // opened session belongs to nothing now, so it goes back.
+      if (postLaunchRef.current !== launch) {
+        encSession.dispose()
         return
       }
     }
@@ -1720,6 +1732,7 @@ export default function Catalogue({ apiBase }: { apiBase: string }) {
   const openPostToXLocal = (record: LocalGalleryRecord) => {
     setCardMenu(null)
     setMenuRemove(false)
+    postLaunchRef.current++
     setPostToX({
       title: record.title,
       url: publishedUrlFor(record) ?? '',
@@ -1730,6 +1743,7 @@ export default function Catalogue({ apiBase }: { apiBase: string }) {
   }
 
   const closePostToX = () => {
+    postLaunchRef.current++
     postSessionRef.current?.dispose()
     postSessionRef.current = null
     setPostToX(null)

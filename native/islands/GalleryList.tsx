@@ -1033,6 +1033,7 @@ export default function GalleryList({ apiBase, owner, slug, deepLinkSelection, o
    *  gallery needs the key this device already holds. */
   const openPostToX = async (gallery: GallerySummary) => {
     if (!ownerSlug) return
+    postToXIdRef.current++
     let hash = ''
     if (gallery.manifestVersion === 2 && gallery.id) {
       const source = await resolveEncryptedSourceForSelection(gallery.id)
@@ -1053,16 +1054,39 @@ export default function GalleryList({ apiBase, owner, slug, deepLinkSelection, o
 
   /** The decryption session for an encrypted gallery's source, opened once and
    *  held for the length of the picker. The provider SDK arrives behind a
-   *  dynamic import, so it never enters the Worker graph. */
+   *  dynamic import, so it never enters the Worker graph.
+   *
+   *  The open is asynchronous and the picker is not: a close or a new picker
+   *  while the session is still being negotiated must retire the late one
+   *  rather than keep it, and a session is handed out only to the picker
+   *  that asked for it — `postToXIdRef` marks which launch is live. */
   const encryptedSessionRef = useRef<EncryptedClientSession | null>(null)
+  const encryptedSessionOpeningRef = useRef<{ galleryId: string; promise: Promise<EncryptedClientSession | null> } | null>(null)
+  const postToXIdRef = useRef(0)
   const encryptedSession = async (): Promise<EncryptedClientSession | null> => {
-    if (encryptedSessionRef.current) return encryptedSessionRef.current
     const galleryId = postToX?.gallery.id
     if (!galleryId) return null
-    const source = await resolveEncryptedSourceForSelection(galleryId).catch(() => null)
-    if (!source) return null
-    const { openEncryptedSource } = await import('../../app/lib/encrypted-client')
-    const session = await openEncryptedSource(source)
+    const picker = postToXIdRef.current
+    if (encryptedSessionRef.current) return encryptedSessionRef.current
+    let opening = encryptedSessionOpeningRef.current
+    if (!opening || opening.galleryId !== galleryId) {
+      const promise = (async () => {
+        const source = await resolveEncryptedSourceForSelection(galleryId).catch(() => null)
+        if (!source) return null
+        const { openEncryptedSource } = await import('../../app/lib/encrypted-client')
+        return openEncryptedSource(source)
+      })()
+      opening = { galleryId, promise }
+      encryptedSessionOpeningRef.current = opening
+      void promise.finally(() => {
+        if (encryptedSessionOpeningRef.current === opening) encryptedSessionOpeningRef.current = null
+      })
+    }
+    const session = await opening.promise
+    if (postToXIdRef.current !== picker) {
+      session?.dispose()
+      return null
+    }
     encryptedSessionRef.current = session
     return session
   }
@@ -1078,6 +1102,7 @@ export default function GalleryList({ apiBase, owner, slug, deepLinkSelection, o
   }
 
   const closePostToX = () => {
+    postToXIdRef.current++
     encryptedSessionRef.current?.dispose()
     encryptedSessionRef.current = null
     setPostToX(null)
