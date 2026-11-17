@@ -62,7 +62,14 @@ for (const viewport of [{ width: 375, height: 812 }, { width: 1376, height: 1032
       }
       if (index + 1 < cardCount) {
         const nextCover = await cards.nth(index + 1).locator('.native-library-cover-slot').first().boundingBox()!
-        expect(nextCover.y - captionBottom, `card ${index} leaves a deliberate gap to the next gallery`).toBeGreaterThanOrEqual(30)
+        // The grid wraps to several columns on wider layouts: a same-row
+        // neighbour's cover sits level with this one's, so the deliberate
+        // vertical gap is only owed to the card that wraps to the next row.
+        if (Math.abs(nextCover.y - cover.y) <= 4) {
+          expect(nextCover.x - (cover.x + cover.width), `card ${index} keeps the grid's column gap`).toBeGreaterThanOrEqual(15)
+        } else {
+          expect(nextCover.y - captionBottom, `card ${index} leaves a deliberate gap to the next gallery`).toBeGreaterThanOrEqual(30)
+        }
       }
     }
     await page.screenshot({ path: `demo-captures/admin-gallery-focus/native-${viewport.width}-admin.png`, fullPage: true })
