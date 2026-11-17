@@ -239,7 +239,7 @@ final class AppModel {
     /// the y alternates because the handler only wakes on travel > 4px.
     func keepViewerChromeAlive() {
         webViewRef?.evaluateJavaScript(
-            "var s = document.querySelector('.viewer-stage'); if (s) { var y = s.clientHeight - 40 + (window.__manoramaKeepAlive = !window.__manoramaKeepAlive ? 8 : -8); s.dispatchEvent(new PointerEvent('pointermove', {bubbles: true, clientX: s.clientWidth / 2, clientY: y})); }"
+            "var s = document.querySelector('.viewer-stage'); if (s) { window.__manoramaKeepAlive = !window.__manoramaKeepAlive; var y = s.clientHeight - 40 + (window.__manoramaKeepAlive ? 8 : -8); s.dispatchEvent(new PointerEvent('pointermove', {bubbles: true, clientX: s.clientWidth / 2, clientY: y})); }"
         )
     }
 

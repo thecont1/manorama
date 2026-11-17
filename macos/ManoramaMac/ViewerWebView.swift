@@ -300,6 +300,16 @@ struct ViewerWebView: NSViewRepresentable {
                       // signal never reaches the shell.
                       window.__manoramaChromeObserver = new MutationObserver(report);
                       window.__manoramaChromeObserver.observe(document.documentElement, { subtree: true, childList: true, attributes: true, attributeFilter: ['class'] });
+                      // The sheet enters on a transform transition — the
+                      // mutations only see mid-flight boxes, and nothing
+                      // mutates when the animation settles. Re-report on
+                      // the sheet's own transitionend so the shell's morph
+                      // target is the box the panel actually lands on.
+                      // Document-level because the sheet is recreated per
+                      // open; report() dedupes, so per-property ends are free.
+                      document.addEventListener('transitionend', function (e) {
+                        if (e.target && e.target.classList && e.target.classList.contains('m-sheet')) report();
+                      });
                       document.addEventListener('DOMContentLoaded', report);
                       report();
                     })();

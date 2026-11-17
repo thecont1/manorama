@@ -67,10 +67,17 @@ mkdir -p "$CTMP"
 # because the test deletes it and deletion belongs inside the sandbox's
 # own scratch.
 DISPOSABLE="${2:-$CTMP/disposable-$$}"
+# A lexical prefix check alone lets "$CTMP/../x" or a symlinked parent
+# escape the container — and the suite rm -rf's this path. Resolve both
+# sides (realpath collapses .. and follows links even for tails that do
+# not exist yet), require a strict descendant of the resolved scratch
+# dir, and keep the resolved path so every later use stays validated.
+CTMP_REAL="$(CTMP="$CTMP" python3 -c 'import os; print(os.path.realpath(os.environ["CTMP"]))')"
+DISPOSABLE="$(python3 -c 'import os,sys; print(os.path.realpath(sys.argv[1]))' "$DISPOSABLE")"
 case "$DISPOSABLE" in
-  "$CTMP"/*) ;;
+  "$CTMP_REAL"/*) ;;
   *)
-    echo "FATAL: disposable-dir must live inside $CTMP" >&2
+    echo "FATAL: disposable-dir must live inside $CTMP_REAL" >&2
     echo "       got: $DISPOSABLE" >&2
     exit 1
     ;;
@@ -574,8 +581,13 @@ echo "== 10. the floating Library capsule =="
 # while the viewer's chrome is showing and pressing it must land back on
 # the Library — the same contract Escape holds, exercised on the native
 # control itself. The web pill is suppressed (data-macos-glass), so this
-# press also proves there is still exactly one way back.
-POSITION=$(open_gallery)
+# press also proves there is still exactly one way back. The capsule is a
+# macOS 26 API — on older systems the web pill stays and there is nothing
+# native to press, so the section skips rather than fails.
+MACOS_MAJOR="$(sw_vers -productVersion | cut -d. -f1)"
+if [ "${MACOS_MAJOR:-0}" -lt 26 ]; then
+  echo "  (skipped: the glass capsule needs macOS 26+, this is $MACOS_MAJOR)"
+elif POSITION=$(open_gallery); then
 note "readout after reopening: ${POSITION:-none}"
 dismiss_curtain
 act
@@ -592,6 +604,7 @@ if [ -z "$CLOSED" ]; then
   ok "the capsule returns to the Library"
 else
   bad "the capsule returns to the Library" "still reporting ${CLOSED}"
+fi
 fi
 
 echo
@@ -822,9 +835,24 @@ echo "== 16. the window remembers its frame =="
 # relaunch, and it comes back where it was left.
 # A mid-screen frame: macOS adjusts restored frames that sit close to a
 # display edge, so an edge-hugging rectangle would come back nudged and
-# read as a failure the user would never see.
-SET_RESULT=$(/tmp/focusprobe "$BUNDLE_ID" setbounds 500 200 900 620 2>/dev/null)
-note "setbounds: ${SET_RESULT:-none}"
+# read as a failure the user would never see. The rectangle is derived
+# from the main screen's *visible* frame — a hardcoded 500,200,900,620
+# falls off smaller displays — with a fixed inset keeping it clear of
+# every edge, and dimensions clamped so it still fits the smallest
+# supported screen.
+# kAXPosition is top-left-origin while NSScreen frames are bottom-left —
+# on the main screen the conversion is axY = screenHeight - (vy + vh).
+read SH VX VY VW VH <<EOF
+$(osascript -l JavaScript -e 'ObjC.import("AppKit"); var s=ObjC.unwrap($.NSScreen.mainScreen.frame); var f=ObjC.unwrap($.NSScreen.mainScreen.visibleFrame); s.size.height+","+f.origin.x+","+f.origin.y+","+f.size.width+","+f.size.height' | tr ',' ' ')
+EOF
+AXVY=$(( SH - VY - VH ))
+INSET=48
+TW=$(( VW - 2 * INSET )); [ "$TW" -gt 900 ] && TW=900
+TH=$(( VH - 2 * INSET )); [ "$TH" -gt 620 ] && TH=620
+TX=$(( VX + INSET ))
+TY=$(( AXVY + INSET ))
+SET_RESULT=$(/tmp/focusprobe "$BUNDLE_ID" setbounds "$TX" "$TY" "$TW" "$TH" 2>/dev/null)
+note "setbounds: ${SET_RESULT:-none} (target ${TX},${TY} ${TW}x${TH} of visible ${VW}x${VH})"
 sleep 1
 SET=$(/tmp/focusprobe "$BUNDLE_ID" bounds 2>/dev/null)
 note "frame set to: ${SET:-none}"
@@ -834,7 +862,7 @@ EOF
 # The assertion only means something if the window actually moved: a
 # failed resize read back twice passes as "restored" on the default frame.
 MOVED=yes
-for pair in "${SX:-9999} 500" "${SY:-9999} 200" "${SW:-0} 900" "${SH:-0} 620"; do
+for pair in "${SX:-9999} $TX" "${SY:-9999} $TY" "${SW:-0} $TW" "${SH:-0} $TH"; do
   set -- $pair
   diff=$(( $1 - $2 ))
   [ $diff -lt 0 ] && diff=$(( -diff ))
