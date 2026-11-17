@@ -37,16 +37,59 @@ echo "==> compiling the Swift app"
 # copied resource, so an Xcode project would add ceremony without adding
 # capability. Signing and notarisation come later, from the same Developer
 # ID identity the Tauri build already uses.
+#
+# The compiler and the SDK are resolved from one explicitly selected
+# developer directory, so they can never come from different Xcodes.
+# DEVELOPER_DIR is scoped to this process — the user's global xcode-select
+# is left alone. A stray MACOSX_DEPLOYMENT_TARGET in the environment would
+# otherwise override the -target flag, so it is cleared for reproducibility.
+export DEVELOPER_DIR="${DEVELOPER_DIR:-$(xcode-select -p)}"
+unset MACOSX_DEPLOYMENT_TARGET
+SWIFTC="$(xcrun --sdk macosx --find swiftc)"
+SDK_PATH="$(xcrun --sdk macosx --show-sdk-path)"
+SDK_VERSION="$(xcrun --sdk macosx --show-sdk-version)"
+SDK_MAJOR="${SDK_VERSION%%.*}"
+if [ "$SDK_MAJOR" -lt 26 ]; then
+  echo "FATAL: $DEVELOPER_DIR provides macOS SDK $SDK_VERSION, but the shell needs 26 or newer (Xcode 27.x)." >&2
+  exit 1
+fi
+# sed -n '1p', not head -1: head closes the pipe early, and under
+# `set -o pipefail` the writer's SIGPIPE becomes a spurious build failure.
+xcodebuild -version | sed -n '1p'
+"$SWIFTC" --version | sed -n '1p'
+echo "macOS SDK: $SDK_VERSION ($SDK_PATH)"
+# Invoking the toolchain's swiftc directly skips the /usr/bin dispatcher's
+# environment setup, and without SDKROOT the linker stamps the deployment
+# target into LC_BUILD_VERSION's `sdk` field — the OS would then treat the
+# app as built against macOS 15 and deny it the new system appearance.
+export SDKROOT="$SDK_PATH"
 mkdir -p "$BUILD_DIR"
-swiftc \
+"$SWIFTC" \
   -O \
-  -target arm64-apple-macosx13.0 \
+  -sdk "$SDK_PATH" \
+  -target arm64-apple-macosx15.0 \
   -framework AppKit \
   -framework SwiftUI \
   -framework WebKit \
   -framework Security \
   -o "$BUILD_DIR/manorama" \
   "$APP"/*.swift
+
+# The Mach-O headers are the truth about what the compiler emitted: the
+# build fails if the minimum-OS version or the SDK it linked against does
+# not agree with the plist generated below. The `sdk` field must record
+# the real SDK — see the SDKROOT note above.
+MINOS="$(vtool -show-build "$BUILD_DIR/manorama" | awk '/minos/ {print $2}')"
+LINKED_SDK="$(vtool -show-build "$BUILD_DIR/manorama" | awk '/sdk/ {print $2}')"
+echo "binary: minos $MINOS, linked sdk $LINKED_SDK"
+if [ "$MINOS" != "15.0" ]; then
+  echo "FATAL: the binary reports minimum macOS $MINOS, expected 15.0" >&2
+  exit 1
+fi
+if [ "${LINKED_SDK%%.*}" -lt 26 ]; then
+  echo "FATAL: the binary was linked against macOS SDK $LINKED_SDK, expected $SDK_VERSION" >&2
+  exit 1
+fi
 
 echo "==> assembling the .app bundle"
 APP_BUNDLE="$BUILD_DIR/manorama.app"
@@ -71,7 +114,7 @@ cat > "$APP_BUNDLE/Contents/Info.plist" <<PLIST
   <key>CFBundlePackageType</key><string>APPL</string>
   <key>CFBundleShortVersionString</key><string>0.4.1</string>
   <key>CFBundleVersion</key><string>0.4.1</string>
-  <key>LSMinimumSystemVersion</key><string>13.0</string>
+  <key>LSMinimumSystemVersion</key><string>15.0</string>
   <key>LSApplicationCategoryType</key><string>public.app-category.photography</string>
   <!-- Mass-market exemption (5D992): the app encrypts user data at rest but
        qualifies for the standard exemption, so no per-submission export
@@ -116,6 +159,15 @@ cat > "$APP_BUNDLE/Contents/Info.plist" <<PLIST
 </dict>
 </plist>
 PLIST
+
+# The plist and the binary must agree on the floor — a bundle whose plist
+# promises macOS 15 while the Mach-O was compiled for something else is a
+# broken artifact either way.
+PLIST_MIN="$(/usr/libexec/PlistBuddy -c 'Print LSMinimumSystemVersion' "$APP_BUNDLE/Contents/Info.plist")"
+if [ "$PLIST_MIN" != "$MINOS" ]; then
+  echo "FATAL: LSMinimumSystemVersion $PLIST_MIN disagrees with the binary's $MINOS" >&2
+  exit 1
+fi
 
 echo "==> signing the app bundle"
 # A linker-signed ad-hoc binary has no stable identity: the login Keychain
