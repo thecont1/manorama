@@ -925,7 +925,7 @@ body.manorama-native[data-native-fold-divided] .native-library-layout .native-se
     align-content: stretch;
     overflow: hidden;
   }
-  .native-library-layout:not([data-library-divided]) .native-library-rail {
+  .native-library-layout:not([data-library-divided]):not([data-library-settings]) .native-library-rail {
     grid-area: rail; display: block; overflow: auto; min-height: 0;
   }
   .native-library-layout:not([data-library-divided]) .native-list-card { overflow: auto; min-height: 0; padding-top: 24px; }
