@@ -161,7 +161,6 @@ describe('vault settings controller', () => {
     const snapshot = await controller.snapshot()
     expect(snapshot.cap).toBe(512 * 1024 * 1024)
     expect(snapshot.preference).toBe(512 * 1024 * 1024)
-    expect(snapshot.loadPolicy).toBe('stream')
     expect(snapshot.galleries).toHaveLength(1)
     expect(snapshot.usage.measuredBytes).toBeGreaterThan(0)
     // The stored Pro cap is applied on read: writes after this point evict
@@ -205,14 +204,6 @@ describe('vault settings controller', () => {
     await expect(controller.selectCap(null)).rejects.toThrow('requires manorama Visionary')
     expect(persistence.values.has(VAULT_CAP_PREFERENCE_KEY)).toBe(false)
     expect(vault.cap).toBe(FREE_VAULT_CAP_BYTES)
-  })
-
-  test('selectLoadPolicy persists without changing existing encrypted copies', async () => {
-    const { controller, vault } = makeController()
-    await vault.write('gallery-a', 'one', new TextEncoder().encode('encrypted'))
-    await controller.selectLoadPolicy('stream')
-    expect((await controller.snapshot()).loadPolicy).toBe('stream')
-    expect(await vault.read('gallery-a', 'one')).not.toBeNull()
   })
 
   test('purgeGallery and forgetEverything delegate to the store boundary', async () => {

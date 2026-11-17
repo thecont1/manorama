@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'hono/jsx'
 import type { NativeTier } from '../lib/billing'
 import type { OfflineGallerySummary } from '../lib/offline-gallery'
-import type { VaultCapPreference, VaultLoadPolicy, VaultSettingsController, VaultSettingsSnapshot } from '../lib/vault-settings'
+import type { VaultCapPreference, VaultSettingsController, VaultSettingsSnapshot } from '../lib/vault-settings'
 import { FREE_VAULT_CAP_BYTES } from '../lib/vault-settings'
 import '../styles/vault-settings.css'
 
@@ -35,7 +35,6 @@ const PRO_CAP_CHOICES = [512, 1024, 2048].map((mib) => mib * MIB)
 
 type PendingAction =
   | { kind: 'cap' }
-  | { kind: 'policy' }
   | { kind: 'purge'; galleryId: string }
   | { kind: 'forget' }
 
@@ -84,10 +83,6 @@ export default function VaultSettings({ controller, tier, onClose, embedded = fa
   const selectCap = (raw: string) => {
     const preference: VaultCapPreference = raw === 'unlimited' ? null : Number(raw)
     void run({ kind: 'cap' }, () => controller.selectCap(preference))
-  }
-
-  const selectLoadPolicy = (policy: VaultLoadPolicy) => {
-    void run({ kind: 'policy' }, () => controller.selectLoadPolicy(policy))
   }
 
   const purgeGallery = (galleryId: string) => {
@@ -189,25 +184,6 @@ export default function VaultSettings({ controller, tier, onClose, embedded = fa
         <p class="native-vault-note">
           The limit is an upper bound, not reserved space — the vault still needs free disk to write.
           {!isPro ? ` Larger limits and unlimited storage come with manorama Visionary.` : ''}
-        </p>
-
-        <label class="native-vault-cap">
-          <span>When opening an online gallery</span>
-          <span class="native-vault-select">
-            <select
-              value={snapshot?.loadPolicy ?? 'stream'}
-              disabled={pending !== null || snapshot === null}
-              onChange={(event: Event) => selectLoadPolicy((event.currentTarget as HTMLSelectElement).value as VaultLoadPolicy)}
-            >
-              <option value="vault">Download to encrypted vault</option>
-              <option value="stream">Stream from cloud when needed (default)</option>
-            </select>
-            <SelectChevron />
-          </span>
-        </label>
-        <p class="native-vault-note">
-          Vault copies are encrypted and app-private: they do not appear in Files or another image viewer.
-          Streaming keeps the gallery online and does not save new image bytes on this device.
         </p>
 
         <h2>Cached galleries</h2>

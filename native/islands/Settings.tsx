@@ -10,7 +10,7 @@ import type { Device } from '../../packages/core/devices'
 import { DeviceLegend } from '../../app/components/library/DeviceLegend'
 import type { AccountIdentity } from '../lib/api'
 import type { NativeTier } from '../lib/billing'
-import type { VaultLoadPolicy, VaultSettingsController } from '../lib/vault-settings'
+import type { VaultSettingsController } from '../lib/vault-settings'
 import VaultSettings from './VaultSettings'
 
 type HouseCardAction = { label: string; onClick: () => void; disabled?: boolean }
@@ -29,9 +29,6 @@ type Props = {
   retainedCount: number
   galleryLimit: number
   controller: VaultSettingsController
-  loadPolicy: VaultLoadPolicy | null
-  loadPolicyBusy: boolean
-  onLoadPolicy: (policy: VaultLoadPolicy) => void
   globalViewEnabled: boolean | null
   globalViewBusy: boolean
   onGlobalView: (enabled: boolean) => void
@@ -73,7 +70,7 @@ const providerName = (provider: string) => ({ apple: 'Apple', google: 'Google', 
 export default function Settings(props: Props) {
   const {
     accountName, ownerSlugDraft, identities, identityNote, tier, retainedCount, galleryLimit,
-    loadPolicy, globalViewEnabled, devices, deviceId, theme, houseCards,
+    globalViewEnabled, devices, deviceId, theme, houseCards,
     deleteConfirming, deleting, deleteError,
   } = props
   const linked = new Set((identities ?? []).map((identity) => identity.provider))
@@ -151,17 +148,6 @@ export default function Settings(props: Props) {
             options={[{ value: 'dark', label: 'Dark' }, { value: 'light', label: 'Light' }]}
             onChange={(value) => props.onTheme(value as Theme)}
           />
-        </div>
-        <div class="m-panel m-settings-control">
-          <label>New galleries</label>
-          {loadPolicy === null
-            ? <p class="m-note">Reading…</p>
-            : <Segmented
-                label="New galleries"
-                value={loadPolicy}
-                options={[{ value: 'vault', label: 'Keep copy on this device' }, { value: 'stream', label: 'Stream only' }]}
-                onChange={(value) => { if (!props.loadPolicyBusy) props.onLoadPolicy(value as VaultLoadPolicy) }}
-              />}
         </div>
         <ActionRow
           label="Photo picker"

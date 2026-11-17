@@ -229,7 +229,7 @@ for (const viewport of [{ width: 375, height: 812 }, { width: 1376, height: 1032
     const settings = page.locator('.native-settings')
     await expect(settings).toBeVisible()
     await page.screenshot({ path: `demo-captures/admin-gallery-focus/native-${viewport.width}-account.png`, fullPage: false })
-    await expect(settings.getByRole('radiogroup', { name: 'New galleries', exact: true })).toBeVisible()
+    await expect(settings.getByRole('radiogroup', { name: 'New galleries', exact: true })).toHaveCount(0)
     await expect(settings.getByText('House cards', { exact: true })).toBeVisible()
     await settings.getByRole('button', { name: /Visionary/, exact: false }).click()
     const visionary = page.locator('.native-visionary')

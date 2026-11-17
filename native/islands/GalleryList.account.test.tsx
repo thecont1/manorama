@@ -866,16 +866,10 @@ describe('signed-in account area', () => {
     expect(headings).toContain('House cards')
     expect(headings).toContain('This iPhone')
 
-    // The new-galleries segment names what it governs.
-    const policy = container.querySelector('[role="radiogroup"][aria-label="New galleries"]') as HTMLElement
-    expect(policy).not.toBeNull()
-    const policyOptions = [...policy.querySelectorAll('[role="radio"]')] as HTMLButtonElement[]
-    expect(policyOptions.map((option) => option.textContent)).toEqual([
-      'Keep copy on this device',
-      'Stream only',
-    ])
-    // Stream is the default — bytes only enter the vault on express request.
-    expect(policyOptions.map((option) => option.getAttribute('aria-checked'))).toEqual(['false', 'true'])
+    // There is no account-wide load policy — each gallery's Details owns
+    // its own keep-copy switch, so no "New galleries" segment may appear.
+    expect(container.querySelector('[role="radiogroup"][aria-label="New galleries"]')).toBeNull()
+    expect(container.querySelector('[aria-label="When opening an online gallery"]')).toBeNull()
 
     // The picker switch carries its plain-language description.
     const pickerRow = [...container.querySelectorAll('.m-actionrow')]

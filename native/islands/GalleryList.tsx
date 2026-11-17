@@ -61,7 +61,7 @@ import { checkAppUpdate, dismissAppUpdate, dismissedUpdateVersion, type AppUpdat
 import { loadGlobalViewEnabled, saveGlobalViewEnabled } from '../lib/global-view'
 import { beginProviderSignIn, clearPendingQuickAdd, clearSessionToken, getOwnerSlug, getPendingQuickAdd, getSessionToken, setOwnerSlug as persistOwnerSlug, type AuthProvider, type NativeGallerySelection } from '../lib/session'
 import { requestReorderClose } from '../lib/reorder-close-guard'
-import { galleryPolicyKey, loadGalleryStreamOnly, saveGalleryStreamOnly, DEFAULT_VAULT_LOAD_POLICY, loadVaultLoadPolicy, saveVaultLoadPolicy, createVaultSettingsController, type VaultLoadPolicy, type GalleryLoadOverride } from '../lib/vault-settings'
+import { galleryPolicyKey, loadGalleryStreamOnly, saveGalleryStreamOnly, DEFAULT_VAULT_LOAD_POLICY, createVaultSettingsController, type GalleryLoadOverride } from '../lib/vault-settings'
 import type { AdSuppression } from '../../app/lib/ads-visibility'
 import { readRuntimeFoldLayout, subscribeToRuntimeFoldLayout } from '../lib/fold'
 import Paywall from './Paywall'
@@ -234,13 +234,11 @@ export default function GalleryList({ apiBase, owner, slug, deepLinkSelection, o
   const initial = selectionFromLocation()
   const initialSelection = { owner: owner ?? initial.owner, slug: slug ?? initial.slug }
   const [selection, setSelection] = useState<Selection>(initialSelection)
-  const [loadPolicy, setLoadPolicy] = useState<VaultLoadPolicy | null>(null)
-  const [policySaving, setPolicySaving] = useState(false)
   const [galleryPolicies, setGalleryPolicies] = useState<Record<string, GalleryLoadOverride> | null>(null)
   const [vaultNote, setVaultNote] = useState('Preparing offline copy…')
   const [vaultProgress, setVaultProgress] = useState<{ completed: number; total: number } | null>(null)
   const selectedPolicyKey = galleryPolicyKey(selection.owner, selection.slug)
-  const effectiveLoadPolicy = galleryPolicies?.[selectedPolicyKey] ?? loadPolicy ?? DEFAULT_VAULT_LOAD_POLICY
+  const effectiveLoadPolicy = galleryPolicies?.[selectedPolicyKey] ?? DEFAULT_VAULT_LOAD_POLICY
   const streamOnly = effectiveLoadPolicy === 'stream'
   useEffect(() => {
     void loadGalleryStreamOnly().then((policies) => {
@@ -373,16 +371,6 @@ export default function GalleryList({ apiBase, owner, slug, deepLinkSelection, o
 
   useEffect(() => {
     let active = true
-    void loadVaultLoadPolicy().then((policy) => {
-      if (active) setLoadPolicy(policy)
-    }).catch(() => {
-      if (active) setLoadPolicy(DEFAULT_VAULT_LOAD_POLICY)
-    })
-    return () => { active = false }
-  }, [])
-
-  useEffect(() => {
-    let active = true
     void loadGlobalViewEnabled().then((enabled) => {
       if (active) setGlobalViewEnabled(enabled)
     })
@@ -441,7 +429,7 @@ export default function GalleryList({ apiBase, owner, slug, deepLinkSelection, o
   }, [base, pendingQuickAdd, quickAddBusy, signedIn])
 
   useEffect(() => {
-    if (!selection.owner || !selection.slug || loadPolicy === null || galleryPolicies === null) return
+    if (!selection.owner || !selection.slug || galleryPolicies === null) return
     setVaultProgress(null)
     setVaultNote(streamOnly ? 'Streaming from cloud. No new offline copy is being downloaded.' : 'Preparing encrypted offline copy…')
     const controller = new AbortController()
@@ -579,7 +567,7 @@ export default function GalleryList({ apiBase, owner, slug, deepLinkSelection, o
       window.removeEventListener('online', upgradeWhenOnline)
       disposeLease()
     }
-  }, [base, offlineStore, loadPolicy, selection.owner, selection.slug, selection.galleryId, selection.sourceUrl, galleryPolicies === null, streamOnly])
+  }, [base, offlineStore, selection.owner, selection.slug, selection.galleryId, selection.sourceUrl, galleryPolicies === null, streamOnly])
 
   // Visibility resolves once per base — it is a day/region answer, not a
   // per-gallery one.
@@ -1142,7 +1130,7 @@ export default function GalleryList({ apiBase, owner, slug, deepLinkSelection, o
   const detailsGalleryId = detailsSummary ? galleryIds[detailsSummary.slug] : undefined
   const detailsFromViewer = nav.screen.kind === 'details' && nav.screen.from === 'viewer'
   const detailsStreamOnly = detailsSummary && ownerSlug
-    ? (galleryPolicies?.[galleryPolicyKey(ownerSlug, detailsSummary.slug)] ?? loadPolicy ?? DEFAULT_VAULT_LOAD_POLICY) === 'stream'
+    ? (galleryPolicies?.[galleryPolicyKey(ownerSlug, detailsSummary.slug)] ?? DEFAULT_VAULT_LOAD_POLICY) === 'stream'
     : false
   const detailsView = detailsSummary && ownerSlug ? (
     <GalleryDetails
@@ -1389,20 +1377,6 @@ export default function GalleryList({ apiBase, owner, slug, deepLinkSelection, o
       // A RevenueCat sign-out failure must not trap the manorama session.
     }
     if (typeof window !== 'undefined') window.location.reload()
-  }
-
-  const changeLoadPolicy = async (next: VaultLoadPolicy) => {
-    const previous = loadPolicy ?? DEFAULT_VAULT_LOAD_POLICY
-    setLoadPolicy(next)
-    setPolicySaving(true)
-    try {
-      await saveVaultLoadPolicy(next)
-    } catch {
-      setLoadPolicy(previous)
-      setError('That preference could not be saved on this device.')
-    } finally {
-      setPolicySaving(false)
-    }
   }
 
   const changeGlobalView = async (next: boolean) => {
@@ -1717,7 +1691,7 @@ export default function GalleryList({ apiBase, owner, slug, deepLinkSelection, o
     const galleryId = galleryIds[gallery.slug] ?? ''
     const vaultSummary = galleryId ? vaultGalleries.get(galleryId) : undefined
     const streamOnlyGallery = ownerSlug
-      ? (galleryPolicies?.[galleryPolicyKey(ownerSlug, gallery.slug)] ?? loadPolicy ?? DEFAULT_VAULT_LOAD_POLICY) === 'stream'
+      ? (galleryPolicies?.[galleryPolicyKey(ownerSlug, gallery.slug)] ?? DEFAULT_VAULT_LOAD_POLICY) === 'stream'
       : false
     const GalleryPreview = gallery.pinnedAt && !gallery.hiddenAt ? LibraryRail : LibraryCover
     return (
@@ -1807,7 +1781,7 @@ export default function GalleryList({ apiBase, owner, slug, deepLinkSelection, o
   // stream-only, with a committed vault copy holding every image.
   const keptOnDevice = ownerSlug
     ? retainedAccountGalleries.filter((gallery) => {
-        if ((galleryPolicies?.[galleryPolicyKey(ownerSlug, gallery.slug)] ?? loadPolicy ?? DEFAULT_VAULT_LOAD_POLICY) === 'stream') return false
+        if ((galleryPolicies?.[galleryPolicyKey(ownerSlug, gallery.slug)] ?? DEFAULT_VAULT_LOAD_POLICY) === 'stream') return false
         const summary = galleryIds[gallery.slug] ? vaultGalleries.get(galleryIds[gallery.slug]) : undefined
         return summary?.status === 'cached' && summary.images >= gallery.imageCount
       }).length
@@ -1877,9 +1851,6 @@ export default function GalleryList({ apiBase, owner, slug, deepLinkSelection, o
       retainedCount={retainedAccountGalleries.length}
       galleryLimit={galleryLimit}
       controller={vaultSettingsController}
-      loadPolicy={loadPolicy}
-      loadPolicyBusy={policySaving}
-      onLoadPolicy={(policy) => { void changeLoadPolicy(policy) }}
       globalViewEnabled={globalViewEnabled}
       globalViewBusy={globalViewSaving}
       onGlobalView={(enabled) => { void changeGlobalView(enabled) }}

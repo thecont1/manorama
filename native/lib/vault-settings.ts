@@ -94,8 +94,6 @@ export type VaultSettingsSnapshot = {
   cap: number | null
   /** The user's stored choice (undefined = default). */
   preference: VaultCapPreference | undefined
-  /** The policy applied to newly opened online galleries. */
-  loadPolicy: VaultLoadPolicy
   usage: VaultUsage
   galleries: OfflineGallerySummary[]
 }
@@ -105,7 +103,6 @@ export interface VaultSettingsController {
   /** Persist the choice and apply it. Lowering the cap evicts immediately —
     the control explains that offline copies may be removed. */
   selectCap(preference: VaultCapPreference): Promise<{ evictedBytes: number }>
-  selectLoadPolicy(policy: VaultLoadPolicy): Promise<void>
   purgeGallery(galleryId: string): Promise<void>
   /** Cryptographic erasure of every cached gallery. Preferences and all
    *  non-vault credentials are deliberately left alone. */
@@ -123,14 +120,13 @@ export const createVaultSettingsController = (options: {
   return {
     async snapshot() {
       const preference = await loadVaultCapPreference(persistence)
-      const loadPolicy = await loadVaultLoadPolicy(persistence)
       // Snapshot is the apply seam: the resolved cap reaches the vault on
       // every read — startup and post-purchase alike — before a later write
       // could evict under the stale default. Reporting vault.cap keeps the
       // UI honest about what is actually enforced.
       applyVaultCap(options.vault, options.tier(), preference)
       const [usage, galleries] = await Promise.all([options.vault.usage(), options.store.listGalleries()])
-      return { cap: options.vault.cap, preference, loadPolicy, usage, galleries }
+      return { cap: options.vault.cap, preference, usage, galleries }
     },
     async selectCap(preference) {
       assertCapAllowed(options.tier(), preference)
@@ -138,9 +134,6 @@ export const createVaultSettingsController = (options: {
       options.vault.setCap(resolveVaultCap(options.tier(), preference))
       const { removedBytes } = await options.vault.evictToCap()
       return { evictedBytes: removedBytes }
-    },
-    async selectLoadPolicy(policy) {
-      await saveVaultLoadPolicy(policy, persistence)
     },
     async purgeGallery(galleryId) {
       await options.store.purgeGallery(galleryId)
