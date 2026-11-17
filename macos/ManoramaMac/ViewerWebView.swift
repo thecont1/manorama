@@ -18,6 +18,13 @@ final class ViewerCoordinator: NSObject, WKScriptMessageHandler, WKNavigationDel
     var onEscape: (() -> Void)?
     /// Called when the page reports which gallery is open, if any.
     var onGalleryState: ((Bool, String?) -> Void)?
+    /// Called when the viewer's own chrome appears or hides — the shell's
+    /// floating Library capsule rides on it.
+    var onChrome: ((Bool) -> Void)?
+    /// Called when a sheet mounts or its box settles — the native glass
+    /// that backs the sheet morphs into that rectangle, so the shell needs
+    /// it in the webview's own coordinate space (which fills the window).
+    var onSheet: ((Bool, CGRect?) -> Void)?
     /// The native shell's runtime API — the commands the app's own bundle
     /// asks of the machine.
     var bridge: NativeBridge?
@@ -103,6 +110,20 @@ final class ViewerCoordinator: NSObject, WKScriptMessageHandler, WKNavigationDel
             let open = body["open"] as? Bool ?? false
             let title = body["title"] as? String
             onGalleryState?(open, title)
+        case "chrome":
+            // The viewer's chrome appeared or hid — posted by the injected
+            // observer, so the shell's capsule can track it.
+            onChrome?(body["visible"] as? Bool ?? false)
+        case "sheet":
+            // A `.m-sheet` appeared, moved, or left. The shell draws the
+            // sheet's own glass underneath it, so it needs the live box.
+            var rect: CGRect?
+            if let r = body["rect"] as? [String: Any],
+               let x = r["x"] as? CGFloat, let y = r["y"] as? CGFloat,
+               let w = r["w"] as? CGFloat, let h = r["h"] as? CGFloat {
+                rect = CGRect(x: x, y: y, width: w, height: h)
+            }
+            onSheet?(body["open"] as? Bool ?? false, rect)
         default:
             break
         }
@@ -229,6 +250,74 @@ struct ViewerWebView: NSViewRepresentable {
     func makeNSView(context: Context) -> WKWebView {
         let configuration = WKWebViewConfiguration()
         configuration.setURLSchemeHandler(schemeHandler, forURLScheme: "manorama")
+        // The hiddenTitleBar window puts content under the traffic lights,
+        // so the page marks itself — top-anchored chrome reserves the strip
+        // the lights occupy instead of landing beneath them.
+        configuration.userContentController.addUserScript(WKUserScript(
+            source: "document.documentElement.dataset.macosShell = '1';",
+            injectionTime: .atDocumentStart,
+            forMainFrameOnly: true
+        ))
+        if #available(macOS 26.0, *) {
+            // On Liquid Glass systems the Library exit is the shell's own
+            // capsule: the page marks itself so CSS retires the web pill,
+            // and the observer reports when the viewer's chrome is showing
+            // so the capsule can appear and leave with it. An older OS
+            // keeps the page's pill untouched.
+            configuration.userContentController.addUserScript(WKUserScript(
+                source: """
+                    document.documentElement.dataset.macosGlass = '1';
+                    (function () {
+                      var lastVisible = null;
+                      var lastSheetKey = null;
+                      function post(message) {
+                        try { window.webkit.messageHandlers.manorama.postMessage(message); } catch (e) {}
+                      }
+                      function report() {
+                        var on = document.querySelector('.m-chrome.is-visible [data-chrome-library]') !== null;
+                        if (on !== lastVisible) {
+                          lastVisible = on;
+                          post({ type: 'chrome', visible: on });
+                        }
+                        // A mounted sheet's box is the shell's morph
+                        // target. The key carries the rect so the settle
+                        // after the sheet's enter animation is posted too.
+                        var sheet = document.querySelector('.m-sheet');
+                        var key = 'closed', rect = null;
+                        if (sheet) {
+                          var r = sheet.getBoundingClientRect();
+                          rect = { x: r.left, y: r.top, w: r.width, h: r.height };
+                          key = 'open:' + r.left + ',' + r.top + ',' + r.width + ',' + r.height;
+                        }
+                        if (key !== lastSheetKey) {
+                          lastSheetKey = key;
+                          document.documentElement.dataset.macosGlassSheet = sheet ? '1' : '';
+                          post({ type: 'sheet', open: sheet !== null, rect: rect });
+                        }
+                      }
+                      // Kept on window: an unretained observer can be
+                      // collected mid-session and the hide half of the
+                      // signal never reaches the shell.
+                      window.__manoramaChromeObserver = new MutationObserver(report);
+                      window.__manoramaChromeObserver.observe(document.documentElement, { subtree: true, childList: true, attributes: true, attributeFilter: ['class'] });
+                      // The sheet enters on a transform transition — the
+                      // mutations only see mid-flight boxes, and nothing
+                      // mutates when the animation settles. Re-report on
+                      // the sheet's own transitionend so the shell's morph
+                      // target is the box the panel actually lands on.
+                      // Document-level because the sheet is recreated per
+                      // open; report() dedupes, so per-property ends are free.
+                      document.addEventListener('transitionend', function (e) {
+                        if (e.target && e.target.classList && e.target.classList.contains('m-sheet')) report();
+                      });
+                      document.addEventListener('DOMContentLoaded', report);
+                      report();
+                    })();
+                    """,
+                injectionTime: .atDocumentStart,
+                forMainFrameOnly: true
+            ))
+        }
         configuration.userContentController.add(coordinator, name: "manorama")
         // A dark webview avoids a white flash before the page's own ground
         // paints.

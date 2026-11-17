@@ -246,6 +246,22 @@ html.light {
 }
 a.m-actionrow, button.m-actionrow { cursor: pointer; }
 .m-actionrow + .m-actionrow { border-top: 1px solid var(--m-rule); }
+/* Sign-in rows carry a 44px Unlink control, so the group takes a uniform
+   64px floor — linked rows, connect rows and pending rows all measure the
+   same, and the panel never shifts when the identities answer lands. */
+.m-actiongroup--signin .m-actionrow { min-height: 64px; }
+/* Pending rows hold a loaded surface's seats — same metrics, muted fills. */
+.m-actionrow-label--pending { color: var(--m-meta); }
+.m-skeleton {
+  flex: 1;
+  max-width: 140px;
+  height: 13px;
+  border-radius: 6px;
+  background: rgba(var(--ink), .08);
+  animation: m-skeleton-pulse 1.8s ease-in-out infinite;
+}
+@keyframes m-skeleton-pulse { 0%, 100% { opacity: .5; } 50% { opacity: 1; } }
+@media (prefers-reduced-motion: reduce) { .m-skeleton { animation: none; } }
 .m-actionrow:focus-visible { outline: 2px solid var(--m-focus); outline-offset: -2px; }
 .m-actionrow:disabled { opacity: .45; }
 .m-actionrow-label { flex: 1; min-width: 0; }
@@ -1810,7 +1826,7 @@ body:has(.ops-page) { overflow: auto; overflow-x: clip; background: #111312; }
   }
   .admin-page--selector .admin-rail {
     position: sticky;
-    top: 16px;
+    top: calc(16px + var(--shell-top-inset, 0px));
     min-width: 0;
     display: flex;
     flex-direction: column;
@@ -1841,7 +1857,7 @@ body:has(.ops-page) { overflow: auto; overflow-x: clip; background: #111312; }
 .admin-rail .admin-library-heading { flex-direction: column; align-items: stretch; gap: 14px; }
 .admin-rail .admin-heading-actions { justify-content: flex-start; }
 .admin-rail .admin-library-sub { margin-bottom: 24px; }
-.admin-rail .account-ad { width: 100%; margin: 0; padding: 14px; gap: 12px; }
+.admin-rail .account-ad { width: 100%; margin: 0 0 32px; padding: 14px; gap: 12px; }
 .admin-rail .account-ad-media { width: 100%; }
 .admin-upgrade-link { color: rgb(var(--ink)); text-underline-offset: 3px; }
 .admin-add-pill { border-radius: 999px; padding: 9px 18px; margin: 0; min-height: var(--m-touch); font-family: var(--m-font); font-size: 15px; font-weight: 650; }
@@ -1868,10 +1884,13 @@ html.light .lib-quiet-toggle[aria-pressed="true"] { color: #e9e5dc; }
    The primary buttons and the native sponsored slot are the only bright
    solids inside a quieted card, so they sink whole. */
 .lib-quiet :where(svg, .device-pill, .lib-temp-flag, .admin-strip-badge, .app-update-banner, .m-btn--primary, [data-account-ad]) { opacity: .05; }
-/* The rail is the way back, so quiet view dims it to half rather than
-   sinking it with the list — mark, actions and sponsored slot stay
-   legible while the gallery's words fall to whispers. */
-.lib-quiet-rail { opacity: .5; }
+/* Quiet view sinks the rail with the list — photographs only. The way
+   back is still there: the rail lifts back to its half-dim on hover or
+   when keyboard focus lands inside it, so the toggle is findable without
+   standing bright over the pictures — and a tabbed-in user is never
+   left aiming at a nearly invisible rail. */
+.lib-quiet-rail { opacity: .05; }
+.lib-quiet-rail:hover, .lib-quiet-rail:focus-within { opacity: .5; }
 /* And the photographs step a touch forward while the words step back. */
 .lib-quiet img { filter: brightness(1.12); }
 
@@ -1995,7 +2014,21 @@ html.light .lib-quiet-toggle[aria-pressed="true"] { color: #e9e5dc; }
    hit-testers read the hidden state per-element, not just the bar's. */
 .m-chrome:not(.is-visible) .m-chrome-pill { opacity: 0; }
 .m-chrome-pill { pointer-events: auto; }
-.m-chrome--top { top: calc(env(safe-area-inset-top, 0px) + 8px); justify-content: space-between; transform: translateY(-8px); }
+/* Inside the macOS shell the window's hiddenTitleBar leaves the traffic
+   lights floating over the page — top-anchored chrome drops below the
+   strip they occupy. Everywhere else the inset is zero. */
+:root[data-macos-shell] { --shell-top-inset: 32px; }
+/* On 26+ the shell renders the Library exit as its own glass capsule —
+   the web pill keeps its slot in the bar (the layout does not move) but
+   no longer paints a second way back. */
+:root[data-macos-glass] [data-chrome-library] { visibility: hidden; }
+
+/* On Liquid Glass the bottom controls are the shell's own cluster: the
+   web pills stay mounted — they own the handlers the shell fires — but
+   are never painted. The bar's box is kept because the settings popover
+   still anchors to it. */
+:root[data-macos-glass] [data-chrome-bottom] .m-chrome-pill { visibility: hidden; }
+.m-chrome--top { top: calc(env(safe-area-inset-top, 0px) + 8px + var(--shell-top-inset, 0px)); justify-content: space-between; transform: translateY(-8px); }
 .m-chrome--bottom { bottom: calc(env(safe-area-inset-bottom, 0px) + 16px); justify-content: center; transform: translateY(8px); }
 /* With the arrow bar reserved, the temporary bottom chrome rides just
    above it rather than inside the controls' strip. */

@@ -283,8 +283,11 @@ final class LocalSchemeHandler: NSObject, WKURLSchemeHandler {
     }()
 
     /// When launched with `--config <dir>` (an isolated test run), never
-    /// forward non-GET `/api/device-galleries` mutations to the live server so
-    /// throwaway test `deviceId`s do not pollute the owner's remote feed.
+    /// forward a mutating call to the live server. Reads still proxy — the
+    /// account, the tier and the catalogue need them — but every write,
+    /// from `PUT /api/devices/{id}` registration to `device-galleries`
+    /// sync to anything a future surface adds, is answered locally so a
+    /// throwaway run cannot change the real account.
     private static let isIsolatedTestConfig = CommandLine.arguments.contains("--config")
 
     /// Answer an API call from the shell.
@@ -296,8 +299,8 @@ final class LocalSchemeHandler: NSObject, WKURLSchemeHandler {
     /// browser sent it — the shell adds no authority of its own.
     private func proxyAPI(relative: String, request: URLRequest, task: WKURLSchemeTask, taskID: ObjectIdentifier) {
         if Self.isIsolatedTestConfig,
-           relative.hasPrefix("api/device-galleries"),
-           (request.httpMethod ?? "GET").uppercased() != "GET" {
+           !["GET", "HEAD", "OPTIONS"].contains((request.httpMethod ?? "GET").uppercased()) {
+            Trace.log("isolated: answered \(request.httpMethod ?? "?") \(relative) locally, not forwarded")
             DispatchQueue.main.async { [weak self] in
                 guard let self else { return }
                 if self.wasStopped(taskID) {

@@ -2340,7 +2340,7 @@ describe('desktop device legend', () => {
 })
 
 describe('the Library quiet view', () => {
-  test('the rail toggle fades the gallery list and dims the rail to half', async () => {
+  test('the rail toggle fades the gallery list and sinks the rail with it', async () => {
     const container = await mount(true)
     const toggle = container.querySelector<HTMLButtonElement>('.lib-quiet-toggle')!
     expect(toggle).not.toBeNull()
@@ -2353,8 +2353,8 @@ describe('the Library quiet view', () => {
     await settle()
     expect(list.classList.contains('lib-quiet')).toBe(true)
     expect(toggle.getAttribute('aria-pressed')).toBe('true')
-    // The rail dims as one piece — it is not quieted, and the way back
-    // stays legible.
+    // The rail sinks as one piece — it is not quieted, and the way back
+    // lifts back to half-dim on hover so it stays findable.
     expect(rail.classList.contains('lib-quiet-rail')).toBe(true)
     expect(rail.classList.contains('lib-quiet')).toBe(false)
     expect(rail.querySelector('.lib-quiet')).toBeNull()
@@ -2367,7 +2367,7 @@ describe('the Library quiet view', () => {
     expect(toggle.getAttribute('aria-pressed')).toBe('false')
   })
 
-  test('the stylesheet fades text and chrome to a whisper, dims the rail to half, but never a photograph', () => {
+  test('the stylesheet fades text and chrome to a whisper, sinks the rail to a whisper, but never a photograph', () => {
     const css = readFileSync(new URL('../../app/styles.css', import.meta.url), 'utf8')
     expect(css).toContain('.lib-quiet, .lib-quiet *')
     expect(css).toContain('-webkit-text-fill-color: currentColor')
@@ -2383,7 +2383,10 @@ describe('the Library quiet view', () => {
     // clock rather than quieting element by element.
     expect(css).not.toMatch(/\.lib-quiet[^{}]*img[^{}]*opacity/)
     expect(css).toContain('.admin-rail { min-width: 0; transition: opacity .7s cubic-bezier(.4, 0, .2, 1); }')
-    expect(css).toContain('.lib-quiet-rail { opacity: .5; }')
+    expect(css).toContain('.lib-quiet-rail { opacity: .05; }')
+    // Hover and keyboard focus both restore the rail — a tabbed-in user
+    // must never aim at a nearly invisible surface.
+    expect(css).toContain('.lib-quiet-rail:hover, .lib-quiet-rail:focus-within { opacity: .5; }')
     expect(css).toContain('.lib-quiet-toggle')
   })
 })

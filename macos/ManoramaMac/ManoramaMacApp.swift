@@ -8,10 +8,11 @@ import WebKit
 /// The viewing surface is the shared web Library + Viewer inside a WKWebView,
 /// reached over a narrow bridge.
 ///
-/// Fullscreen on launch is deliberate — a kiosk decision, not an accident.
-/// The photographs are the product, and the app gives them the whole
-/// screen with no window chrome in the way. The View menu still offers
-/// Exit Full Screen for the times the user wants the window back.
+/// Launch is windowed by default. The former kiosk behaviour — the window
+/// opening into its own fullscreen Space — is now a preference the user
+/// sets in Settings ("Open in full screen"), applied once per launch by
+/// `AppModel.applyLaunchWindowMode`. The green traffic light, the View
+/// menu, and ⌃⌘F remain available either way.
 @main
 enum ManoramaMacMain {
     static func main() {
@@ -24,7 +25,7 @@ enum ManoramaMacMain {
 
 struct ManoramaMacApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) private var delegate
-    @StateObject private var model: AppModel
+    @State private var model: AppModel
 
     init() {
         // The bundle root is where the viewer bundle was copied into the
@@ -32,13 +33,13 @@ struct ManoramaMacApp: App {
         let bundleRoot = Bundle.main.resourceURL?
             .appendingPathComponent("ViewerBundle", isDirectory: true)
             ?? URL(fileURLWithPath: NSTemporaryDirectory())
-        _model = StateObject(wrappedValue: AppModel(bundleRoot: bundleRoot))
+        _model = State(wrappedValue: AppModel(bundleRoot: bundleRoot))
     }
 
     var body: some Scene {
-        WindowGroup {
-            ContentView()
-                .environmentObject(model)
+        WindowGroup(id: AppModel.libraryWindowID) {
+            ContentView(model: model)
+                .environment(model)
                 .frame(minWidth: 760, minHeight: 520)
                 .onAppear {
                     delegate.model = model
@@ -48,10 +49,24 @@ struct ManoramaMacApp: App {
                     delegate.pendingOpenURLs.removeAll()
                 }
         }
+        // The page owns everything behind the traffic lights: no drawn
+        // titlebar, no title text. On macOS 27 the flag-era approach
+        // (titlebarAppearsTransparent) still lands but the system draws
+        // its own opaque bar over it — hiddenTitleBar is the style that
+        // actually removes the chrome.
+        .windowStyle(.hiddenTitleBar)
         .windowToolbarStyle(.unified(showsTitle: false))
         .defaultSize(width: 1280, height: 840)
         .commands {
             NativeCommands(model: model)
+        }
+
+        // One native setting, and it is only the launch behaviour — every
+        // display and gallery preference stays where it belongs, in the
+        // Library and the Viewer. SwiftUI supplies the Settings menu item
+        // and ⌘, automatically.
+        Settings {
+            SettingsView()
         }
     }
 }
@@ -125,15 +140,28 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             return
         }
         NSApp.setActivationPolicy(.regular)
-        NSApp.activate(ignoringOtherApps: true)
+        // No forced activation: a normal launch is activated by the
+        // system, not by the app demanding focus. URL handoffs and Dock
+        // reopens activate through the supported paths below.
     }
 
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
-        if let window = model?.window ?? NSApp.windows.first {
+        // Only the Library window counts — `NSApp.windows.first` could be
+        // the Settings window, and ordering it would leave the real window
+        // hidden and break the reopen contract.
+        if let window = model?.window {
             if window.isMiniaturized {
                 window.deminiaturize(nil)
             }
             window.makeKeyAndOrderFront(nil)
+        } else {
+            // The weak reference is gone — the Library window was closed
+            // (or never mounted). With the Settings scene still on screen
+            // hasVisibleWindows is true, so the default reopen path would
+            // order nothing at all: a Dock click would land on a window-
+            // less app. Restore the Library through the scene's own
+            // opener instead.
+            model?.openLibraryWindow?()
         }
         return true
     }
@@ -166,8 +194,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             }
             return
         }
-        NSApp.activate(ignoringOtherApps: true)
-        if let window = model?.window ?? NSApp.windows.first {
+        // A deep link is a user-initiated handoff — the running app comes
+        // forward through the supported activation API.
+        NSApp.activate()
+        if let window = model?.window {
             if window.isMiniaturized {
                 window.deminiaturize(nil)
             }
@@ -193,7 +223,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 /// These are the commands a Mac user expects: ⌘O to open a folder, ⌃⌘F for
 /// fullscreen, and a Gallery menu for stepping or closing an open gallery.
 struct NativeCommands: Commands {
-    @ObservedObject var model: AppModel
+    /// Passed in, not looked up in the environment: the model must be the
+    /// same instance whichever scene is key — the Library window or the
+    /// Settings pane.
+    var model: AppModel
 
     var body: some Commands {
         // Replace the stock "New" item — this app opens folders, not
@@ -255,22 +288,35 @@ struct NativeCommands: Commands {
 
 /// Bridges SwiftUI to AppKit window behaviour the SwiftUI API does not
 /// expose directly (fullscreen toggling, the key window).
+///
+/// The window is reported through `viewDidMoveToWindow`, not a one-shot
+/// async hop: a deferred main-queue call can run before the view is in a
+/// window, and a representable that only checks once leaves the window
+/// permanently unconfigured on a slow attach.
 struct WindowAccessor: NSViewRepresentable {
     var onWindow: (NSWindow) -> Void
 
     func makeNSView(context: Context) -> NSView {
-        let view = NSView()
-        DispatchQueue.main.async {
-            guard let window = view.window else { return }
-            self.onWindow(window)
-        }
+        let view = ProbeView()
+        view.onWindow = onWindow
         return view
     }
 
     func updateNSView(_ nsView: NSView, context: Context) {
-        DispatchQueue.main.async {
-            guard let window = nsView.window else { return }
-            self.onWindow(window)
+        (nsView as? ProbeView)?.onWindow = onWindow
+        if let window = nsView.window {
+            onWindow(window)
+        }
+    }
+
+    final class ProbeView: NSView {
+        var onWindow: ((NSWindow) -> Void)?
+
+        override func viewDidMoveToWindow() {
+            super.viewDidMoveToWindow()
+            if let window {
+                onWindow?(window)
+            }
         }
     }
 }

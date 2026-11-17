@@ -1845,15 +1845,18 @@ export default function Catalogue({ apiBase }: { apiBase: string }) {
       return
     }
     if (!settingsOpen) return
-    setSettingsClosing(true)
     // On the split layout the library remounts beneath the fading pane —
     // the two share the galleries cell and the exit reads as a dissolve
     // instead of a blank column followed by a flash. On a stacked page
-    // the surfaces cannot overlap, so the list waits out the fade.
+    // the surfaces cannot overlap, so the swap lands in one frame —
+    // waiting out the fade would leave an empty column first.
     if (typeof window.matchMedia === 'function' &&
-        window.matchMedia('(min-width: 860px)').matches) {
+        !window.matchMedia('(min-width: 860px)').matches) {
       setSettingsOpen(false)
+      return
     }
+    setSettingsClosing(true)
+    setSettingsOpen(false)
     settingsCloseTimerRef.current = setTimeout(() => {
       settingsCloseTimerRef.current = null
       setSettingsOpen(false)
@@ -2789,29 +2792,9 @@ export default function Catalogue({ apiBase }: { apiBase: string }) {
               {accountTier === 'free' ? <> <a class="admin-upgrade-link" href="mailto:mahesh@thecontrarian.in?subject=Manorama%20upgrade">Upgrade to Visionary?</a></> : null}
             </p>
           ) : null}
-          {vaultSpace ? (() => {
-            const figures = vaultSpace.cap === null
-              ? `${formatBytes(vaultSpace.measuredBytes)} of Unlimited`
-              : `${formatBytes(vaultSpace.measuredBytes)} of ${formatBytes(vaultSpace.cap)}`
-            return (
-              <div class="lib-vault-tracker">
-                <p class="lib-vault-tracker-label">Vault on this Mac</p>
-                <Meter
-                  label={`Vault storage — ${figures}`}
-                  value={vaultSpace.measuredBytes}
-                  max={vaultSpace.cap ?? 0}
-                  valueText={figures}
-                />
-                <p class="lib-vault-tracker-figures">{figures}</p>
-              </div>
-            )
-          })() : null}
-          <DeviceLegend
-            devices={devices}
-            selfId={catalogue?.deviceId}
-            onForget={(device) => void forgetDeviceConfirmed(device)}
-            onForgetPending={busy}
-          />
+          {/* The rail's one photograph gets the visual beat right after
+              the account line — vault and devices trail it so the ad
+              never drops below the fold on a short window. */}
           {adsShow && accountAd ? (
             <aside class="account-ad" aria-label={`${accountAd.badge}: ${accountAd.advertiser}`}>
               <span class="account-ad-badge">{accountAd.badge}</span>
@@ -2835,6 +2818,29 @@ export default function Catalogue({ apiBase }: { apiBase: string }) {
               </div>
             </aside>
           ) : null}
+          {vaultSpace ? (() => {
+            const figures = vaultSpace.cap === null
+              ? `${formatBytes(vaultSpace.measuredBytes)} of Unlimited`
+              : `${formatBytes(vaultSpace.measuredBytes)} of ${formatBytes(vaultSpace.cap)}`
+            return (
+              <div class="lib-vault-tracker">
+                <p class="lib-vault-tracker-label">Vault on this Mac</p>
+                <Meter
+                  label={`Vault storage — ${figures}`}
+                  value={vaultSpace.measuredBytes}
+                  max={vaultSpace.cap ?? 0}
+                  valueText={figures}
+                />
+                <p class="lib-vault-tracker-figures">{figures}</p>
+              </div>
+            )
+          })() : null}
+          <DeviceLegend
+            devices={devices}
+            selfId={catalogue?.deviceId}
+            onForget={(device) => void forgetDeviceConfirmed(device)}
+            onForgetPending={busy}
+          />
           <p class="admin-copyright">© 2026 Mahesh Shantaram / <a {...externalAnchor(AUTHOR_URL)}>thecontrarian.in</a><br />Photographs in galleries belong to their respective owners.</p>
         </aside>
         <section class={quiet ? 'gallery-list lib-quiet' : 'gallery-list'} aria-labelledby="galleries-heading" hidden={settingsOpen || undefined}>

@@ -2,6 +2,13 @@ import AppKit
 import SwiftUI
 import WebKit
 
+/// The Settings segment's frame, published by the cluster so the sheet's
+/// glass knows where to launch from.
+private struct SettingsAnchorKey: PreferenceKey {
+    static let defaultValue: CGRect = .zero
+    static func reduce(value: inout CGRect, nextValue: () -> CGRect) { value = nextValue() }
+}
+
 /// The shell's layout: the app's own Library, filling the window, with the
 /// shell's chrome around it.
 ///
@@ -15,10 +22,31 @@ import WebKit
 /// real menu bar, a real Space, and the machine's answers when the Library
 /// asks for a folder or a vault key.
 struct ContentView: View {
-    @EnvironmentObject private var model: AppModel
+    /// The shell's model, passed down from the app. A direct property is
+    /// enough — this view always has the model — and Observation still
+    /// tracks everything the body reads.
+    let model: AppModel
 
     /// Matches `src-tauri/tauri.conf.json` `backgroundColor: "#111312"`.
     private static let canvasColor = Color(red: 0x11 / 255.0, green: 0x13 / 255.0, blue: 0x12 / 255.0)
+
+    /// Reduced transparency swaps the glass for a surface the system
+    /// cannot misread — the capsule stays, its material does not.
+    @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
+    /// Reduced motion keeps the opacity swap but drops the easing.
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    /// The WindowGroup's own opener — handed to the model so the
+    /// AppDelegate, which reads no environment, can still restore the
+    /// Library window on a Dock reopen.
+    @Environment(\.openWindow) private var openWindow
+    /// The cluster rides one glass surface until the pointer asks for
+    /// more — then the controls separate into their own pills.
+    @State private var clusterExpanded = false
+    /// True while the pointer rests on any native chrome — the page's
+    /// chrome clock only counts *web* moves, so the shell pings the
+    /// stage on the cluster's behalf or it idles out under the finger.
+    @State private var nativeChromeHovered = false
+    private let chromeKeepAlive = Timer.publish(every: 2.2, on: .main, in: .common).autoconnect()
 
     var body: some View {
         ZStack {
@@ -37,15 +65,83 @@ struct ContentView: View {
                 }
             )
             .ignoresSafeArea()
-        }
-        .overlay(alignment: .bottom) {
+
             if model.isGalleryOpen {
-                accessibilityStatusReadout
+                VStack {
+                    Spacer()
+                    accessibilityStatusReadout
+                }
+            }
+
+            // The Library exit is native glass on 26+: the webview marks
+            // its page so the web pill stays out of the way, and the
+            // capsule takes its seat — appearing and leaving with the
+            // viewer's chrome rather than hovering over a photograph at
+            // rest. Native chrome lives inside the ZStack so it shares
+            // the view's own layer with the webview.
+            if #available(macOS 26.0, *), model.isGalleryOpen, model.viewerChromeVisible {
+                VStack {
+                    HStack {
+                        libraryReturnCapsule
+                            // The safe area already clears the traffic
+                            // lights — +8 lands the capsule on the bar's
+                            // own top edge.
+                            .padding(.top, 8)
+                            .padding(.leading, 41)
+                            .onHover { hovering in
+                                nativeChromeHovered = hovering
+                                if hovering { model.keepViewerChromeAlive() }
+                            }
+                        Spacer()
+                    }
+                    Spacer()
+                }
+                .transition(.opacity)
+            }
+
+            // The viewer's own bottom controls, in the shell's glass:
+            // one merged surface at rest that separates under the
+            // pointer. The web pills stay mounted behind it — a native
+            // press fires the real handler inside the page.
+            if #available(macOS 26.0, *), model.isGalleryOpen, model.viewerChromeVisible, model.viewerSheetRect == nil {
+                VStack {
+                    Spacer()
+                    viewerControlsCluster
+                        .padding(.bottom, 16)
+                }
+                .transition(.opacity)
+            }
+
+            // The Settings morph — when a sheet opens, the segment's
+            // glass travels to the sheet's reported box and fades as the
+            // web panel's own surface takes over. The surface ignores the
+            // safe area because the reported rect is in webview
+            // coordinates — the window's own, untrimmed space.
+            if #available(macOS 26.0, *), model.isGalleryOpen, model.viewerSheetRect != nil {
+                SheetGlassSurface(
+                    start: model.settingsAnchor,
+                    end: model.viewerSheetRect,
+                    reduceMotion: reduceMotion,
+                    reduceTransparency: reduceTransparency
+                )
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .ignoresSafeArea()
             }
         }
+        .onPreferenceChange(SettingsAnchorKey.self) { model.settingsAnchor = $0 }
+        .onAppear {
+            // The delegate's reopen path needs the scene's own opener —
+            // it is the supported way to mint a window after the weak
+            // window reference has already been released.
+            model.openLibraryWindow = { openWindow(id: AppModel.libraryWindowID) }
+        }
+        .onReceive(chromeKeepAlive) { _ in
+            if nativeChromeHovered { model.keepViewerChromeAlive() }
+        }
+        .animation(reduceMotion ? nil : .easeInOut(duration: 0.2), value: model.isGalleryOpen && model.viewerChromeVisible)
         .background(WindowAccessor { window in
             model.configureWindow(window)
-            model.openInFullScreen()
+            model.applyLaunchWindowMode()
         })
         .alert(
             "Something went wrong",
@@ -83,5 +179,210 @@ struct ContentView: View {
         }
         .frame(height: 1)
         .allowsHitTesting(false)
+    }
+
+    /// The floating Library return — a capsule of the system's own glass
+    /// where the page's pill used to sit. `.interactive()` lets it answer
+    /// the pointer like real glass; under Reduce Transparency it is a
+    /// quiet dark surface instead, because a user who asked the system
+    /// not to blur should not get a blurred button back.
+    @available(macOS 26.0, *)
+    @ViewBuilder private var libraryReturnCapsule: some View {
+        let button = Button {
+            model.closeGallery()
+        } label: {
+            Label("Library", systemImage: "chevron.left")
+                // The web pill it replaces was 44px tall — the shell's
+                // minimum target — so the label, not the style, sets the
+                // capsule's size.
+                .frame(minHeight: 44)
+                .padding(.horizontal, 14)
+                .font(.system(size: 16, weight: .semibold))
+        }
+        .controlSize(.large)
+
+        if reduceTransparency {
+            button
+                .buttonStyle(.plain)
+                .padding(.horizontal, 16)
+                .padding(.vertical, 10)
+                .background(Capsule().fill(Color(white: 0.06, opacity: 0.92)))
+                .foregroundStyle(Color(red: 0.95, green: 0.94, blue: 0.91))
+        } else {
+            button.buttonStyle(.glass)
+        }
+    }
+
+    /// The viewer's bottom controls as one glass surface: the position,
+    /// Gallery Settings and Info, merged at rest and separating under
+    /// the pointer. Every press fires the page's own (hidden) pill, so
+    /// the picker's focus path, the settings popover and the info sheet
+    /// keep their web wiring untouched.
+    @available(macOS 26.0, *)
+    @ViewBuilder private var viewerControlsCluster: some View {
+        if reduceTransparency {
+            HStack(spacing: 8) {
+                clusterSolidButton(label: Text(positionText), action: "[data-chrome-position]", accessibilityLabel: "Go to a photograph")
+                clusterSolidButton(label: Image(systemName: "slider.horizontal.3"), action: "[data-chrome-bottom] [aria-label='Gallery Settings']", accessibilityLabel: "Gallery Settings")
+                    .background(anchorProbe)
+                clusterSolidButton(label: Image(systemName: "info"), action: "[data-chrome-bottom] [aria-label='Info']", accessibilityLabel: "Info")
+            }
+            .padding(.horizontal, 6)
+            .padding(.vertical, 4)
+            .background(Capsule().fill(Color(white: 0.06, opacity: 0.92)))
+        } else {
+            // Inside the container, controls nearer than `spacing` blend
+            // into one surface; further apart they are their own pills.
+            // Rest sits at 0 — a single bar — and the pointer opens the
+            // spacing so the three land as separate glass.
+            GlassEffectContainer(spacing: 14) {
+                HStack(spacing: clusterExpanded ? 18 : 0) {
+                    Button {
+                        model.invokeWebControl("[data-chrome-position]")
+                    } label: {
+                        Text(positionText)
+                            .font(.system(size: 15, weight: .semibold))
+                            .monospacedDigit()
+                            .padding(.horizontal, 12)
+                            .frame(minHeight: 44)
+                    }
+                    .accessibilityLabel("Go to a photograph")
+                    .glassEffect(.regular.interactive(), in: .capsule)
+
+                    Button {
+                        model.invokeWebControl("[data-chrome-bottom] [aria-label='Gallery Settings']")
+                    } label: {
+                        Image(systemName: "slider.horizontal.3")
+                            .font(.system(size: 17))
+                            .padding(.horizontal, 14)
+                            .frame(minHeight: 44)
+                    }
+                    .accessibilityLabel("Gallery Settings")
+                    .glassEffect(.regular.interactive(), in: .capsule)
+                    .background(anchorProbe)
+
+                    Button {
+                        model.invokeWebControl("[data-chrome-bottom] [aria-label='Info']")
+                    } label: {
+                        Image(systemName: "info")
+                            .font(.system(size: 15, weight: .semibold))
+                            .padding(.horizontal, 14)
+                            .frame(minHeight: 44)
+                    }
+                    .accessibilityLabel("Info")
+                    .glassEffect(.regular.interactive(), in: .capsule)
+                }
+                // Plain buttons keep reliable press + hit-testing inside
+                // the container; each carries its own glassEffect, which
+                // the container unions into one surface at rest and
+                // separates as the spacing opens under the pointer.
+                .buttonStyle(.plain)
+                .foregroundStyle(Color(red: 0.95, green: 0.94, blue: 0.91))
+                .font(.system(size: 15))
+            }
+            .onHover { hovering in
+                nativeChromeHovered = hovering
+                if hovering { model.keepViewerChromeAlive() }
+                withAnimation(reduceMotion ? nil : .spring(response: 0.34, dampingFraction: 0.78)) {
+                    clusterExpanded = hovering
+                }
+            }
+        }
+    }
+
+    /// What the position segment reads — the same "n of m" the web pill
+    /// carries, fed by the page's own position reports.
+    private var positionText: String {
+        model.position.total > 0 ? "\(model.position.index + 1) of \(model.position.total)" : "…"
+    }
+
+    /// The cluster's Settings seat, published to the model in window
+    /// coordinates — where the sheet's glass morphs from.
+    private var anchorProbe: some View {
+        GeometryReader { geometry in
+            Color.clear.preference(key: SettingsAnchorKey.self, value: geometry.frame(in: .global))
+        }
+        .allowsHitTesting(false)
+    }
+
+    /// Reduce-Transparency sibling of a cluster button — same action,
+    /// plain surface, no glass.
+    private func clusterSolidButton(label: some View, action: String, accessibilityLabel: String) -> some View {
+        Button {
+            model.invokeWebControl(action)
+        } label: {
+            label
+                .font(.system(size: 15, weight: .semibold))
+                .foregroundStyle(Color(red: 0.95, green: 0.94, blue: 0.91))
+                .frame(minWidth: 44, minHeight: 40)
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(accessibilityLabel)
+    }
+}
+
+/// The travelling glass that carries a cluster segment into a sheet.
+/// The native overlay always renders above the webview, so the glass
+/// cannot sit *behind* the panel's text — instead it launches from the
+/// Settings segment's seat, lands on the sheet's reported box as the
+/// sheet enters, and fades out as the web panel's own surface takes
+/// over. To the eye the control simply grew into the panel.
+@available(macOS 26.0, *)
+private struct SheetGlassSurface: View {
+    /// The morph's launch frame — the Settings segment's seat, or the
+    /// sheet's own box when no cluster was up to open it (a keyboard
+    /// shortcut, a deep link). Falling back to the box means the surface
+    /// simply appears instead of morphing from nowhere.
+    let start: CGRect
+    /// The live box the observer reports; nil while closing.
+    let end: CGRect?
+    let reduceMotion: Bool
+    let reduceTransparency: Bool
+
+    /// Whether the surface has landed on the sheet's box.
+    @State private var arrived = false
+    /// The box the surface currently holds — chases `end` as the sheet
+    /// settles out of its enter animation.
+    @State private var held: CGRect = .zero
+    /// The handoff — once landed, the glass yields to the web panel's
+    /// own surface.
+    @State private var opacity: Double = 1
+
+    var body: some View {
+        // No recorded anchor (no cluster was up) or the morph is done —
+        // the surface simply holds the sheet's box. Otherwise it is
+        // still at the segment's seat, travelling.
+        let frame = (arrived || start == .zero) ? held : start
+        Group {
+            if reduceTransparency {
+                RoundedRectangle(cornerRadius: 18)
+                    .fill(Color(white: 0.06, opacity: 0.94))
+            } else {
+                RoundedRectangle(cornerRadius: 18)
+                    .fill(.clear)
+                    .glassEffect(.regular, in: .rect(cornerRadius: 18))
+            }
+        }
+        .frame(width: frame.width, height: frame.height)
+        .position(x: frame.midX, y: frame.midY)
+        .opacity(opacity)
+        .transition(.opacity)
+        .onAppear {
+            held = end ?? start
+            withAnimation(reduceMotion ? nil : .spring(response: 0.38, dampingFraction: 0.82)) {
+                arrived = true
+            }
+            withAnimation(reduceMotion ? nil : .easeOut(duration: 0.3).delay(0.5)) {
+                opacity = 0
+            }
+        }
+        .onChange(of: end) {
+            guard let end else { return }
+            withAnimation(reduceMotion ? nil : .spring(response: 0.38, dampingFraction: 0.82)) {
+                held = end
+            }
+        }
+        .allowsHitTesting(false)
+        .accessibilityHidden(true)
     }
 }

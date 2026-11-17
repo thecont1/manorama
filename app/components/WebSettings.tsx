@@ -109,8 +109,21 @@ export function WebSettings(props: Props) {
         {props.ownerSlugNote ? <p class="m-error m-panel-note" role="alert">{props.ownerSlugNote}</p> : null}
       </ActionGroup>
 
-      <ActionGroup label="Sign-in methods" note="Keep at least one way to sign in.">
-        {props.identities === null ? <p class="m-note m-panel-note">Reading sign-in methods…</p> : null}
+      <ActionGroup label="Sign-in methods" note="Keep at least one way to sign in." class="m-actiongroup--signin">
+        {/* Every provider renders exactly one row, so the loaded panel is
+            always three rows tall — hold those seats with pending rows and
+            the answer lands without moving the box. */}
+        {props.identities === null ? SIGN_IN_METHODS.map((method, index) => (
+          index === 0 ? (
+            <div key={method.provider} class="m-actionrow m-actionrow--pending" role="status">
+              <span class="m-actionrow-label m-actionrow-label--pending">Reading sign-in methods…</span>
+            </div>
+          ) : (
+            <div key={method.provider} class="m-actionrow m-actionrow--pending" aria-hidden="true">
+              <span class="m-skeleton" />
+            </div>
+          )
+        )) : null}
         {props.identities?.map((identity) => (
           <ActionRow
             key={identity.provider}

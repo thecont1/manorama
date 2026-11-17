@@ -14,21 +14,35 @@ import WebKit
 /// What the shell owns is the chrome and the capability. What the page owns
 /// is the Library.
 @MainActor
-final class AppModel: ObservableObject {
+@Observable
+final class AppModel {
     /// What the shell is doing, in one line.
-    @Published private(set) var status: String = "Opening the library…"
+    private(set) var status: String = "Opening the library…"
     /// The committed photograph, as the page reports it.
-    @Published private(set) var position: (index: Int, total: Int) = (0, 0)
+    private(set) var position: (index: Int, total: Int) = (0, 0)
     /// Whether a gallery is open.
-    @Published private(set) var isGalleryOpen: Bool = false
+    private(set) var isGalleryOpen: Bool = false
     /// The open gallery's title.
-    @Published private(set) var galleryTitle: String?
+    private(set) var galleryTitle: String?
+    /// Whether the viewer's own chrome is showing. The floating Library
+    /// capsule is chrome too — it appears and leaves with the page's
+    /// pills rather than hanging over a photograph at rest.
+    private(set) var viewerChromeVisible = false
+    /// The box of the page's open sheet, in window coordinates — the
+    /// morph target for the Settings segment's travelling glass. Nil
+    /// when no sheet is up.
+    private(set) var viewerSheetRect: CGRect?
+    /// Where the native Settings segment sits while the cluster is up —
+    /// the morph's launch frame. Written by the cluster's preference, in
+    /// the same window coordinates as `viewerSheetRect`.
+    var settingsAnchor: CGRect = .zero
     /// Something the user must be told about.
-    @Published var errorMessage: String?
+    var errorMessage: String?
 
     /// The photographs already reported as unreadable this session — one
-    /// report per photograph, so a retried frame cannot nag.
-    private var reportedFailures: Set<String> = []
+    /// report per photograph, so a retried frame cannot nag. Bookkeeping,
+    /// not interface: nothing renders from it.
+    @ObservationIgnored private var reportedFailures: Set<String> = []
 
     let folderStore: FolderStore
     let schemeHandler: LocalSchemeHandler
@@ -39,10 +53,22 @@ final class AppModel: ObservableObject {
     /// user picks a folder; the handler asks about it for every photograph
     /// it serves, so the list is computed once and cached.
     let grantedRoots = GrantedRoots()
-    /// The live webview, so menu commands can drive the viewer.
-    @Published var webViewRef: WKWebView?
-    /// The host window, so the shell can toggle fullscreen.
-    @Published var window: NSWindow?
+    /// The live webview, so menu commands can drive the viewer. A handle,
+    /// not interface state — nothing renders from it.
+    @ObservationIgnored var webViewRef: WKWebView?
+    /// The Library's host window — the only window the shell ever drives.
+    /// The Settings scene is never recorded here, so gallery and deep-link
+    /// actions cannot land on the wrong window. Weak: a window that is
+    /// released on close must not be resurrected through the delegate.
+    @ObservationIgnored weak var window: NSWindow?
+    /// The Library WindowGroup's identity — the AppDelegate's reopen path
+    /// targets it by name rather than guessing at a scene.
+    static let libraryWindowID = "library"
+    /// The scene's `openWindow` action, installed by the ContentView whose
+    /// environment owns it. The AppDelegate reads no environment, so this
+    /// is how the Dock-reopen path mints a replacement Library window
+    /// once the weak reference above has been released.
+    @ObservationIgnored var openLibraryWindow: (() -> Void)?
 
     /// The bundle's root on disk.
     private let bundleRoot: URL
@@ -145,7 +171,20 @@ final class AppModel: ObservableObject {
         coordinator.onGalleryState = { [weak self] open, title in
             self?.isGalleryOpen = open
             self?.galleryTitle = title
-            if !open { self?.position = (0, 0) }
+            if !open {
+                self?.position = (0, 0)
+                self?.viewerChromeVisible = false
+            }
+        }
+        coordinator.onChrome = { [weak self] visible in
+            self?.viewerChromeVisible = visible
+        }
+        // The sheet's box is the morph target for the Settings segment's
+        // travelling glass — it launches from the segment's seat, lands
+        // on the reported box, and hands the surface back to the web
+        // sheet's own background as it fades.
+        coordinator.onSheet = { [weak self] open, rect in
+            self?.viewerSheetRect = open ? rect : nil
         }
     }
 
@@ -186,6 +225,32 @@ final class AppModel: ObservableObject {
         webViewRef?.evaluateJavaScript("window.__manoramaCloseGallery && window.__manoramaCloseGallery();")
     }
 
+    /// Press one of the viewer's own pills. On Liquid Glass builds the
+    /// web pill is hidden but still mounted — the real handlers, the
+    /// focus bookkeeping and the modal wiring all live there — so the
+    /// native cluster asks the page to fire it rather than re-inventing
+    /// the click.
+    func invokeWebControl(_ selector: String) {
+        // JSONSerialization wants a top-level array/dictionary — a bare
+        // string throws, and `try?` made that a silent early return:
+        // every cluster press used to no-op before the eval ran.
+        guard let data = try? JSONEncoder().encode(selector),
+              let json = String(data: data, encoding: .utf8) else { return }
+        webViewRef?.evaluateJavaScript("var el = document.querySelector(\(json)); if (el) el.click();")
+    }
+
+    /// The viewer's chrome idles out 3s after the last *page* pointer
+    /// event — hovering the shell's native controls registers none, so
+    /// the pills would unmount beneath the user's finger. While the
+    /// pointer rests on the cluster, dispatch a synthetic move on the
+    /// stage so the page's own fine-move handler restarts its clock;
+    /// the y alternates because the handler only wakes on travel > 4px.
+    func keepViewerChromeAlive() {
+        webViewRef?.evaluateJavaScript(
+            "var s = document.querySelector('.viewer-stage'); if (s) { window.__manoramaKeepAlive = !window.__manoramaKeepAlive; var y = s.clientHeight - 40 + (window.__manoramaKeepAlive ? 8 : -8); s.dispatchEvent(new PointerEvent('pointermove', {bubbles: true, clientX: s.clientWidth / 2, clientY: y})); }"
+        )
+    }
+
     /// The page asked for the next/previous photograph.
     func step(_ delta: Int, in webView: WKWebView?) {
         guard let webView, isGalleryOpen else { return }
@@ -209,57 +274,229 @@ final class AppModel: ObservableObject {
     /// webview — the page's top-left corner belongs to the page, which the
     /// `macos-shell` marker class lets the CSS know.
     ///
+    /// The guard is per window, not per app lifetime: closing the Library
+    /// and reopening it can hand the scene a different NSWindow, and that
+    /// window still needs its chrome configured.
+    ///
     /// Note: `configureWindow` is called from `WindowAccessor.updateNSView`,
-    /// so we must not mutate `@Published var window` (which would re-trigger
-    /// `updateNSView` on the next tick in an infinite loop) or call
-    /// `setFrameAutosaveName` (which triggers `windowDidResize` → SwiftUI
-    /// view update → `updateNSView`).
+    /// so we must not call `setFrameAutosaveName` here (which triggers
+    /// `windowDidResize` → SwiftUI view update → `updateNSView`). The
+    /// `window` handle itself is `@ObservationIgnored`, so recording it
+    /// cannot re-trigger the representable's update cycle.
     func configureWindow(_ window: NSWindow) {
         if self.window !== window {
             self.window = window
         }
-        guard !didConfigureWindow else { return }
-        didConfigureWindow = true
-        window.titlebarAppearsTransparent = true
+        applyWindowChrome(window)
+        guard !configuredWindows.contains(window) else { return }
+        configuredWindows.add(window)
+        // The attach callback can run while SwiftUI is still constructing
+        // the window — and SwiftUI's own chrome setup lands after it,
+        // silently resetting the transparent titlebar on the launches
+        // where the attach happened to be early. Re-assert once the
+        // window is visible: by then the scene's construction has
+        // finished, so this write is the one that stays.
+        guard !window.isVisible else { return }
+        let center = NotificationCenter.default
+        var token: NSObjectProtocol?
+        token = center.addObserver(
+            forName: NSWindow.didChangeOcclusionStateNotification,
+            object: window,
+            queue: .main
+        ) { [weak self, weak window] _ in
+            MainActor.assumeIsolated {
+                guard let self, let window,
+                      window.occlusionState.contains(.visible) else { return }
+                self.applyWindowChrome(window)
+                if let token {
+                    NotificationCenter.default.removeObserver(token)
+                }
+            }
+        }
+    }
+
+    /// The shell's own chrome on a Library window — applied idempotently,
+    /// because the same set lands at attach and again at visibility.
+    /// The hiddenTitleBar scene style owns the titlebar itself; what stays
+    /// here is what the style does not cover.
+    private func applyWindowChrome(_ window: NSWindow) {
         window.backgroundColor = NSColor(red: 0x11 / 255.0, green: 0x13 / 255.0, blue: 0x12 / 255.0, alpha: 1.0)
         window.isMovableByWindowBackground = false
+        // The hiddenTitleBar style marks the window fullScreenNone,
+        // which disables the green light and ⌃⌘F outright. Restoring
+        // the transition means removing the refusal, not just asking.
+        window.collectionBehavior.remove(.fullScreenNone)
+        window.collectionBehavior.insert(.fullScreenPrimary)
     }
 
-    private var didConfigureWindow = false
+    /// The windows whose chrome has been configured. Weakly held: a dead
+    /// window's identifier leaves the set with the window, so a new window
+    /// cannot inherit the mark through a reused address.
+    @ObservationIgnored private var configuredWindows = NSHashTable<NSWindow>.weakObjects()
 
-    /// Toggle the host window's fullscreen.
+    /// The UserDefaults key the Settings scene writes and the launch
+    /// decision reads — one source of truth for both sides.
+    static let launchFullScreenDefaultsKey = "openInFullScreen"
+
+    /// Apply the launch window mode, once per process.
     ///
-    /// `toggleFullScreen(nil)` is the AppKit path the green traffic light
-    /// uses — it animates into the Space properly and leaves the menu bar
-    /// reachable by hover, which is the behaviour a Mac user expects.
-    func toggleFullScreen() {
-        window?.toggleFullScreen(nil)
+    /// The contract:
+    ///   * `--windowed` is a test override and always wins.
+    ///   * Otherwise the "Open in full screen" setting decides whether the
+    ///     window enters its own Space.
+    ///   * The saved window frame restores either way — the preference
+    ///     governs only fullscreen, and only at launch. Reopening the
+    ///     Library or handing it a deep link never re-applies it.
+    ///   * A fullscreen record left over from the kiosk era does not get
+    ///     to defeat the windowed default: a launch that decided
+    ///     "windowed" undoes one restored fullscreen entry.
+    func applyLaunchWindowMode() {
+        guard !didApplyLaunchMode, let window else { return }
+        didApplyLaunchMode = true
+        let wantFullScreen = !CommandLine.arguments.contains("--windowed")
+            && UserDefaults.standard.bool(forKey: Self.launchFullScreenDefaultsKey)
+        if wantFullScreen {
+            enterFullScreenOnce(window)
+        } else {
+            leaveFullScreenIfRestored(window)
+        }
     }
 
-    /// Open in its own Space, once.
-    ///
-    /// This is deliberate, not an accident: the photographs are the
-    /// product, and a fullscreen window gives them the whole screen with
-    /// no window chrome competing for attention. The View menu still
-    /// offers Exit Full Screen for the times the user wants the window
-    /// back.
-    func openInFullScreen() {
-        guard !didOpenInFullScreen, let window else { return }
-        didOpenInFullScreen = true
-        // A test run does not get to take over the screen. The kiosk
-        // launch state is still exercised — the suite launches once
-        // without this flag to prove it.
-        if CommandLine.arguments.contains("--windowed") { return }
-        // AppKit will not animate a window into a Space before it is on
-        // screen, so this waits a beat after the window is reported.
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) {
-            NSApp.activate(ignoringOtherApps: true)
+    /// Whether the launch mode has already been applied.
+    @ObservationIgnored private var didApplyLaunchMode = false
+    /// The observer used while the launch mode is pending.
+    @ObservationIgnored private var launchModeObserver: NSObjectProtocol?
+    /// Retires a pending launch-mode request if its window goes away.
+    @ObservationIgnored private var launchModeCloseObserver: NSObjectProtocol?
+    /// Retires the restoration correction once the window is on screen —
+    /// a person cannot act before then, so every entry after visibility
+    /// is intent.
+    @ObservationIgnored private var launchModeVisibilityObserver: NSObjectProtocol?
+
+    /// Enter fullscreen once the window is ready — only if the launch
+    /// decision asked for it and the window is not already there. AppKit
+    /// will not animate a window into a Space before it is on screen, so a
+    /// window that is not yet visible is deferred to the occlusion-state
+    /// notification rather than an arbitrary timer.
+    private func enterFullScreenOnce(_ window: NSWindow) {
+        guard !window.styleMask.contains(.fullScreen) else { return }
+        if window.isVisible {
+            window.toggleFullScreen(nil)
+            return
+        }
+        let center = NotificationCenter.default
+        // The observer stays armed until the window is actually visible —
+        // an occlusion notification about any other state does not let the
+        // transition run, so it must not consume the pending request.
+        launchModeObserver = center.addObserver(
+            forName: NSWindow.didChangeOcclusionStateNotification,
+            object: window,
+            queue: .main
+        ) { [weak self, weak window] _ in
+            // The observer runs on the main queue, so the main actor is
+            // already where this executes.
+            MainActor.assumeIsolated {
+                guard let window,
+                      window.occlusionState.contains(.visible) else { return }
+                self?.disarmLaunchMode()
+                guard !window.styleMask.contains(.fullScreen) else { return }
+                window.toggleFullScreen(nil)
+            }
+        }
+        launchModeCloseObserver = center.addObserver(
+            forName: NSWindow.willCloseNotification,
+            object: window,
+            queue: .main
+        ) { [weak self] _ in
+            MainActor.assumeIsolated { self?.disarmLaunchMode() }
+        }
+        // The visibility check above races the order-in: if the window
+        // became visible before the observer landed, act now.
+        if window.isVisible {
+            disarmLaunchMode()
             window.toggleFullScreen(nil)
         }
     }
 
-    /// Whether the window has already been sent to its Space.
-    private var didOpenInFullScreen = false
+    /// Undo a fullscreen the window restored on its own. A launch that
+    /// decided "windowed" can still arrive in a Space when the system
+    /// resumes an old fullscreen record — one that predates the setting.
+    /// That record is corrected once: the first fullscreen entry the
+    /// window makes is judged by what caused it, not by when it lands.
+    /// A user action — the green light, the View menu, ⌃⌘F — always
+    /// arrives behind a real input event; a restoration record is the
+    /// system replaying saved state and arrives behind none. Only the
+    /// second is undone. Once any entry has been judged the observer
+    /// retires — there is no second record to correct.
+    private func leaveFullScreenIfRestored(_ window: NSWindow) {
+        if window.styleMask.contains(.fullScreen) {
+            window.toggleFullScreen(nil)
+            return
+        }
+        let center = NotificationCenter.default
+        launchModeObserver = center.addObserver(
+            forName: NSWindow.didEnterFullScreenNotification,
+            object: window,
+            queue: .main
+        ) { [weak self, weak window] _ in
+            MainActor.assumeIsolated {
+                self?.disarmLaunchMode()
+                guard let window,
+                      window.styleMask.contains(.fullScreen),
+                      !Self.fullscreenCameFromInput() else { return }
+                window.toggleFullScreen(nil)
+            }
+        }
+        launchModeCloseObserver = center.addObserver(
+            forName: NSWindow.willCloseNotification,
+            object: window,
+            queue: .main
+        ) { [weak self] _ in
+            MainActor.assumeIsolated { self?.disarmLaunchMode() }
+        }
+        // The correction only guards the launch itself: restoration
+        // records replay while the window orders in, so once it is
+        // visible the judgement is done and the observer retires.
+        if window.isVisible {
+            disarmLaunchMode()
+        } else {
+            launchModeVisibilityObserver = center.addObserver(
+                forName: NSWindow.didChangeOcclusionStateNotification,
+                object: window,
+                queue: .main
+            ) { [weak self, weak window] _ in
+                MainActor.assumeIsolated {
+                    guard let window,
+                          window.occlusionState.contains(.visible) else { return }
+                    self?.disarmLaunchMode()
+                }
+            }
+        }
+    }
+
+    /// Whether the event that entered fullscreen was a person's input.
+    /// Every supported way of asking — keyboard equivalent, menu pick,
+    /// zoom button — dispatches from a real input event; a window that
+    /// enters fullscreen with none in flight was moved by the system.
+    private static func fullscreenCameFromInput() -> Bool {
+        switch NSApp.currentEvent?.type {
+        case .keyDown, .leftMouseDown, .rightMouseDown, .otherMouseDown:
+            return true
+        default:
+            return false
+        }
+    }
+
+    /// Drop the pending launch-mode observers, if any.
+    private func disarmLaunchMode() {
+        let center = NotificationCenter.default
+        if let launchModeObserver { center.removeObserver(launchModeObserver) }
+        if let launchModeCloseObserver { center.removeObserver(launchModeCloseObserver) }
+        if let launchModeVisibilityObserver { center.removeObserver(launchModeVisibilityObserver) }
+        launchModeObserver = nil
+        launchModeCloseObserver = nil
+        launchModeVisibilityObserver = nil
+    }
 
     // MARK: - The probe
 
