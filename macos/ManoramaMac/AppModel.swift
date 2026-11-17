@@ -24,6 +24,10 @@ final class AppModel {
     private(set) var isGalleryOpen: Bool = false
     /// The open gallery's title.
     private(set) var galleryTitle: String?
+    /// Whether the viewer's own chrome is showing. The floating Library
+    /// capsule is chrome too — it appears and leaves with the page's
+    /// pills rather than hanging over a photograph at rest.
+    private(set) var viewerChromeVisible = false
     /// Something the user must be told about.
     var errorMessage: String?
 
@@ -151,7 +155,13 @@ final class AppModel {
         coordinator.onGalleryState = { [weak self] open, title in
             self?.isGalleryOpen = open
             self?.galleryTitle = title
-            if !open { self?.position = (0, 0) }
+            if !open {
+                self?.position = (0, 0)
+                self?.viewerChromeVisible = false
+            }
+        }
+        coordinator.onChrome = { [weak self] visible in
+            self?.viewerChromeVisible = visible
         }
     }
 

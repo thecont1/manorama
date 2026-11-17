@@ -2000,6 +2000,10 @@ html.light .lib-quiet-toggle[aria-pressed="true"] { color: #e9e5dc; }
    lights floating over the page — top-anchored chrome drops below the
    strip they occupy. Everywhere else the inset is zero. */
 :root[data-macos-shell] { --shell-top-inset: 32px; }
+/* On 26+ the shell renders the Library exit as its own glass capsule —
+   the web pill keeps its slot in the bar (the layout does not move) but
+   no longer paints a second way back. */
+:root[data-macos-glass] [data-chrome-library] { visibility: hidden; }
 .m-chrome--top { top: calc(env(safe-area-inset-top, 0px) + 8px + var(--shell-top-inset, 0px)); justify-content: space-between; transform: translateY(-8px); }
 .m-chrome--bottom { bottom: calc(env(safe-area-inset-bottom, 0px) + 16px); justify-content: center; transform: translateY(8px); }
 /* With the arrow bar reserved, the temporary bottom chrome rides just

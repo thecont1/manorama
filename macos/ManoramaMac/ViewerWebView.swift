@@ -18,6 +18,9 @@ final class ViewerCoordinator: NSObject, WKScriptMessageHandler, WKNavigationDel
     var onEscape: (() -> Void)?
     /// Called when the page reports which gallery is open, if any.
     var onGalleryState: ((Bool, String?) -> Void)?
+    /// Called when the viewer's own chrome appears or hides — the shell's
+    /// floating Library capsule rides on it.
+    var onChrome: ((Bool) -> Void)?
     /// The native shell's runtime API — the commands the app's own bundle
     /// asks of the machine.
     var bridge: NativeBridge?
@@ -103,6 +106,10 @@ final class ViewerCoordinator: NSObject, WKScriptMessageHandler, WKNavigationDel
             let open = body["open"] as? Bool ?? false
             let title = body["title"] as? String
             onGalleryState?(open, title)
+        case "chrome":
+            // The viewer's chrome appeared or hid — posted by the injected
+            // observer, so the shell's capsule can track it.
+            onChrome?(body["visible"] as? Bool ?? false)
         default:
             break
         }
@@ -237,6 +244,37 @@ struct ViewerWebView: NSViewRepresentable {
             injectionTime: .atDocumentStart,
             forMainFrameOnly: true
         ))
+        if #available(macOS 26.0, *) {
+            // On Liquid Glass systems the Library exit is the shell's own
+            // capsule: the page marks itself so CSS retires the web pill,
+            // and the observer reports when the viewer's chrome is showing
+            // so the capsule can appear and leave with it. An older OS
+            // keeps the page's pill untouched.
+            configuration.userContentController.addUserScript(WKUserScript(
+                source: """
+                    document.documentElement.dataset.macosGlass = '1';
+                    (function () {
+                      var last = null;
+                      function report() {
+                        var on = document.querySelector('.m-chrome.is-visible [data-chrome-library]') !== null;
+                        if (on !== last) {
+                          last = on;
+                          try { window.webkit.messageHandlers.manorama.postMessage({ type: 'chrome', visible: on }); } catch (e) {}
+                        }
+                      }
+                      // Kept on window: an unretained observer can be
+                      // collected mid-session and the hide half of the
+                      // signal never reaches the shell.
+                      window.__manoramaChromeObserver = new MutationObserver(report);
+                      window.__manoramaChromeObserver.observe(document.documentElement, { subtree: true, childList: true, attributes: true, attributeFilter: ['class'] });
+                      document.addEventListener('DOMContentLoaded', report);
+                      report();
+                    })();
+                    """,
+                injectionTime: .atDocumentStart,
+                forMainFrameOnly: true
+            ))
+        }
         configuration.userContentController.add(coordinator, name: "manorama")
         // A dark webview avoids a white flash before the page's own ground
         // paints.

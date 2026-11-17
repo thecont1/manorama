@@ -569,7 +569,33 @@ else
 fi
 
 echo
-echo "== 10. error recovery: the folder disappears under an open gallery =="
+echo "== 10. the floating Library capsule =="
+# On 26+ the shell's own glass capsule takes the web pill's seat: it mounts
+# while the viewer's chrome is showing and pressing it must land back on
+# the Library — the same contract Escape holds, exercised on the native
+# control itself. The web pill is suppressed (data-macos-glass), so this
+# press also proves there is still exactly one way back.
+POSITION=$(open_gallery)
+note "readout after reopening: ${POSITION:-none}"
+dismiss_curtain
+act
+/tmp/focusprobe "$BUNDLE_ID" clickweb >/dev/null 2>&1
+sleep 2
+if /tmp/focusprobe "$BUNDLE_ID" pressnative "Library" >/dev/null 2>&1; then
+  ok "the glass capsule is present and pressable"
+else
+  bad "the glass capsule is present and pressable" "no native Library button in the AX tree"
+fi
+sleep 2
+CLOSED=$(readout)
+if [ -z "$CLOSED" ]; then
+  ok "the capsule returns to the Library"
+else
+  bad "the capsule returns to the Library" "still reporting ${CLOSED}"
+fi
+
+echo
+echo "== 11. error recovery: the folder disappears under an open gallery =="
 stop_app || { echo "FATAL: the shell would not quit"; exit 1; }
 rm -rf "$DISPOSABLE"
 mkdir -p "$DISPOSABLE"
@@ -631,7 +657,7 @@ else
 fi
 
 echo
-echo "== 11. the shell jumps to an arbitrary photograph =="
+echo "== 12. the shell jumps to an arbitrary photograph =="
 # The Viewer owns its index, and the shell asks for a target through the
 # Viewer's navigation handle — it moves the stage, it never sets the
 # index. The alternative, synthesising the keys a person would press,
@@ -681,7 +707,7 @@ else
 fi
 
 echo
-echo "== 12. relaunch keeps the grant =="
+echo "== 13. relaunch keeps the grant =="
 stop_app || { echo "FATAL: the shell would not quit"; exit 1; }
 launch "$SEED_DIR" keep
 wait_gallery_card 20 >/dev/null
@@ -694,7 +720,7 @@ else
 fi
 
 echo
-echo "== 13. the window mode is the user's choice =="
+echo "== 14. the window mode is the user's choice =="
 # The old kiosk behaviour — every launch opening into its own fullscreen
 # Space — is now the "Open in full screen" setting, and the default is a
 # normal window. The setting is a UserDefaults value in the focus-test
@@ -766,7 +792,7 @@ esac
 defaults delete "$BUNDLE_ID" openInFullScreen 2>/dev/null
 
 echo
-echo "== 14. fullscreen is a trip the user controls =="
+echo "== 15. fullscreen is a trip the user controls =="
 # The window is windowed after the precedence check. Entering and leaving
 # a Space stays available the whole time — these are the AppKit menu
 # items, not shell commands.
@@ -788,7 +814,7 @@ case "$FULL" in
 esac
 
 echo
-echo "== 15. the window remembers its frame =="
+echo "== 16. the window remembers its frame =="
 # The scene's own restoration is the mechanism — the shell deliberately
 # does not set a frame autosave name, because a saved frame applied
 # through the representable's update path would loop resize → update →
@@ -849,7 +875,7 @@ EOF
 fi
 
 echo
-echo "== 16. Settings is a real window =="
+echo "== 17. Settings is a real window =="
 # The Settings scene is the app's own — the system menu item under the
 # app menu opens it, it arrives as a second window, and it closes without
 # taking the Library with it.
@@ -881,7 +907,7 @@ else
 fi
 
 echo
-echo "== 17. the Library reopens after its window closes =="
+echo "== 18. the Library reopens after its window closes =="
 # Closing the last window does not quit the app — and a reopen (the Dock
 # click a person would make) must bring the Library back, because a shell
 # that cannot be reached after ⌘W is a shell you have to relaunch.
@@ -924,7 +950,7 @@ else
 fi
 
 echo
-echo "== 18. the app survived =="
+echo "== 19. the app survived =="
 act
 if /tmp/focusprobe "$BUNDLE_ID" tree >/dev/null 2>&1; then
   ok "the app is still alive and has a window"

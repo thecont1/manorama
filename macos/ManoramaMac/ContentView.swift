@@ -23,6 +23,12 @@ struct ContentView: View {
     /// Matches `src-tauri/tauri.conf.json` `backgroundColor: "#111312"`.
     private static let canvasColor = Color(red: 0x11 / 255.0, green: 0x13 / 255.0, blue: 0x12 / 255.0)
 
+    /// Reduced transparency swaps the glass for a surface the system
+    /// cannot misread — the capsule stays, its material does not.
+    @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
+    /// Reduced motion keeps the opacity swap but drops the easing.
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
     var body: some View {
         ZStack {
             Self.canvasColor
@@ -46,6 +52,21 @@ struct ContentView: View {
                 accessibilityStatusReadout
             }
         }
+        // The Library exit is native glass on 26+: the webview marks its
+        // page so the web pill stays out of the way, and the capsule takes
+        // its seat — appearing and leaving with the viewer's chrome rather
+        // than hovering over a photograph at rest.
+        .overlay(alignment: .topLeading) {
+            if #available(macOS 26.0, *), model.isGalleryOpen, model.viewerChromeVisible {
+                libraryReturnCapsule
+                    // The safe area already clears the traffic lights —
+                    // +8 lands the capsule on the bar's own top edge.
+                    .padding(.top, 8)
+                    .padding(.leading, 41)
+                    .transition(.opacity)
+            }
+        }
+        .animation(reduceMotion ? nil : .easeInOut(duration: 0.2), value: model.isGalleryOpen && model.viewerChromeVisible)
         .background(WindowAccessor { window in
             model.configureWindow(window)
             model.applyLaunchWindowMode()
@@ -86,5 +107,37 @@ struct ContentView: View {
         }
         .frame(height: 1)
         .allowsHitTesting(false)
+    }
+
+    /// The floating Library return — a capsule of the system's own glass
+    /// where the page's pill used to sit. `.interactive()` lets it answer
+    /// the pointer like real glass; under Reduce Transparency it is a
+    /// quiet dark surface instead, because a user who asked the system
+    /// not to blur should not get a blurred button back.
+    @available(macOS 26.0, *)
+    @ViewBuilder private var libraryReturnCapsule: some View {
+        let button = Button {
+            model.closeGallery()
+        } label: {
+            Label("Library", systemImage: "chevron.left")
+                // The web pill it replaces was 44px tall — the shell's
+                // minimum target — so the label, not the style, sets the
+                // capsule's size.
+                .frame(minHeight: 44)
+                .padding(.horizontal, 14)
+                .font(.system(size: 16, weight: .semibold))
+        }
+        .controlSize(.large)
+
+        if reduceTransparency {
+            button
+                .buttonStyle(.plain)
+                .padding(.horizontal, 16)
+                .padding(.vertical, 10)
+                .background(Capsule().fill(Color(white: 0.06, opacity: 0.92)))
+                .foregroundStyle(Color(red: 0.95, green: 0.94, blue: 0.91))
+        } else {
+            button.buttonStyle(.glass)
+        }
     }
 }

@@ -407,6 +407,35 @@ case "pressweb":
     print("press web \"\(title(button))\" → \(result.rawValue)")
     exit(result == .success ? 0 : 4)
 
+case "pressnative":
+    // Press a button in the shell's own chrome — the floating Library
+    // capsule is a native control, not part of the web surface, so
+    // pressweb cannot reach it. Anything inside the AXWebArea subtree is
+    // skipped so a web control with the same label is never hit instead.
+    let label = CommandLine.arguments.count >= 4 ? CommandLine.arguments[3] : ""
+    var target: AXUIElement?
+    func findNative(_ element: AXUIElement, depth: Int) {
+        guard depth < 16, target == nil else { return }
+        if role(element) == "AXWebArea" { return }
+        if role(element) == "AXButton", title(element).contains(label) {
+            target = element
+            return
+        }
+        for child in children(element) { findNative(child, depth: depth + 1) }
+    }
+    findNative(window, depth: 0)
+    guard let button = target else {
+        print("native button not found: \(label)")
+        exit(3)
+    }
+    var frameText = "no frame"
+    if let pos = axPoint(button, kAXPositionAttribute), let size = axSize(button, kAXSizeAttribute) {
+        frameText = "frame=\(Int(pos.x)),\(Int(pos.y)) \(Int(size.width))x\(Int(size.height))"
+    }
+    let result = AXUIElementPerformAction(button, kAXPressAction as CFString)
+    print("press native \"\(title(button))\" \(frameText) → \(result.rawValue)")
+    exit(result == .success ? 0 : 4)
+
 case "picker":
     // Does the viewer's own grid picker open? The `g` key is one of the
     // viewer's shortcuts; in a native shell the web view only receives a
