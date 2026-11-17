@@ -105,14 +105,17 @@ const onKeyDown = (event: KeyboardEvent) => {
 }
 
 const ensureListener = () => {
-  if (listenerAttached) return
+  if (listenerAttached || typeof document === 'undefined') return
   document.addEventListener('keydown', onKeyDown, true)
   listenerAttached = true
 }
 
 const dropListener = () => {
   if (!listenerAttached || stack.length > 0) return
-  document.removeEventListener('keydown', onKeyDown, true)
+  // The document an entry attached to may simply be gone by release —
+  // a torn-down realm has no listener to remove, but the flag must
+  // still reset so the next push attaches to whatever document is live.
+  if (typeof document !== 'undefined') document.removeEventListener('keydown', onKeyDown, true)
   listenerAttached = false
 }
 

@@ -20,6 +20,10 @@ export class NativeGalleryHttpError extends Error {
 export const normalizeApiBase = (value: string): string => value.replace(/\/+$/, '')
 
 const absoluteUrl = (value: string, apiBase: string): string => {
+  // An encrypted photograph has no address at all. Resolving an empty one
+  // against the API base would hand the caller the site's own front page
+  // where the original should have been — an empty address stays empty.
+  if (!value) return value
   try {
     return new URL(value, `${normalizeApiBase(apiBase)}/`).toString()
   } catch {

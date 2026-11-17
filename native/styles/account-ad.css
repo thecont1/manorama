@@ -76,7 +76,3 @@
   line-height: 1.2;
   text-underline-offset: 3px;
 }
-
-/* A surface panel never straddles the hinge — the slot stays inside the
-   leading segment's padded column. */
-.native-account-shell[data-admin-segmented] .native-account-ad { width: min(480px, calc(var(--admin-left-end) - 64px)); }

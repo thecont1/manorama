@@ -340,6 +340,27 @@ describeNative('Duo responsive Spread', () => {
         if (state === 'book') expect(box.x).toBeGreaterThanOrEqual(width * .48 + 18)
         if (state === 'laptop') expect(box.y).toBeGreaterThanOrEqual(height * .46 + 26)
       }
+      for (const toggle of await library.locator('.native-library-actions .m-iconbtn').all()) {
+        await expect(toggle).toHaveCSS('border-radius', '50%')
+        await expect(toggle).toHaveCSS('border-top-style', 'solid')
+        await expect(toggle).toHaveCSS('border-top-width', '1px')
+      }
+      const ad = library.locator('[data-account-ad]')
+      const artwork = ad.locator('img')
+      await expect.poll(() => artwork.evaluate((node) => (node as HTMLImageElement).naturalWidth)).toBeGreaterThan(0)
+      const adBox = (await ad.boundingBox())!
+      const slotBox = (await ad.locator('.native-account-ad-slot').boundingBox())!
+      const imageBox = (await artwork.boundingBox())!
+      const badgeBox = (await ad.locator('.native-account-ad-badge').boundingBox())!
+      const copyBox = (await ad.locator('.native-account-ad-copy').boundingBox())!
+      const pixels = await artwork.evaluate((node) => ({ width: (node as HTMLImageElement).naturalWidth, height: (node as HTMLImageElement).naturalHeight, dpr: window.devicePixelRatio }))
+      expect(slotBox.width).toBeCloseTo(adBox.width, 0)
+      expect(imageBox.width).toBeCloseTo(Math.min(slotBox.width, pixels.width / pixels.dpr), 0)
+      expect(imageBox.width / imageBox.height).toBeCloseTo(pixels.width / pixels.height, 2)
+      expect(badgeBox.y + badgeBox.height).toBeLessThanOrEqual(imageBox.y)
+      expect(copyBox.y).toBeGreaterThanOrEqual(imageBox.y + imageBox.height)
+      await expect(ad.locator('.native-account-ad-sub')).toBeVisible()
+      await expect(library.locator('.native-library-footer')).toContainText('© 2026 Mahesh Shantaram')
       const actionBoxes = await library.locator('.native-library-actions button').evaluateAll((nodes) => nodes.map((node) => node.getBoundingClientRect().toJSON()))
       expect(Math.max(...actionBoxes.map((box) => box.y)) - Math.min(...actionBoxes.map((box) => box.y))).toBeLessThan(1)
       const galleryBox = (await library.locator('.native-list-card').boundingBox())!
@@ -358,10 +379,25 @@ describeNative('Duo responsive Spread', () => {
       const screenshot = testInfo.outputPath(`library-browser-injected-${state}-${width}x${height}.png`)
       await page.screenshot({ path: screenshot })
       await testInfo.attach(`library-browser-injected-${state}-${width}x${height}`, { path: screenshot, contentType: 'image/png' })
+      await library.locator('.native-library-footer').scrollIntoViewIfNeeded()
+      const footerScreenshot = testInfo.outputPath(`library-footer-browser-injected-${state}-${width}x${height}.png`)
+      await page.screenshot({ path: footerScreenshot })
+      await testInfo.attach(`library-footer-browser-injected-${state}-${width}x${height}`, { path: footerScreenshot, contentType: 'image/png' })
+      await library.evaluate((node) => {
+        node.scrollTop = 0
+        node.querySelector('.native-library-rail')!.scrollTop = 0
+      })
     }
     await library.getByRole('button', { name: 'Settings', exact: true }).click()
     await expect(page.getByRole('button', { name: 'Back to the library', exact: true })).toBeVisible()
     await page.getByRole('button', { name: 'Back to the library', exact: true }).click()
+    await expect(library.getByRole('button', { name: 'Add Gallery', exact: true })).toBeVisible()
+    await library.getByRole('button', { name: 'Quiet view — hide the words', exact: true }).click()
+    await expect(library.getByRole('button', { name: 'Show the words', exact: true })).toHaveAttribute('aria-pressed', 'true')
+    await library.getByRole('button', { name: 'Show the words', exact: true }).click()
+    await library.getByRole('button', { name: 'Privacy Policy', exact: true }).click()
+    await expect(page.locator('[data-screen="privacy"]')).toBeVisible()
+    await page.getByRole('button', { name: 'Back', exact: true }).click()
     await expect(library.getByRole('button', { name: 'Add Gallery', exact: true })).toBeVisible()
   })
 

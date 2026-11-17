@@ -504,7 +504,7 @@ describe('desktop catalogue workbench', () => {
       // live inside Gallery settings now.
       card.querySelector<HTMLButtonElement>(`[aria-label="kashmir, in winter actions"]`)!.click()
       await settle()
-      for (const item of ['Pin gallery', 'Share link', 'Gallery Settings']) {
+      for (const item of ['Pin gallery', 'Copy link', 'Post to X', 'Gallery Settings']) {
         expect(menuItem(container, item)).toBeDefined()
       }
       for (const item of ['Reorder photographs', 'Open source', 'Refresh gallery contents', 'Remove gallery']) {
@@ -1500,6 +1500,12 @@ describe('desktop catalogue workbench', () => {
     expect(rail.querySelector('[aria-label="Settings"]')!.getAttribute('aria-expanded')).toBe('true')
     ;(screen.querySelector('[aria-label="Back to the library"]') as HTMLButtonElement).click()
     await settle()
+    // The pane fades out before it leaves — still mounted, mid-exit, while
+    // the list is already back beneath it so the handoff is a dissolve.
+    expect(container.querySelector('.web-settings--pane.is-closing')).not.toBeNull()
+    expect(container.querySelector('.gallery-list')!.hasAttribute('hidden')).toBe(false)
+    await new Promise((resolve) => setTimeout(resolve, 300))
+    await settle()
     expect(container.querySelector('.web-settings')).toBeNull()
     expect(container.querySelector('.gallery-list')!.hasAttribute('hidden')).toBe(false)
   })
@@ -1624,18 +1630,26 @@ describe('desktop catalogue workbench', () => {
     }
   })
 
-  test('the account menu opens the shared share sheet and gallery settings', async () => {
+  test('the account menu copies the gallery link, then opens gallery settings', async () => {
     const calls: { url: string; method?: string; body?: string }[] = []
     const restore = withGallery(calls)
+    const written: string[] = []
+    const previousNavigator = globals.navigator
+    Object.defineProperty(globals, 'navigator', {
+      configurable: true,
+      writable: true,
+      value: { clipboard: { writeText: (text: string) => { written.push(text); return Promise.resolve() } } },
+    })
     try {
       const container = await mount(true)
       container.querySelector<HTMLButtonElement>('[aria-label="kashmir, in winter actions"]')!.click()
       await settle()
-      menuItem(container, 'Share link')!.click()
+      // Copy link is a clipboard copy, nothing more — no sheet, no share UI.
+      menuItem(container, 'Copy link')!.click()
       await settle()
-      expect(container.querySelector('.m-share-address')?.textContent).toContain('manorama.xyz/thecontrarian/kashmir')
-      container.querySelector<HTMLButtonElement>('.m-sheet [aria-label="Close"], .m-sheet .m-sheet-close')?.click()
-      await settle()
+      expect(written).toEqual(['https://manorama.xyz/thecontrarian/kashmir'])
+      expect(container.querySelector('.desktop-toast-stack .admin-toast')?.textContent).toBe('Link copied — paste it anywhere')
+      expect(container.querySelector('.m-share-address')).toBeNull()
 
       container.querySelector<HTMLButtonElement>('[aria-label="kashmir, in winter actions"]')!.click()
       await settle()
@@ -1645,7 +1659,39 @@ describe('desktop catalogue workbench', () => {
       expect(container.querySelector('.m-owner-panel')).not.toBeNull()
     } finally {
       restore()
+      Object.defineProperty(globals, 'navigator', { configurable: true, writable: true, value: previousNavigator })
     }
+  })
+
+  test('the account menu’s Post to X opens the photograph picker', async () => {
+    const calls: { url: string; method?: string; body?: string }[] = []
+    const restore = withGallery(calls)
+    try {
+      const container = await mount(true)
+      container.querySelector<HTMLButtonElement>('[aria-label="kashmir, in winter actions"]')!.click()
+      await settle()
+      menuItem(container, 'Post to X')!.click()
+      await settle()
+      // The picker mounts over the Library and asks for the gallery's
+      // manifest — the photographs it offers come from there.
+      expect(container.querySelector('[data-post-to-x]')).not.toBeNull()
+      expect(calls.some((call) => call.url.includes('/api/gallery/thecontrarian/kashmir'))).toBe(true)
+    } finally {
+      restore()
+    }
+  })
+
+  test('the local card menu’s Post to X opens the picker straight off the disk', async () => {
+    const container = await mount(true)
+    container.querySelector<HTMLButtonElement>(`[aria-label="${TITLE} actions"]`)!.click()
+    await settle()
+    menuItem(container, 'Post to X')!.click()
+    await settle()
+    const picker = container.querySelector<HTMLElement>('[data-post-to-x]')
+    expect(picker).not.toBeNull()
+    // No manifest fetch — the catalogue record is the photo list.
+    expect(picker!.getAttribute('aria-label')).toBe(`Post to X — ${TITLE}`)
+    expect(picker!.querySelectorAll('.native-global-cell')).toHaveLength(2)
   })
 
   test('the local card menu carries the account menu’s relevant verbs', async () => {
@@ -1659,6 +1705,7 @@ describe('desktop catalogue workbench', () => {
       'Pin gallery',
       'Hide this gallery',
       'Publish this gallery',
+      'Post to X',
       'Gallery settings',
     ])
   })
@@ -2293,7 +2340,7 @@ describe('desktop device legend', () => {
 })
 
 describe('the Library quiet view', () => {
-  test('the rail toggle fades the gallery list and leaves the rail untouched', async () => {
+  test('the rail toggle fades the gallery list and dims the rail to half', async () => {
     const container = await mount(true)
     const toggle = container.querySelector<HTMLButtonElement>('.lib-quiet-toggle')!
     expect(toggle).not.toBeNull()
@@ -2306,7 +2353,9 @@ describe('the Library quiet view', () => {
     await settle()
     expect(list.classList.contains('lib-quiet')).toBe(true)
     expect(toggle.getAttribute('aria-pressed')).toBe('true')
-    // The rail — and the way back — never quiets.
+    // The rail dims as one piece — it is not quieted, and the way back
+    // stays legible.
+    expect(rail.classList.contains('lib-quiet-rail')).toBe(true)
     expect(rail.classList.contains('lib-quiet')).toBe(false)
     expect(rail.querySelector('.lib-quiet')).toBeNull()
     expect(rail.textContent).toContain('Library')
@@ -2314,23 +2363,27 @@ describe('the Library quiet view', () => {
     toggle.click()
     await settle()
     expect(list.classList.contains('lib-quiet')).toBe(false)
+    expect(rail.classList.contains('lib-quiet-rail')).toBe(false)
     expect(toggle.getAttribute('aria-pressed')).toBe('false')
   })
 
-  test('the stylesheet fades text and chrome to a whisper but never the rail or a photograph', () => {
+  test('the stylesheet fades text and chrome to a whisper, dims the rail to half, but never a photograph', () => {
     const css = readFileSync(new URL('../../app/styles.css', import.meta.url), 'utf8')
     expect(css).toContain('.lib-quiet, .lib-quiet *')
-    expect(css).toContain('color: rgba(var(--ink), .05) !important')
+    expect(css).toContain('-webkit-text-fill-color: currentColor')
     expect(css).toContain('-webkit-text-fill-color: rgba(var(--ink), .05) !important')
+    expect(css).not.toMatch(/\n\s+color: rgba\(var\(--ink\), \.05\) !important/)
     expect(css).toContain('.lib-quiet :where(svg, .device-pill')
     // The fade animates as a curtain — the transition lives on the
     // un-quieted elements so it eases in both directions — and the
     // photographs step a touch brighter while the words sink.
-    expect(css).toContain('transition: color .7s cubic-bezier(.4, 0, .2, 1)')
+    expect(css).toContain('transition: -webkit-text-fill-color .7s cubic-bezier(.4, 0, .2, 1)')
     expect(css).toContain('.lib-quiet img { filter: brightness(1.12); }')
-    // No image dims, and nothing on the rail, ever quiets.
+    // No image dims; the rail recedes as one dimmed piece on the same
+    // clock rather than quieting element by element.
     expect(css).not.toMatch(/\.lib-quiet[^{}]*img[^{}]*opacity/)
-    expect(css).not.toContain('.admin-rail.lib-quiet')
+    expect(css).toContain('.admin-rail { min-width: 0; transition: opacity .7s cubic-bezier(.4, 0, .2, 1); }')
+    expect(css).toContain('.lib-quiet-rail { opacity: .5; }')
     expect(css).toContain('.lib-quiet-toggle')
   })
 })

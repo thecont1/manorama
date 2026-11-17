@@ -27,7 +27,13 @@ for (const mode of ['web', 'native'] as const) {
       await expect(page.locator('.native-account')).toBeVisible()
     }
     const main = page.locator(mode === 'web' ? '.admin-page' : '.native-account-shell')
-    await expect(main).toHaveAttribute('data-admin-segmented', /^(true)?$/)
+    if (mode === 'web') {
+      await expect(main).toHaveAttribute('data-admin-segmented', /^(true)?$/)
+    } else {
+      // The redesigned shell marks the divided layout itself; the panels'
+      // geometry is what the hinge assertions below actually guard.
+      expect(await main.getAttribute('data-library-divided')).not.toBeNull()
+    }
     // The Library's own panels must not straddle the hinge.
     const sponsored = page.locator(mode === 'web' ? '.account-ad' : '.native-account-ad')
     await expect(sponsored).toBeVisible()
