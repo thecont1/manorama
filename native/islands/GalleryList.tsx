@@ -8,6 +8,7 @@ import { formatBytes } from './VaultSettings'
 import type { GalleryManifest, GalleryMediaItem, VideoItem } from '../../app/lib/imagesource'
 import { formatMediaCount, isVideoItem, mediaCountOf, summaryMediaCount } from '../../app/lib/imagesource'
 import type { GallerySettings } from '../../app/lib/gallery-settings'
+import { loadGallerySettings } from '../../app/lib/gallery-settings'
 import type { FoldLayout } from '../../packages/core/fold'
 import type { Theme } from '../../app/lib/owner-theme'
 import GalleryShell from '../../app/components/GalleryShell'
@@ -19,6 +20,7 @@ import AddGallerySheet from '../../app/components/AddGallerySheet'
 import GalleryShareSheet from '../../app/components/GalleryShareSheet'
 import { CloseIcon, QuietIcon, SettingsIcon } from '../../app/components/admin-icons'
 import { Sheet } from '../../app/components/ui/Sheet'
+import { ActionGroup, ActionRow } from '../../app/components/ui/ActionRow'
 import { BundledSource } from '../../app/lib/imagesource'
 import type { AdFrame } from '../../app/lib/adframe'
 import { adoptGallery, createGalleryFromQuickAdd, createGalleryFromSource, deleteAccount, fetchAccountGalleries, fetchAccountIdentities, fetchAccountOwnerSlug, fetchDeviceGalleries, fetchDevices, fetchGallery, forgetDevice, normalizeApiBase, probeAccountGallery, refreshGallery, refreshGalleryWithManifest, registerDevice, renameOwnerSlug, scanSourceUrl, unlinkAccountIdentity, type AccountIdentity } from '../lib/api'
@@ -27,7 +29,7 @@ import { isEncryptedSourceUrl, manifestIsEncryptedSource, galleryHashForSource }
 import type { GallerySummary } from '../../app/lib/gallery-repository'
 import type { DeviceGallery } from '../../packages/core/device-gallery'
 import type { Device } from '../../packages/core/devices'
-import { DeviceGalleriesGrid } from '../../app/components/library/DeviceGalleriesSection'
+import { DeviceGalleriesGrid, deviceTileCard } from '../../app/components/library/DeviceGalleriesSection'
 import { syncQuietFade } from '../../app/components/library/quiet'
 import type { BillingState, RevenueCatBilling } from '../lib/billing'
 import {
@@ -61,6 +63,8 @@ import { checkAppUpdate, dismissAppUpdate, dismissedUpdateVersion, type AppUpdat
 import { loadGlobalViewEnabled, saveGlobalViewEnabled } from '../lib/global-view'
 import { beginProviderSignIn, clearPendingQuickAdd, clearSessionToken, getOwnerSlug, getPendingQuickAdd, getSessionToken, setOwnerSlug as persistOwnerSlug, type AuthProvider, type NativeGallerySelection } from '../lib/session'
 import { requestReorderClose } from '../lib/reorder-close-guard'
+import { addLocalGallery, loadLocalCatalogue, localGalleryManifest, removeLocalGallery } from '../lib/local-gallery'
+import type { LocalCatalogue, LocalGalleryRecord } from '../../desktop/lib/catalogue'
 import { galleryPolicyKey, loadGalleryStreamOnly, saveGalleryStreamOnly, DEFAULT_VAULT_LOAD_POLICY, createVaultSettingsController, type GalleryLoadOverride } from '../lib/vault-settings'
 import type { AdSuppression } from '../../app/lib/ads-visibility'
 import { readRuntimeFoldLayout, subscribeToRuntimeFoldLayout } from '../lib/fold'
@@ -310,6 +314,13 @@ export default function GalleryList({ apiBase, owner, slug, deepLinkSelection, o
   const [accountGalleries, setAccountGalleries] = useState<GallerySummary[] | null>(null)
   const [accountListFailed, setAccountListFailed] = useState(false)
   const [deviceGalleries, setDeviceGalleries] = useState<DeviceGallery[] | null>(null)
+  // This phone's own local catalogue — the records the Local section shows
+  // before the synced mirror feed even answers. Paths never leave the device.
+  const [localCatalogue, setLocalCatalogue] = useState<LocalCatalogue | null>(null)
+  const [addChooserOpen, setAddChooserOpen] = useState(false)
+  const [localAddBusy, setLocalAddBusy] = useState(false)
+  const [localMenuRecord, setLocalMenuRecord] = useState<LocalGalleryRecord | null>(null)
+  const [removeLocalRecord, setRemoveLocalRecord] = useState<LocalGalleryRecord | null>(null)
   // The account's device list — anonymous ids, kinds, numbers and pill
   // colours. This phone's own row is the one whose id the secure store holds.
   const [devices, setDevices] = useState<Device[]>([])
@@ -605,6 +616,9 @@ export default function GalleryList({ apiBase, owner, slug, deepLinkSelection, o
     void (async () => {
       const [token, slug] = await Promise.all([getSessionToken(), getOwnerSlug()])
       if (!active) return
+      // The local catalogue is on-device state — it reads even while the
+      // account calls above are still in flight.
+      void loadLocalCatalogue().then((catalogue) => { if (active) setLocalCatalogue(catalogue) }).catch(() => {})
       setOwnerSlug(slug)
       setOwnerSlugDraft(slug ?? '')
       setSignedIn(Boolean(token))
@@ -905,6 +919,58 @@ export default function GalleryList({ apiBase, owner, slug, deepLinkSelection, o
     setFrameKick({ index: 0, nonce: 0 })
     setAccountRevision((revision) => revision + 1)
   }
+
+  // A local gallery mounts the same shared Viewer: the manifest is built
+  // from the on-device record — originals over the file scheme — so the
+  // cloud fetch effect never runs for it (the selection stays empty).
+  const enterLocalGallery = (record: LocalGalleryRecord) => {
+    positionRef.current = null
+    setSelection({ owner: '', slug: '' })
+    setVaultProgress(null)
+    const built = localGalleryManifest(record)
+    setManifest(built)
+    setSettings(loadGallerySettings(record.id, built))
+    setStatus('idle')
+    setError(null)
+    dispatchNav({ type: 'open-gallery', gallery: { kind: 'local', galleryId: record.id } })
+  }
+
+  const addLocalFolder = async () => {
+    setAddChooserOpen(false)
+    if (localAddBusy) return
+    setLocalAddBusy(true)
+    setError(null)
+    try {
+      const result = await addLocalGallery(base)
+      if (result.kind === 'added') {
+        setLocalCatalogue(await loadLocalCatalogue())
+        setAccountRevision((revision) => revision + 1)
+      } else if (result.kind === 'empty') {
+        setError(`That folder has no photographs manorama can show on ${nativeDeviceLabel()}.`)
+      }
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : 'That folder could not be added')
+    } finally {
+      setLocalAddBusy(false)
+    }
+  }
+
+  const confirmRemoveLocal = async () => {
+    const record = removeLocalRecord
+    if (!record || localAddBusy) return
+    setLocalAddBusy(true)
+    try {
+      await removeLocalGallery(base, record)
+      setLocalCatalogue(await loadLocalCatalogue())
+      setRemoveLocalRecord(null)
+      setAccountRevision((revision) => revision + 1)
+    } catch {
+      setError('The gallery could not be removed. Try again.')
+    } finally {
+      setLocalAddBusy(false)
+    }
+  }
+
   useEffect(() => {
     if (Capacitor.getPlatform() !== 'android') return
     let active = true
@@ -1582,7 +1648,13 @@ export default function GalleryList({ apiBase, owner, slug, deepLinkSelection, o
   const accountLayout = libraryLayout(visibleAccountGalleries, billingState?.tier ?? 'free')
   const accountBySlug = new Map(visibleAccountGalleries.map((gallery) => [gallery.slug, gallery]))
   const menuGallery = openMenuSlug ? accountGalleries?.find((gallery) => gallery.slug === openMenuSlug) : undefined
-  const standaloneDeviceGalleries = deviceGalleries?.filter((gallery) => !gallery.publicGallerySlug || !accountGalleries?.some((published) => published.slug === gallery.publicGallerySlug)) ?? []
+  // This phone's own records render from the catalogue, so their synced
+  // mirror rows must not double as standalone tiles.
+  const localIds = new Set(localCatalogue?.galleries.map((gallery) => gallery.id) ?? [])
+  const ownLocalGalleries = localCatalogue?.galleries.filter((gallery) => !gallery.hiddenAt) ?? []
+  const standaloneDeviceGalleries = deviceGalleries?.filter((gallery) =>
+    !localIds.has(gallery.id) &&
+    (!gallery.publicGallerySlug || !accountGalleries?.some((published) => published.slug === gallery.publicGallerySlug))) ?? []
   const galleryLimit = billingState?.isPro ? 99 : 3
   const accountName = ownerName ?? ownerSlug ?? 'friend'
   const galleryRegion = foldLayout?.controlRegions[0]
@@ -1924,7 +1996,7 @@ export default function GalleryList({ apiBase, owner, slug, deepLinkSelection, o
         {accountAdAside}
         <div class="native-library-heading"><h1>Library</h1></div>
         <div class="native-library-actions">
-        <button type="button" class="m-btn m-btn--primary" onClick={() => { setError(null); setAddOpen(true) }}><svg viewBox="0 0 24 24" aria-hidden="true" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 5v14M5 12h14"/></svg>Add Gallery</button>
+        <button type="button" class="m-btn m-btn--primary" onClick={() => { setError(null); setAddChooserOpen(true) }}><svg viewBox="0 0 24 24" aria-hidden="true" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 5v14M5 12h14"/></svg>Add Gallery</button>
         {/* Quiet view: sinks every word on the Library to a whisper so only
             the photographs remain. The topbar carries it and stays legible —
             it is the way back. */}
@@ -2018,17 +2090,44 @@ export default function GalleryList({ apiBase, owner, slug, deepLinkSelection, o
               <div class="lib-empty">
                 <h3>No galleries yet</h3>
                 <p>Paste a link to a folder or album you already share. Nothing is copied or moved.</p>
-                <button type="button" class="m-btn m-btn--primary" onClick={() => { setError(null); setAddOpen(true) }}>Add a gallery</button>
+                <button type="button" class="m-btn m-btn--primary" onClick={() => { setError(null); setAddChooserOpen(true) }}>Add a gallery</button>
               </div>
             ) : null}
           </div>
         ) : null}
-        {billingState?.isPro && standaloneDeviceGalleries.length > 0 ? (
-          /* A phone cannot add a Local gallery, so every row here lives on
-             another device: title, count and that device's pill. Visionary
-             only, like the feature itself (invariant 12). */
+        {billingState?.isPro && (ownLocalGalleries.length + standaloneDeviceGalleries.length) > 0 ? (
+          /* This phone's own records open the shared viewer over the copied
+             originals; mirror rows are title, count and the device pill.
+             Visionary only, like the feature itself (invariant 12). */
           <div class="native-account" data-local-galleries>
             <h2 class="native-library-section-title">Local galleries</h2>
+            {ownLocalGalleries.length > 0 && localCatalogue ? (
+              <ul class="lib-device-grid">
+                {ownLocalGalleries.map((record) => deviceTileCard(
+                  {
+                    id: record.id,
+                    title: record.title,
+                    itemCount: record.itemCount,
+                    deviceId: localCatalogue.deviceId,
+                    sourceKind: record.sourceKind,
+                    updatedAt: record.lastSeenAt,
+                  },
+                  devices,
+                  {
+                    onOpen: () => enterLocalGallery(record),
+                    action: (
+                      <button
+                        type="button"
+                        class="lib-card-menu"
+                        aria-label={`${record.title} actions`}
+                        aria-haspopup="dialog"
+                        onClick={() => setLocalMenuRecord(record)}
+                      >···</button>
+                    ),
+                  },
+                ))}
+              </ul>
+            ) : null}
             <DeviceGalleriesGrid
               galleries={standaloneDeviceGalleries}
               devices={devices}
@@ -2056,6 +2155,33 @@ export default function GalleryList({ apiBase, owner, slug, deepLinkSelection, o
       {settingsView}
     </main>
     {detailsView}
+    {/* "Add Gallery" is a fork like the desktop's: a folder on this device
+        goes through the local pick-copy flow; a shared cloud link opens the
+        same verify-then-create sheet as the web Library. Free owners see the
+        folder row named for the tier it needs — gated here on the client and
+        again at /api/device-galleries (invariant 12). */}
+    <Sheet open={addChooserOpen} onClose={() => { if (!localAddBusy) setAddChooserOpen(false) }} title="Add a gallery">
+      <ActionGroup note={billingState?.isPro
+        ? `Local folders stay on ${nativeDeviceLabel()}. Cloud links join your account galleries.`
+        : 'Local galleries are only for Visionary members. Cloud links join your account galleries.'}>
+        <ActionRow
+          label={`A folder on ${nativeDeviceLabel()}`}
+          value={billingState?.isPro ? undefined : 'Visionary'}
+          onClick={() => { void addLocalFolder() }}
+          disabled={!billingState?.isPro || localAddBusy}
+        />
+        <ActionRow
+          label="A shared cloud link"
+          onClick={() => {
+            setAddChooserOpen(false)
+            setError(null)
+            resetAddVerification()
+            setAddOpen(true)
+          }}
+        />
+      </ActionGroup>
+      {localAddBusy ? <p class="m-note" role="status">Copying the folder's photographs to {nativeDeviceLabel()}…</p> : null}
+    </Sheet>
     <AddGallerySheet
       open={addOpen}
       url={sourceUrl}
@@ -2072,6 +2198,33 @@ export default function GalleryList({ apiBase, owner, slug, deepLinkSelection, o
       onClose={() => { if (!quickAddBusy) { setAddOpen(false); resetAddVerification() } }}
       onSubmit={(input) => { void importCloudGallery(input) }}
     />
+    {localMenuRecord ? (
+      <Sheet open onClose={() => setLocalMenuRecord(null)} title={localMenuRecord.title}>
+        <div class="lib-menu">
+          <button type="button" onClick={() => {
+            const record = localMenuRecord
+            setLocalMenuRecord(null)
+            enterLocalGallery(record)
+          }}>Open gallery</button>
+          <button type="button" class="lib-menu-danger" onClick={() => {
+            const record = localMenuRecord
+            setLocalMenuRecord(null)
+            setRemoveLocalRecord(record)
+          }}>Remove from {nativeDeviceLabel()}</button>
+        </div>
+      </Sheet>
+    ) : null}
+    {removeLocalRecord ? (
+      <Sheet open onClose={() => { if (!localAddBusy) setRemoveLocalRecord(null) }} title={`Remove “${removeLocalRecord.title}” from ${nativeDeviceLabel()}?`} dismissible={!localAddBusy}>
+        <p>This removes the copied photographs and the gallery from this device. The originals stay where they were picked from.</p>
+        <div class="m-form-inline">
+          <button type="button" class="m-btn m-btn--destructive" disabled={localAddBusy} onClick={() => void confirmRemoveLocal()}>
+            {localAddBusy ? 'Removing…' : 'Remove gallery'}
+          </button>
+          <button type="button" class="m-btn m-btn--secondary" disabled={localAddBusy} onClick={() => setRemoveLocalRecord(null)}>Cancel</button>
+        </div>
+      </Sheet>
+    ) : null}
     {shareFallback}
     {cachedMenuGallery ? (
       <Sheet open onClose={() => setCachedMenuGallery(null)} title={cachedMenuGallery.title}>

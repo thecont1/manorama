@@ -64,6 +64,10 @@ private final class ManoramaBridgeViewController: CAPBridgeViewController {
 
     override func viewDidLoad() {
         super.viewDidLoad()
+        // App-local plugin: folder picking and the Local gallery store. It
+        // registers as an instance so JS sees "LocalGallery" alongside the
+        // package plugins the config list loads.
+        bridge?.registerPluginInstance(LocalGalleryPlugin())
         if #available(iOS 26.0, *), let glassModel, let webView {
             // The capsules ride above the webView in a pass-through
             // container; touches off-capsule belong to the page.

@@ -532,6 +532,12 @@ describe('signed-in account area', () => {
     const trigger = [...container.querySelectorAll('button')].find((button) => button.textContent === 'Add Gallery') as HTMLButtonElement
     trigger.click()
     await settle()
+    // "Add Gallery" opens the chooser — a folder on this device or a shared
+    // cloud link. These tests exercise the link form.
+    const cloudRow = [...container.querySelectorAll('button')].find((button) => button.textContent?.includes('A shared cloud link')) as HTMLButtonElement
+    expect(cloudRow).not.toBeNull()
+    cloudRow.click()
+    await settle()
     return container.querySelector('#m-add-gallery-form') as HTMLFormElement
   }
 

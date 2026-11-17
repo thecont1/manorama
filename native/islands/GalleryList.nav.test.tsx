@@ -240,9 +240,12 @@ describe('hardware back sees the gallery on the nav stack', () => {
     try {
       const rejectedBefore = rejections.length
       const container = await mount()
-      // The manual open is the Add sheet: paste a link, name it, and the
-      // create call resolves into the same enterGallery the reducer sees.
+      // The manual open is the Add flow: the chooser first, then the cloud
+      // link form — paste a link, name it, and the create call resolves
+      // into the same enterGallery the reducer sees.
       ;(container.querySelector('.m-btn--primary') as unknown as HTMLButtonElement).click()
+      await settle()
+      ;([...container.querySelectorAll('button')].find((button) => button.textContent?.includes('A shared cloud link')) as unknown as HTMLButtonElement).click()
       await settle()
       const form = container.querySelector('#m-add-gallery-form')
       expect(form).not.toBeNull()
