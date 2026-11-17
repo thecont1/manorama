@@ -38,6 +38,11 @@ struct ContentView: View {
     /// The cluster rides one glass surface until the pointer asks for
     /// more — then the controls separate into their own pills.
     @State private var clusterExpanded = false
+    /// True while the pointer rests on any native chrome — the page's
+    /// chrome clock only counts *web* moves, so the shell pings the
+    /// stage on the cluster's behalf or it idles out under the finger.
+    @State private var nativeChromeHovered = false
+    private let chromeKeepAlive = Timer.publish(every: 2.2, on: .main, in: .common).autoconnect()
 
     var body: some View {
         ZStack {
@@ -56,43 +61,58 @@ struct ContentView: View {
                 }
             )
             .ignoresSafeArea()
-        }
-        .overlay(alignment: .bottom) {
+
             if model.isGalleryOpen {
-                accessibilityStatusReadout
+                VStack {
+                    Spacer()
+                    accessibilityStatusReadout
+                }
             }
-        }
-        // The Library exit is native glass on 26+: the webview marks its
-        // page so the web pill stays out of the way, and the capsule takes
-        // its seat — appearing and leaving with the viewer's chrome rather
-        // than hovering over a photograph at rest.
-        .overlay(alignment: .topLeading) {
+
+            // The Library exit is native glass on 26+: the webview marks
+            // its page so the web pill stays out of the way, and the
+            // capsule takes its seat — appearing and leaving with the
+            // viewer's chrome rather than hovering over a photograph at
+            // rest. Native chrome lives inside the ZStack so it shares
+            // the view's own layer with the webview.
             if #available(macOS 26.0, *), model.isGalleryOpen, model.viewerChromeVisible {
-                libraryReturnCapsule
-                    // The safe area already clears the traffic lights —
-                    // +8 lands the capsule on the bar's own top edge.
-                    .padding(.top, 8)
-                    .padding(.leading, 41)
-                    .transition(.opacity)
+                VStack {
+                    HStack {
+                        libraryReturnCapsule
+                            // The safe area already clears the traffic
+                            // lights — +8 lands the capsule on the bar's
+                            // own top edge.
+                            .padding(.top, 8)
+                            .padding(.leading, 41)
+                            .onHover { hovering in
+                                nativeChromeHovered = hovering
+                                if hovering { model.keepViewerChromeAlive() }
+                            }
+                        Spacer()
+                    }
+                    Spacer()
+                }
+                .transition(.opacity)
             }
-        }
-        // The viewer's own bottom controls, in the shell's glass: one
-        // merged surface at rest that separates under the pointer. The
-        // web pills stay mounted behind it — a native press fires the
-        // real handler inside the page.
-        .overlay(alignment: .bottom) {
+
+            // The viewer's own bottom controls, in the shell's glass:
+            // one merged surface at rest that separates under the
+            // pointer. The web pills stay mounted behind it — a native
+            // press fires the real handler inside the page.
             if #available(macOS 26.0, *), model.isGalleryOpen, model.viewerChromeVisible, model.viewerSheetRect == nil {
-                viewerControlsCluster
-                    .padding(.bottom, 16)
-                    .transition(.opacity)
+                VStack {
+                    Spacer()
+                    viewerControlsCluster
+                        .padding(.bottom, 16)
+                }
+                .transition(.opacity)
             }
-        }
-        // The Settings morph — when a sheet opens, the segment's glass
-        // travels to the sheet's reported box and fades as the web
-        // panel's own surface takes over. The surface ignores the safe
-        // area because the reported rect is in webview coordinates —
-        // the window's own, untrimmed space.
-        .overlay {
+
+            // The Settings morph — when a sheet opens, the segment's
+            // glass travels to the sheet's reported box and fades as the
+            // web panel's own surface takes over. The surface ignores the
+            // safe area because the reported rect is in webview
+            // coordinates — the window's own, untrimmed space.
             if #available(macOS 26.0, *), model.isGalleryOpen, model.viewerSheetRect != nil {
                 SheetGlassSurface(
                     start: model.settingsAnchor,
@@ -105,6 +125,9 @@ struct ContentView: View {
             }
         }
         .onPreferenceChange(SettingsAnchorKey.self) { model.settingsAnchor = $0 }
+        .onReceive(chromeKeepAlive) { _ in
+            if nativeChromeHovered { model.keepViewerChromeAlive() }
+        }
         .animation(reduceMotion ? nil : .easeInOut(duration: 0.2), value: model.isGalleryOpen && model.viewerChromeVisible)
         .background(WindowAccessor { window in
             model.configureWindow(window)
@@ -210,18 +233,22 @@ struct ContentView: View {
                         Text(positionText)
                             .font(.system(size: 15, weight: .semibold))
                             .monospacedDigit()
-                            .frame(minWidth: 52, minHeight: 40)
+                            .padding(.horizontal, 12)
+                            .frame(minHeight: 44)
                     }
                     .accessibilityLabel("Go to a photograph")
+                    .glassEffect(.regular.interactive(), in: .capsule)
 
                     Button {
                         model.invokeWebControl("[data-chrome-bottom] [aria-label='Gallery Settings']")
                     } label: {
                         Image(systemName: "slider.horizontal.3")
                             .font(.system(size: 17))
-                            .frame(minWidth: 44, minHeight: 40)
+                            .padding(.horizontal, 14)
+                            .frame(minHeight: 44)
                     }
                     .accessibilityLabel("Gallery Settings")
+                    .glassEffect(.regular.interactive(), in: .capsule)
                     .background(anchorProbe)
 
                     Button {
@@ -229,14 +256,23 @@ struct ContentView: View {
                     } label: {
                         Image(systemName: "info")
                             .font(.system(size: 15, weight: .semibold))
-                            .frame(minWidth: 44, minHeight: 40)
+                            .padding(.horizontal, 14)
+                            .frame(minHeight: 44)
                     }
                     .accessibilityLabel("Info")
+                    .glassEffect(.regular.interactive(), in: .capsule)
                 }
-                .buttonStyle(.glass)
+                // Plain buttons keep reliable press + hit-testing inside
+                // the container; each carries its own glassEffect, which
+                // the container unions into one surface at rest and
+                // separates as the spacing opens under the pointer.
+                .buttonStyle(.plain)
+                .foregroundStyle(Color(red: 0.95, green: 0.94, blue: 0.91))
                 .font(.system(size: 15))
             }
             .onHover { hovering in
+                nativeChromeHovered = hovering
+                if hovering { model.keepViewerChromeAlive() }
                 withAnimation(reduceMotion ? nil : .spring(response: 0.34, dampingFraction: 0.78)) {
                     clusterExpanded = hovering
                 }
