@@ -1596,7 +1596,7 @@ export default function GalleryList({ apiBase, owner, slug, deepLinkSelection, o
   const accountLayout = libraryLayout(visibleAccountGalleries, billingState?.tier ?? 'free')
   const accountBySlug = new Map(visibleAccountGalleries.map((gallery) => [gallery.slug, gallery]))
   const menuGallery = openMenuSlug ? accountGalleries?.find((gallery) => gallery.slug === openMenuSlug) : undefined
-  const standaloneDeviceGalleries = deviceGalleries?.filter((gallery) => !gallery.publicGallerySlug || !visibleAccountGalleries.some((published) => published.slug === gallery.publicGallerySlug)) ?? []
+  const standaloneDeviceGalleries = deviceGalleries?.filter((gallery) => !gallery.publicGallerySlug || !accountGalleries?.some((published) => published.slug === gallery.publicGallerySlug)) ?? []
   const galleryLimit = billingState?.isPro ? 99 : 3
   const accountName = ownerName ?? ownerSlug ?? 'friend'
   const galleryRegion = foldLayout?.controlRegions[0]
