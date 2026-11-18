@@ -17,7 +17,16 @@ beforeAll(() => {
   globals.requestAnimationFrame = ((cb: FrameRequestCallback) => { cb(0); return 1 }) as unknown as typeof requestAnimationFrame
 })
 
+// Mounts leave through render(null) so effect cleanups run — clearing the
+// DOM alone skips them, and a still-armed continuation resolves globals
+// against whatever file happens to own them at flush time.
+const mountedRoots: HTMLElement[] = []
+const unmountAll = () => {
+  for (const root of mountedRoots.splice(0)) render(null, root)
+}
+
 afterAll(() => {
+  unmountAll()
   globals.window = prev.window
   globals.document = prev.document
   globals.fetch = prev.fetch
@@ -35,6 +44,7 @@ const mount = () => {
   // one) can actually intersect; happy-dom lacks it, so the component's
   // no-observer path decodes immediately.
   dom.document.body.appendChild(container)
+  mountedRoots.push(container as unknown as HTMLElement)
   return container as unknown as HTMLElement
 }
 

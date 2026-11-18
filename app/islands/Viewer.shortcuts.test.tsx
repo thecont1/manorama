@@ -49,7 +49,16 @@ const mountViewer = (): HTMLElement => {
     />,
     root as unknown as HTMLElement,
   )
+  mountedRoots.push(root as unknown as HTMLElement)
   return root as unknown as HTMLElement
+}
+
+// Mounts leave through render(null) so effect cleanups run — clearing the
+// DOM alone skips them, and a still-armed continuation resolves globals
+// against whatever file happens to own them at flush time.
+const mountedRoots: HTMLElement[] = []
+const unmountAll = () => {
+  for (const root of mountedRoots.splice(0)) render(null, root)
 }
 
 /** Dispatches a bubbling keydown — the window listener's event shape. */
@@ -87,6 +96,7 @@ beforeAll(() => {
 })
 
 afterAll(() => {
+  unmountAll()
   globals.window = prev.window
   globals.document = prev.document
   globals.fetch = prev.fetch
@@ -94,6 +104,7 @@ afterAll(() => {
 
 describe('the shortcuts sheet', () => {
   beforeEach(() => {
+    unmountAll()
     dom.document.body.innerHTML = ''
     dom.document.body.classList.add('gallery-entered')
   })

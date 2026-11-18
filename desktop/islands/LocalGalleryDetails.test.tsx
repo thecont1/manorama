@@ -103,7 +103,16 @@ const mount = (overrides: Partial<Props> = {}) => {
   const container = dom.document.createElement('div') as unknown as HTMLElement
   dom.document.body.appendChild(container as unknown as Parameters<typeof dom.document.body.appendChild>[0])
   render(<LocalGalleryDetails {...props} />, container)
+  mountedContainers.push(container)
   return { container, calls }
+}
+
+// Mounts leave through render(null) so effect cleanups run — clearing the
+// DOM alone skips them, and a still-armed continuation resolves globals
+// against whatever file happens to own them at flush time.
+const mountedContainers: HTMLElement[] = []
+const unmountAll = () => {
+  for (const container of mountedContainers.splice(0)) render(null, container)
 }
 
 const byText = (container: HTMLElement, text: string) =>
@@ -170,6 +179,7 @@ afterAll(() => {
 
 afterEach(() => {
   releaseAllOverlays()
+  unmountAll()
   dom.document.body.innerHTML = ''
   frames = []
 })

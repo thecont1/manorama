@@ -33,7 +33,16 @@ beforeAll(() => {
   ;(dom.location as unknown as { replace: (u: string) => void }).replace = (u: string) => { replaced.push(u) }
 })
 
+// Mounts leave through render(null) so effect cleanups run — clearing the
+// DOM alone skips them, and a still-armed continuation resolves globals
+// against whatever file happens to own them at flush time.
+const mountedRoots: HTMLElement[] = []
+const unmountAll = () => {
+  for (const root of mountedRoots.splice(0)) render(null, root)
+}
+
 afterAll(() => {
+  unmountAll()
   globals.window = prev.window
   globals.document = prev.document
   globals.SVGElement = prev.svg
@@ -63,6 +72,7 @@ const mounted = (overrides: Partial<typeof base> = {}) => {
   flushSync(() => {
     render(<OwnerGalleryPanel {...base} {...overrides} />, container as unknown as HTMLElement)
   })
+  mountedRoots.push(container as unknown as HTMLElement)
   return container as unknown as HTMLElement
 }
 

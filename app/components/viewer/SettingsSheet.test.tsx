@@ -43,7 +43,16 @@ const mounted = (overrides: Partial<SettingsSheetProps> = {}) => {
     })
   }
   renderSheet({})
+  mountedContainers.push(container as unknown as HTMLElement)
   return { root: container as unknown as HTMLElement, renderSheet }
+}
+
+// Mounts leave through render(null) so effect cleanups run — clearing the
+// DOM alone skips them, and a still-armed continuation resolves globals
+// against whatever file happens to own them at flush time.
+const mountedContainers: HTMLElement[] = []
+const unmountAll = () => {
+  for (const container of mountedContainers.splice(0)) render(null, container)
 }
 
 /** The popover's sheet element. */
@@ -84,6 +93,7 @@ afterAll(() => {
 
 afterEach(() => {
   releaseAllOverlays()
+  unmountAll()
   dom.document.body.innerHTML = ''
 })
 

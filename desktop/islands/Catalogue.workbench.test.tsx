@@ -34,6 +34,15 @@ let previousGoogleClientId: string | undefined
 type Frame = { id: number; callback: FrameRequestCallback }
 let frames: Frame[] = []
 let nextFrameId = 0
+
+// Every mounted Catalogue must leave through render(null) so its effect
+// cleanups run — clearing the DOM alone skips them, and a still-armed
+// continuation resolves globals against whatever file happens to own
+// them at flush time.
+const mountedContainers: HTMLElement[] = []
+const unmountAll = () => {
+  for (const container of mountedContainers.splice(0)) render(null, container)
+}
 const runFrames = () => {
   const queued = frames
   frames = []
@@ -204,6 +213,7 @@ const mount = async (signedIn: boolean, providerTokens?: Record<string, unknown>
   const container = dom.document.createElement('div') as unknown as HTMLElement
   dom.document.body.appendChild(container as unknown as Parameters<typeof dom.document.body.appendChild>[0])
   render(<Catalogue apiBase="https://manorama.xyz" />, container)
+  mountedContainers.push(container)
   await settle()
   return container
 }
@@ -320,6 +330,7 @@ beforeEach(() => {
   readFileGate = null
   dom.localStorage.clear()
   dom.document.documentElement.className = ''
+  unmountAll()
   dom.document.body.innerHTML = ''
   dom.window.history.replaceState(null, '', 'http://localhost/')
 })
@@ -328,6 +339,7 @@ afterEach(() => {
   releaseAllOverlays()
   readFileGate?.reject(new Error('test teardown'))
   readFileGate = null
+  unmountAll()
   dom.document.body.innerHTML = ''
 })
 
@@ -684,6 +696,7 @@ describe('desktop catalogue workbench', () => {
       const container = dom.document.createElement('div') as unknown as HTMLElement
       dom.document.body.appendChild(container as unknown as Parameters<typeof dom.document.body.appendChild>[0])
       render(<Catalogue apiBase="https://manorama.xyz" />, container)
+      mountedContainers.push(container)
       await settle()
       const title = [...container.querySelectorAll<HTMLElement>('.lib-card-title')]
         .find((el) => el.textContent === 'kashmir, in winter')!
@@ -2073,6 +2086,7 @@ describe('desktop catalogue workbench', () => {
       const container = dom.document.createElement('div') as unknown as HTMLElement
       dom.document.body.appendChild(container as unknown as Parameters<typeof dom.document.body.appendChild>[0])
       render(<Catalogue apiBase="https://manorama.xyz" />, container)
+      mountedContainers.push(container)
       await settle()
 
       // The badge is the saved-copy record surfacing on the card.

@@ -81,7 +81,16 @@ beforeAll(() => {
   ;(dom.window as unknown as { devicePixelRatio: number }).devicePixelRatio = 1
 })
 
+// Mounts leave through render(null) so effect cleanups run — clearing the
+// DOM alone skips them, and a still-armed continuation resolves globals
+// against whatever file happens to own them at flush time.
+const mountedRoots: HTMLElement[] = []
+const unmountAll = () => {
+  for (const root of mountedRoots.splice(0)) render(null, root)
+}
+
 afterAll(() => {
+  unmountAll()
   globals.window = prev.window
   globals.document = prev.document
   globals.SVGElement = prev.svg
@@ -119,6 +128,7 @@ const mountViewer = (slug: string, onPosition: (index: number) => void) => {
   }
 
   render(<Harness />, root as unknown as HTMLElement)
+  mountedRoots.push(root as unknown as HTMLElement)
   return {
     navigationRef,
     rerender: () => {
@@ -194,6 +204,7 @@ describe('the native navigation handle', () => {
       />,
       root as unknown as HTMLElement,
     )
+    mountedRoots.push(root as unknown as HTMLElement)
     await settle()
 
     expect(reported.length).toBeGreaterThan(0)

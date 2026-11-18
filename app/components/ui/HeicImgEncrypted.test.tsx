@@ -21,7 +21,16 @@ beforeAll(() => {
     releaseAllEncryptedDisplays: () => {},
   }))
 })
+// Mounts leave through render(null) so effect cleanups run — clearing the
+// DOM alone skips them, and a still-armed continuation resolves globals
+// against whatever file happens to own them at flush time.
+const mountedRoots: HTMLElement[] = []
+const unmountAll = () => {
+  for (const root of mountedRoots.splice(0)) render(null, root)
+}
+
 afterAll(() => {
+  unmountAll()
   Object.assign(globals, previous)
   mock.restore()
 })
@@ -36,6 +45,7 @@ describe('HeicImg encrypted media', () => {
     }
     const container = dom.document.createElement('div') as unknown as HTMLElement
     render(<Harness />, container)
+    mountedRoots.push(container)
     await new Promise((resolve) => setTimeout(resolve, 10))
     expect(container.querySelector('img')?.getAttribute('src')).toBe('blob:decrypted')
     container.querySelector('button')!.dispatchEvent(new dom.Event('click', { bubbles: true }) as unknown as Event)
@@ -56,6 +66,7 @@ describe('HeicImg encrypted media', () => {
       const media: MediaReference = { kind: 'encrypted', provider: 'mega', sourceKind: 'folder', sourceId: 'source', nodeId: 'node' }
       const container = dom.document.createElement('div') as unknown as HTMLElement
       render(<HeicImg src="" media={media} galleryId="0123456789abcdef" filename="a.heic" alt="" />, container)
+      mountedRoots.push(container)
       await new Promise((resolve) => setTimeout(resolve, 10))
       // The decoded rendition is what renders, and the held multi-MB original
       // is back in the resolver's working set — a rail of these cannot overflow it.
@@ -73,6 +84,7 @@ describe('HeicImg encrypted media', () => {
     const { HeicImg } = await import('./HeicImg')
     const container = dom.document.createElement('div') as unknown as HTMLElement
     render(<HeicImg src="https://cdn.example/original.jpg" preview="https://cdn.example/thumb.jpg" filename="a.jpg" alt="" />, container)
+    mountedRoots.push(container)
     const img = container.querySelector('img')!
     expect(img.getAttribute('src')).toBe('https://cdn.example/thumb.jpg')
     img.dispatchEvent(new dom.Event('error') as unknown as Event)

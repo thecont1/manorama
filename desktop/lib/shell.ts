@@ -19,8 +19,23 @@ export type ShellMessage =
 
 type ShellOutbound = { post: (message: ShellMessage) => void }
 
-const outbound = (): ShellOutbound | undefined =>
-  (window as unknown as { __MANORAMA_SHELL__?: ShellOutbound }).__MANORAMA_SHELL__
+type ShellWindow = {
+  __MANORAMA_SHELL__?: ShellOutbound
+  __manoramaGoTo?: (index: number) => void
+  __manoramaCloseGallery?: () => void
+  __manoramaAddGallery?: () => void
+  __manoramaAddFolder?: () => void
+}
+
+/**
+ * The host window, when there is one. A torn-down DOM — a Worker import or a
+ * test file whose globals were already restored — counts as "no shell", the
+ * same contract the publishers below already promise.
+ */
+const shellWindow = (): ShellWindow | undefined =>
+  typeof window === 'undefined' ? undefined : (window as unknown as ShellWindow)
+
+const outbound = (): ShellOutbound | undefined => shellWindow()?.__MANORAMA_SHELL__
 
 /** Tell the shell something. Silently ignored when there is no shell. */
 export const shellPost = (message: ShellMessage) => {
@@ -53,7 +68,9 @@ export type NavigationHandle = { current: { goTo(index: number): void } | null }
  * handle lives.
  */
 export const publishNavigation = (handle: NavigationHandle) => {
-  ;(window as unknown as { __manoramaGoTo?: (index: number) => void }).__manoramaGoTo = (index: number) => {
+  const w = shellWindow()
+  if (!w) return
+  w.__manoramaGoTo = (index: number) => {
     handle.current?.goTo(index)
   }
 }
@@ -66,7 +83,9 @@ export const publishNavigation = (handle: NavigationHandle) => {
  * than reaching into it.
  */
 export const publishClose = (close: () => void) => {
-  ;(window as unknown as { __manoramaCloseGallery?: () => void }).__manoramaCloseGallery = close
+  const w = shellWindow()
+  if (!w) return
+  w.__manoramaCloseGallery = close
 }
 
 /**
@@ -77,7 +96,9 @@ export const publishClose = (close: () => void) => {
  * second, native path that would leave the two catalogues disagreeing.
  */
 export const publishAddGallery = (add: () => void) => {
-  ;(window as unknown as { __manoramaAddGallery?: () => void }).__manoramaAddGallery = add
+  const w = shellWindow()
+  if (!w) return
+  w.__manoramaAddGallery = add
 }
 
 /**
@@ -87,5 +108,7 @@ export const publishAddGallery = (add: () => void) => {
  * sheet, so a test run can add a folder without clicking through a dialog.
  */
 export const publishAddFolder = (add: () => void) => {
-  ;(window as unknown as { __manoramaAddFolder?: () => void }).__manoramaAddFolder = add
+  const w = shellWindow()
+  if (!w) return
+  w.__manoramaAddFolder = add
 }

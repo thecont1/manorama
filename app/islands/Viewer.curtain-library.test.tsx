@@ -53,7 +53,16 @@ const mountViewer = (props: {
     />,
     root as unknown as HTMLElement,
   )
+  mountedRoots.push(root as unknown as HTMLElement)
   return root as unknown as HTMLElement
+}
+
+// Mounts leave through render(null) so effect cleanups run — clearing the
+// DOM alone skips them, and a still-armed continuation resolves globals
+// against whatever file happens to own them at flush time.
+const mountedRoots: HTMLElement[] = []
+const unmountAll = () => {
+  for (const root of mountedRoots.splice(0)) render(null, root)
 }
 
 const curtainEl = () => {
@@ -83,6 +92,7 @@ beforeAll(() => {
 })
 
 afterAll(() => {
+  unmountAll()
   globals.window = prev.window
   globals.document = prev.document
   globals.SVGElement = prev.svg
@@ -95,6 +105,7 @@ describe('the curtain Library pill', () => {
   // Mounted viewers and curtains append to the shared body — clear the
   // field so selectors can never match a previous test's tree.
   beforeEach(() => {
+    unmountAll()
     dom.document.body.innerHTML = ''
     dom.document.body.classList.remove('gallery-entered')
   })
