@@ -404,7 +404,10 @@ html.light {
 /* Tier 0 for the canvas lane — chrome surfaces go --glass-solid; the
    endcap goes solid canvas, which is exactly its pre-glass look (the
    card was transparent over --gallery-canvas). The lens never blurred,
-   so it still swaps its tinted backing for the solid surface. */
+   so it still swaps its tinted backing for the solid surface. Under
+   html.light the solid fill is light but the arrow glyph's --ink still
+   answers the canvas — on a dark canvas that is light-on-light — so
+   the glyph flips to the light-theme --glass-ink (dark) in every arm. */
 @media (prefers-reduced-transparency: reduce), (prefers-contrast: more) {
   :root:is([data-ios-shell], [data-android-shell], [data-macos-shell])
     .gallery-shell .viewer-filmstrip :is(.viewer-picker-top, .viewer-picker-header),
@@ -418,6 +421,10 @@ html.light {
     backdrop-filter: none;
     -webkit-backdrop-filter: none;
     box-shadow: inset 0 0 0 1px var(--glass-edge);
+  }
+  :root.light:is([data-ios-shell], [data-android-shell], [data-macos-shell])
+    .gallery-shell .stage-arrows button {
+    color: var(--glass-ink);
   }
   :root:is([data-ios-shell], [data-android-shell], [data-macos-shell])
     .gallery-shell .viewer-endcap {
@@ -440,6 +447,10 @@ html.light {
   -webkit-backdrop-filter: none;
   box-shadow: inset 0 0 0 1px var(--glass-edge);
 }
+:root.light:is([data-ios-shell], [data-android-shell], [data-macos-shell])[data-reduced-transparency]
+  .gallery-shell .stage-arrows button {
+  color: var(--glass-ink);
+}
 :root:is([data-ios-shell], [data-android-shell], [data-macos-shell])[data-reduced-transparency]
   .gallery-shell .viewer-endcap {
   background: var(--gallery-canvas);
@@ -453,9 +464,15 @@ html.light {
   :root:is([data-ios-shell], [data-android-shell], [data-macos-shell])
     .gallery-shell .stage-arrows button,
   :root:is([data-ios-shell], [data-android-shell], [data-macos-shell])
+    .gallery-shell .stage-arrows button:hover,
+  :root:is([data-ios-shell], [data-android-shell], [data-macos-shell])
     .magnifier-lens {
     background: var(--glass-solid);
     box-shadow: inset 0 0 0 1px var(--glass-edge);
+  }
+  :root.light:is([data-ios-shell], [data-android-shell], [data-macos-shell])
+    .gallery-shell .stage-arrows button {
+    color: var(--glass-ink);
   }
   :root:is([data-ios-shell], [data-android-shell], [data-macos-shell])
     .gallery-shell .viewer-endcap {
