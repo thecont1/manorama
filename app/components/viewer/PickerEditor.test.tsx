@@ -1,6 +1,7 @@
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test'
 import { Window } from 'happy-dom'
-import { flushSync, render } from 'hono/jsx/dom'
+import { flushSync } from 'hono/jsx/dom'
+import { unmountTracker } from '../../../test/unmount'
 import PickerEditor, { loadGalleryItems, PickerEditButton, type PickerEditActions, type PickerEditItem } from './PickerEditor'
 
 const globals = globalThis as Record<string, unknown>
@@ -33,16 +34,13 @@ beforeAll(() => {
   ;(dom.location as unknown as { assign: (u: string) => void }).assign = (u: string) => { assigned.push(u) }
 })
 
-// Mounts leave through render(null) so effect cleanups run — clearing the
-// DOM alone skips them, and a still-armed continuation resolves globals
-// against whatever file happens to own them at flush time.
-const mountedRoots: HTMLElement[] = []
-const unmountAll = () => {
-  for (const root of mountedRoots.splice(0)) render(null, root)
-}
+// Mounts leave through the tracker: its drop removes the child via a
+// flushed state update, so reconciliation runs effect cleanup — a root
+// render(null) skips it exactly like wiping innerHTML does.
+const mounts = unmountTracker()
 
 afterAll(() => {
-  unmountAll()
+  mounts.unmountAll()
   for (const key of Object.keys(prev)) globals[key] = prev[key]
 })
 
@@ -63,7 +61,7 @@ const mounted = (over: { items?: PickerEditItem[]; selIndex?: number; doneHref?:
   const container = dom.document.createElement('div')
   dom.document.body.appendChild(container)
   flushSync(() => {
-    render(
+    mounts.mount(
       <PickerEditor
         slug="mixed"
         items={over.items ?? items}
@@ -83,7 +81,6 @@ const mounted = (over: { items?: PickerEditItem[]; selIndex?: number; doneHref?:
       container as unknown as HTMLElement,
     )
   })
-  mountedRoots.push(container as unknown as HTMLElement)
   return container as unknown as HTMLElement
 }
 
@@ -431,8 +428,7 @@ describe('the Edit affordance', () => {
   test('a temporary gallery shows the lock message instead of a button', () => {
     const container = dom.document.createElement('div')
     dom.document.body.appendChild(container)
-    flushSync(() => { render(<PickerEditButton temporary loading={false} onBegin={() => {}} />, container as unknown as HTMLElement) })
-    mountedRoots.push(container as unknown as HTMLElement)
+    flushSync(() => { mounts.mount(<PickerEditButton temporary loading={false} onBegin={() => {}} />, container as unknown as HTMLElement) })
     expect(container.querySelector('button')).toBeNull()
     expect(container.textContent).toContain('temporary gallery cannot be edited')
   })

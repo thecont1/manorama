@@ -1,6 +1,8 @@
 import { afterAll, afterEach, beforeAll, describe, expect, test } from 'bun:test'
 import { Window } from 'happy-dom'
-import { flushSync, render } from 'hono/jsx/dom'
+import { flushSync } from 'hono/jsx/dom'
+import { useEffect } from 'hono/jsx'
+import { unmountTracker } from '../../test/unmount'
 import GallerySettingsSheet from './GallerySettingsSheet'
 import { releaseAllOverlays } from '../lib/overlay-stack'
 import type { OwnerGalleryPanelProps } from './viewer/OwnerGalleryPanel'
@@ -41,22 +43,18 @@ const panel: OwnerGalleryPanelProps = {
   onRefreshed: () => {},
 }
 
+// Mounts leave through the tracker: its drop removes the child via a
+// flushed state update, so reconciliation runs effect cleanup — a root
+// render(null) skips it exactly like wiping innerHTML does.
+const mounts = unmountTracker()
+
 const mounted = () => {
   const container = dom.document.createElement('div')
   dom.document.body.appendChild(container)
   flushSync(() => {
-    render(<GallerySettingsSheet open onClose={() => {}} {...panel} />, container as unknown as HTMLElement)
+    mounts.mount(<GallerySettingsSheet open onClose={() => {}} {...panel} />, container as unknown as HTMLElement)
   })
-  mountedContainers.push(container as unknown as HTMLElement)
   return container as unknown as HTMLElement
-}
-
-// Mounts leave through render(null) so effect cleanups run — clearing the
-// DOM alone skips them, and a still-armed continuation resolves globals
-// against whatever file happens to own them at flush time.
-const mountedContainers: HTMLElement[] = []
-const unmountAll = () => {
-  for (const container of mountedContainers.splice(0)) render(null, container)
 }
 
 /** The action row whose text carries `label`. */
@@ -87,9 +85,24 @@ afterAll(() => {
 
 afterEach(() => {
   releaseAllOverlays()
-  unmountAll()
+  mounts.unmountAll()
   dom.document.body.innerHTML = ''
   calls = []
+})
+
+describe('the unmount drain', () => {
+  test('runs effect cleanups before the file restores globals', () => {
+    let cleaned = false
+    const Probe = () => {
+      useEffect(() => () => { cleaned = true }, [])
+      return <div />
+    }
+    const container = dom.document.createElement('div')
+    dom.document.body.appendChild(container)
+    mounts.mount(<Probe />, container as unknown as HTMLElement)
+    mounts.unmountAll()
+    expect(cleaned).toBe(true)
+  })
 })
 
 describe('the Library gallery settings sheet', () => {

@@ -1,6 +1,7 @@
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test'
 import { Window } from 'happy-dom'
-import { flushSync, render } from 'hono/jsx/dom'
+import { flushSync } from 'hono/jsx/dom'
+import { unmountTracker } from '../../test/unmount'
 import Viewer from './Viewer'
 import { defaultGallerySettings } from '../lib/gallery-settings'
 import type { GalleryImage, GalleryMediaItem, VideoItem } from '../../packages/core/imagesource'
@@ -52,20 +53,16 @@ const drainFrames = () => {
 // no layout, so the stage element itself reports the measured box. The
 // mount-time onResize already queued an rAF that re-reads it — draining
 // after the stamp is what publishes stageSize into the render.
-// Mounts leave through render(null) so effect cleanups run — clearing the
-// DOM alone skips them, and a still-armed continuation resolves globals
-// against whatever file happens to own them at flush time.
-const mountedRoots: HTMLElement[] = []
-const unmountAll = () => {
-  for (const root of mountedRoots.splice(0)) render(null, root)
-}
+// Mounts leave through the tracker: its drop removes the child via a
+// flushed state update, so reconciliation runs effect cleanup — a root
+// render(null) skips it exactly like wiping innerHTML does.
+const mounts = unmountTracker()
 
 const mountViewer = async (
   root: { querySelector: (selector: string) => unknown },
   settings: ReturnType<typeof defaultGallerySettings>,
 ) => {
-  render(<Viewer slug={SLUG} galleryTitle="Video frame" images={images} settings={settings} />, root as unknown as HTMLElement)
-  mountedRoots.push(root as unknown as HTMLElement)
+  mounts.mount(<Viewer slug={SLUG} galleryTitle="Video frame" images={images} settings={settings} />, root as unknown as HTMLElement)
   const stage = root.querySelector('[data-stage]') as unknown as HTMLElement | null
   expect(stage).not.toBeNull()
   Object.defineProperty(stage!, 'clientWidth', { configurable: true, get: () => STAGE_WIDTH })
@@ -142,7 +139,7 @@ beforeAll(() => {
 })
 
 afterAll(() => {
-  unmountAll()
+  mounts.unmountAll()
   globals.window = prev.window
   globals.document = prev.document
   globals.SVGElement = prev.svg

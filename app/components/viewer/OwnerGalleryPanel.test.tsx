@@ -1,6 +1,7 @@
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test'
 import { Window } from 'happy-dom'
-import { flushSync, render } from 'hono/jsx/dom'
+import { flushSync } from 'hono/jsx/dom'
+import { unmountTracker } from '../../../test/unmount'
 import OwnerGalleryPanel, { type OwnerGalleryPanelProps } from './OwnerGalleryPanel'
 
 const globals = globalThis as Record<string, unknown>
@@ -33,16 +34,13 @@ beforeAll(() => {
   ;(dom.location as unknown as { replace: (u: string) => void }).replace = (u: string) => { replaced.push(u) }
 })
 
-// Mounts leave through render(null) so effect cleanups run — clearing the
-// DOM alone skips them, and a still-armed continuation resolves globals
-// against whatever file happens to own them at flush time.
-const mountedRoots: HTMLElement[] = []
-const unmountAll = () => {
-  for (const root of mountedRoots.splice(0)) render(null, root)
-}
+// Mounts leave through the tracker: its drop removes the child via a
+// flushed state update, so reconciliation runs effect cleanup — a root
+// render(null) skips it exactly like wiping innerHTML does.
+const mounts = unmountTracker()
 
 afterAll(() => {
-  unmountAll()
+  mounts.unmountAll()
   globals.window = prev.window
   globals.document = prev.document
   globals.SVGElement = prev.svg
@@ -70,9 +68,8 @@ const mounted = (overrides: Partial<typeof base> = {}) => {
   const container = dom.document.createElement('div')
   dom.document.body.appendChild(container)
   flushSync(() => {
-    render(<OwnerGalleryPanel {...base} {...overrides} />, container as unknown as HTMLElement)
+    mounts.mount(<OwnerGalleryPanel {...base} {...overrides} />, container as unknown as HTMLElement)
   })
-  mountedRoots.push(container as unknown as HTMLElement)
   return container as unknown as HTMLElement
 }
 

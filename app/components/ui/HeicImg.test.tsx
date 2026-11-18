@@ -1,6 +1,6 @@
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test'
 import { Window } from 'happy-dom'
-import { render } from 'hono/jsx/dom'
+import { unmountTracker } from '../../../test/unmount'
 import { HeicImg } from './HeicImg'
 import { clearHeicUrlCache } from '../../lib/heic'
 
@@ -17,16 +17,13 @@ beforeAll(() => {
   globals.requestAnimationFrame = ((cb: FrameRequestCallback) => { cb(0); return 1 }) as unknown as typeof requestAnimationFrame
 })
 
-// Mounts leave through render(null) so effect cleanups run — clearing the
-// DOM alone skips them, and a still-armed continuation resolves globals
-// against whatever file happens to own them at flush time.
-const mountedRoots: HTMLElement[] = []
-const unmountAll = () => {
-  for (const root of mountedRoots.splice(0)) render(null, root)
-}
+// Mounts leave through the tracker: its drop removes the child via a
+// flushed state update, so reconciliation runs effect cleanup — a root
+// render(null) skips it exactly like wiping innerHTML does.
+const mounts = unmountTracker()
 
 afterAll(() => {
-  unmountAll()
+  mounts.unmountAll()
   globals.window = prev.window
   globals.document = prev.document
   globals.fetch = prev.fetch
@@ -44,7 +41,6 @@ const mount = () => {
   // one) can actually intersect; happy-dom lacks it, so the component's
   // no-observer path decodes immediately.
   dom.document.body.appendChild(container)
-  mountedRoots.push(container as unknown as HTMLElement)
   return container as unknown as HTMLElement
 }
 
@@ -52,16 +48,16 @@ describe('HeicImg', () => {
   test('a renderable item is a plain img — no decode work', async () => {
     globals.fetch = (() => { throw new Error('must not fetch') }) as unknown as typeof fetch
     const container = mount()
-    render(<HeicImg src="/orig.jpg" preview="/thumb.webp" filename="a.jpg" alt="" />, container)
+    mounts.mount(<HeicImg src="/orig.jpg" preview="/thumb.webp" filename="a.jpg" alt="" />, container)
     expect(container.querySelector('img')?.getAttribute('src')).toBe('/thumb.webp')
-    render(<HeicImg src="/orig.jpg" filename="b.jpg" alt="" />, container)
+    mounts.mount(<HeicImg src="/orig.jpg" filename="b.jpg" alt="" />, container)
     expect(container.querySelector('img')?.getAttribute('src')).toBe('/orig.jpg')
   })
 
   test('a .heic filename with a preview renders the preview and skips decode', async () => {
     globals.fetch = (() => { throw new Error('must not fetch') }) as unknown as typeof fetch
     const container = mount()
-    render(<HeicImg src="/api/mega/file?x" preview="/api/mega/preview?x" filename="a.heic" alt="" />, container)
+    mounts.mount(<HeicImg src="/api/mega/file?x" preview="/api/mega/preview?x" filename="a.heic" alt="" />, container)
     expect(container.querySelector('img')?.getAttribute('src')).toBe('/api/mega/preview?x')
   })
 
@@ -74,7 +70,7 @@ describe('HeicImg', () => {
     }) as unknown as typeof fetch
     URL.createObjectURL = (() => 'blob:decoded') as typeof URL.createObjectURL
     const container = mount()
-    render(<HeicImg src="/api/mega/file?x" filename="IMG_9728.heic" alt="" />, container)
+    mounts.mount(<HeicImg src="/api/mega/file?x" filename="IMG_9728.heic" alt="" />, container)
     const img = container.querySelector('img')!
     expect(img.getAttribute('src')).toBeNull()
     for (let i = 0; i < 40 && img.getAttribute('src') !== 'blob:decoded'; i++) await tick()
@@ -88,7 +84,7 @@ describe('HeicImg', () => {
     const container = mount()
     // Its own src — the decode cache is per-source, and the earlier test
     // already cached a blob under ?x.
-    render(<HeicImg src="/api/mega/file?retry" filename="a.heic" alt="" />, container)
+    mounts.mount(<HeicImg src="/api/mega/file?retry" filename="a.heic" alt="" />, container)
     const img = container.querySelector('img')!
     // The retry lands ~2s out — poll generously, then the img falls back
     // to the proxy URL (Safari renders HEIC natively; elsewhere onError).

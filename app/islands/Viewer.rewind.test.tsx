@@ -1,7 +1,8 @@
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test'
 import { Window } from 'happy-dom'
-import { flushSync, render } from 'hono/jsx/dom'
+import { flushSync } from 'hono/jsx/dom'
 import { useState } from 'hono/jsx'
+import { unmountTracker } from '../../test/unmount'
 import Viewer from './Viewer'
 import { defaultGallerySettings } from '../lib/gallery-settings'
 import type { GalleryMediaItem } from '../../packages/core/imagesource'
@@ -76,16 +77,13 @@ beforeAll(() => {
   ;(dom.window as unknown as { devicePixelRatio: number }).devicePixelRatio = 1
 })
 
-// Mounts leave through render(null) so effect cleanups run — clearing the
-// DOM alone skips them, and a still-armed continuation resolves globals
-// against whatever file happens to own them at flush time.
-const mountedRoots: HTMLElement[] = []
-const unmountAll = () => {
-  for (const root of mountedRoots.splice(0)) render(null, root)
-}
+// Mounts leave through the tracker: its drop removes the child via a
+// flushed state update, so reconciliation runs effect cleanup — a root
+// render(null) skips it exactly like wiping innerHTML does.
+const mounts = unmountTracker()
 
 afterAll(() => {
-  unmountAll()
+  mounts.unmountAll()
   globals.window = prev.window
   globals.document = prev.document
   globals.SVGElement = prev.svg
@@ -113,8 +111,7 @@ describe('the Scroll rewind lifetime', () => {
       )
     }
 
-    render(<Harness />, root as unknown as HTMLElement)
-    mountedRoots.push(root as unknown as HTMLElement)
+    mounts.mount(<Harness />, root as unknown as HTMLElement)
     await settle()
     drain(4)
     armed.clear()

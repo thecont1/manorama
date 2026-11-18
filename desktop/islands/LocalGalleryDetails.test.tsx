@@ -1,6 +1,6 @@
 import { afterAll, afterEach, beforeAll, describe, expect, test } from 'bun:test'
 import { Window } from 'happy-dom'
-import { render } from 'hono/jsx/dom'
+import { unmountTracker } from '../../test/unmount'
 import { releaseAllOverlays } from '../../app/lib/overlay-stack'
 import LocalGalleryDetails from './LocalGalleryDetails'
 import type { GalleryAvailability, LocalGalleryRecord } from '../lib/catalogue'
@@ -102,18 +102,14 @@ const mount = (overrides: Partial<Props> = {}) => {
   }
   const container = dom.document.createElement('div') as unknown as HTMLElement
   dom.document.body.appendChild(container as unknown as Parameters<typeof dom.document.body.appendChild>[0])
-  render(<LocalGalleryDetails {...props} />, container)
-  mountedContainers.push(container)
+  mounts.mount(<LocalGalleryDetails {...props} />, container)
   return { container, calls }
 }
 
-// Mounts leave through render(null) so effect cleanups run — clearing the
-// DOM alone skips them, and a still-armed continuation resolves globals
-// against whatever file happens to own them at flush time.
-const mountedContainers: HTMLElement[] = []
-const unmountAll = () => {
-  for (const container of mountedContainers.splice(0)) render(null, container)
-}
+// Mounts leave through the tracker: its drop removes the child via a
+// flushed state update, so reconciliation runs effect cleanup — a root
+// render(null) skips it exactly like wiping innerHTML does.
+const mounts = unmountTracker()
 
 const byText = (container: HTMLElement, text: string) =>
   [...container.querySelectorAll('button')].find((button) => button.textContent?.trim() === text)
@@ -179,7 +175,7 @@ afterAll(() => {
 
 afterEach(() => {
   releaseAllOverlays()
-  unmountAll()
+  mounts.unmountAll()
   dom.document.body.innerHTML = ''
   frames = []
 })
