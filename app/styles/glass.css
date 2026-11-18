@@ -141,11 +141,26 @@ html.light {
     box-shadow: inset 0 0 0 1px var(--glass-edge);
   }
 }
-@supports not (backdrop-filter: blur(1px)) {
+/* A webview with only the prefixed property is still a backdrop-filter —
+   the no-supports fallback must check both spellings or it drops a
+   capable webview to Tier 0. */
+@supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
   :root:is([data-ios-shell], [data-android-shell], [data-macos-shell]) :is(.glass-lens, .glass-regular, .glass-frost, .glass-tint, .glass-dim) {
     background: var(--glass-solid);
     box-shadow: inset 0 0 0 1px var(--glass-edge);
   }
+}
+
+/* The same Tier-0 swap when the shell stamps it: not every webview sees
+   the OS accessibility toggle as a media query, so the shell sets
+   data-reduced-transparency on <html> alongside its shell marker. The
+   attribute is a condition, never a gate — it only counts beside a frost
+   attribute. */
+:root:is([data-ios-shell], [data-android-shell], [data-macos-shell])[data-reduced-transparency] :is(.glass-lens, .glass-regular, .glass-frost, .glass-tint, .glass-dim) {
+  background: var(--glass-solid);
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+  box-shadow: inset 0 0 0 1px var(--glass-edge);
 }
 
 /* ── G2a — viewer chrome + sheets repainted under the frost gate (#227).
@@ -223,6 +238,22 @@ html.light {
     background: var(--glass-solid);
     box-shadow: inset 0 0 0 1px var(--glass-edge);
   }
+}
+
+/* Same contract as the .glass-* arm above — a shell-stamped
+   data-reduced-transparency drops the repainted m-* surfaces to solid,
+   scrim included. */
+:root:is([data-ios-shell], [data-android-shell], [data-macos-shell])[data-reduced-transparency]
+  .gallery-shell :is(.m-chrome-pill, .m-sheet) {
+  background: var(--glass-solid);
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+  box-shadow: inset 0 0 0 1px var(--glass-edge);
+}
+:root:is([data-ios-shell], [data-android-shell], [data-macos-shell])[data-reduced-transparency]
+  .gallery-shell .m-scrim:not(.m-scrim--ghost) {
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
 }
 
 /* ── G2b — library + commerce frost (#228). The gallery's surfaces live

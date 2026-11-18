@@ -15,10 +15,11 @@
 
 import { test as base, expect } from "@playwright/test";
 import { readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
 import { SignJWT } from "jose";
 
 const DEV_ACCOUNT = "dbid:AAATESTowner1";
-const GLASS_CSS = new URL("../app/styles/glass.css", import.meta.url).pathname;
+const GLASS_CSS = fileURLToPath(new URL("../app/styles/glass.css", import.meta.url));
 
 const devEnv = (() => {
   const env: Record<string, string> = {};
@@ -71,15 +72,19 @@ test.beforeEach(async ({ request, page }) => {
 // so an observer catches its insertion — SceneDelegate's document-start
 // timing). The real glass.css joins the cascade as the last sheet, exactly
 // where the native bundle's import puts it. The curtain is dismissed so the
-// chrome mounts.
-const enterWithIosShell = async (page: import("@playwright/test").Page) => {
-  await page.addInitScript(() => {
+// chrome mounts. `attrs` stamps extra document attributes the same way —
+// data-reduced-transparency is SceneDelegate's own stamp.
+const enterWithIosShell = async (page: import("@playwright/test").Page, attrs: Record<string, string> = {}) => {
+  await page.addInitScript((extraAttrs) => {
     new MutationObserver((_, observer) => {
       if (!document.documentElement) return;
       document.documentElement.setAttribute("data-ios-shell", "");
+      for (const [name, value] of Object.entries(extraAttrs)) {
+        document.documentElement.setAttribute(name, value);
+      }
       observer.disconnect();
     }).observe(document, { childList: true });
-  });
+  }, attrs);
   await page.goto(GALLERY, { waitUntil: "domcontentloaded" });
   await page.addStyleTag({ path: GLASS_CSS });
   const curtain = page.locator("[data-curtain]");
@@ -129,6 +134,26 @@ test("the popover's ghost scrim stays transparent", async ({ page }) => {
 test("prefers-contrast drops the repainted surfaces to the Tier-0 solid", async ({ page }) => {
   await page.emulateMedia({ contrast: "more" });
   await enterWithIosShell(page);
+  const pill = page.locator("[data-chrome-bottom] .m-chrome-pill").first();
+  await expect(pill).toBeAttached();
+  expect(await pill.evaluate(paint)).toEqual({
+    backdrop: "none",
+    background: "rgba(16, 16, 18, 0.94)",
+  });
+  await page.keyboard.press("i");
+  const sheet = page.locator(".gallery-shell .m-sheet");
+  await expect(sheet).toBeVisible();
+  expect(await sheet.evaluate(paint)).toEqual({
+    backdrop: "none",
+    background: "rgba(16, 16, 18, 0.94)",
+  });
+});
+
+test("a shell-stamped data-reduced-transparency drops to the same Tier-0 solid", async ({ page }) => {
+  // The media query cannot fire for a shell-side accessibility toggle —
+  // SceneDelegate stamps the attribute instead, and it must hit the same
+  // Tier-0 declarations prefers-reduced-transparency does.
+  await enterWithIosShell(page, { "data-reduced-transparency": "" });
   const pill = page.locator("[data-chrome-bottom] .m-chrome-pill").first();
   await expect(pill).toBeAttached();
   expect(await pill.evaluate(paint)).toEqual({
