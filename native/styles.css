@@ -1014,6 +1014,8 @@ body.manorama-native[data-native-fold-divided] .native-library-layout .native-se
 .native-welcome-logo { position: relative; display: inline-flex; justify-self: start; align-items: flex-end; gap: 5px; min-height: 47px; }
 .native-welcome-logo img { display: block; width: 140px; height: 47px; object-fit: contain; }
 .native-welcome-focal h1 { max-width: 20ch; margin: 0; font-size: clamp(30px, 8vw, 48px); line-height: 1.08; letter-spacing: -.035em; }
+.native-welcome-h1-line { display: block; }
+.native-welcome-focal h1 em { font-style: italic; font-weight: 560; letter-spacing: -.01em; color: var(--m-data); }
 .native-welcome-focal p { max-width: 46ch; margin: 0; color: var(--m-secondary); font-size: 17px; line-height: 1.5; }
 .native-welcome-providers { width: min(100%, 480px); display: grid; gap: 12px; }
 .native-welcome-provider {

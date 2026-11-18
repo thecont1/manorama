@@ -2625,8 +2625,8 @@ export default function Catalogue({ apiBase }: { apiBase: string }) {
                 <img src="/manorama-merged-logo.png" alt="manorama" class="landing-brand-mark" />
               </span>
             </header>
-            <h1>Your shared folders, shown properly</h1>
-            <p class="landing-brand-intro">Pick a folder on this Mac, or paste a shared Dropbox, Google Drive, iCloud or MEGA album link. manorama turns it into a quiet, full-screen gallery at your own address.</p>
+            <h1><span class="desktop-welcome-h1-line">Your <em>photographic</em> life.</span> <span class="desktop-welcome-h1-line">One beautiful <em>Library</em>.</span></h1>
+            <p class="landing-brand-intro">Pick a folder on this Mac. Or paste a Dropbox, Google Drive, iCloud or MEGA public shared folder. manorama turns it into a full-screen gallery that you can add to your Library and even share with others.</p>
             <div class="desktop-signin">
               {[...SIGN_IN_PROVIDERS]
                 .sort((a, b) => (a.id === 'apple' ? -1 : b.id === 'apple' ? 1 : 0))
