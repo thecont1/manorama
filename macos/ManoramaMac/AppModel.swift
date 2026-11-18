@@ -380,6 +380,15 @@ final class AppModel {
     /// a person cannot act before then, so every entry after visibility
     /// is intent.
     @ObservationIgnored private var launchModeVisibilityObserver: NSObjectProtocol?
+    /// Marks the start of a fullscreen entry so the grace deadline does
+    /// not retire the watch mid-transition (#252).
+    @ObservationIgnored private var launchModeWillEnterObserver: NSObjectProtocol?
+    /// A fullscreen entry has begun but not yet finished. The grace
+    /// deadline checks it before retiring the watch.
+    @ObservationIgnored private var launchModeEntryPending = false
+    /// The post-visibility grace has ended; a pending transition that
+    /// completes or fails after this retires the watch itself.
+    @ObservationIgnored private var launchModeGraceExpired = false
 
     /// Enter fullscreen once the window is ready — only if the launch
     /// decision asked for it and the window is not already there. AppKit
@@ -442,19 +451,41 @@ final class AppModel {
             return
         }
         let center = NotificationCenter.default
+        launchModeWillEnterObserver = center.addObserver(
+            forName: NSWindow.willEnterFullScreenNotification,
+            object: window,
+            queue: .main
+        ) { [weak self] _ in
+            MainActor.assumeIsolated { self?.launchModeEntryPending = true }
+        }
         launchModeObserver = center.addObserver(
             forName: NSWindow.didEnterFullScreenNotification,
             object: window,
             queue: .main
         ) { [weak self, weak window] _ in
             MainActor.assumeIsolated {
+                let windowFullScreen = window?.styleMask.contains(.fullScreen) ?? false
+                let fromInput = Self.fullscreenCameFromInput()
+                Trace.log("launch-mode: fullscreen entry — fullScreen=\(windowFullScreen) fromInput=\(fromInput)")
+                self?.launchModeEntryPending = false
                 self?.disarmLaunchMode()
                 guard let window,
                       window.styleMask.contains(.fullScreen),
-                      !Self.fullscreenCameFromInput() else { return }
-                window.toggleFullScreen(nil)
+                      !fromInput else { return }
+                // AppKit absorbs a toggle issued synchronously inside
+                // didEnterFullScreen — the transition is still settling.
+                // Defer the undo a tick so it lands on a stable state.
+                DispatchQueue.main.async { [weak window] in
+                    MainActor.assumeIsolated { window?.toggleFullScreen(nil) }
+                }
             }
         }
+        // A transition that fails mid-flight never posts didEnter — and
+        // `windowDidFailToEnterFullScreen` is delegate-only, so no
+        // notification exists to clear `launchModeEntryPending`. The
+        // watch then lingers until the next entry or the window's close;
+        // a stale watch can only see entries it would judge user-driven
+        // anyway, so lingering is harmless.
         launchModeCloseObserver = center.addObserver(
             forName: NSWindow.willCloseNotification,
             object: window,
@@ -462,11 +493,17 @@ final class AppModel {
         ) { [weak self] _ in
             MainActor.assumeIsolated { self?.disarmLaunchMode() }
         }
-        // The correction only guards the launch itself: restoration
-        // records replay while the window orders in, so once it is
-        // visible the judgement is done and the observer retires.
+        // The watch ends on a grace after first visibility, not on
+        // visibility itself: the saved Space record's migration can land
+        // just after the window ordered in — the entry is still the
+        // system's replay, and an observer retired on `.visible` never
+        // sees it (#252). The grace stays short: restoration replays in
+        // the launch beat, while a person's route to fullscreen — a key,
+        // a menu pick, the green light — takes longer and always arrives
+        // behind a real input event anyway.
         if window.isVisible {
-            disarmLaunchMode()
+            scheduleProbeFullScreenEntry(window)
+            scheduleLaunchModeDisarm()
         } else {
             launchModeVisibilityObserver = center.addObserver(
                 forName: NSWindow.didChangeOcclusionStateNotification,
@@ -474,10 +511,50 @@ final class AppModel {
                 queue: .main
             ) { [weak self, weak window] _ in
                 MainActor.assumeIsolated {
-                    guard let window,
+                    guard let self, let window,
                           window.occlusionState.contains(.visible) else { return }
-                    self?.disarmLaunchMode()
+                    if let token = self.launchModeVisibilityObserver {
+                        center.removeObserver(token)
+                        self.launchModeVisibilityObserver = nil
+                    }
+                    self.scheduleProbeFullScreenEntry(window)
+                    self.scheduleLaunchModeDisarm()
                 }
+            }
+        }
+    }
+
+    /// Retire the correction's watch two seconds after the window has
+    /// appeared — far longer than the system's restoration replay and far
+    /// shorter than any route a person has to the fullscreen control
+    /// (#252).
+    private func scheduleLaunchModeDisarm() {
+        DispatchQueue.main.asyncAfter(deadline: .now() + .seconds(2)) { [weak self] in
+            MainActor.assumeIsolated {
+                guard let self else { return }
+                self.launchModeGraceExpired = true
+                // A transition that began inside the grace can finish
+                // after it — disarming now would retire the watch
+                // mid-flight and let the restored entry stand. The
+                // pending didEnter judges the entry and retires the
+                // watch itself.
+                guard !self.launchModeEntryPending else { return }
+                self.disarmLaunchMode()
+            }
+        }
+    }
+
+    /// A test seam: `--probe-enter-fullscreen` makes the app drive its own
+    /// fullscreen entry shortly after the window first appears — a real
+    /// `toggleFullScreen` with no input event in flight, which is exactly
+    /// how a saved Space record's entry arrives (#252). The focus suite
+    /// watches whether the windowed correction undoes it.
+    private func scheduleProbeFullScreenEntry(_ window: NSWindow) {
+        guard CommandLine.arguments.contains("--probe-enter-fullscreen") else { return }
+        DispatchQueue.main.asyncAfter(deadline: .now() + .milliseconds(500)) { [weak window] in
+            MainActor.assumeIsolated {
+                Trace.log("launch-mode: probe enters fullscreen")
+                window?.toggleFullScreen(nil)
             }
         }
     }
@@ -501,9 +578,13 @@ final class AppModel {
         if let launchModeObserver { center.removeObserver(launchModeObserver) }
         if let launchModeCloseObserver { center.removeObserver(launchModeCloseObserver) }
         if let launchModeVisibilityObserver { center.removeObserver(launchModeVisibilityObserver) }
+        if let launchModeWillEnterObserver { center.removeObserver(launchModeWillEnterObserver) }
         launchModeObserver = nil
         launchModeCloseObserver = nil
         launchModeVisibilityObserver = nil
+        launchModeWillEnterObserver = nil
+        launchModeEntryPending = false
+        launchModeGraceExpired = false
     }
 
     // MARK: - The probe

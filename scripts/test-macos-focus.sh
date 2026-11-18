@@ -267,6 +267,18 @@ wait_window() {
   return 1
 }
 
+wait_trace() {
+  # Poll the app's own trace for a marker line — the ordered witness for
+  # events an AX sample can miss between polls (a fullscreen interval,
+  # for one). The argument is a grep basic regular expression.
+  local want="$1" deadline=$((SECONDS + ${2:-15}))
+  while [ $SECONDS -lt $deadline ]; do
+    grep -q "$want" "$TRACE" 2>/dev/null && return 0
+    sleep 0.5
+  done
+  return 1
+}
+
 stop_app() {
   # Only the focus-test build is killed — a running installed copy is
   # what the suite proves it can coexist with.
@@ -809,26 +821,71 @@ esac
 # Leave the test domain the way a default install finds it.
 defaults delete "$BUNDLE_ID" openInFullScreen 2>/dev/null
 
+# The windowed decision's correction also has to still be listening after
+# the window is visible: a restoration record's Space migration can land
+# a beat after the window ordered in (#252). `--probe-enter-fullscreen`
+# makes the app drive its own `toggleFullScreen` once the window is
+# visible — a real entry with no input event in flight, which is exactly
+# how the system's replay arrives. A user press comes later, through the
+# View menu in section 15, and must still be honoured.
+stop_app || { echo "FATAL: the shell would not quit"; exit 1; }
+EXTRA_ARGS="--windowed --probe-enter-fullscreen"
+launch "$SEED_DIR" keep
+# A windowed sample proves nothing on its own: the launch begins
+# windowed, so a poll can pass before the probe has even run. The proof
+# is ordered — the app's own trace records the entry being driven and
+# the correction seeing it land (fullScreen=true), and only then does a
+# windowed AX state mean the entry was undone rather than never taken.
+if wait_trace "launch-mode: probe enters fullscreen" 10 \
+   && wait_trace "fullscreen entry.*fullScreen=true" 10; then
+  FULL=$(wait_window false 15)
+  note "probe entry observed; state after correction: ${FULL:-no window}"
+  case "$FULL" in
+    *fullscreen=false*) ok "a launch-time fullscreen entry with no input is undone" ;;
+    *) bad "a launch-time fullscreen entry with no input is undone" "entered but stayed: ${FULL:-no window}" ;;
+  esac
+else
+  bad "a launch-time fullscreen entry with no input is undone" \
+      "the entry never landed in the trace — there was nothing to undo"
+fi
+
 echo
 echo "== 15. fullscreen is a trip the user controls =="
-# The window is windowed after the precedence check. Entering and leaving
-# a Space stays available the whole time — these are the AppKit menu
-# items, not shell commands.
-act
-/tmp/focusprobe "$BUNDLE_ID" press View "Enter Full Screen" >/dev/null 2>&1
-FULL=$(wait_window true 15)
-note "after Enter Full Screen: ${FULL:-no window}"
-case "$FULL" in
-  *fullscreen=true*) ok "the user can enter fullscreen" ;;
-  *) bad "the user can enter fullscreen" "after Enter Full Screen: ${FULL:-no window}" ;;
-esac
-act
-/tmp/focusprobe "$BUNDLE_ID" press View "Exit Full Screen" >/dev/null 2>&1
+# The user's trip is proven on a fresh launch — one that never carried
+# the probe flag, so neither a lingering probe nor a leftover Space can
+# satisfy the check. Verify the relaunched window is windowed before
+# pressing anything: a window that is already in a Space would turn
+# "Enter Full Screen" into a no-op the probe cannot tell from a pass.
+stop_app || { echo "FATAL: the shell would not quit"; exit 1; }
+EXTRA_ARGS="--windowed"
+launch "$SEED_DIR" keep
 FULL=$(wait_window false 15)
-note "after Exit Full Screen: ${FULL:-no window}"
+note "fresh launch for the user's trip: ${FULL:-no window}"
 case "$FULL" in
-  *fullscreen=false*) ok "the user can bring the window back" ;;
-  *) bad "the user can bring the window back" "after Exit Full Screen: ${FULL:-no window}" ;;
+  *fullscreen=false*)
+    # Entering and leaving a Space stays available the whole time —
+    # these are the AppKit menu items, not shell commands.
+    act
+    /tmp/focusprobe "$BUNDLE_ID" press View "Enter Full Screen" >/dev/null 2>&1
+    FULL=$(wait_window true 15)
+    note "after Enter Full Screen: ${FULL:-no window}"
+    case "$FULL" in
+      *fullscreen=true*) ok "the user can enter fullscreen" ;;
+      *) bad "the user can enter fullscreen" "after Enter Full Screen: ${FULL:-no window}" ;;
+    esac
+    act
+    /tmp/focusprobe "$BUNDLE_ID" press View "Exit Full Screen" >/dev/null 2>&1
+    FULL=$(wait_window false 15)
+    note "after Exit Full Screen: ${FULL:-no window}"
+    case "$FULL" in
+      *fullscreen=false*) ok "the user can bring the window back" ;;
+      *) bad "the user can bring the window back" "after Exit Full Screen: ${FULL:-no window}" ;;
+    esac
+    ;;
+  *)
+    bad "the user can enter fullscreen" "fresh launch not windowed: ${FULL:-no window}"
+    bad "the user can bring the window back" "skipped — the launch was not windowed"
+    ;;
 esac
 
 echo
