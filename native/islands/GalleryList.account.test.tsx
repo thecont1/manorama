@@ -1,8 +1,9 @@
-import { afterAll, afterEach, beforeAll, describe, expect, test } from 'bun:test'
+import { afterAll, afterEach, beforeAll, describe, expect, mock, test } from 'bun:test'
 import { readdirSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { Capacitor } from '@capacitor/core'
+import * as filesystemModule from '@capacitor/filesystem'
 import { Window } from 'happy-dom'
 import { flushSync, render } from 'hono/jsx/dom'
 import { useState } from 'hono/jsx'
@@ -12,6 +13,7 @@ import type { AdPolicyInput } from '../lib/ads'
 import type { BillingState, RevenueCatBilling } from '../lib/billing'
 import { offlineGalleryId, type OfflineGalleryStore, type OfflineGridGallery } from '../lib/offline-gallery'
 import { GALLERY_STREAM_ONLY_KEY, galleryPolicyKey } from '../lib/vault-settings'
+import { newCatalogue, serializeLocalCatalogue, type LocalGalleryRecord } from '../../desktop/lib/catalogue'
 
 /**
  * The account slot is a lifecycle feature — entitlement flips and slow
@@ -816,6 +818,154 @@ describe('signed-in account area', () => {
     opener!.click()
     await settle()
     expect(galleryCalls().some((call) => call.url === 'https://manorama.xyz/api/gallery/quiet-owner/mac-light')).toBe(true)
+  })
+
+  describe('a local open raced against a newer navigation', () => {
+    // The Filesystem plugin object is a registerPlugin proxy whose get trap
+    // mints a fresh wrapper per read — assignment never reaches the impl —
+    // so the seam is mock.module: the island's own binding resolves through
+    // the registry at call time and sees the stub. The stub answers the
+    // catalogue read and holds the root-URI resolution open; every other
+    // plugin call rejects like the missing-IndexedDB web impl does, which is
+    // the degradation the vault callers already survive.
+    let pendingRoots: Array<(value: { uri: string }) => void>
+    let catalogueJson = ''
+    const installFilesystemStub = () => {
+      pendingRoots = []
+      mock.module('@capacitor/filesystem', () => ({
+        Directory: filesystemModule.Directory,
+        Encoding: filesystemModule.Encoding,
+        Filesystem: new Proxy({} as Record<string, unknown>, {
+          get(_, prop) {
+            if (prop === 'readFile') {
+              return async (options: { path?: string }) => {
+                if (options?.path === 'local-catalogue.json') return { data: catalogueJson }
+                throw new Error('File does not exist')
+              }
+            }
+            if (prop === 'getUri') return () => new Promise<{ uri: string }>((resolve) => { pendingRoots.push(resolve) })
+            if (prop === 'writeFile') return async () => ({})
+            return async () => { throw new Error('not implemented in test') }
+          },
+        }),
+      }))
+    }
+    // mock.restore() does not unwind module mocks — re-registering the real
+    // namespace is the un-mock.
+    const restoreFilesystem = () => {
+      mock.module('@capacitor/filesystem', () => filesystemModule)
+    }
+
+    const localRecord = (id: string, title: string): LocalGalleryRecord => ({
+      id,
+      title,
+      rootPath: id,
+      sourceKind: 'folder',
+      itemCount: 2,
+      items: [
+        { id: `${id}-a.jpg`, name: 'a.jpg', path: 'a.jpg', width: 4000, height: 3000 },
+        { id: `${id}-b.jpg`, name: 'b.jpg', path: 'b.jpg' },
+      ],
+      addedAt: '2026-10-01T00:00:00.000Z',
+      lastSeenAt: '2026-10-01T00:00:00.000Z',
+    })
+
+    /** The catalogue lands in the real Filesystem path the island reads;
+     *  every other path answers missing so the strict-store translation is
+     *  exercised rather than bypassed. */
+    const installLocalCatalogue = (records: LocalGalleryRecord[]) => {
+      const catalogue = {
+        ...newCatalogue('87654321-4321-4321-4321-ba0987654321', 'iPhone'),
+        galleries: records,
+      }
+      catalogueJson = serializeLocalCatalogue(catalogue)
+    }
+
+    const localPhoto = (index: number) => ({
+      id: `nav-${index}`,
+      filename: `nav-${index}.svg`,
+      src: `data:image/svg+xml,${encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" width="64" height="90"/>')}`,
+      width: 64,
+      height: 90,
+      alt: `Nav photograph ${index + 1}`,
+      c2pa: false,
+      placeholder: `data:image/svg+xml,${encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" width="64" height="90"/>')}`,
+    })
+    const kashmirPayload = JSON.stringify({
+      manifest: { slug: 'kashmir', title: 'Kashmir', caption: '', date: '', images: [localPhoto(0), localPhoto(1)] },
+      settings: { title: 'Kashmir', caption: '', date: '', curtainKicker: '', curtainPrompt: '', defaultMode: 'strip', defaultShowArrows: false, defaultShowCaptions: false, imageCaptions: {}, imageAlts: {} },
+    })
+
+    const openLocalTile = async (container: HTMLElement, title: string) => {
+      const opener = [...container.querySelectorAll<HTMLButtonElement>('.lib-device-open')]
+        .find((button) => button.textContent === title)
+      expect(opener).not.toBeUndefined()
+      opener!.click()
+      await settle()
+    }
+
+    test('a published open wins — the stale local continuation installs nothing', async () => {
+      installLocalStorage()
+      signInStorage()
+      stubFetch({
+        galleries: json({ galleries: [accountSummary()] }),
+        fallback: (url) => url.includes('/api/gallery/')
+          ? new Response(kashmirPayload, { status: 200, headers: { 'content-type': 'application/json' } })
+          : new Response('{}', { status: 404 }),
+      })
+      installLocalCatalogue([localRecord('aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee', 'On-device album')])
+      installFilesystemStub()
+      try {
+        const { container } = mountAccount({ billing: entitlement('pro') })
+        await settle()
+        await openLocalTile(container, 'On-device album')
+        expect(pendingRoots).toHaveLength(1)
+        // The published card opens while the local open still awaits its
+        // root URI — the dispatch bumps the open generation.
+        ;(container.querySelector('.lib-card-title') as HTMLButtonElement).click()
+        await settle()
+        expect(container.querySelector('.viewer-stage')).not.toBeNull()
+        expect(container.textContent).toContain('Kashmir')
+        // The stale continuation resolves now — it must not install its
+        // manifest, selection, or nav entry over the published open.
+        pendingRoots[0]!({ uri: 'file:///container/Library/Application%20Support/LocalGalleries' })
+        await settle()
+        expect(container.querySelector('.viewer-stage')).not.toBeNull()
+        expect(container.textContent).toContain('Kashmir')
+        expect(container.textContent).not.toContain('On-device album')
+      } finally {
+        restoreFilesystem()
+      }
+    })
+
+    test('the newer of two racing local opens wins', async () => {
+      installLocalStorage()
+      signInStorage()
+      stubFetch({ galleries: json({ galleries: [] }) })
+      installLocalCatalogue([
+        localRecord('aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee', 'First album'),
+        localRecord('bbbbcccc-dddd-4eee-8fff-ffffffffffff', 'Second album'),
+      ])
+      installFilesystemStub()
+      try {
+        const { container } = mountAccount({ billing: entitlement('pro') })
+        await settle()
+        await openLocalTile(container, 'First album')
+        await openLocalTile(container, 'Second album')
+        expect(pendingRoots).toHaveLength(2)
+        // Resolve the newer open first, then the stale one — only the
+        // second may install; the first's late root URI changes nothing.
+        pendingRoots[1]!({ uri: 'file:///container/Library/Application%20Support/LocalGalleries' })
+        await settle()
+        pendingRoots[0]!({ uri: 'file:///container/Library/Application%20Support/LocalGalleries' })
+        await settle()
+        expect(container.querySelector('.viewer-stage')).not.toBeNull()
+        expect(container.textContent).toContain('Second album')
+        expect(container.textContent).not.toContain('First album')
+      } finally {
+        restoreFilesystem()
+      }
+    })
   })
 
   test('Settings carries the device legend — the pill, this phone named, Forget on the others', async () => {

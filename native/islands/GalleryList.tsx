@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useReducer, useRef, useState } from 'hono/jsx'
-import { canGoBack, initialOwnerNav, ownerNavReducer, type OwnerNavState } from '../../packages/core/owner-navigation'
+import { canGoBack, initialOwnerNav, ownerNavReducer, type OwnerNavAction, type OwnerNavState } from '../../packages/core/owner-navigation'
 import { closeTopOverlay, overlayDepth } from '../../app/lib/overlay-stack'
 import { expiryCountdownText } from '../../app/lib/gallery-policy'
 import { decideBack } from '../lib/back-decision'
@@ -268,10 +268,19 @@ export default function GalleryList({ apiBase, owner, slug, deepLinkSelection, o
   // A gallery already open at mount (props or a restored URL selection)
   // must sit on the nav stack too — otherwise the first hardware back
   // press sees library at top and exits the app instead of returning.
-  const [nav, dispatchNav] = useReducer(ownerNavReducer, initialOwnerNav(true), (base) =>
+  const [nav, dispatchNavBase] = useReducer(ownerNavReducer, initialOwnerNav(true), (base) =>
     initialSelection.owner && initialSelection.slug
       ? ownerNavReducer(base, { type: 'open-gallery', gallery: { kind: 'published', owner: initialSelection.owner, slug: initialSelection.slug } })
       : base)
+  // Opening a Local gallery awaits the bridge for its root URI. Any nav
+  // action meanwhile — another open, a back, a panel switch — must win over
+  // the stale open, so every dispatch bumps the generation an in-flight
+  // open captured.
+  const openGenerationRef = useRef(0)
+  const dispatchNav = (action: OwnerNavAction) => {
+    openGenerationRef.current += 1
+    dispatchNavBase(action)
+  }
   const [globalViewOpen, setGlobalViewOpen] = useState(false)
   // null while secure storage is still being asked; sign-in completes with a
   // full reload, so by the first paint the token is already on the device.
@@ -926,13 +935,19 @@ export default function GalleryList({ apiBase, owner, slug, deepLinkSelection, o
   // root URI is resolved at open because the app container moves between
   // launches; the record itself only ever holds relative paths.
   const enterLocalGallery = async (record: LocalGalleryRecord) => {
+    // Claim a generation before the await: a second local open supersedes
+    // this one, and dispatchNav bumps it for every other navigation intent,
+    // so a stale continuation can neither install its manifest nor surface
+    // its error over the newer screen.
+    const openToken = ++openGenerationRef.current
     let built: GalleryManifest
     try {
       built = localGalleryManifest(record, await localGalleriesRootUri())
     } catch {
-      setError('The gallery could not be opened.')
+      if (openGenerationRef.current === openToken) setError('The gallery could not be opened.')
       return
     }
+    if (openGenerationRef.current !== openToken) return
     positionRef.current = null
     setSelection({ owner: '', slug: '' })
     setVaultProgress(null)
