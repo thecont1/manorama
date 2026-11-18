@@ -8,6 +8,7 @@ import { UPLOAD_PROVIDER_IDS } from '../lib/providers/types'
 import { shareLocalGallery } from '../lib/share'
 import type { DesktopSession } from '../lib/session'
 import { readFileBytes } from '../lib/tauri'
+import { hasMacosShell } from '../lib/shell'
 import { Button } from '../../app/components/ui/Button'
 
 /**
@@ -210,22 +211,47 @@ export default function ShareFlow({
       {step === 'connecting' && provider ? (
         <div class="desktop-share-connecting">
           <p>Finish connecting {provider.label} in your browser — the app picks the result up automatically.</p>
-          <form class="desktop-paste" onSubmit={submitPastedRedirect}>
-            <label>
-              Redirect link
-              <input
-                value={pasteUrl}
-                onInput={(event) => setPasteUrl((event.currentTarget as HTMLInputElement).value)}
-                placeholder={providerId === 'drive' ? 'http://127.0.0.1:…/?code=…&state=…' : 'in.thecontrarian.manorama.desktop://oauth/dropbox?code=…&state=…'}
-                autoCapitalize="none"
-                autoCorrect="off"
-              />
-            </label>
-            <Button variant="primary" type="submit">Complete connection</Button>
-            <p class="desktop-paste-hint">
-              Dev builds cannot receive the redirect — paste the full link the browser lands on.
-            </p>
-          </form>
+          {/* Under the macOS shell the redirect arrives on its own, so the
+              manual paste is an escape hatch; elsewhere the form is the
+              supported path and stays prominent. */}
+          {hasMacosShell() ? (
+            <details class="desktop-paste-fallback" open={import.meta.env.DEV ? true : undefined}>
+              <summary>Having trouble? Paste the link manually</summary>
+              <form class="desktop-paste" onSubmit={submitPastedRedirect}>
+                <label>
+                  Redirect link
+                  <input
+                    value={pasteUrl}
+                    onInput={(event) => setPasteUrl((event.currentTarget as HTMLInputElement).value)}
+                    placeholder={providerId === 'drive' ? 'http://127.0.0.1:…/?code=…&state=…' : 'in.thecontrarian.manorama.desktop://oauth/dropbox?code=…&state=…'}
+                    autoCapitalize="none"
+                    autoCorrect="off"
+                  />
+                </label>
+                <Button variant="primary" type="submit">Complete connection</Button>
+                <p class="desktop-paste-hint">
+                  If the browser finished but the app did not pick it up, paste the full link it landed on.
+                </p>
+              </form>
+            </details>
+          ) : (
+            <form class="desktop-paste" onSubmit={submitPastedRedirect}>
+              <label>
+                Redirect link
+                <input
+                  value={pasteUrl}
+                  onInput={(event) => setPasteUrl((event.currentTarget as HTMLInputElement).value)}
+                  placeholder={providerId === 'drive' ? 'http://127.0.0.1:…/?code=…&state=…' : 'in.thecontrarian.manorama.desktop://oauth/dropbox?code=…&state=…'}
+                  autoCapitalize="none"
+                  autoCorrect="off"
+                />
+              </label>
+              <Button variant="primary" type="submit">Complete connection</Button>
+              <p class="desktop-paste-hint">
+                Dev builds cannot receive the redirect — paste the full link the browser lands on.
+              </p>
+            </form>
+          )}
           <Button variant="quiet" onClick={cancelConnect}>Cancel</Button>
         </div>
       ) : null}
