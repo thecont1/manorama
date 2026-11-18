@@ -109,6 +109,29 @@ describe('overlay-stack', () => {
     expect(document.activeElement).toBe(opener)
   })
 
+  test('an explicit opener survives replacing an action menu with settings', () => {
+    const opener = el('button')
+    const menu = el()
+    const action = document.createElement('button')
+    menu.appendChild(action)
+    const releaseMenu = pushOverlay({ host: menu, returnFocus: opener })
+    action.focus()
+    const settings = el()
+    menu.remove()
+    const releaseSettings = pushOverlay({ host: settings, returnFocus: opener })
+    releaseMenu()
+    releaseSettings()
+    expect(document.activeElement).toBe(opener)
+    expect(opener.inert).toBe(false)
+  })
+
+  test('an explicit opener is used even when a pointer click did not focus it', () => {
+    const opener = el('button')
+    const release = pushOverlay({ host: el(), returnFocus: opener })
+    release()
+    expect(document.activeElement).toBe(opener)
+  })
+
   test('Tab wraps inside the host; Shift+Tab wraps backwards', () => {
     const host = el()
     const first = document.createElement('button')

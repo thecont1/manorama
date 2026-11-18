@@ -57,7 +57,7 @@ import { Sheet } from '../../app/components/ui/Sheet'
 import { QuietIcon, SettingsIcon, LinkIcon, SourceIcon } from '../../app/components/admin-icons'
 import { syncQuietFade } from '../../app/components/library/quiet'
 import { AddGallerySheet } from '../../app/components/AddGallerySheet'
-import GallerySettingsSheet from '../../app/components/GallerySettingsSheet'
+import OwnerGalleryPanel from '../../app/components/viewer/OwnerGalleryPanel'
 import type { PickerEditItem } from '../../app/components/viewer/PickerEditor'
 import { HeicImg } from '../../app/components/ui/HeicImg'
 import { useMasonry } from '../../app/components/library/useMasonry'
@@ -488,6 +488,7 @@ export default function Catalogue({ apiBase }: { apiBase: string }) {
   const [shareStep, setShareStep] = useState<ShareStep>('choose')
   const [detailsId, setDetailsId] = useState<string | null>(() => new URLSearchParams(window.location.search).get('details'))
   const [cardMenu, setCardMenu] = useState<CardMenu | null>(null)
+  const cardMenuTrigger = useRef<HTMLButtonElement | null>(null)
   // Hidden galleries — namespaced keys ("account:{slug}", "device:{id}",
   // "local:{id}") concealed from the pinned/compact sections into the
   // collapsed "Hidden galleries" section. Device-local display choice,
@@ -1769,6 +1770,33 @@ export default function Catalogue({ apiBase }: { apiBase: string }) {
     void runSync(next, session)
   }
 
+  const refreshFromMenu = async (menu: Extract<CardMenu, { kind: 'account' | 'local' }>) => {
+    if (busy || (menu.kind === 'account' && (!session || isLocked(menu.gallery)))) return
+    setCardMenu(null)
+    setBusy(true)
+    try {
+      if (menu.kind === 'local') {
+        await rescan(menu.record)
+      } else if (session) {
+        const gallery = menu.gallery
+        setNotice(`Refreshing “${gallery.title || gallery.slug}”…`)
+        await refreshAccountGallery(base, session.token, gallery.slug, {
+          ...(await refreshRequestInit({ id: gallery.id, sourceUrl: gallery.sourceUrl, keyStore: desktopKeyStore() })),
+          signal: AbortSignal.timeout(120_000),
+        })
+        await refreshAccountGalleries(session.token)
+        setNotice(`“${gallery.title || gallery.slug}” refreshed`)
+      }
+    } catch (error) {
+      const name = typeof error === 'object' && error !== null ? (error as { name?: unknown }).name : undefined
+      setNotice(name === 'TimeoutError' || name === 'AbortError'
+        ? 'That refresh is taking too long. The gallery may still be updating, so check your Library or try again.'
+        : error instanceof Error ? error.message : 'That gallery could not be refreshed')
+    } finally {
+      setBusy(false)
+    }
+  }
+
   /** Forget the share sheet, its step, and any in-flight upload together. */
   const resetShare = () => {
     setShareOpen(false)
@@ -1832,11 +1860,6 @@ export default function Catalogue({ apiBase }: { apiBase: string }) {
     setShareOpen(true)
     shareStepRef.current = 'choose'
     shareUploadingRef.current = false
-  }
-
-  const openShareFromDetails = () => {
-    if (!detailsId) return
-    openShareForGallery(detailsId)
   }
 
   /** The card menu's "Open folder" — reveals the gallery's root in Finder
@@ -2675,11 +2698,6 @@ export default function Catalogue({ apiBase }: { apiBase: string }) {
     )
   }
 
-  // The selected record's settings: a Sheet over the workbench — the same
-  // presentation an account gallery's settings gets — with the shared
-  // ShareFlow hosted alongside (Publish opens only from settings). The
-  // viewer takes precedence when a photograph is open — Open leaves the
-  // sheet first.
   const detailsRecord = detailsId && catalogue && accountTier === 'pro' ? catalogue.galleries.find((g) => g.id === detailsId) ?? null : null
   const shareRecord = shareGalleryId && catalogue ? catalogue.galleries.find((g) => g.id === shareGalleryId) ?? null : null
   // A published link exists only when this Mac's own synced row carries the
@@ -2690,9 +2708,9 @@ export default function Catalogue({ apiBase }: { apiBase: string }) {
     const owner = ownerSlug ?? session?.ownerSlug
     return slug && owner ? `${base}/${owner}/${slug}` : null
   }
-  const detailsPublishedUrl = publishedUrlFor(detailsRecord)
+  const menuPublishedUrl = cardMenu?.kind === 'local' ? publishedUrlFor(cardMenu.record) : null
   const shareHost = shareOpen && shareRecord ? (
-    <Sheet open={shareOpen} onClose={dismissShare} title={`Publish “${shareRecord.title}”`} dismissible={!shareUploading}>
+    <Sheet open={shareOpen} onClose={dismissShare} title={`Publish “${shareRecord.title}”`} dismissible={!shareUploading} returnFocus={cardMenuTrigger.current}>
       <ShareFlow
         record={shareRecord}
         catalogue={catalogue}
@@ -2922,7 +2940,7 @@ export default function Catalogue({ apiBase }: { apiBase: string }) {
           class="lib-card-title"
           onClick={() => unavailable ? openDetails(record) : openViewer(record.id, 0)}
         >{record.title}</button>
-        <button type="button" class="lib-card-menu" aria-label={`${record.title} actions`} aria-haspopup="dialog" onClick={() => setCardMenu({ kind: 'local', record })}>···</button>
+        <button type="button" class="lib-card-menu" aria-label={`${record.title} actions`} aria-haspopup="dialog" onClick={(event) => { cardMenuTrigger.current = event.currentTarget as HTMLButtonElement; setCardMenu({ kind: 'local', record }) }}>···</button>
       </div>
       <p class="lib-card-sub">
         {record.itemCount} {record.itemCount === 1 ? 'photograph' : 'photographs'}
@@ -2970,7 +2988,7 @@ export default function Catalogue({ apiBase }: { apiBase: string }) {
           </p>
           {unavailable ? <p class="desktop-badge-unavailable">Unavailable — reconnect the source, then rescan.</p> : null}
         </div>
-        <button type="button" class="lib-card-menu" aria-label={`${record.title} actions`} aria-haspopup="dialog" onClick={() => setCardMenu({ kind: 'local', record })}>···</button>
+        <button type="button" class="lib-card-menu" aria-label={`${record.title} actions`} aria-haspopup="dialog" onClick={(event) => { cardMenuTrigger.current = event.currentTarget as HTMLButtonElement; setCardMenu({ kind: 'local', record }) }}>···</button>
       </div>
     </li>
   }
@@ -2979,7 +2997,7 @@ export default function Catalogue({ apiBase }: { apiBase: string }) {
    *  carried, so a remote row stays removable from the device that lists
    *  it. */
   const deviceTileMenu = (gallery: DeviceGallery) => (
-    <button type="button" class="lib-card-menu lib-device-menu" aria-label={`${gallery.title} actions`} aria-haspopup="dialog" onClick={() => setCardMenu({ kind: 'device', gallery })}>···</button>
+    <button type="button" class="lib-card-menu lib-device-menu" aria-label={`${gallery.title} actions`} aria-haspopup="dialog" onClick={(event) => { cardMenuTrigger.current = event.currentTarget as HTMLButtonElement; setCardMenu({ kind: 'device', gallery }) }}>···</button>
   )
 
   /** A synced row this Mac owns but no longer has a local record for — its
@@ -2992,7 +3010,7 @@ export default function Catalogue({ apiBase }: { apiBase: string }) {
     return <li key={`device-${gallery.id}`}><article class="lib-card" data-gallery-card={`device:${gallery.id}`}>
       <div class="lib-card-head">
         <span class="lib-card-title">{gallery.title}</span>
-        <button type="button" class="lib-card-menu" aria-label={`${gallery.title} actions`} aria-haspopup="dialog" onClick={() => setCardMenu({ kind: 'device', gallery })}>···</button>
+        <button type="button" class="lib-card-menu" aria-label={`${gallery.title} actions`} aria-haspopup="dialog" onClick={(event) => { cardMenuTrigger.current = event.currentTarget as HTMLButtonElement; setCardMenu({ kind: 'device', gallery }) }}>···</button>
       </div>
       <p class="lib-card-sub">
         {gallery.itemCount} {gallery.itemCount === 1 ? 'photograph' : 'photographs'} ·{' '}
@@ -3030,7 +3048,7 @@ export default function Catalogue({ apiBase }: { apiBase: string }) {
             {tempWording(gallery)}
           </p>
         </div>
-        <button type="button" class="lib-card-menu lib-compact-menu" aria-label={`${title} actions`} aria-haspopup="dialog" onClick={() => setCardMenu({ kind: 'account', gallery })}>···</button>
+        <button type="button" class="lib-card-menu lib-compact-menu" aria-label={`${title} actions`} aria-haspopup="dialog" onClick={(event) => { cardMenuTrigger.current = event.currentTarget as HTMLButtonElement; setCardMenu({ kind: 'account', gallery }) }}>···</button>
       </div>
     </li>
   }
@@ -3222,7 +3240,7 @@ export default function Catalogue({ apiBase }: { apiBase: string }) {
                       <a class="lib-card-title" href={galleryUrl} onClick={openCard(0)} draggable={false}>{title}</a>
                       {isLocked(gallery) ? tempFlag(gallery) : null}
                       {savedGalleryFor(gallery) ? <span class="desktop-badge-saved">Saved on this Mac</span> : null}
-                      <button type="button" class="lib-card-menu" aria-label={`${title} actions`} aria-haspopup="dialog" onClick={() => setCardMenu({ kind: 'account', gallery })}>···</button>
+                      <button type="button" class="lib-card-menu" aria-label={`${title} actions`} aria-haspopup="dialog" onClick={(event) => { cardMenuTrigger.current = event.currentTarget as HTMLButtonElement; setCardMenu({ kind: 'account', gallery }) }}>···</button>
                     </div>
                     {gallery.id && keyChecked.has(gallery.id) && !galleryHashes[gallery.id] && gallery.manifestVersion === 2
                       ? <p class="desktop-badge-keyless">Locked — the key is not on this Mac</p>
@@ -3510,11 +3528,8 @@ export default function Catalogue({ apiBase }: { apiBase: string }) {
         onClose={closeAddSheet}
         onSubmit={addGallerySubmit}
       />
-      {/* A local gallery's settings — the Sheet form, not a full page:
-          whichever card the three-dots came from, settings look the same.
-          The Publish flow (shareHost) stacks on top of it when it opens. */}
       {detailsRecord ? (
-        <Sheet open onClose={closeDetails} title="Gallery settings">
+        <Sheet key="local-gallery-settings" open onClose={closeDetails} title="Gallery Settings" returnFocus={cardMenuTrigger.current}>
           <LocalGalleryDetails
             record={detailsRecord}
             availability={availability[detailsRecord.id] ?? 'available'}
@@ -3522,19 +3537,6 @@ export default function Catalogue({ apiBase }: { apiBase: string }) {
               closeDetails()
               openViewer(detailsRecord.id, 0)
             }}
-            publishedUrl={detailsPublishedUrl}
-            onShare={detailsPublishedUrl ? async () =>
-              // The shared "Copy link" row — the same contract as the
-              // native caller: the clipboard, never the share chooser or
-              // the publish sheet. A failed copy leaves the address visible.
-              (await copyText(detailsPublishedUrl)) ? 'Link copied — paste it anywhere' : detailsPublishedUrl
-            : undefined}
-            onPublish={openShareFromDetails}
-            onReorder={() => {
-              closeDetails()
-              openViewer(detailsRecord.id, 0, true)
-            }}
-            onRescan={() => rescan(detailsRecord)}
             onRename={(title) => rename(detailsRecord, title)}
             onRemove={() => remove(detailsRecord)}
             onRevealFolder={() => { void revealFolder(detailsRecord) }}
@@ -3543,7 +3545,7 @@ export default function Catalogue({ apiBase }: { apiBase: string }) {
       ) : null}
       {shareHost}
       {cardMenu ? (
-        <Sheet open onClose={() => { setCardMenu(null); setMenuRemove(false) }} title={cardMenu.kind === 'account' ? cardMenu.gallery.title || cardMenu.gallery.slug : cardMenu.kind === 'local' ? cardMenu.record.title : cardMenu.gallery.title}>
+        <Sheet key="gallery-actions" open returnFocus={cardMenuTrigger.current} onClose={() => { setCardMenu(null); setMenuRemove(false) }} title={cardMenu.kind === 'account' ? cardMenu.gallery.title || cardMenu.gallery.slug : cardMenu.kind === 'local' ? cardMenu.record.title : cardMenu.gallery.title}>
           {/* Only synced-device cards still confirm removal inline —
               account and local removes live inside Gallery settings. */}
           {menuRemove && cardMenu.kind === 'device' ? (
@@ -3570,14 +3572,14 @@ export default function Catalogue({ apiBase }: { apiBase: string }) {
                   the row but says why the link would open locked. */}
               <button
                 type="button"
-                disabled={Boolean(cardMenu.gallery.manifestVersion === 2 && cardMenu.gallery.id && !galleryHashes[cardMenu.gallery.id])}
+                disabled={busy || Boolean(cardMenu.gallery.manifestVersion === 2 && cardMenu.gallery.id && !galleryHashes[cardMenu.gallery.id])}
                 title={cardMenu.gallery.manifestVersion === 2 && cardMenu.gallery.id && !galleryHashes[cardMenu.gallery.id] ? 'This device does not hold the key; a copied link would open locked' : undefined}
                 onClick={() => { void copyGalleryLink(cardMenu.gallery) }}
               >Copy link</button>
+              <button type="button" disabled={busy || isLocked(cardMenu.gallery)} onClick={() => { const gallery = cardMenu.gallery; setCardMenu(null); void openAccountGallery(gallery, 0, true) }}>Reorder photos</button>
+              <button type="button" disabled={busy || isLocked(cardMenu.gallery)} onClick={() => { void refreshFromMenu(cardMenu) }}>Refresh gallery</button>
               <button type="button" disabled={busy} onClick={() => { void openPostToXAccount(cardMenu.gallery) }}>Post to X</button>
-              {/* The gallery's own Settings — the same two-layer dialog the
-                  viewer's Settings popover hosts, so the owner edits in place. */}
-              <button type="button" onClick={() => { setGalSettingsSlug(cardMenu.gallery.slug); setCardMenu(null) }}>Gallery Settings</button>
+              <button type="button" disabled={busy} onClick={() => { setGalSettingsSlug(cardMenu.gallery.slug); setCardMenu(null) }}>Gallery Settings</button>
             </>) : cardMenu.kind === 'device' ? (<>
               {accountTier === 'pro' ? (
                 <button type="button" disabled={busy} onClick={() => { void setGalleryHidden(cardMenu, !cardMenu.gallery.hidden) }}>
@@ -3586,24 +3588,28 @@ export default function Catalogue({ apiBase }: { apiBase: string }) {
               ) : null}
               <button type="button" class="lib-menu-danger" disabled={busy} onClick={() => setMenuRemove(true)}>Remove gallery</button>
             </>) : (<>
-              {/* The same verbs the account menu carries, in the same
-                  order — Publish names the upload honestly, and Post to X
-                  works straight off the disk, published or not. Reorder,
-                  Open folder, Refresh and Remove live in the gallery's
-                  settings sheet now. */}
               <button type="button" disabled={busy} onClick={() => { void toggleLocalPin(cardMenu.record) }}>{cardMenu.record.pinnedAt ? 'Unpin gallery' : 'Pin gallery'}</button>
               {accountTier === 'pro' ? (
                 <button type="button" disabled={busy} onClick={() => { void setGalleryHidden(cardMenu, !cardMenu.record.hiddenAt) }}>
                   {cardMenu.record.hiddenAt ? 'Unhide gallery' : 'Hide this gallery'}
                 </button>
               ) : null}
-              <button
-                type="button"
-                disabled={busy || availability[cardMenu.record.id] === 'unavailable'}
-                onClick={() => { const record = cardMenu.record; setCardMenu(null); openShareForGallery(record.id) }}
-              >Publish this gallery</button>
+              {menuPublishedUrl ? (
+                <button type="button" disabled={busy} onClick={async () => {
+                  setCardMenu(null)
+                  setNotice((await copyText(menuPublishedUrl)) ? 'Link copied — paste it anywhere' : menuPublishedUrl)
+                }}>Copy link</button>
+              ) : (
+                <button
+                  type="button"
+                  disabled={busy || availability[cardMenu.record.id] === 'unavailable'}
+                  onClick={() => { const record = cardMenu.record; setCardMenu(null); openShareForGallery(record.id) }}
+                >Publish this gallery</button>
+              )}
+              <button type="button" disabled={busy || availability[cardMenu.record.id] === 'unavailable'} onClick={() => { const record = cardMenu.record; setCardMenu(null); openViewer(record.id, 0, true) }}>Reorder photos</button>
+              <button type="button" disabled={busy} onClick={() => { void refreshFromMenu(cardMenu) }}>Refresh gallery</button>
               <button type="button" disabled={busy || availability[cardMenu.record.id] === 'unavailable'} onClick={() => openPostToXLocal(cardMenu.record)}>Post to X</button>
-              <button type="button" onClick={() => { const record = cardMenu.record; setCardMenu(null); openDetails(record) }}>Gallery settings</button>
+              <button type="button" disabled={busy} onClick={() => { const record = cardMenu.record; setCardMenu(null); openDetails(record) }}>Gallery Settings</button>
             </>)}
           </div>
           )}
@@ -3664,11 +3670,11 @@ export default function Catalogue({ apiBase }: { apiBase: string }) {
         />
       ) : null}
       {galSettingsGallery ? (
-        <GallerySettingsSheet
-          open
-          onClose={() => setGalSettingsSlug(null)}
-          onClick={interceptSettingsLink}
-          owner={ownerSlug ?? session?.ownerSlug ?? ''}
+        <Sheet key="cloud-gallery-settings" open onClose={() => setGalSettingsSlug(null)} title="Gallery Settings" returnFocus={cardMenuTrigger.current}>
+          <div class="m-dark" onClick={interceptSettingsLink}>
+            <OwnerGalleryPanel
+              layer="rest"
+              owner={ownerSlug ?? session?.ownerSlug ?? ''}
               slug={galSettingsGallery.slug}
               title={galSettingsGallery.title}
               caption={galSettingsGallery.caption}
@@ -3680,18 +3686,13 @@ export default function Catalogue({ apiBase }: { apiBase: string }) {
               mediaCount={summaryMediaCount(galSettingsGallery)}
               upgradeHref="mailto:mahesh@thecontrarian.in?subject=Manorama%20upgrade"
               onOpen={() => { const g = galSettingsGallery; setGalSettingsSlug(null); void openAccountGallery(g, 0) }}
-              onReorder={() => { const g = galSettingsGallery; setGalSettingsSlug(null); void openAccountGallery(g, 0, true) }}
               currentPhotoId={() => ''}
               onTitleSaved={(next) => setAccountGalleries((previous) => previous?.map((item) => item.slug === galSettingsGallery.slug ? { ...item, title: next } : item) ?? previous)}
               onCaptionSaved={(next) => setAccountGalleries((previous) => previous?.map((item) => item.slug === galSettingsGallery.slug ? { ...item, caption: next } : item) ?? previous)}
               apiBase={base}
               authToken={session?.token}
               keyStore={desktopKeyStore()}
-              shareHref={`${accountGalleryUrl(galSettingsGallery)}${galSettingsGallery.id ? galleryHashes[galSettingsGallery.id] ?? '' : ''}`}
-              shareDisabled={Boolean(galSettingsGallery.manifestVersion === 2 && galSettingsGallery.id && !galleryHashes[galSettingsGallery.id])}
-              shareNote="This device does not hold the key. Open the full gallery link before sharing; a keyless address opens locked."
               onRenamed={() => { setGalSettingsSlug(null); if (session) void refreshAccountGalleries(session.token) }}
-              onRefreshed={() => { if (session) void refreshAccountGalleries(session.token) }}
               onRemoved={() => {
                 setGalSettingsSlug(null)
                 // The D1 row is gone; this device's custody copy of the key
@@ -3744,7 +3745,9 @@ export default function Catalogue({ apiBase }: { apiBase: string }) {
                   )}
                 </ActionGroup>
               )}
-        />
+            />
+          </div>
+        </Sheet>
       ) : null}
       {/* Status notes toast over the surface like the web dashboard's —
           the rail stays clean of transient text. */}

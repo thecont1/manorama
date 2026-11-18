@@ -3,7 +3,7 @@ import { Window } from 'happy-dom'
 import { unmountTracker } from '../../test/unmount'
 import { releaseAllOverlays } from '../../app/lib/overlay-stack'
 import LocalGalleryDetails from './LocalGalleryDetails'
-import type { GalleryAvailability, LocalGalleryRecord } from '../lib/catalogue'
+import type { LocalGalleryRecord } from '../lib/catalogue'
 
 /**
  * LocalGalleryDetails is a presentational surface: it owns sheets, busy and
@@ -75,23 +75,13 @@ type Props = Parameters<typeof LocalGalleryDetails>[0]
 const mount = (overrides: Partial<Props> = {}) => {
   const calls = {
     open: 0,
-    publish: 0,
-    rescan: 0,
     rename: [] as string[],
     remove: 0,
-    reorder: 0,
   }
   const props: Props = {
     record: overrides.record ?? record(),
     availability: overrides.availability ?? 'available',
     onOpen: overrides.onOpen ?? (() => { calls.open += 1 }),
-    publishedUrl: overrides.publishedUrl ?? null,
-    onShare: overrides.onShare,
-    onPublish: overrides.onPublish ?? (() => { calls.publish += 1 }),
-    onReorder: overrides.onReorder === undefined ? undefined : () => { calls.reorder += 1 },
-    onRescan: overrides.onRescan
-      ? async () => { calls.rescan += 1; await overrides.onRescan?.() }
-      : () => { calls.rescan += 1 },
     onRename: overrides.onRename
       ? async (title) => { calls.rename.push(title); await overrides.onRename?.(title) }
       : (title) => { calls.rename.push(title) },
@@ -208,11 +198,12 @@ describe('local gallery settings panel (desktop)', () => {
 
   test('renders exactly the local action verbs and no banned surfaces', async () => {
     const { container } = mount()
-    for (const label of ['Open gallery', 'Publish', 'Refresh gallery contents', 'Remove from Library']) {
-      expect(row(container, label)).not.toBeNull()
+    expect([...container.querySelectorAll('.m-actionrow-label')].map((el) => el.textContent)).toEqual([
+      'Open gallery', 'Name', 'Remove from Library',
+    ])
+    for (const label of ['Copy link', 'Share link', 'Publish', 'Reorder photos', 'Reorder photographs', 'Refresh gallery', 'Refresh gallery contents']) {
+      expect(row(container, label)).toBeUndefined()
     }
-    // Five rows: the editable Name row plus exactly the four action verbs.
-    expect(container.querySelectorAll('.m-actionrow')).toHaveLength(5)
     // Remove is destructive.
     expect(row(container, 'Remove from Library')?.classList.contains('m-actionrow--destructive')).toBe(true)
 
@@ -224,8 +215,6 @@ describe('local gallery settings panel (desktop)', () => {
     expect(html).not.toContain('/Volumes/')
     expect(html).not.toContain(ITEM_NAME)
     // No public address, no provider metadata, no vault/offline/copy UI.
-    // (The default mount wires no onReorder — the row is the container's
-    // decision, covered below.)
     expect(html).not.toContain('manorama.xyz')
     expect(html).not.toContain('Dropbox')
     expect(html).not.toContain('Google Drive')
@@ -237,25 +226,15 @@ describe('local gallery settings panel (desktop)', () => {
     expect(html).not.toContain('Reorder')
   })
 
-  test('Reorder photographs renders and emits when the container wires it', async () => {
-    const { container, calls } = mount({ onReorder: () => {} })
-    const reorder = row(container, 'Reorder photographs') as HTMLButtonElement
-    expect(reorder).not.toBeNull()
-    expect(reorder.disabled).toBe(false)
-    reorder.click()
-    await settle()
-    expect(calls.reorder).toBe(1)
-
-    // An unavailable source cannot be arranged — same gate as Open.
-    const { container: off } = mount({ availability: 'unavailable', onReorder: () => {} })
-    expect((row(off, 'Reorder photographs') as HTMLButtonElement).disabled).toBe(true)
-  })
-
   test('Open folder renders and emits when the container wires it', async () => {
     let reveals = 0
     const { container } = mount({ onRevealFolder: () => { reveals += 1 } })
+    expect([...container.querySelectorAll('.m-actionrow-label')].map((el) => el.textContent)).toEqual([
+      'Open gallery', 'Name', 'Open folder', 'Remove from Library',
+    ])
     const folder = row(container, 'Open folder') as HTMLButtonElement
     expect(folder).not.toBeNull()
+    expect(folder.disabled).toBe(false)
     folder.click()
     await settle()
     expect(reveals).toBe(1)
@@ -265,67 +244,32 @@ describe('local gallery settings panel (desktop)', () => {
     expect(row(plain, 'Open folder')).toBeUndefined()
   })
 
-  test('when the source is unavailable, Open and Share are disabled and the state shows', async () => {
-    const { container, calls } = mount({ availability: 'unavailable' })
+  test('when the source is unavailable, Open is disabled and the state shows', async () => {
+    const { container, calls } = mount({ availability: 'unavailable', onRevealFolder: () => {} })
     const openRow = row(container, 'Open gallery') as HTMLButtonElement
-    const shareRow = row(container, 'Publish') as HTMLButtonElement
-    const rescanRow = row(container, 'Refresh gallery contents') as HTMLButtonElement
     expect(openRow.disabled).toBe(true)
-    expect(shareRow.disabled).toBe(true)
-    // Rescan is the recovery path and stays enabled.
-    expect(rescanRow.disabled).toBe(false)
+    for (const label of ['Name', 'Open folder', 'Remove from Library']) {
+      expect((row(container, label) as HTMLButtonElement).disabled).toBe(false)
+    }
 
     const status = container.querySelector('[data-availability="unavailable"]')
     expect(status?.textContent).toBe('Unavailable — reconnect the source, then rescan.')
 
     openRow.click()
-    shareRow.click()
     await settle()
     expect(calls.open).toBe(0)
-    expect(calls.publish).toBe(0)
   })
 
-  test('when available, Open and Share are enabled and fire', async () => {
+  test('when available, Open is enabled and fires', async () => {
     const { container, calls } = mount()
     expect((row(container, 'Open gallery') as HTMLButtonElement).disabled).toBe(false)
-    expect((row(container, 'Publish') as HTMLButtonElement).disabled).toBe(false)
     // An available source states nothing — the line exists only to warn
     // when the source is gone.
     expect(container.querySelector('[data-availability]')).toBeNull()
 
     ;(row(container, 'Open gallery') as HTMLButtonElement).click()
-    ;(row(container, 'Publish') as HTMLButtonElement).click()
     await settle()
     expect(calls.open).toBe(1)
-    expect(calls.publish).toBe(1)
-  })
-
-  test('a published link swaps Publish for Copy link, which never re-uploads', async () => {
-    const { container } = mount({
-      publishedUrl: 'https://manorama.xyz/thecontrarian/italy-amore-mio',
-      onShare: async () => 'Link copied — paste it anywhere',
-    })
-    const shareRow = row(container, 'Copy link') as HTMLButtonElement
-    expect(shareRow).not.toBeNull()
-    expect(shareRow.textContent).toContain('…/italy-amore-mio')
-    // No publish path exists for a gallery that already has a link.
-    expect(row(container, 'Publish')).toBeUndefined()
-
-    shareRow.click()
-    await settle()
-    const notes = [...container.querySelectorAll('.m-note[role="status"]')].map((el) => el.textContent)
-    expect(notes).toContain('Link copied — paste it anywhere')
-  })
-
-  test('a cancelled share leaves no status behind', async () => {
-    const { container } = mount({
-      publishedUrl: 'https://manorama.xyz/thecontrarian/italy-amore-mio',
-      onShare: async () => null,
-    })
-    ;(row(container, 'Copy link') as HTMLButtonElement).click()
-    await settle()
-    const notes = [...container.querySelectorAll('.m-note[role="status"]')].map((el) => el.textContent)
-    expect(notes).toEqual([])
   })
 
   test('renaming opens the shared edit sheet and submits the trimmed title', async () => {
@@ -353,6 +297,7 @@ describe('local gallery settings panel (desktop)', () => {
     const renameGate = deferred()
     const { container, calls } = mount({
       onRename: () => renameGate.promise,
+      onRevealFolder: () => {},
     })
     ;(row(container, 'Name') as HTMLButtonElement).click()
     await settle()
@@ -365,6 +310,9 @@ describe('local gallery settings panel (desktop)', () => {
     expect(calls.rename).toHaveLength(1)
     expect(byText(container, 'Saving…')).not.toBeNull()
     expect(container.querySelector('[aria-label="Close"]')).toBeNull()
+    for (const label of ['Open gallery', 'Name', 'Open folder', 'Remove from Library']) {
+      expect((row(container, label) as HTMLButtonElement).disabled).toBe(true)
+    }
 
     renameGate.reject(new Error('The disk is busy'))
     await settle()
@@ -373,6 +321,9 @@ describe('local gallery settings panel (desktop)', () => {
     expect(container.querySelector('input[aria-label="Name"]')?.getAttribute('value')).toBe('vernazza')
     expect(container.querySelector('[role="alert"]')?.textContent).toBe('The disk is busy')
     expect(byText(container, 'Save')).not.toBeNull()
+    for (const label of ['Open gallery', 'Name', 'Open folder', 'Remove from Library']) {
+      expect((row(container, label) as HTMLButtonElement).disabled).toBe(false)
+    }
   })
 
   test('remove asks for confirmation with copy that originals are untouched', async () => {
@@ -397,6 +348,7 @@ describe('local gallery settings panel (desktop)', () => {
     const removeGate = deferred()
     const { container, calls } = mount({
       onRemove: () => removeGate.promise,
+      onRevealFolder: () => {},
     })
     ;(row(container, 'Remove from Library') as HTMLButtonElement).click()
     await settle()
@@ -407,6 +359,10 @@ describe('local gallery settings panel (desktop)', () => {
     expect(byText(container, 'Removing…')).not.toBeNull()
     expect(sheetButton(container, 'Remove from Library')).toBeUndefined()
     expect((sheetButton(container, 'Cancel') as HTMLButtonElement | undefined)?.disabled).toBe(true)
+    expect(container.querySelector('[aria-label="Close"]')).toBeNull()
+    for (const label of ['Open gallery', 'Name', 'Open folder', 'Remove from Library']) {
+      expect((row(container, label) as HTMLButtonElement).disabled).toBe(true)
+    }
 
     removeGate.resolve()
     await settle()
@@ -431,24 +387,6 @@ describe('local gallery settings panel (desktop)', () => {
     expect(sheetButton(container, 'Remove from Library')).not.toBeUndefined()
   })
 
-  test('a rescan calls back and reports success and failure', async () => {
-    const rescanGate = deferred()
-    const { container, calls } = mount({ onRescan: () => rescanGate.promise })
-    ;(row(container, 'Refresh gallery contents') as HTMLButtonElement).click()
-    await settle()
-    expect(calls.rescan).toBe(1)
-    rescanGate.resolve()
-    await settle()
-    expect(container.textContent).toContain('Read just now')
-
-    const failGate = deferred()
-    const failing = mount({ onRescan: () => failGate.promise })
-    ;(row(failing.container, 'Refresh gallery contents') as HTMLButtonElement).click()
-    await settle()
-    failGate.reject(new Error('The card is not mounted'))
-    await settle()
-    expect(failing.container.textContent).toContain('The card is not mounted')
-  })
 })
 
 describe('the details rail stylesheet contract', () => {

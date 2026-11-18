@@ -13,11 +13,11 @@ import Catalogue from './Catalogue'
  * official API reads it (`window.__TAURI_INTERNALS__`), so the island runs its
  * real launch path: restore the session, read the catalogue, probe the sources.
  *
- * The P11 integration contract is proved here end-to-end: details mounts from a
- * card and hosts the shared Sheet+ShareFlow; history/Back work; Open, rename,
- * rescan, confirmed remove and share run through the real handlers; and the
- * shared sheet is non-dismissible during upload while dismissing mid-connect
- * cancels the pending provider connection.
+ * The integration contract is proved here end-to-end: the card menu opens
+ * final Gallery Settings or the shared publish sheet directly; history/Back
+ * work; Open, rename, rescan, confirmed remove and publish run through the real
+ * handlers; and the shared sheet is non-dismissible during upload while
+ * dismissing mid-connect cancels the pending provider connection.
  */
 
 const globals = globalThis as Record<string, unknown>
@@ -252,13 +252,18 @@ const shareSheetHost = (container: HTMLElement) =>
   [...container.querySelectorAll<HTMLElement>('.m-sheet-host')]
     .find((host) => host.querySelector('.desktop-share--sheet') !== null)
 
-/** Settings lives one level deep now: the card ··· menu → Gallery settings. */
-const openCardDetails = async (container: HTMLElement) => {
+/** Dispatch a local gallery action from the card's Level0 menu. */
+const openCardMenuAction = async (container: HTMLElement, label: string) => {
   container.querySelector<HTMLButtonElement>(`[aria-label="${TITLE} actions"]`)!.click()
   await settle()
-  menuItem(container, 'Gallery settings')!.click()
+  const action = menuItem(container, label)
+  expect(action).toBeDefined()
+  action!.click()
   await settle()
 }
+
+/** Gallery Settings is the final panel, one step from the card menu. */
+const openCardDetails = (container: HTMLElement) => openCardMenuAction(container, 'Gallery Settings')
 
 beforeAll(() => {
   dom = new Window({ width: 1280, height: 840, url: 'http://localhost/' })
@@ -511,18 +516,22 @@ describe('desktop catalogue workbench', () => {
       expect(card.querySelector('.lib-card-sub')?.textContent).toBe('1 photograph from Dropbox')
       // Server-relative previews arrive rewritten against the API origin.
       expect(card.querySelector('img')?.getAttribute('src')).toBe('https://manorama.xyz/img/a-sm.jpg')
-      // The ··· menu is down to pin/share/settings — Hide is a pro-tier
-      // row this free session does not carry, and the management verbs
-      // live inside Gallery settings now.
+      // Common actions live directly in the card menu; source and removal
+      // stay in the final Gallery Settings panel.
       card.querySelector<HTMLButtonElement>(`[aria-label="kashmir, in winter actions"]`)!.click()
       await settle()
-      for (const item of ['Pin gallery', 'Copy link', 'Post to X', 'Gallery Settings']) {
-        expect(menuItem(container, item)).toBeDefined()
-      }
-      for (const item of ['Reorder photographs', 'Open source', 'Refresh gallery contents', 'Remove gallery']) {
+      expect([...container.querySelectorAll('.lib-menu button')].map((button) => button.textContent?.trim())).toEqual([
+        'Pin gallery',
+        'Hide this gallery',
+        'Copy link',
+        'Reorder photos',
+        'Refresh gallery',
+        'Post to X',
+        'Gallery Settings',
+      ])
+      for (const item of ['Reorder photographs', 'Open source', 'Refresh gallery contents', 'Remove gallery', 'Open']) {
         expect(menuItem(container, item)).toBeUndefined()
       }
-      expect(menuItem(container, 'Open')).toBeUndefined()
 
       // The card itself opens — the manifest fetch fails in this mock, so the
       // fallback hands the renamed owner's URL to the system browser.
@@ -737,8 +746,11 @@ describe('desktop catalogue workbench', () => {
     expect(details).not.toBeNull()
     expect(details?.querySelector('.m-owner-panel-title')?.textContent).toBe(TITLE)
     expect(details?.querySelector('.m-owner-panel-head')?.textContent).toContain('2 photographs · Folder on this Mac')
-    for (const label of ['Open gallery', 'Publish', 'Name', 'Reorder photographs', 'Refresh gallery contents', 'Remove from Library']) {
-      expect(row(container, label)).not.toBeNull()
+    expect([...details!.querySelectorAll('.m-actionrow-label')].map((el) => el.textContent)).toEqual([
+      'Open gallery', 'Name', 'Open folder', 'Remove from Library',
+    ])
+    for (const label of ['Publish', 'Publish this gallery', 'Copy link', 'Reorder photos', 'Reorder photographs', 'Refresh gallery', 'Refresh gallery contents', 'Post to X', 'More Settings']) {
+      expect(row(container, label)).toBeUndefined()
     }
 
     // Local paths and filenames never surface in the settings panel's copy.
@@ -810,14 +822,11 @@ describe('desktop catalogue workbench', () => {
     for (const img of imgs) expect(img.src).toMatch(/^asset:\/\//)
   })
 
-  test('Reorder from details opens the picker straight into Edit and saves into the catalogue', async () => {
+  test('Reorder photos from the card menu opens Edit and saves into the catalogue', async () => {
     const container = await mount(true)
-    await openCardDetails(container)
-    await settle()
-    ;(row(container, 'Reorder photographs') as HTMLButtonElement).click()
-    await settle()
+    await openCardMenuAction(container, 'Reorder photos')
 
-    // The details sheet left and the picker owns the screen in Edit mode —
+    // The card menu left and the picker owns the screen in Edit mode —
     // the items came from the local record, not an API summary.
     expect(container.querySelector('[data-screen="local-details"]')).toBeNull()
     expect(container.querySelector('.viewer-picker-mode')?.textContent).toBe('Reorder Photos')
@@ -837,17 +846,14 @@ describe('desktop catalogue workbench', () => {
     // The catalogue file holds the new order — no API PATCH was attempted.
     const saved = JSON.parse(files['catalogue.json']!) as { galleries: { items: { id: string }[] }[] }
     expect(saved.galleries[0]!.items.map((i) => i.id)).toEqual(['MS201810-Italy0100.jpg', 'MS201810-Italy0005.jpg'])
-    // Entered from settings — Save lands back on the Library, not the gallery.
+    // Entered from the card menu — Save lands back on the Library, not the gallery.
     expect(container.querySelector('.viewer-stage')).toBeNull()
     expect(container.querySelector('.admin-page')).not.toBeNull()
   })
 
   test('dragging a photograph across the matrix reorders and saves', async () => {
     const container = await mount(true)
-    await openCardDetails(container)
-    await settle()
-    ;(row(container, 'Reorder photographs') as HTMLButtonElement).click()
-    await settle()
+    await openCardMenuAction(container, 'Reorder photos')
 
     // happy-dom does no layout — the drag's hit test reads live rects, so
     // the two cells get synthetic boxes side by side for the pointer's trip.
@@ -901,10 +907,7 @@ describe('desktop catalogue workbench', () => {
 
   test('hiding a photograph in Edit mode removes it from the manifest and the rail, not the record', async () => {
     const container = await mount(true)
-    await openCardDetails(container)
-    await settle()
-    ;(row(container, 'Reorder photographs') as HTMLButtonElement).click()
-    await settle()
+    await openCardMenuAction(container, 'Reorder photos')
 
     // The per-cell mark hides the photograph — the draft, then Save.
     container.querySelector<HTMLButtonElement>('[aria-label="Hide MS201810-Italy0005.jpg"]')!.click()
@@ -955,24 +958,24 @@ describe('desktop catalogue workbench', () => {
     globals.fetch = originalFetch
   })
 
-  test('Refresh gallery contents rescans the source and updates details and card counts', async () => {
+  test('Refresh gallery from the card menu rescans the source and updates details and card counts', async () => {
     const container = await mount(true)
-    await openCardDetails(container)
-    await settle()
-
     dirs[ROOT_PATH]!.push({ name: 'MS201810-Italy0200.jpg', isDirectory: false, isFile: true })
-    ;(row(container, 'Refresh gallery contents') as HTMLButtonElement).click()
-    await settle()
+    await openCardMenuAction(container, 'Refresh gallery')
 
-    expect(container.querySelector('.m-owner-panel-head')?.textContent).toContain('3 photographs')
-    expect(container.textContent).toContain('Read just now')
-
-    container.querySelector<HTMLButtonElement>('button[aria-label="Close"]')!.click()
-    await settle()
+    expect(container.querySelector('[data-screen="local-details"]')).toBeNull()
+    expect(container.querySelector('.lib-menu')).toBeNull()
+    expect(container.querySelector('.desktop-toast-stack .admin-toast')?.textContent).toBe(`“${TITLE}” refreshed`)
     const card = container.querySelector<HTMLElement>(`[data-gallery-card="${GALLERY_ID}"]`)!
     expect(card.querySelector('.lib-card-sub')?.textContent).toBe('3 photographs · Mac')
     const saved = JSON.parse(files['catalogue.json']) as { galleries: { itemCount: number }[] }
     expect(saved.galleries[0]?.itemCount).toBe(3)
+
+    await openCardDetails(container)
+    expect(container.querySelector('.m-owner-panel-head')?.textContent).toContain('3 photographs')
+    container.querySelector<HTMLButtonElement>('button[aria-label="Close"]')!.click()
+    await settle()
+    expect(container.querySelector('[data-screen="local-details"]')).toBeNull()
   })
 
   test('confirmed remove returns to the library and touches only the catalogue entry', async () => {
@@ -1001,13 +1004,14 @@ describe('desktop catalogue workbench', () => {
     expect(fsMutations).toHaveLength(0)
   })
 
-  test('share opens in the shared sheet from Details and a plain close resets it', async () => {
+  test('publish opens directly over the Library and a plain close resets it', async () => {
     const container = await mount(true)
-    await openCardDetails(container)
-    await settle()
-    ;(row(container, 'Publish') as HTMLButtonElement).click()
-    await settle()
+    await openCardMenuAction(container, 'Publish this gallery')
 
+    expect(container.querySelector('[data-screen="local-details"]')).toBeNull()
+    expect(container.querySelector('.lib-menu')).toBeNull()
+    expect(container.querySelector('.admin-page')).not.toBeNull()
+    expect(new URL(dom.window.location.href).searchParams.get('details')).toBeNull()
     const host = shareSheetHost(container)
     expect(host).not.toBeNull()
     expect(host?.querySelector('.desktop-share--sheet')).not.toBeNull()
@@ -1019,23 +1023,21 @@ describe('desktop catalogue workbench', () => {
 
     host?.querySelector<HTMLButtonElement>('button[aria-label="Close"]')!.click()
     await settle()
-    // Only the publish sheet leaves — the settings sheet beneath it stays.
+    // Closing returns straight to Library, with no latent settings route.
     expect(container.querySelector('.desktop-share--sheet')).toBeNull()
-    expect(container.querySelector('[data-screen="local-details"]')).not.toBeNull()
+    expect(container.querySelector('[data-screen="local-details"]')).toBeNull()
+    expect(container.querySelector('.admin-page')).not.toBeNull()
+    expect(new URL(dom.window.location.href).searchParams.get('details')).toBeNull()
 
     // Reopening starts from a clean choose step.
-    ;(row(container, 'Publish') as HTMLButtonElement).click()
-    await settle()
+    await openCardMenuAction(container, 'Publish this gallery')
     expect(container.querySelector('.desktop-share--sheet')).not.toBeNull()
     expect(container.textContent).toContain('nothing uploads until you confirm')
   })
 
   test('dismissing while connecting cancels the pending provider connection', async () => {
     const container = await mount(true)
-    await openCardDetails(container)
-    await settle()
-    ;(row(container, 'Publish') as HTMLButtonElement).click()
-    await settle()
+    await openCardMenuAction(container, 'Publish this gallery')
 
     const connectButton = byText(container, 'Connect')
     expect(connectButton).not.toBeUndefined()
@@ -1049,8 +1051,7 @@ describe('desktop catalogue workbench', () => {
 
     // The cancelled connect is settled, so a fresh attempt starts clean instead
     // of reporting a stale pending flow.
-    ;(row(container, 'Publish') as HTMLButtonElement).click()
-    await settle()
+    await openCardMenuAction(container, 'Publish this gallery')
     byText(container, 'Connect')!.click()
     await settle()
     expect(container.textContent).toContain('Finish connecting Dropbox')
@@ -1069,10 +1070,7 @@ describe('desktop catalogue workbench', () => {
     // The read gate is consulted only when the upload starts, so it can be
     // armed after mount (installTauri resets it).
     readFileGate = deferred()
-    await openCardDetails(container)
-    await settle()
-    ;(row(container, 'Publish') as HTMLButtonElement).click()
-    await settle()
+    await openCardMenuAction(container, 'Publish this gallery')
 
     byText(container, 'Use Dropbox')!.click()
     await settle()
@@ -1105,33 +1103,34 @@ describe('desktop catalogue workbench', () => {
 
   test('navigating history while connecting settles the pending provider connection', async () => {
     const container = await mount(true)
-    await openCardDetails(container)
-    await settle()
-    ;(row(container, 'Publish') as HTMLButtonElement).click()
-    await settle()
+    await openCardMenuAction(container, 'Publish this gallery')
 
     byText(container, 'Connect')!.click()
     await settle()
     expect(container.textContent).toContain('Finish connecting Dropbox')
 
-    // Back (popstate) while the connect is pending: the sheet and details go,
-    // and the pending flow is settled exactly like the sheet's own Close.
+    expect(new URL(dom.window.location.href).searchParams.get('details')).toBeNull()
+    const authorizationUrls = () => invokeCalls
+      .filter((call) => call.command === 'plugin:opener|open_url')
+      .map((call) => new URL(String(call.args?.url)))
+    expect(authorizationUrls()).toHaveLength(1)
+    expect(authorizationUrls()[0].searchParams.get('redirect_uri')).toBe('in.thecontrarian.manorama.desktop://oauth/dropbox')
     dom.window.history.replaceState(null, '', 'http://localhost/')
     dom.window.dispatchEvent(new dom.Event('popstate'))
     await settle()
     expect(container.querySelector('.desktop-share--sheet')).toBeNull()
     expect(container.querySelector('[data-screen="local-details"]')).toBeNull()
+    expect(container.querySelector('.admin-page')).not.toBeNull()
+    expect(new URL(dom.window.location.href).searchParams.get('details')).toBeNull()
+    expect(authorizationUrls()).toHaveLength(1)
 
-    // The cancelled connect is settled, so a fresh attempt starts clean instead
-    // of reporting a stale pending flow.
-    await openCardDetails(container)
-    await settle()
-    ;(row(container, 'Publish') as HTMLButtonElement).click()
-    await settle()
+    await openCardMenuAction(container, 'Publish this gallery')
     byText(container, 'Connect')!.click()
     await settle()
     expect(container.textContent).toContain('Finish connecting Dropbox')
     expect(container.querySelector('[role="alert"]')).toBeNull()
+    expect(authorizationUrls()).toHaveLength(2)
+    expect(authorizationUrls()[1].searchParams.get('state')).not.toBe(authorizationUrls()[0].searchParams.get('state'))
 
     // Leave no pending connect behind for later tests: dismissal settles it.
     shareSheetHost(container)!.querySelector<HTMLButtonElement>('button[aria-label="Close"]')!.click()
@@ -1139,55 +1138,60 @@ describe('desktop catalogue workbench', () => {
     expect(container.querySelector('.desktop-share--sheet')).toBeNull()
   })
 
-  test('navigating history during an upload leaves details and the sheet mounted', async () => {
+  test('navigating Library history during a direct-menu upload leaves the sheet mounted', async () => {
     const container = await mount(true, {
       dropbox: { accessToken: 'token', expiresAt: Date.now() + 1e12 },
     })
     // The read gate is consulted only when the upload starts, so it can be
     // armed after mount (installTauri resets it).
     readFileGate = deferred()
-    await openCardDetails(container)
-    await settle()
-    ;(row(container, 'Publish') as HTMLButtonElement).click()
-    await settle()
+    await openCardMenuAction(container, 'Publish this gallery')
     byText(container, 'Use Dropbox')!.click()
     await settle()
     byText(container, 'Upload and publish')!.click()
     await settle()
     expect(container.textContent).toContain('Preparing the upload…')
 
-    // History navigation while the upload is gated must not dismiss the
-    // surface: details and the sheet stay, Close stays unavailable, and the
-    // details URL is restored so Back can still leave once the upload settles.
+    // The same Library popstate that cancels a pending connection must be
+    // inert during upload. No details route is created by this menu flow.
+    const host = shareSheetHost(container)
+    expect(host).toBeDefined()
+    expect(container.querySelector('[data-screen="local-details"]')).toBeNull()
+    expect(new URL(dom.window.location.href).searchParams.get('details')).toBeNull()
+    const reads = invokeLog.filter((command) => command === 'plugin:fs|read_file').length
+    expect(reads).toBeGreaterThan(0)
     dom.window.history.replaceState(null, '', 'http://localhost/')
     dom.window.dispatchEvent(new dom.Event('popstate'))
     await settle()
 
-    expect(container.querySelector('[data-screen="local-details"]')).not.toBeNull()
-    expect(shareSheetHost(container)).not.toBeNull()
+    expect(container.querySelector('[data-screen="local-details"]')).toBeNull()
+    expect(shareSheetHost(container)).toBe(host)
     expect(shareSheetHost(container)?.querySelector('button[aria-label="Close"]')).toBeNull()
-    expect(new URL(dom.window.location.href).searchParams.get('details')).toBe(GALLERY_ID)
+    expect(container.textContent).toContain('Preparing the upload…')
+    expect(invokeLog.filter((command) => command === 'plugin:fs|read_file')).toHaveLength(reads)
+    expect(new URL(dom.window.location.href).searchParams.get('details')).toBeNull()
 
     // Releasing the read lands the flow in error exactly once — no restart,
     // no duplicate upload phase.
     readFileGate!.reject(new Error('halt'))
     readFileGate = null
     await settle()
-    expect(container.querySelector('.m-sheet-host [role="alert"]')).not.toBeNull()
-    expect(container.querySelector('.m-sheet-host button[aria-label="Close"]')).not.toBeNull()
+    expect(shareSheetHost(container)?.querySelector('[role="alert"]')).not.toBeNull()
+    expect(shareSheetHost(container)?.querySelector('button[aria-label="Close"]')).not.toBeNull()
     expect(container.textContent).not.toContain('nothing uploads until you confirm')
+    expect(invokeLog.filter((command) => command === 'plugin:fs|read_file')).toHaveLength(reads)
 
-    // With the upload settled, Back closes details normally.
-    container.querySelector<HTMLButtonElement>('button[aria-label="Close"]')!.click()
+    // With the upload settled, Close returns directly to the Library.
+    shareSheetHost(container)!.querySelector<HTMLButtonElement>('button[aria-label="Close"]')!.click()
     await settle()
+    expect(container.querySelector('.desktop-share--sheet')).toBeNull()
     expect(container.querySelector('[data-screen="local-details"]')).toBeNull()
     expect(container.querySelector('.admin-page')).not.toBeNull()
+    expect(new URL(dom.window.location.href).searchParams.get('details')).toBeNull()
   })
 
   test('a failed source scan reports the error and marks the source unavailable', async () => {
     const container = await mount(true)
-    await openCardDetails(container)
-    await settle()
 
     const internals = (dom as unknown as { __TAURI_INTERNALS__: { invoke: (command: string, args?: Record<string, unknown>) => Promise<unknown> } }).__TAURI_INTERNALS__
     const originalInvoke = internals.invoke
@@ -1198,13 +1202,14 @@ describe('desktop catalogue workbench', () => {
       return originalInvoke(command, args)
     }
 
-    ;(row(container, 'Refresh gallery contents') as HTMLButtonElement).click()
-    await settle()
+    await openCardMenuAction(container, 'Refresh gallery')
 
     // The error surfaces; no success note; the prior record/count stays and
     // a genuine source read failure may flag the source unavailable.
     expect(container.textContent).toContain('The card is not mounted')
-    expect(container.textContent).not.toContain('Read just now')
+    expect(container.textContent).not.toContain(`“${TITLE}” refreshed`)
+    expect(container.querySelector(`[data-gallery-card="${GALLERY_ID}"] .lib-card-sub`)?.textContent).toBe('2 photographs · Mac')
+    await openCardDetails(container)
     expect(container.querySelector('.m-owner-panel-head')?.textContent).toContain('2 photographs')
     expect(container.querySelector('[data-availability="unavailable"]')).not.toBeNull()
     const saved = JSON.parse(files['catalogue.json']) as { galleries: { itemCount: number }[] }
@@ -1213,8 +1218,6 @@ describe('desktop catalogue workbench', () => {
 
   test('a failed private-store write during rescan keeps the old count and availability', async () => {
     const container = await mount(true)
-    await openCardDetails(container)
-    await settle()
 
     // A new photo appears on disk — the scan would succeed; only the write fails.
     dirs[ROOT_PATH]!.push({ name: 'MS201810-Italy0200.jpg', isDirectory: false, isFile: true })
@@ -1225,13 +1228,14 @@ describe('desktop catalogue workbench', () => {
       return originalInvoke(command, args)
     }
 
-    ;(row(container, 'Refresh gallery contents') as HTMLButtonElement).click()
-    await settle()
+    await openCardMenuAction(container, 'Refresh gallery')
 
     // The error surfaces; no success note; the prior record/count stays on
     // screen and the still-available source is not flagged unavailable.
     expect(container.textContent).toContain('The disk is full')
-    expect(container.textContent).not.toContain('Read just now')
+    expect(container.textContent).not.toContain(`“${TITLE}” refreshed`)
+    expect(container.querySelector(`[data-gallery-card="${GALLERY_ID}"] .lib-card-sub`)?.textContent).toBe('2 photographs · Mac')
+    await openCardDetails(container)
     expect(container.querySelector('.m-owner-panel-head')?.textContent).toContain('2 photographs')
     expect(container.querySelector('[data-availability="available"]')).not.toBeNull()
     const saved = JSON.parse(files['catalogue.json']) as { galleries: { itemCount: number }[] }
@@ -1624,12 +1628,11 @@ describe('desktop catalogue workbench', () => {
       await settle()
       menuItem(container, 'Gallery Settings')!.click()
       await settle()
-      // Removal lives one layer deeper — More Settings holds the rest.
-      const moreRow = [...container.querySelectorAll<HTMLElement>('.m-actionrow')]
-        .find((el) => el.textContent?.includes('More Settings')) as HTMLElement
-      expect(moreRow).toBeTruthy()
-      moreRow.click()
-      await settle()
+      // Gallery Settings is final: the rest layer is mounted immediately,
+      // without repeating the actions already offered by the card menu.
+      for (const label of ['More Settings', 'Copy link', 'Reorder photos', 'Reorder photographs', 'Refresh gallery', 'Refresh gallery contents', 'Post to X']) {
+        expect(row(container, label)).toBeUndefined()
+      }
       const removeRow = [...container.querySelectorAll<HTMLElement>('.m-actionrow')]
         .find((el) => el.textContent?.includes('Remove from Library')) as HTMLElement
       expect(removeRow).toBeTruthy()
@@ -1675,8 +1678,16 @@ describe('desktop catalogue workbench', () => {
       await settle()
       menuItem(container, 'Gallery Settings')!.click()
       await settle()
-      // The shared owner panel mounts — the same rows the web sheet hosts.
-      expect(container.querySelector('.m-owner-panel')).not.toBeNull()
+      // The final rest layer mounts directly, not a second quick-action menu.
+      const panel = container.querySelector('.m-owner-panel')
+      expect(panel).not.toBeNull()
+      expect([...panel!.querySelectorAll('.m-actionrow-label')].map((el) => el.textContent)).toEqual([
+        'Open gallery', 'Name', 'Caption', 'Address', 'Open source',
+        'Keep a copy', 'Save to this Mac', 'Remove from Library',
+      ])
+      for (const label of ['More Settings', 'Copy link', 'Reorder photos', 'Reorder photographs', 'Refresh gallery', 'Refresh gallery contents', 'Post to X']) {
+        expect(row(container, label)).toBeUndefined()
+      }
     } finally {
       restore()
       Object.defineProperty(globals, 'navigator', { configurable: true, writable: true, value: previousNavigator })
@@ -1714,20 +1725,36 @@ describe('desktop catalogue workbench', () => {
     expect(picker!.querySelectorAll('.native-global-cell')).toHaveLength(2)
   })
 
-  test('the local card menu carries the account menu’s relevant verbs', async () => {
-    const container = await mount(true)
-    container.querySelector<HTMLButtonElement>(`[aria-label="${TITLE} actions"]`)!.click()
-    await settle()
-    // The quick menu is pin/hide/share-or-publish/settings — the management
-    // verbs moved inside Gallery settings.
-    const items = [...container.querySelectorAll<HTMLButtonElement>('.lib-menu button')].map((b) => b.textContent?.trim())
-    expect(items).toEqual([
-      'Pin gallery',
-      'Hide this gallery',
-      'Publish this gallery',
-      'Post to X',
-      'Gallery settings',
-    ])
+  for (const state of ['unpublished', 'published'] as const) test(`the ${state} local card menu carries exactly the relevant verbs`, async () => {
+    const defaultFetch = globals.fetch as typeof fetch
+    globals.fetch = (async (url: string, init?: RequestInit) => {
+      if (String(url).endsWith('/api/device-galleries') && (!init?.method || init.method === 'GET')) {
+        return new Response(JSON.stringify({ galleries: state === 'published' ? [{
+          id: GALLERY_ID, title: TITLE, sourceKind: 'folder', itemCount: 2,
+          deviceId: DEVICE_ID, updatedAt: record.lastSeenAt, publicGallerySlug: 'italy-amore',
+        }] : [] }), { status: 200 })
+      }
+      return defaultFetch(url, init)
+    }) as unknown as typeof fetch
+    try {
+      const container = await mount(true)
+      container.querySelector<HTMLButtonElement>(`[aria-label="${TITLE} actions"]`)!.click()
+      await settle()
+      // Common actions are all at Level0; publishing is offered only before
+      // this Mac's synced row carries a public gallery address.
+      const items = [...container.querySelectorAll<HTMLButtonElement>('.lib-menu button')].map((b) => b.textContent?.trim())
+      expect(items).toEqual([
+        'Pin gallery',
+        'Hide this gallery',
+        state === 'published' ? 'Copy link' : 'Publish this gallery',
+        'Reorder photos',
+        'Refresh gallery',
+        'Post to X',
+        'Gallery Settings',
+      ])
+    } finally {
+      globals.fetch = defaultFetch
+    }
   })
 
   test('a local gallery’s guarded remove lives inside Gallery settings', async () => {
@@ -1765,14 +1792,10 @@ describe('desktop catalogue workbench', () => {
     expect(container.querySelector('.desktop-share--sheet')).not.toBeNull()
   })
 
-  test('Reorder photographs inside local settings opens the picker straight into Edit', async () => {
+  test('Reorder photos on the local card menu opens the picker straight into Edit', async () => {
     const container = await mount(true)
-    await openCardDetails(container)
-    const reorderRow = [...container.querySelectorAll<HTMLElement>('.m-actionrow')]
-      .find((el) => el.textContent?.includes('Reorder photographs')) as HTMLElement
-    expect(reorderRow).toBeTruthy()
-    reorderRow.click()
-    await settle()
+    await openCardMenuAction(container, 'Reorder photos')
+    expect(container.querySelector('[data-screen="local-details"]')).toBeNull()
     expect(container.querySelector('.viewer-picker-mode')?.textContent).toBe('Reorder Photos')
   })
 

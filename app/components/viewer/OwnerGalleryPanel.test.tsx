@@ -85,7 +85,7 @@ describe('the web owner panel', () => {
     expect(root.textContent).not.toContain('This gallery')
     expect(root.textContent).toContain('Mixed album')
     expect(root.textContent).toContain('24 photographs · 1 video · Dropbox')
-    for (const label of ['Share link', 'Name', 'Caption', 'Address', 'Reorder photographs', 'Refresh gallery contents', 'Remove from Library']) {
+    for (const label of ['Copy link', 'Name', 'Caption', 'Address', 'Reorder photographs', 'Refresh gallery contents', 'Remove from Library']) {
       expect(row(root, label)).toBeTruthy()
     }
     // The remove row carries the source reassurance as its value — the
@@ -290,7 +290,7 @@ describe('the web owner panel', () => {
     expect(calls).toEqual([])
   })
 
-  test('temporary galleries lock the edit rows but keep Share and Remove', () => {
+  test('temporary galleries lock the edit rows but keep Copy link and Remove', () => {
     // Half-hour padding keeps the floored countdown stable across test drift.
     const expiresAt = new Date(Date.now() + 12 * 86_400_000 + 5.5 * 3_600_000).toISOString()
     const root = mounted({ temporary: true, expiresAt })
@@ -300,7 +300,7 @@ describe('the web owner panel', () => {
       const button = row(root, label) as HTMLButtonElement
       expect(button.disabled).toBe(true)
     }
-    expect((row(root, 'Share link') as HTMLButtonElement).disabled).toBe(false)
+    expect((row(root, 'Copy link') as HTMLButtonElement).disabled).toBe(false)
     expect((row(root, 'Remove from Library') as HTMLButtonElement).disabled).toBe(false)
     expect(root.querySelector('.m-owner-panel-lock a')?.getAttribute('href')).toBe('/thecontrarian')
   })

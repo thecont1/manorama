@@ -121,11 +121,11 @@ const dropListener = () => {
 
 /** Push an overlay host (the element that contains the dialog/sheet). Returns
  *  a release function; call it exactly once. */
-export const pushOverlay = ({ host, onEscape }: { host: HTMLElement; onEscape?: () => void }): (() => void) => {
+export const pushOverlay = ({ host, onEscape, returnFocus = document.activeElement }: { host: HTMLElement; onEscape?: () => void; returnFocus?: Element | null }): (() => void) => {
   const entry: Entry = {
     host,
     onEscape,
-    returnFocus: document.activeElement,
+    returnFocus,
   }
   stack.push(entry)
   ensureListener()

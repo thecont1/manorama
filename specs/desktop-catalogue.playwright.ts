@@ -330,17 +330,18 @@ test('window-1280x840: details surface and share sheet over real photographs, bo
     for (const banned of ['public', 'provider', 'vault', 'offline']) {
       await expect(details).not.toContainText(banned)
     }
-    await expect(details.locator('.m-actionrow')).toHaveCount(7)
+    await expect(details.locator('.m-actionrow')).toHaveCount(4)
     const labels = await details.locator('.m-actionrow-label').allTextContents()
-    expect(labels.map(label => label.trim())).toEqual(['Open gallery', 'Publish', 'Name', 'Reorder photographs', 'Refresh gallery contents', 'Open folder', 'Remove from Library'])
+    expect(labels.map(label => label.trim())).toEqual(['Open gallery', 'Name', 'Open folder', 'Remove from Library'])
 
     mkdirSync(evidence, { recursive: true })
     await page.screenshot({ path: resolve(evidence, `${engine}-window-1280x840-${theme}-details.png`), animations: 'disabled', timeout: 15_000 })
 
-    // Publish opens the shared Sheet — sheet presentation, never the
-    // inline header — with the upload-confirmation copy. No provider connect
-    // or upload is attempted.
-    await details.getByRole('button', { name: 'Publish' }).click()
+    await page.getByRole('dialog').getByRole('button', { name: 'Close', exact: true }).click()
+    await expect(details).toHaveCount(0)
+    expect(new URL(page.url()).search).toBe('')
+    await card.locator('.lib-card-menu').click()
+    await page.getByRole('dialog').getByRole('button', { name: 'Publish this gallery' }).click()
     const share = page.locator('.desktop-share--sheet')
     await expect(share).toBeVisible()
     await expect(page.locator('.desktop-share-header')).toHaveCount(0)
@@ -348,13 +349,8 @@ test('window-1280x840: details surface and share sheet over real photographs, bo
     await expect(share).toContainText('Dropbox')
     await page.screenshot({ path: resolve(evidence, `${engine}-window-1280x840-${theme}-share.png`), animations: 'disabled', timeout: 15_000 })
 
-    // Closing the sheet returns to Details, untouched.
     await page.getByRole('button', { name: 'Close' }).click()
     await expect(share).toBeHidden()
-    await expect(details).toBeVisible()
-
-    // Back returns to the Library and the URL is clean.
-    await details.getByRole('button', { name: 'Back' }).click()
     await expect(page.locator('.desktop-catalogue')).toBeVisible()
     await expect(details).toHaveCount(0)
     expect(new URL(page.url()).search).toBe('')

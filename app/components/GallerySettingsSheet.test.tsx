@@ -108,7 +108,7 @@ describe('the unmount drain', () => {
 describe('the Library gallery settings sheet', () => {
   test('the front layer carries the quick actions and drills into the rest', async () => {
     const root = mounted()
-    for (const label of ['Share link', 'Reorder photographs', 'Refresh gallery contents', 'More Settings']) {
+    for (const label of ['Copy link', 'Reorder photographs', 'Refresh gallery contents', 'More Settings']) {
       expect(row(root, label)).toBeTruthy()
     }
     // The front layer never shows the management rows.
@@ -121,7 +121,7 @@ describe('the Library gallery settings sheet', () => {
     expect(row(root, 'Address')).toBeTruthy()
     expect(row(root, 'Remove from Library')).toBeTruthy()
     // The quick rows are gone from the rest layer — one panel, one slice.
-    expect(row(root, 'Share link')).toBeUndefined()
+    expect(row(root, 'Copy link')).toBeUndefined()
     expect(row(root, 'Refresh gallery contents')).toBeUndefined()
     // Focus moved to the rest layer's heading.
     expect(dom.document.activeElement?.textContent).toBe('More Settings')

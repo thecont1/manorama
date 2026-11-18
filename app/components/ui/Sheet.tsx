@@ -22,6 +22,7 @@ type Props = {
   footer?: Child
   size?: 'auto' | 'half'
   dismissible?: boolean
+  returnFocus?: HTMLElement | null
   /** Popover presentation: a card floating above its trigger rather than
    *  a bottom sheet/centered dialog. Positioning comes from panelStyle —
    *  the caller anchors it off the trigger's rect; the scrim turns
@@ -31,7 +32,7 @@ type Props = {
   panelStyle?: Record<string, string | undefined> | undefined
 }
 
-export function Sheet({ open, onClose, title, children, footer, size = 'auto', dismissible = true, popover = false, panelStyle }: Props) {
+export function Sheet({ open, onClose, title, children, footer, size = 'auto', dismissible = true, returnFocus, popover = false, panelStyle }: Props) {
   const headingId = `m-sheet-title-${useId()}`
   const hostRef = useRef<HTMLDivElement>(null)
   const headingRef = useRef<HTMLHeadingElement>(null)
@@ -62,6 +63,7 @@ export function Sheet({ open, onClose, title, children, footer, size = 'auto', d
       const release = pushOverlay({
         host,
         onEscape: dismissible ? close : undefined,
+        returnFocus,
       })
       const unwatch = watchVisualViewport(host)
       const vv = typeof visualViewport === 'undefined' ? null : visualViewport

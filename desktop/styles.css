@@ -64,6 +64,13 @@ body.manorama-desktop {
   letter-spacing: -.03em;
   line-height: 1.12;
 }
+.desktop-welcome h1 em {
+  font-family: inherit;
+  font-style: italic;
+  font-weight: 560;
+  letter-spacing: -.01em;
+  color: var(--m-data);
+}
 .desktop-welcome .landing-brand-intro {
   max-width: 38rem;
   margin: 18px auto 0;
@@ -478,10 +485,32 @@ body.manorama-desktop .app-update-dismiss:hover { color: rgba(var(--ink), 1); }
    galleries column rather than overlaying a sheet, so frost depth applies
    to the pane itself and there is no scrim to treat. */
 :root[data-macos-shell] section.web-settings--pane {
+  container: library-settings / inline-size;
+  padding-block: clamp(24px, 3vw, 40px) 48px;
+  padding-inline: clamp(24px, 3vw, 40px);
   background: var(--glass-fill-frost);
   backdrop-filter: blur(24px) saturate(1.4);
   -webkit-backdrop-filter: blur(24px) saturate(1.4);
   box-shadow: var(--glass-rim), var(--glass-shadow);
+}
+
+:root[data-macos-shell] .web-settings--pane .m-owner-content > section {
+  padding-inline-start: 0;
+}
+@container library-settings (max-width: 640px) {
+  :root[data-macos-shell] .web-settings--pane .m-owner-content > section:is(:has(> .m-actiongroup), .native-vault-card) {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  :root[data-macos-shell] .web-settings--pane .m-actiongroup {
+    grid-column: auto;
+    grid-row: auto;
+  }
+  :root[data-macos-shell] .web-settings--pane .m-actiongroup-label {
+    margin-bottom: 8px;
+  }
+  :root[data-macos-shell] .web-settings--pane .native-vault-card > *:not(.native-vault-header) {
+    grid-column: auto;
+  }
 }
 
 /* Tier 0 — reduced transparency/contrast, a shell-stamped attribute, or

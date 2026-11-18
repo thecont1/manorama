@@ -401,7 +401,7 @@ export default function OwnerGalleryPanel({
           ) : null}
           {layer !== 'rest' ? (
             <ActionRow
-              label={linkCopied ? 'Link copied' : GALLERY_ROWS.share.label}
+              label={linkCopied ? 'Link copied' : 'Copy link'}
               icon={GALLERY_ROWS.share.icon()}
               onClick={copyShareLink}
               disabled={shareDisabled}

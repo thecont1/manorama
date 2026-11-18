@@ -638,7 +638,16 @@ kbd { border: 1px solid rgba(var(--ink), .23); padding: 3px 5px; color: rgba(var
 /* The web owner's inline gallery panel (Settings popover): a bold title
    and meta line up top, then the management groups. Inline editors and
    the remove confirmation swap in for their rows inside the same card. */
+/* The settings panel stacks its action groups with the Details page's own
+   rhythm — .d-groups' 14px — instead of letting the cards butt together.
+   A labelled group ("On this Mac") opens a new section of the sheet, so it
+   gets a little more air than the anonymous row groups above it. */
+.m-owner-panel { display: grid; align-content: start; gap: 14px; }
+.m-owner-panel > * { min-width: 0; }
+.m-owner-panel > section:has(> .m-actiongroup-label) { margin-top: 8px; }
+.m-sheet .m-owner-panel + section { margin-top: 14px; }
 .m-owner-panel-head { margin: 0 0 12px; }
+.m-owner-panel > .m-owner-panel-head { margin-bottom: 0; }
 .m-owner-panel-title { font-size: 16px; font-weight: 650; overflow-wrap: anywhere; }
 .m-owner-panel-meta { margin: 2px 0 0; color: var(--m-secondary); font-size: var(--m-fs-small); }
 /* The caption belongs to the panel head as full text — an ActionRow's

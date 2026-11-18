@@ -9,14 +9,6 @@ import LocalGalleryDetails from '../../desktop/islands/LocalGalleryDetails'
 import { ActionGroup, ActionRow } from './ui/ActionRow'
 import type { LocalGalleryRecord } from '../../desktop/lib/catalogue'
 
-/**
- * The gallery-settings contract, asserted on every surface at once: the
- * same rows in the same order, with the same labels, whether the host is
- * the web owner panel, the desktop local panel, or the native full-screen
- * details. A label that drifts on one surface fails here, not in a
- * screenshot review.
- */
-
 const globals = globalThis as Record<string, unknown>
 let dom: Window
 let prev: Record<string, unknown>
@@ -144,7 +136,7 @@ describe('the gallery-settings row contract', () => {
       />,
     )
     expectCanonical(root, [
-      'Open gallery', 'Share link',
+      'Open gallery', 'Copy link',
       'Name', 'Caption', 'Address', 'Reorder photographs',
       'Refresh gallery contents', 'Open source',
       'Keep a copy', 'Remove saved copy',
@@ -154,29 +146,19 @@ describe('the gallery-settings row contract', () => {
     expect(root.querySelector('.m-actiongroup-label')?.textContent).toBe('On this Mac')
   })
 
-  test('the desktop local panel omits the rows a local gallery cannot perform', () => {
+  test('the desktop local panel keeps only the final management rows', () => {
     const root = mount(
       <LocalGalleryDetails
         record={localRecord}
         availability="available"
         onOpen={noop}
-        publishedUrl={null}
-        onPublish={noop}
-        onReorder={noop}
-        onRescan={noop}
         onRename={async () => {}}
         onRemove={noop}
         onRevealFolder={noop}
       />,
     )
-    // Publish stands in for Share link until a public slug exists; there is
-    // no Caption, Address, source link, or device group — the originals are
-    // already on this Mac.
     expectCanonical(root, [
-      'Open gallery', 'Publish',
-      'Name', 'Reorder photographs',
-      'Refresh gallery contents', 'Open folder',
-      'Remove from Library',
+      'Open gallery', 'Name', 'Open folder', 'Remove from Library',
     ])
   })
 
