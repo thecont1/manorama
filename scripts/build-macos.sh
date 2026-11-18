@@ -35,8 +35,8 @@ echo "==> compiling the Swift app"
 # The app is assembled as a plain .app bundle rather than through an Xcode
 # project: the shell is a handful of Swift files and the viewer bundle is a
 # copied resource, so an Xcode project would add ceremony without adding
-# capability. Signing and notarisation come later, from the same Developer
-# ID identity the Tauri build already uses.
+# capability. Signing runs below from the Developer ID identity;
+# notarisation is the remaining step, handled outside this script.
 #
 # The compiler and the SDK are resolved from one explicitly selected
 # developer directory, so they can never come from different Xcodes.
