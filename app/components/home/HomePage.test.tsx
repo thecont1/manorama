@@ -175,6 +175,15 @@ describe('the homepage story', () => {
 })
 
 describe('the Library loop', () => {
+  /** The band's own markup: the frame, the four layers and their pictures. */
+  const band = (html: string) => {
+    const from = html.indexOf('data-library-loop')
+    const to = html.indexOf('home-library-rail')
+    expect(from).toBeGreaterThan(-1)
+    expect(to).toBeGreaterThan(from)
+    return html.slice(from, to)
+  }
+
   test('carries the four appearances in the order the loop walks them', () => {
     const html = page()
     const layers = [...html.matchAll(/data-library-layer="(\d)"/g)].map((m) => m[1]!)
@@ -182,9 +191,38 @@ describe('the Library loop', () => {
     expect(layers).toEqual(['0', '1', '2', '3'])
     expect(captions).toEqual(['0', '1', '2', '3'])
     for (const src of ['lib-dark', 'lib-quiet-dark', 'lib-quiet-light', 'lib-light']) {
-      expect(html).toContain(`/home/${src}.jpg`)
-      expect(html).toContain(`/home/${src}.avif`)
-      expect(html).toContain(`/home/${src}-sm.webp`)
+      expect(html).toContain(`/home/${src}.webp`)
+    }
+  })
+
+  test('serves one file per capture, at the capture’s own size', () => {
+    const markup = band(page())
+    // One file for each capture: no srcset, no smaller variant, no second
+    // format to fall back to. The file is the capture's own width, so a
+    // 2× screen asks for exactly what it gets.
+    expect(markup).not.toContain('srcset')
+    expect(markup).not.toContain('srcSet')
+    expect(markup).not.toContain('-sm.')
+    expect(markup).not.toContain('.png')
+    expect(markup).not.toContain('.jpg')
+    expect(markup).not.toContain('.avif')
+    // The intrinsic size is the capture's, so the browser reserves the box
+    // and never stretches the picture (invariant 13).
+    expect(markup).toContain('width="3456"')
+    expect(markup).toContain('height="2168"')
+  })
+
+  test('asks for one capture at a time, and the first is in the markup', () => {
+    const markup = band(page())
+    // The first capture is in the markup, so the band is whole without
+    // scripting; the rest are fetched by the loop as it reaches them.
+    const images = [...markup.matchAll(/<img[^>]*>/g)].map((m) => m[0]!)
+    const withSrc = images.filter((tag) => /\ssrc="/.test(tag))
+    expect(withSrc.length).toBe(1)
+    expect(withSrc[0]).toContain('/home/lib-dark.webp')
+    // And every capture names where it will come from.
+    for (const src of ['lib-dark', 'lib-quiet-dark', 'lib-quiet-light', 'lib-light']) {
+      expect(markup).toContain(`data-library-src="/home/${src}.webp"`)
     }
   })
 
@@ -225,7 +263,7 @@ describe('the Library loop', () => {
     // one on a retina screen's.
     expect(html).toContain('width="3456"')
     expect(html).toContain('height="2168"')
-    expect(html).toContain('/home/lib-dark-sm.avif 1728w, /home/lib-dark.avif 3456w')
+    expect(html).toContain('/home/lib-dark.webp')
     expect(html).toContain('class="home-library-stage"')
   })
 })

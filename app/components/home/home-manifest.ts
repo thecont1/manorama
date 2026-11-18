@@ -177,9 +177,11 @@ export type LibraryState = {
 /**
  * The Library's four appearances, in the order the loop walks them.
  *
- * The captures are 3456×2168 and are served at 2688 — twice the widest
- * the frame ever draws — so the dashboard's own words stay crisp on a
- * retina screen.
+ * The captures are 3456×2168 — a 1728×1084 window at 2× — and they are
+ * served at that width: `src` names the file the homepage publishes the
+ * capture as. The canvas is drawn at the capture's logical size, so a 2×
+ * screen asks the device for exactly the pixels the file holds, and
+ * nothing is resampled in between.
  */
 export const LIBRARY_STATES: LibraryState[] = [
   {

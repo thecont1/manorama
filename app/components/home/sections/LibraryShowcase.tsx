@@ -17,11 +17,18 @@ import { LIBRARY_STATES } from '../home-manifest'
  * The frame is steel and stays steel — the band is one object on the page,
  * not a piece of the page's chrome, so it does not turn with the theme.
  *
- * The captures are served at exactly twice the viewable area: the frame's
- * outer box is 1732 and its 2-pixel rules take four of them, so the picture
- * is 1728 across and the file is 3456 — the size the capture was made at.
- * On a retina screen the capture's own pixels land one for one on the
- * device's.
+ * The captures are served at their own size: the file the browser
+ * downloads is 3456 wide, which is what a 1728-wide canvas asks a 2×
+ * screen for, so nothing is resampled between the capture and the
+ * device's pixels. The file is a lossless WebP, so the pixels that
+ * arrive are the pixels that were captured, and the profile, the EXIF
+ * and the XMP ride along inside it. The captures are 3456×2168 — a
+ * 1728×1084 window at 2× — and the frame's outer box is 1732, so its
+ * 2-pixel rules take four of the width and the picture is 1728 across.
+ *
+ * Only the first capture is in the markup, so the band is whole without
+ * scripting and the page does not ask for all four at once. The loop
+ * fetches each capture as it reaches it.
  */
 export default function LibraryShowcase() {
   return (
@@ -45,32 +52,30 @@ export default function LibraryShowcase() {
         >
           <div class="home-library-stage">
             {LIBRARY_STATES.map((state, index) => (
-              <picture
+              <div
                 key={state.src}
                 class="home-library-layer"
                 data-library-layer={String(index)}
                 aria-hidden={index === 0 ? 'false' : 'true'}
               >
-                <source
-                  type="image/avif"
-                  srcSet={`/home/${state.src}-sm.avif 1728w, /home/${state.src}.avif 3456w`}
-                  sizes="(min-width: 1800px) 1728px, 96vw"
-                />
-                <source
-                  type="image/webp"
-                  srcSet={`/home/${state.src}-sm.webp 1728w, /home/${state.src}.webp 3456w`}
-                  sizes="(min-width: 1800px) 1728px, 96vw"
-                />
+                {/* The first capture is in the markup: the band is whole
+                    without scripting, and the page asks for one picture
+                    rather than four. The loop fetches the rest as it
+                    reaches them. */}
                 <img
-                  src={`/home/${state.src}.jpg`}
+                  src={index === 0 ? `/home/${state.src}.webp` : undefined}
+                  data-library-src={`/home/${state.src}.webp`}
                   alt={state.alt}
                   width={3456}
                   height={2168}
-                  loading={index === 0 ? 'eager' : 'lazy'}
-                  decoding={index === 0 ? 'sync' : 'async'}
-                  fetchpriority={index === 0 ? 'high' : 'auto'}
+                  // The band sits below the fold, so the first capture is
+                  // fetched when the visitor comes to it rather than with
+                  // the page. The rest are fetched by the loop.
+                  loading={index === 0 ? 'lazy' : undefined}
+                  decoding="async"
+                  fetchpriority={index === 0 ? 'low' : 'auto'}
                 />
-              </picture>
+              </div>
             ))}
           </div>
 

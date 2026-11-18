@@ -2,13 +2,17 @@
 // The homepage's Library band: the four appearances of the Library — dark,
 // quiet and dark, quiet and light, light — dissolved into one another.
 //
-// These assertions are about the animation, not about the picture: that the
+// These assertions are about the animation and about the picture: that the
 // dissolve is a dissolve and not a cut, that the caption swaps with the
 // state and never sits two sentences at once, that the frame's bottom rule
-// is far thicker than its other rules and holds the captions, and that the
-// band is whole without scripting.
+// is far thicker than its other rules and holds the captions, that the
+// band is whole without scripting, and that the file the browser is given
+// is the capture at its own size — so a 2× screen is handed the pixels it
+// asked for, and the picture it shows is the picture that was captured.
 
 import { expect, test } from '@playwright/test'
+import { readFileSync } from 'node:fs'
+import { resolve } from 'node:path'
 
 const BASE = process.env.GALLERY_URL ?? 'http://localhost:8787'
 
@@ -19,22 +23,31 @@ const STATES = [
   { name: 'Light mode', caption: 'The same Library. Different light.' },
 ]
 
+/** The four captures, as they are captured and as the homepage serves them. */
+const CAPTURES = [
+  { served: '/home/lib-dark.webp', source: 'demo-captures/library/01-dark-mode.png' },
+  { served: '/home/lib-quiet-dark.webp', source: 'demo-captures/library/02-quiet-dark-mode.png' },
+  { served: '/home/lib-quiet-light.webp', source: 'demo-captures/library/03-quiet-light-mode.png' },
+  { served: '/home/lib-light.webp', source: 'demo-captures/library/04-light-mode.png' },
+]
+
 const open = async (page: import('@playwright/test').Page) => {
   await page.goto(`${BASE}/`, { waitUntil: 'domcontentloaded' })
   await expect(page.locator('.home main#content')).toBeVisible()
 }
 
-/** The band, scrolled to and waiting for its captures to arrive. */
+/** The band, scrolled to and waiting for its first capture to arrive. */
 const bringUp = async (page: import('@playwright/test').Page) => {
   const band = page.locator('[data-library-loop]')
   await band.scrollIntoViewIfNeeded()
+  // Only the first capture is in the markup; the loop fetches the rest as
+  // it reaches them.
   await expect
     .poll(() =>
-      page.evaluate(() =>
-        Array.from(document.querySelectorAll<HTMLImageElement>('[data-library-layer] img')).every(
-          (img) => img.complete && img.naturalWidth > 0,
-        ),
-      ),
+      page.evaluate(() => {
+        const img = document.querySelector<HTMLImageElement>('[data-library-layer="0"] img')
+        return !!img && img.complete && img.naturalWidth > 0
+      }),
     )
     .toBe(true)
   return band
@@ -183,12 +196,10 @@ test.describe('the Library band', () => {
 
   test('the canvas is the capture’s own size, so a retina screen lands it one for one', async ({ browser }) => {
     // The captures are 3456×2168, which is a 1728×1084 window at 2×. The
-    // canvas is drawn at that logical size, so the picture is shown at the
-    // scale it was made and the file's own pixels land on the device's.
-    for (const { scale, expected } of [
-      { scale: 1, expected: 'lib-dark-sm.avif' },
-      { scale: 2, expected: 'lib-dark.avif' },
-    ]) {
+    // canvas is drawn at that logical size, and the file is the capture
+    // itself, so a retina screen lands the capture's own pixels one for
+    // one on the device's.
+    for (const scale of [1, 2]) {
       const context = await browser.newContext({
         viewport: { width: 2560, height: 1440 },
         deviceScaleFactor: scale,
@@ -200,9 +211,6 @@ test.describe('the Library band', () => {
         const band = document.querySelector<HTMLElement>('[data-library-loop]')!
         const stage = band.querySelector<HTMLElement>('.home-library-stage')!.getBoundingClientRect()
         const image = band.querySelector<HTMLImageElement>('[data-library-layer="0"] img')!
-        // The picture in the page is chosen from a `w` srcset, so its own
-        // `naturalWidth` is the density-corrected width, not the file's.
-        // Read the file itself for the true pixel count.
         const probe = new Image()
         probe.src = image.currentSrc
         await probe.decode()
@@ -214,15 +222,123 @@ test.describe('the Library band', () => {
           served: image.currentSrc.split('/').pop(),
         }
       })
-      // The canvas is the capture's logical size, and the file is exactly
-      // what this screen needs: the canvas's own pixels at 1×, twice them
-      // at 2×.
       expect(measured.viewWidth).toBeCloseTo(1728, 0)
       expect(measured.viewHeight).toBeCloseTo(1084, 0)
-      expect(measured.served, `at ${scale}×`).toBe(expected)
-      expect(measured.fileWidth).toBeCloseTo(measured.viewWidth * scale, 0)
-      expect(measured.fileHeight).toBeCloseTo(measured.viewHeight * scale, 0)
+      // One file for every screen: the capture's own width.
+      expect(measured.served, `at ${scale}×`).toBe('lib-dark.webp')
+      expect(measured.fileWidth).toBe(3456)
+      expect(measured.fileHeight).toBe(2168)
+      // The file is never smaller than the device pixels the canvas asks
+      // for, so the browser never has to invent any.
+      expect(measured.fileWidth).toBeGreaterThanOrEqual(measured.viewWidth * scale)
+      // And on a retina screen it is exactly them.
+      if (scale === 2) {
+        expect(measured.fileWidth).toBeCloseTo(measured.viewWidth * scale, 0)
+        expect(measured.fileHeight).toBeCloseTo(measured.viewHeight * scale, 0)
+      }
       await context.close()
+    }
+  })
+
+  test('the file is the capture at its own size, and shows the same picture', async ({ page }) => {
+    // Put the original capture in front of the browser, byte for byte, so
+    // the two can be compared as the browser actually shows them — not as
+    // one decoder reads them.
+    await page.route('**/__capture/*.png', async (route) => {
+      const name = route.request().url().split('/').pop()!
+      await route.fulfill({
+        status: 200,
+        contentType: 'image/png',
+        body: readFileSync(resolve('demo-captures/library', name)),
+      })
+    })
+
+    await page.setViewportSize({ width: 1440, height: 900 })
+    await open(page)
+    await bringUp(page)
+
+    for (const capture of CAPTURES) {
+      const measured = await page.evaluate(
+        async ({ served, original }) => {
+          const render = async (url: string) => {
+            const img = new Image()
+            img.src = url
+            await img.decode()
+            const canvas = document.createElement('canvas')
+            canvas.width = img.naturalWidth
+            canvas.height = img.naturalHeight
+            const ctx = canvas.getContext('2d', { willReadFrequently: true })!
+            ctx.drawImage(img, 0, 0)
+            return {
+              w: img.naturalWidth,
+              h: img.naturalHeight,
+              data: ctx.getImageData(0, 0, img.naturalWidth, img.naturalHeight).data,
+            }
+          }
+          const a = await render(original)
+          const b = await render(served)
+          let max = 0
+          let sum = 0
+          let over2 = 0
+          for (let i = 0; i < a.data.length; i += 4) {
+            let worst = 0
+            for (let c = 0; c < 3; c++) {
+              const d = Math.abs(a.data[i + c]! - b.data[i + c]!)
+              if (d > max) max = d
+              sum += d
+              if (d > worst) worst = d
+            }
+            if (worst > 2) over2++
+          }
+          const pixels = a.data.length / 4
+          return {
+            captureWidth: a.w,
+            captureHeight: a.h,
+            servedWidth: b.w,
+            servedHeight: b.h,
+            maxChannelDiff: max,
+            meanAbsDiff: sum / (pixels * 3),
+            pctOver2: (over2 / pixels) * 100,
+          }
+        },
+        {
+          served: `${BASE}${capture.served}`,
+          original: `${BASE}/__capture/${capture.source.split('/').pop()}`,
+        },
+      )
+
+      // The picture is never resized: the file is the capture's own size,
+      // which is what a 2× screen asks a 1728-wide canvas for.
+      expect(measured.captureWidth).toBe(3456)
+      expect(measured.captureHeight).toBe(2168)
+      expect(measured.servedWidth).toBe(measured.captureWidth)
+      expect(measured.servedHeight).toBe(measured.captureHeight)
+
+      // And it shows the same picture: measured against what the browser
+      // renders for the capture itself. The file is a lossless WebP, so
+      // the two agree to within the rounding of the browser's colour
+      // conversion — one level, and not one pixel beyond it.
+      expect(measured.maxChannelDiff).toBeLessThanOrEqual(1)
+      expect(measured.meanAbsDiff).toBeLessThanOrEqual(0.05)
+      expect(measured.pctOver2).toBe(0)
+    }
+  })
+
+  test('the page asks for one capture at a time, not all four', async ({ page }) => {
+    await page.setViewportSize({ width: 1440, height: 900 })
+    const response = await page.goto(`${BASE}/`, { waitUntil: 'domcontentloaded' })
+    const html = await response!.text()
+    // Only the first capture is in the markup: the band is whole without
+    // scripting, and the page does not ask for four pictures at once.
+    // `data-library-src` is not a `src`, so the tags are read whole.
+    const images = [...html.matchAll(/<img[^>]*>/g)].map((match) => match[0])
+    const sources = images
+      .filter((tag) => /\ssrc="\/home\/(lib-[a-z-]+\.webp)"/.test(tag))
+      .map((tag) => tag.match(/\ssrc="\/home\/(lib-[a-z-]+\.webp)"/)![1])
+    expect(sources).toEqual(['lib-dark.webp'])
+    // Every capture names where it will come from.
+    for (const capture of CAPTURES) {
+      expect(html).toContain(`data-library-src="${capture.served}"`)
     }
   })
 
