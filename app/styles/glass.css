@@ -193,6 +193,11 @@ html.light {
   transform: scale(1.05);
 }
 
+/* Blur cannot improve contrast over a uniformly bright photograph. */
+:root[data-macos-shell] .gallery-shell .m-sheet {
+  --glass-fill-frost: rgba(18, 18, 24, .90);
+}
+
 /* Sheets, popovers and dialogs (the shared Sheet component is role=dialog):
    Gallery Settings popover, the Info/provenance sheet, Shortcuts. Larger
    surfaces take the frost recipe; raised cards inside stay flat. */
