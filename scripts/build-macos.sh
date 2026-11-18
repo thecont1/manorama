@@ -5,8 +5,9 @@
 # the manorama:// scheme, which is how the WKWebView reaches both the page
 # and the user's originals.
 #
-# The bundle is the same one the Tauri shell ships — the app's own Library —
-# with the shell's runtime shim installed in front of it.
+# The bundle is the same desktop/ source the dormant Tauri path serves —
+# the app's own Library — with the shell's runtime shim installed in front
+# of it.
 #
 # Usage: scripts/build-macos.sh [debug|release]
 
@@ -35,8 +36,8 @@ echo "==> compiling the Swift app"
 # The app is assembled as a plain .app bundle rather than through an Xcode
 # project: the shell is a handful of Swift files and the viewer bundle is a
 # copied resource, so an Xcode project would add ceremony without adding
-# capability. Signing and notarisation come later, from the same Developer
-# ID identity the Tauri build already uses.
+# capability. Signing uses the same Developer ID identity the Tauri build
+# used; notarisation is not wired yet.
 #
 # The compiler and the SDK are resolved from one explicitly selected
 # developer directory, so they can never come from different Xcodes.

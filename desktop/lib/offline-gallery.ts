@@ -50,7 +50,7 @@ export const openDesktopEncryptedSession = async (
 }
 
 /** The desktop's offline gallery store — the shared iOS implementation
- *  driven by the Tauri vault and this device's key custody. */
+ *  driven by the desktop vault and this device's key custody. */
 export const desktopOfflineStore = new EncryptedOfflineGalleryStore({
   vault: desktopVault,
   openEncryptedSession: openDesktopEncryptedSession,

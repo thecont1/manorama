@@ -244,11 +244,12 @@ export const completeDesktopSignIn = createDesktopSignInCompleter({
 /**
  * Wires deep-link delivery: the plugin's onOpenUrl for the already-running
  * instance, plus the app's own event for cold-start launch URLs forwarded
- * by the Rust setup. Both land on the same handler.
+ * by the shell. Both land on the same handler.
  *
- * Dev-build note: on macOS a `tauri dev` binary carries no .app bundle, so
- * LaunchServices cannot route the scheme to it — the paste-the-link
- * fallback in the UI is the supported path until a bundled build exists.
+ * Dev-build note: a build that is not a bundled .app — the vite dev server,
+ * a fixture — has no registered scheme handler, so LaunchServices cannot
+ * route the deep link to it. The paste-the-link fallback in the UI is the
+ * supported path until a bundled build exists.
  */
 export const installDesktopAuth = async (
   apiBase: string,

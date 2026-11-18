@@ -148,8 +148,8 @@ const PRIVACY_URL = 'https://manorama.xyz/privacy'
 const AUTHOR_URL = 'https://thecontrarian.in'
 
 /** The footer markup the web and mobile shells use, verbatim, with the click
- *  routed to the system browser: inside the Tauri webview a bare external href
- *  would navigate the app itself away from the catalogue. */
+ *  routed to the system browser: inside the desktop webview a bare external
+ *  href would navigate the app itself away from the catalogue. */
 const externalAnchor = (url: string) => ({
   href: url,
   target: '_blank',
