@@ -164,13 +164,29 @@ describe('the homepage story', () => {
     const html = page()
     expect(html).toContain('A friend&#39;s shared Google Drive album.')
     expect(html).toContain('Supported cloud drives')
-    expect(html).toContain('Every gallery, hanging together.')
     expect(html).toContain('Paste a share link, or choose a folder on your computer.')
     expect(html).toContain('Name it, arrange it, keep it in your Library.')
     expect(html).toContain('Send anyone a clean link. They can look without signing in.')
     expect(html).toContain('Made for looking.')
     expect(html).toContain('The originals stay where they are.')
     expect(html).toContain('Take it with you.')
+  })
+
+  test('ships no still captures beside the Library loop', () => {
+    const html = page()
+    // The Unify, Features and How-it-works bands are text only: the
+    // retired slots and their captions must not creep back in.
+    for (const gone of ['h2-matrix', 'h3-iphone', 'h4-macos-curtain', 'h5-ipad']) {
+      expect(html).not.toContain(gone)
+    }
+    for (const caption of [
+      'Every gallery, hanging together.',
+      'One photograph, fitted.',
+      'One tap, and it opens.',
+      'The same gallery, on the iPad.',
+    ]) {
+      expect(html).not.toContain(caption)
+    }
   })
 })
 
@@ -258,9 +274,9 @@ describe('the Library loop', () => {
 
   test('never stretches the capture: the frame holds its own ratio', () => {
     const html = page()
-    // The capture is 3456×2168 — a 1728×1084 window at 2×. The canvas is
-    // drawn at that logical size, so the file's own pixels land one for
-    // one on a retina screen's.
+    // The capture is 3456×2168 — a 1728×1084 window at 2×. The frame is
+    // held well under that width, so every screen downsamples the same
+    // file and the picture is never stretched past its own pixels.
     expect(html).toContain('width="3456"')
     expect(html).toContain('height="2168"')
     expect(html).toContain('/home/lib-dark.webp')

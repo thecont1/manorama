@@ -23,8 +23,9 @@ import { LIBRARY_STATES } from '../home-manifest'
  * device's pixels. The file is a lossless WebP, so the pixels that
  * arrive are the pixels that were captured, and the profile, the EXIF
  * and the XMP ride along inside it. The captures are 3456×2168 — a
- * 1728×1084 window at 2× — and the frame's outer box is 1732, so its
- * 2-pixel rules take four of the width and the picture is 1728 across.
+ * 1728×1084 window at 2× — and the frame is held to about the width of
+ * the demo device in the hero above it, so the band reads at the same
+ * scale as the picture of the app it sits beneath.
  *
  * Only the first capture is in the markup, so the band is whole without
  * scripting and the page does not ask for all four at once. The loop
@@ -41,9 +42,8 @@ export default function LibraryShowcase() {
         </p>
       </div>
 
-      {/* The frame sits in a row of its own: the capture is shown at the size
-          it was taken, which is wider than the page's measure, so it breaks
-          out of the text column and centres itself on the page. */}
+      {/* The frame sits in a row of its own, held to about the width of
+          the demo device above it and centred on the page. */}
       <div class="home-library-row">
         <div
           class="home-library home-rise home-rise-3"

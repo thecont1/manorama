@@ -194,11 +194,11 @@ test.describe('the Library band', () => {
     expect(measured.drawnWidth).toBeLessThanOrEqual(measured.naturalWidth)
   })
 
-  test('the canvas is the capture’s own size, so a retina screen lands it one for one', async ({ browser }) => {
-    // The captures are 3456×2168, which is a 1728×1084 window at 2×. The
-    // canvas is drawn at that logical size, and the file is the capture
-    // itself, so a retina screen lands the capture's own pixels one for
-    // one on the device's.
+  test('the file covers the canvas at every density', async ({ browser }) => {
+    // The captures are 3456×2168 — a 1728×1084 window at 2× — and the
+    // frame is held well under that, so every screen downsamples the
+    // same file: the picture is never stretched past the capture's own
+    // pixels.
     for (const scale of [1, 2]) {
       const context = await browser.newContext({
         viewport: { width: 2560, height: 1440 },
@@ -222,8 +222,10 @@ test.describe('the Library band', () => {
           served: image.currentSrc.split('/').pop(),
         }
       })
-      expect(measured.viewWidth).toBeCloseTo(1728, 0)
-      expect(measured.viewHeight).toBeCloseTo(1084, 0)
+      // The frame's own measure: 1152 less its 2-pixel rules, at the
+      // capture's ratio.
+      expect(measured.viewWidth).toBeCloseTo(1148, 0)
+      expect(measured.viewHeight).toBeCloseTo(720, 0)
       // One file for every screen: the capture's own width.
       expect(measured.served, `at ${scale}×`).toBe('lib-dark.webp')
       expect(measured.fileWidth).toBe(3456)
@@ -231,11 +233,6 @@ test.describe('the Library band', () => {
       // The file is never smaller than the device pixels the canvas asks
       // for, so the browser never has to invent any.
       expect(measured.fileWidth).toBeGreaterThanOrEqual(measured.viewWidth * scale)
-      // And on a retina screen it is exactly them.
-      if (scale === 2) {
-        expect(measured.fileWidth).toBeCloseTo(measured.viewWidth * scale, 0)
-        expect(measured.fileHeight).toBeCloseTo(measured.viewHeight * scale, 0)
-      }
       await context.close()
     }
   })

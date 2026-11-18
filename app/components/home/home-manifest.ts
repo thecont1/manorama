@@ -106,49 +106,6 @@ export const ASSETS: Asset[] = [
     caption: 'Every frame shown whole. Explore at your own pace.',
     eager: true,
   },
-  {
-    id: 'H2',
-    alt: 'A matrix of photographs from one gallery on the iPhone, the active one outlined in pink',
-    intended: 'iPhone Global View: a matrix of closely hanging photographs',
-    width: 1284,
-    height: 2778,
-    src: 'h2-matrix',
-    small: true,
-    status: 'interim',
-    caption: 'Every gallery, hanging together.',
-  },
-  {
-    id: 'H3',
-    alt: 'The iPhone app showing one photograph fitted on a black canvas',
-    intended: 'iPhone: one photograph fitted, chrome hidden',
-    width: 1284,
-    height: 2778,
-    src: 'h3-iphone',
-    small: true,
-    status: 'interim',
-    caption: 'One photograph, fitted.',
-  },
-  {
-    id: 'H4',
-    alt: 'The Mac app opening a gallery, the gallery title set large over the first photograph',
-    intended: 'macOS shell: the gallery curtain, title in the display face',
-    width: 1440,
-    height: 900,
-    src: 'h4-macos-curtain',
-    status: 'interim',
-    caption: 'One tap, and it opens.',
-  },
-  {
-    id: 'H5',
-    alt: 'The iPad app showing one photograph from the gallery, fitted on a black canvas',
-    intended: 'iPad: one photograph fitted, chrome hidden',
-    width: 2752,
-    height: 2064,
-    src: 'h5-ipad',
-    small: true,
-    status: 'interim',
-    caption: 'The same gallery, on the iPad.',
-  },
 ]
 
 export const assetById = (id: string): Asset | undefined => ASSETS.find((a) => a.id === id)
@@ -179,9 +136,9 @@ export type LibraryState = {
  *
  * The captures are 3456×2168 — a 1728×1084 window at 2× — and they are
  * served at that width: `src` names the file the homepage publishes the
- * capture as. The canvas is drawn at the capture's logical size, so a 2×
- * screen asks the device for exactly the pixels the file holds, and
- * nothing is resampled in between.
+ * capture as. The frame is held well under that width, so every screen
+ * downsamples the same file and nothing is ever stretched past the
+ * capture's own pixels.
  */
 export const LIBRARY_STATES: LibraryState[] = [
   {

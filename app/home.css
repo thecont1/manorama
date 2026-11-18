@@ -147,13 +147,8 @@ html.home-page body {
   margin-top: var(--home-band-before, var(--home-breath-md));
 }
 
-/* How loudly the page breathes before each band. Features keeps walking
-   with How-it-works; the two turns — what it costs, and the closing
-   line — get the page's widest breath. */
-#features {
-  --home-band-before: var(--home-breath-sm);
-}
-
+/* How loudly the page breathes before each band. The two turns — what it
+   costs, and the closing line — get the page's widest breath. */
 #pricing,
 .home-final {
   --home-band-before: var(--home-breath-lg);
@@ -800,31 +795,17 @@ html.light .home-sources-box {
   padding: 24px;
 }
 
-/* A phone-shaped picture: it keeps its own proportion and its own width. */
-.home-phone-figure {
-  max-width: 260px;
-}
-
-@media (min-width: 1024px) {
-  .home-phone-figure {
-    max-width: 240px;
-  }
-}
-
 /* ── the photo demo ────────────────────────────────────────────────── */
 
 .home-demo {
-  --home-device-body: #1b1d20;
-  --home-device-base: #111315;
+  /* One midnight-blue matte finish on every device, in both themes: the
+     hardware does not change colour because the page did. */
+  --home-device-body: #1c2b4a;
+  --home-device-base: #14213a;
   display: flex;
   flex-direction: column;
   width: 100%;
   height: calc(95svh - var(--home-header-h));
-}
-
-html.light .home-demo {
-  --home-device-body: #0b0c0d;
-  --home-device-base: #070808;
 }
 
 .home-demo-stage {
@@ -970,16 +951,6 @@ html.light .home-demo {
   border-radius: 50%;
   background: #000;
   box-shadow: inset 0 0 0 1px rgb(255 255 255 / 0.05);
-}
-
-.home-demo-device--duo .home-demo-device-body {
-  background: #d8d5cc;
-  box-shadow: inset 0 0 0 1px rgb(255 255 255 / 0.72), 0 12px 32px rgb(0 0 0 / 0.24);
-}
-
-html.light .home-demo-device--duo .home-demo-device-body {
-  background: #24292e;
-  box-shadow: inset 0 0 0 1px rgb(255 255 255 / 0.2), 0 12px 32px rgb(0 0 0 / 0.28);
 }
 
 .home-demo-duo-spread-track {
@@ -1204,9 +1175,8 @@ html.light .home-demo-device--duo .home-demo-device-body {
      dark enough to carry cream type at full contrast. */
   --home-library-frame: #646c78;
   --home-library-ink: #f3f0e8;
-  /* How far the frame keeps off the edge of the screen. The frame is
-     wider than the page's measure, so it stands closer to the edge than
-     the text does. */
+  /* How far the frame keeps off the edge of the screen when the viewport
+     is narrower than the frame's own measure. */
   --home-library-inset: clamp(16px, 2vw, 40px);
 }
 
@@ -1217,12 +1187,11 @@ html.light .home-demo-device--duo .home-demo-device-body {
 
 .home-library {
   position: relative;
-  /* The capture was taken on a 1728×1084 window at 2×, so that is the
-     size its canvas is drawn at: the picture is shown at the scale it
-     was made, and on a wide screen the file's own pixels land one for
-     one on the device's. The frame's 2-pixel rules take four of the
-     width, so the outer box is 1732. */
-  width: min(1732px, calc(100% - 2 * var(--home-library-inset)));
+  /* Held to about the width of the demo device in the hero above it:
+     the capture is 3456×2168 — a 1728×1084 window at 2× — and the
+     frame's 2-pixel rules take four of the width, so the picture is
+     never stretched and never cropped. */
+  width: min(1152px, calc(100% - 2 * var(--home-library-inset)));
   margin-inline: auto;
   border: 2px solid var(--home-library-frame);
   border-bottom: var(--home-library-rail) solid var(--home-library-frame);
@@ -1562,6 +1531,14 @@ html.light .home-demo-device--duo .home-demo-device-body {
 .home-feature p {
   font-size: 18px;
   color: var(--home-ink-soft);
+}
+
+/* "How it works" and "Built around photographs." share one band: on a
+   narrow screen they stack with the same breath they always kept between
+   them; on a wide one they stand side by side (see the 1024px rules). */
+.home-pair-cols {
+  display: grid;
+  gap: var(--home-breath-sm);
 }
 
 /* ── pricing ───────────────────────────────────────────────────────── */
@@ -2032,58 +2009,17 @@ table.home-table td {
 }
 
 @media (min-width: 1024px) {
-  .home-split {
-    display: grid;
-    grid-template-columns: minmax(0, 1.05fr) minmax(0, 1fr);
+  /* The two movements after the Library, adjacent: each keeps its own
+     measure inside its column rather than sharing the page's full width. */
+  .home-pair-cols {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
     gap: var(--home-gap);
     align-items: start;
-  }
-
-  /* Alternate the figure's side where three splits would otherwise repeat
-     the same composition: the eye zig-zags down the page instead of
-     meeting the same wall three times. Narrow screens are unaffected —
-     `order` does nothing outside a grid container. */
-  .home-split-flip {
-    grid-template-columns: minmax(0, 1fr) minmax(0, 1.05fr);
-  }
-
-  .home-split-flip > :first-child {
-    order: 2;
-  }
-
-  .home-split-flip > :last-child {
-    order: 1;
-  }
-
-  /* The Unify band: the statement and the diagram take the wide column,
-     the Library capture takes a column sized to a phone. The capture is
-     tall, so the text column centres against it — the air above and below
-     reads as composition, not a hole under the last line. */
-  .home-split-unify {
-    grid-template-columns: minmax(0, 1fr) 252px;
-    align-items: center;
   }
 
   .home-faq-list {
     columns: 2;
     column-gap: 20px;
-  }
-
-  /* The two device pictures, side by side: the phone keeps its own
-     proportion and the wide capture takes what is left. */
-  .home-pair {
-    display: grid;
-    grid-template-columns: 240px minmax(0, 1fr);
-    gap: 28px;
-    align-items: start;
-  }
-}
-
-@media (max-width: 1023px) {
-  .home-pair {
-    display: grid;
-    gap: 20px;
-    justify-items: start;
   }
 }
 

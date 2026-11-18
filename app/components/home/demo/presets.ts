@@ -40,7 +40,8 @@ export const DEMO_PRESETS: DemoPreset[] = [
     viewerInset: { top: 36, right: 0, bottom: 0, left: 0 },
     notch: { width: 180, height: 36 },
     baseHeight: 30,
-    baseOverhang: 0,
+    // The deck overhangs the lid on both sides, the way a real base does.
+    baseOverhang: 20,
   },
   {
     id: 'phone',

@@ -1,6 +1,3 @@
-import Figure from '../Figure'
-import { ASSETS } from '../home-manifest'
-
 const FEATURES = [
   {
     title: 'Made for looking.',
@@ -21,34 +18,21 @@ const FEATURES = [
 ]
 
 /**
- * What the product does, in four short groups, with the two device
- * pictures that carry the last one.
+ * What the product does, in four short groups. It shares its band with
+ * How it works: on a wide screen the two stand side by side, on a narrow
+ * one they stack.
  */
 export default function Features() {
-  const iphone = ASSETS.find((asset) => asset.id === 'H3')
-
   return (
-    <section class="home-band" id="features">
-      <div class="home-wrap home-split home-split-wide">
-        <div>
-          <h2 class="home-h2 home-rise home-rise-1">Built around photographs.</h2>
-          <div class="home-features">
-            {FEATURES.map((feature, index) => (
-              <div key={feature.title} class={`home-rise home-rise-${(index % 4) + 1}`}>
-                <h3 class="home-h3">{feature.title}</h3>
-                <p>{feature.body}</p>
-              </div>
-            ))}
+    <section id="features">
+      <h2 class="home-h2 home-rise home-rise-1">Built around photographs.</h2>
+      <div class="home-features">
+        {FEATURES.map((feature, index) => (
+          <div key={feature.title} class={`home-rise home-rise-${(index % 4) + 1}`}>
+            <h3 class="home-h3">{feature.title}</h3>
+            <p>{feature.body}</p>
           </div>
-        </div>
-
-        <div class="home-pair">
-          {iphone ? (
-            <div class="home-phone-figure home-rise home-rise-2">
-              <Figure asset={iphone} sizes="(min-width: 1024px) 240px, 55vw" />
-            </div>
-          ) : null}
-        </div>
+        ))}
       </div>
     </section>
   )

@@ -414,16 +414,35 @@ test.describe('the mounted homepage photo demo', () => {
     }
   })
 
-  test('the device frame contrasts with the page theme', async ({ page }) => {
+  test('the device frame keeps its midnight finish in both themes', async ({ page }) => {
     await open(page)
     await pause(page)
     const body = page.locator('.home-demo-device-body')
-    await expect(body).toHaveCSS('background-color', 'rgb(27, 29, 32)')
+    await expect(body).toHaveCSS('background-color', 'rgb(28, 43, 74)')
     await page.locator('.home-header-inner > [data-theme-toggle]').click()
     await expect(page.locator('html')).toHaveClass(/light/)
-    await expect(body).toHaveCSS('background-color', 'rgb(11, 12, 13)')
+    await expect(body).toHaveCSS('background-color', 'rgb(28, 43, 74)')
     await page.locator('.home-header-inner > [data-theme-toggle]').click()
-    await expect(body).toHaveCSS('background-color', 'rgb(27, 29, 32)')
+    await expect(body).toHaveCSS('background-color', 'rgb(28, 43, 74)')
+  })
+
+  test('the laptop base overhangs the body on both sides', async ({ page }) => {
+    await open(page)
+    await pause(page)
+    const measured = await page.evaluate(() => {
+      const base = document.querySelector<HTMLElement>('.home-demo-laptop-base')!
+      const body = document.querySelector<HTMLElement>('.home-demo-device-body')!
+      const baseBox = base.getBoundingClientRect()
+      const bodyBox = body.getBoundingClientRect()
+      return {
+        overhang: (baseBox.width - bodyBox.width) / 2,
+        baseColor: getComputedStyle(base).backgroundColor,
+      }
+    })
+    // The deck is wider than the lid, the way a real base is — about
+    // 14px a side at this viewport's fitted scale.
+    expect(measured.overhang).toBeGreaterThan(8)
+    expect(measured.baseColor).toBe('rgb(20, 33, 58)')
   })
 
   test('shape changes preserve the photograph while paused and during travel', async ({ page }) => {

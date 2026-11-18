@@ -1,6 +1,5 @@
 // Converts the selected product captures into the formats the homepage
-// serves: AVIF, WebP and a JPEG fallback, at the capture's own size and
-// (for the phone and tablet pictures) at half size for narrow screens.
+// serves: AVIF, WebP and a JPEG fallback, at the capture's own size.
 //
 // Run it from the repository root with node — sharp's native binding hangs
 // under bun in this checkout:
@@ -19,10 +18,6 @@ mkdirSync(out, { recursive: true })
 
 const jobs = [
   { id: 'h1-viewer', src: 'demo-captures/macos/03-first-image-hover.png', width: 1440 },
-  { id: 'h2-matrix', src: 'demo-captures/ios/06-global-view.png', width: 1284, half: 642 },
-  { id: 'h3-iphone', src: 'demo-captures/ios/03-first-image-hover.png', width: 1284, half: 642 },
-  { id: 'h4-macos-curtain', src: 'demo-captures/macos/02-gallery-curtain.png', width: 1440 },
-  { id: 'h5-ipad', src: 'demo-captures/ipad/03-first-image-hover.png', width: 2752, half: 1376 },
 ]
 
 for (const job of jobs) {

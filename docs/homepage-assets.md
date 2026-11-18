@@ -18,11 +18,12 @@ page, and no capture is re-encoded at request time (AGENTS invariant 1).
 | ID | What the slot is for | Where it sits on the page | Manifest id |
 |---|---|---|---|
 | H1 | The viewer, one photograph fitted | Hero, beside the words | `h1-viewer` |
-| H2 | The Library: many photographs hanging together | Unify band, right column | `h2-matrix` |
-| H3 | One photograph, fitted, chrome hidden | Features band, left of the pair | `h3-iphone` |
-| H4 | The gallery opening, title set large | Features band, beside H3 | `h4-macos-curtain` |
-| H5 | The same gallery on a larger screen | How it works, right column | `h5-ipad` |
 | L1 | The Library itself, in its four appearances | Its own band, between Unify and How it works | `lib-dark`, `lib-quiet-dark`, `lib-quiet-light`, `lib-light` |
+
+The page carries one still slot — H1, the hero's fallback when the live demo is
+off — and the Library loop. The Unify, Features and How-it-works bands are text
+only: the still captures that used to sit beside them (H2–H5) were retired when
+the bands were rebuilt, and their files and manifest entries went with them.
 
 The manifest is `app/components/home/home-manifest.ts`. Each asset carries a `status`:
 
@@ -42,10 +43,6 @@ The manifest is `app/components/home/home-manifest.ts`. Each asset carries a `st
 | ID | Source capture | Source size | Served at | Formats | Status |
 |---|---|---|---|---|---|
 | H1 | `demo-captures/macos/03-first-image-hover.png` | 1440×900 | 1440 | AVIF, WebP, JPEG | interim |
-| H2 | `demo-captures/ios/06-global-view.png` | 1284×2778 | 642, 1284 | AVIF, WebP, JPEG | interim |
-| H3 | `demo-captures/ios/03-first-image-hover.png` | 1284×2778 | 642, 1284 | AVIF, WebP, JPEG | interim |
-| H4 | `demo-captures/macos/02-gallery-curtain.png` | 1440×900 | 1440 | AVIF, WebP, JPEG | interim |
-| H5 | `demo-captures/ipad/03-first-image-hover.png` | 2752×2064 | 1376, 2752 | AVIF, WebP, JPEG | interim |
 | L1 | `demo-captures/library/01-dark-mode.png` … `04-light-mode.png` | 3456×2168 | 3456, never resized | WebP, lossless | interim |
 
 The files were produced from those captures by `scripts/home-images.mjs`:
@@ -54,11 +51,10 @@ The files were produced from those captures by `scripts/home-images.mjs`:
 node scripts/home-images.mjs        # node only: sharp's native binding hangs under bun
 ```
 
-It writes `public/home/<id>.{avif,webp,jpg}`, plus a `-sm` half-size variant for the
-three tall captures (H2, H3, H5) so a phone does not download a 1284-pixel file for a
-260-pixel column. The served file is never enlarged: `withoutEnlargement` is on, and
-each `<picture>` carries the intrinsic `width`/`height` so the box is reserved and the
-image is never stretched (invariant 13).
+It writes `public/home/<id>.{avif,webp,jpg}`. The served file is never enlarged:
+`withoutEnlargement` is on, and each `<picture>` carries the intrinsic
+`width`/`height` so the box is reserved and the image is never stretched
+(invariant 13).
 
 The four Library captures are published by their own script, because they are four
 frames of one loop rather than four separate slots:
@@ -69,12 +65,10 @@ node scripts/home-library-images.mjs
 
 **It never resizes them.** It writes `public/home/lib-*.webp` at the capture's own
 3456×2168, and the size is checked on the way out rather than assumed: a file that
-came back a pixel short would fail the script. That is the whole of the 2× business.
-The captures are 3456×2168, which is a 1728×1084 window at 2×, and the band's canvas
-is drawn at that logical size — so a 2× screen asks the device for 3456 pixels and
-the file is the one that answers, with nothing resampled in between. On a 1× screen
-the browser downsamples the same file; the picture is never stretched past its own
-pixels.
+came back a pixel short would fail the script. The captures are 3456×2168 — a
+1728×1084 window at 2× — and the band's canvas is held well under that width, so
+every screen downsamples the same file and the picture is never stretched past its
+own pixels.
 
 The format is WebP, **lossless**. The four files are 18.6 MB rather than the 34 MB
 the captures weigh, and the pixels that arrive are the pixels that were captured —
@@ -122,19 +116,8 @@ Two things about it are the owner's to decide:
   titles, and the account line is the product's own copy — but the page is public,
   so the captures need the owner's eye before launch.
 
-### Why these stand-ins, and what is wrong with them
+### Why this stand-in, and what is wrong with it
 
-- **All five come from one cleared gallery.** The "italia, amore mio" gallery is the
-  only set of photographs the owner has cleared for public linking, so H1, H3, H4 and
-  H5 all show the *same* frame. The page therefore reads as one photograph repeated
-  rather than as a gallery. This is the single biggest thing wrong with the page's
-  imagery, and it is fixed by the owner approving more captures, not by code.
-- **H2 is not the Library the slot asks for.** The plan wants the desktop Library with
-  pinned strips and compact cards. The interim capture is the iPhone Global View, which
-  shows the same idea (photographs hanging together) at phone scale.
-- **H4 is the gallery curtain, not a Local gallery in the Library.** The plan asks for
-  the current SwiftUI macOS shell (`macos/ManoramaMac`) with the sidebar. The interim
-  capture is the curtain from an earlier shell build.
 - **H1 shows the hover state of the macOS viewer**, not the web Strip mode at
   `/thecontrarian/italy` the plan asks for. The web gallery in production serves only
   256-pixel renditions, so a full-width strip capture of the real web viewer cannot be
@@ -156,17 +139,11 @@ This is the plan's list, with what is still owed for each row.
 | ID | Capture wanted | Aspect / size | Controls | Remove or check | Owed |
 |---|---|---|---|---|---|
 | H1 | Desktop web viewer, **Strip** mode, `/thecontrarian/italy`, mixed portrait and landscape frames abutting, black canvas, temporary chrome raised once | 16:10, captured at 2880×1800, served at 1440 and 2880 | Minimal: top bar only | Browser UI, account name, URL bar | A deployed build with full-size renditions, and the owner's pick of the gallery |
-| H2 | Web or desktop Library with pinned strips, compact cards, one Local plus several cloud galleries with distinct, realistic titles | 16:10 | Library chrome | Owner email, private gallery titles, `hidden` section | A Library with more than one gallery in it |
-| H3 | iPhone: one photograph fitted, `italy` | 9:19.5, 1290×2796, served at 430/860 | Chrome hidden on the main shot | Status bar time and carrier, no personal notifications | A fresh capture; the interim one shows the hover state |
-| H4 | Current SwiftUI macOS shell (`macos/ManoramaMac`), **not** Tauri, showing a Local gallery in the Library with the sidebar | 16:10 | Native window chrome kept | Finder paths, usernames, local folder names | A capture of the current shell |
-| H5 | iPad: one photograph fitted | 4:3 | Chrome hidden | Status bar, no notifications | Not in the plan's original list; added so the page has a tablet surface |
 | L1 | The desktop Library in its four appearances — dark, quiet and dark, quiet and light, light — one Library captured four times so the dissolve reads as the words going out | 16:10, captured at 3456×2168 (a 1728×1084 window at 2×), served at 3456 as lossless WebP, never resized | Library chrome, in a steel frame that does not turn with the theme | The placeholder ad plate in the left column, which the owner has allowed to stay for this demo; the owner's own gallery titles, counts and device names | The owner's approval of the captures before launch |
 
-**The H2 rule.** If a composite is unavoidable, its caption says "Illustration".
-
-**Capture process.** Reuse `specs/capture-harness.playwright.ts` for H1 and H2. Device
-captures for H3, H4 and H5 follow the visual-evidence rules in `AGENTS.md`: freshly
-built bundles, authorised source photographs, no editing of their pixels.
+**Capture process.** Reuse `specs/capture-harness.playwright.ts` for H1. Device
+captures follow the visual-evidence rules in `AGENTS.md`: freshly built bundles,
+authorised source photographs, no editing of their pixels.
 
 ---
 
@@ -195,15 +172,14 @@ with a dashed tile reading "URL missing". There are no dead links on the page.
 
 ## 5. Launch blockers that belong to this page
 
-1. **Owner approval for H1–H5 and L1.** Every capture on the page is interim. The page
+1. **Owner approval for H1 and L1.** Every capture on the page is interim. The page
    should not launch on unapproved photography. L1 is the one that most needs it: it
    is the owner's own Library, on a band that moves. The ad plate in it is settled
    for the demo; the captures themselves are not yet approved.
-2. **More than one photograph.** The interim captures all show the same frame.
-3. **App Store URL** for iPhone & iPad — the only surface still hidden in production.
+2. **App Store URL** for iPhone & iPad — the only surface still hidden in production.
    Mac and Windows publish through `downloads.manorama.xyz`.
-4. **A product-true OG card.** The page still shares `/og-image.png`.
-5. **Approved Apple and Google badge assets** for the sign-in buttons, if the official
+3. **A product-true OG card.** The page still shares `/og-image.png`.
+4. **Approved Apple and Google badge assets** for the sign-in buttons, if the official
    badges are to be used instead of the current monotone glyphs.
 
 ---
@@ -217,8 +193,8 @@ with a dashed tile reading "URL missing". There are no dead links on the page.
    `width`/`height` (the capture's own size), the `src` basename, the `alt` text, the
    `caption`, and the `status`.
 4. `bunx tsc --noEmit`, `bun run test:unit`, and the browser matrix.
-5. If the picture's proportions changed, check the caption under it and the column it
-   sits in: a taller capture in the Unify band makes that column the taller one.
+5. If the picture's proportions changed, check the caption under it and the band it
+   sits in: a taller capture in the hero makes the first fold taller.
 
 The alt text is not decoration. It is read aloud by a screen reader and it is what the
 image search sees. Write it as a description of what is in the frame, not a caption of

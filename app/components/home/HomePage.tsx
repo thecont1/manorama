@@ -45,8 +45,14 @@ export default function HomePage({
         <Hero samplePath={samplePath} demo={demo} />
         <Unify />
         <LibraryShowcase />
-        <HowItWorks />
-        <Features />
+        {/* One band, two movements: on a wide screen they stand side by
+            side, on a narrow one they stack. */}
+        <div class="home-band">
+          <div class="home-wrap home-pair-cols">
+            <HowItWorks />
+            <Features />
+          </div>
+        </div>
         <Pricing />
         <Faq />
         <FinalCta />
