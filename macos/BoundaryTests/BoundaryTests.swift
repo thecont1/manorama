@@ -457,6 +457,58 @@ final class BoundaryTests {
             let logPerms = (try? FileManager.default.attributesOfItem(atPath: vaultLog.path)[.posixPermissions] as? Int) ?? 0
             check("rotated vault-debug.log has mode 0600", (logPerms & 0o777) == 0o600, "perms=\(String(logPerms, radix: 8))")
             check("device_label resolves non-empty", !NativeBridge.resolveDeviceLabel().isEmpty)
+
+            // The same bridge outlives its Library document. Record its real
+            // command replies and emits without loading a page or doing OAuth.
+            var page = RecordingBridgeWebView()
+            bridge.webView = page
+            var commandID = 0
+            @MainActor func invoke(_ cmd: String, _ args: [String: Any] = [:]) -> Any? {
+                commandID += 1
+                let id = commandID
+                bridge.handle(["type": "invoke", "id": id, "cmd": cmd, "args": args])
+                let deadline = Date().addingTimeInterval(2)
+                while page.replies[id] == nil && Date() < deadline {
+                    RunLoop.main.run(until: Date().addingTimeInterval(0.01))
+                }
+                check("lifecycle command \(id) replies successfully", page.replies[id]?["ok"] as? Bool == true)
+                return page.replies[id]?["value"]
+            }
+            let early = "in.thecontrarian.manorama.desktop://auth/callback?handoff=early"
+            let between = "in.thecontrarian.manorama.desktop://auth/callback?handoff=between"
+            let live = "in.thecontrarian.manorama.desktop://auth/callback?handoff=live"
+            let reopened = "in.thecontrarian.manorama.desktop://auth/callback?handoff=reopened"
+            bridge.deliverDeepLink(early)
+            bridge.deliverDeepLink(early)
+            _ = invoke("plugin:event|listen", ["event": "tauri://resize", "handler": 1])
+            bridge.deliverDeepLink(between)
+            check("an unrelated listener does not enable deep-link emission", page.emissions.isEmpty)
+            // Match installDesktopAuth: subscribe twice, then read get_current.
+            _ = invoke("plugin:event|listen", ["event": "deep-link://new-url", "handler": 2])
+            _ = invoke("plugin:event|listen", ["event": "manorama://deep-link", "handler": 3])
+            check("subscriptions leave launch URLs buffered", page.emissions.isEmpty)
+            check("get_current drains unique launch URLs in order",
+                  invoke("plugin:deep-link|get_current") as? [String] == [early, between])
+            check("get_current is read-once", invoke("plugin:deep-link|get_current") is NSNull)
+            bridge.deliverDeepLink(live)
+            check("a ready document receives both existing deep-link events",
+                  page.emissions.count == 1
+                    && page.emissions[0].contains("deep-link://new-url")
+                    && page.emissions[0].contains("manorama://deep-link")
+                    && page.emissions[0].contains("handoff=live"))
+            check("a live emission is not also buffered", invoke("plugin:deep-link|get_current") is NSNull)
+
+            bridge.resetDeepLinkReadiness()
+            bridge.deliverDeepLink(reopened)
+            bridge.resetDeepLinkReadiness() // Close and navigation may both reset.
+            check("a replacement document receives no premature emission", page.emissions.count == 1)
+            let oldPage = page
+            page = RecordingBridgeWebView()
+            bridge.webView = page
+            check("replacement drains only undelivered URLs, never the old live handoff",
+                  invoke("plugin:deep-link|get_current") as? [String] == [reopened])
+            check("replacement get_current is also read-once", invoke("plugin:deep-link|get_current") is NSNull)
+            check("the old document gets no replacement delivery", oldPage.emissions.count == 1)
         }
         check("Tauri-picked existing root is adopted into FolderStore", adoptedCount == 1, "adopted=\(adoptedCount)")
         check("only reachable roots enter GrantedRoots", grantedCount == 1 && !grantedContainsMissing, "granted=\(grantedCount)")
@@ -472,6 +524,27 @@ final class BoundaryTests {
     static func isRefusal(_ resolution: LocalMediaResolver.Resolution) -> Bool {
         if case .forbidden = resolution { return true }
         return false
+    }
+}
+
+/// Records the bridge's outbound JavaScript without running a renderer.
+@MainActor
+final class RecordingBridgeWebView: WKWebView {
+    var replies: [Int: [String: Any]] = [:]
+    var emissions: [String] = []
+
+    override func evaluateJavaScript(_ javaScriptString: String,
+                                     completionHandler: (@MainActor @Sendable (Any?, Error?) -> Void)? = nil) {
+        let prefix = "window.__manoramaShellSettle && window.__manoramaShellSettle("
+        if javaScriptString.hasPrefix(prefix), javaScriptString.hasSuffix(");"),
+           let data = String(javaScriptString.dropFirst(prefix.count).dropLast(2)).data(using: .utf8),
+           let reply = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+           let id = reply["id"] as? Int {
+            replies[id] = reply
+        } else {
+            emissions.append(javaScriptString)
+        }
+        completionHandler?(nil, nil)
     }
 }
 

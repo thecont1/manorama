@@ -75,7 +75,7 @@ final class NativeBridge {
 
     /// Custom-scheme deep links (`in.thecontrarian.manorama.desktop://...`) received by the app.
     private var currentDeepLinks: [String] = []
-    /// Whether the page has registered a deep-link listener.
+    /// Whether this document has installed its listeners and read the launch URLs.
     private var pageReadyForDeepLinks = false
 
     /// State for `plugin:http|fetch*` (Proton Drive and MEGA native transports).
@@ -186,14 +186,22 @@ final class NativeBridge {
 
     // MARK: - Deep links
 
-    /// Record and forward a custom-scheme URL opened on the application.
+    /// A closed or replaced document has lost its listeners. Keep undelivered
+    /// URLs for the replacement's read-once get_current call.
+    func resetDeepLinkReadiness() {
+        pageReadyForDeepLinks = false
+    }
+
+    /// Buffer until the document is listening; a live delivery is never replayed.
     func deliverDeepLink(_ urlString: String) {
         Trace.log("deliverDeepLink ready=\(pageReadyForDeepLinks) host=\(URL(string: urlString)?.host ?? urlString)")
-        if !currentDeepLinks.contains(urlString) {
-            currentDeepLinks.append(urlString)
+        guard pageReadyForDeepLinks, let webView else {
+            if !currentDeepLinks.contains(urlString) {
+                currentDeepLinks.append(urlString)
+            }
+            return
         }
-        guard pageReadyForDeepLinks,
-              let data = try? JSONSerialization.data(withJSONObject: [urlString]),
+        guard let data = try? JSONSerialization.data(withJSONObject: [urlString]),
               let arrayJson = String(data: data, encoding: .utf8),
               // Top-level fragments need the flag — a bare String throws
               // without it, and a thrown single literal used to take the
@@ -206,7 +214,7 @@ final class NativeBridge {
           window.__manoramaShellEmit("manorama://deep-link", \(singleJson))
         );
         """
-        webView?.evaluateJavaScript(script)
+        webView.evaluateJavaScript(script)
     }
 
     // MARK: - The channel
@@ -301,6 +309,8 @@ final class NativeBridge {
             return try sharePost(args)
 
         case "plugin:deep-link|get_current":
+            // installDesktopAuth awaits both deep-link subscriptions before
+            // this call. Unrelated event listeners do not make a page ready.
             pageReadyForDeepLinks = true
             // Read-once: a handoff that failed (no in-memory verifier, an
             // expired token) must not replay its error on every launch.
@@ -309,7 +319,6 @@ final class NativeBridge {
             return buffered.isEmpty ? NSNull() : buffered
 
         case "plugin:event|listen":
-            pageReadyForDeepLinks = true
             return args["handler"] as? Int ?? 0
         case "plugin:event|unlisten":
             return nil
