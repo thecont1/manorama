@@ -28,6 +28,15 @@ export const shellPost = (message: ShellMessage) => {
 }
 
 /**
+ * The SwiftUI shell stamps `data-macos-shell` on the document element at
+ * document start (ViewerWebView's user script); a Tauri or plain-webview
+ * build never sees it. Presentation that is meant for the macOS app only
+ * gates on this — Windows and Linux keep the cross-platform UI.
+ */
+export const hasMacosShell = (): boolean =>
+  typeof document !== 'undefined' && document.documentElement.dataset.macosShell === '1'
+
+/**
  * The handle the shell's Gallery menu drives.
  *
  * The Viewer keeps sole ownership of the index — this asks it to move, it
