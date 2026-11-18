@@ -189,7 +189,12 @@ export default function GlobalView({
           timer = setTimeout(() => setRetriesLeft((left) => left - 1), 700)
           return
         }
-        if (onlineGallery) {
+        // A Local gallery's identity is an empty owner+slug — it lives
+        // beside the vault, not in it, so there is nothing to merge into.
+        // Skipping the merge keeps every offline gallery the store found.
+        const mergeable = onlineGallery
+          && (onlineGallery.selection.owner !== '' || onlineGallery.selection.slug !== '')
+        if (mergeable) {
           // A cached copy of this same gallery already knows which vault entry
           // holds each photograph's saved bytes. Merging the online manifest
           // must not throw that away: a frame rebuilt with an empty entryId
@@ -208,7 +213,10 @@ export default function GlobalView({
         setGalleries(found)
       } catch {
         if (!active) return
-        if (onlineGallery) {
+        // The single-entry fallback is for a published gallery whose vault
+        // read failed — never for a Local one, where it would replace the
+        // whole found list with only the Local entry.
+        if (onlineGallery && (onlineGallery.selection.owner !== '' || onlineGallery.selection.slug !== '')) {
           setGalleries([{ galleryId: 'online-current', ...onlineGallery.selection, title: onlineGallery.manifest.title, frames: manifestFrames(onlineGallery.manifest.images) }])
         } else setLoadError(true)
       }

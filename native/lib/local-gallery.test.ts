@@ -38,24 +38,31 @@ const memoryStore = (initial?: string): { store: LocalCatalogueStore; written: (
   }
 }
 
+const GALLERY_ID = 'aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee'
+
 const imported = (over: Record<string, unknown> = {}) => ({
-  galleryId: 'aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee',
+  galleryId: GALLERY_ID,
   title: 'Kodak moments',
-  rootPath: '/var/mobile/Containers/Data/Application/APP/Library/Application Support/LocalGalleries/aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee',
+  rootPath: GALLERY_ID,
   items: [
-    { id: 'IMG_001.jpg', name: 'IMG_001.jpg', path: '/var/mobile/.../IMG_001.jpg', width: 4032, height: 3024 },
-    { id: 'DCIM/IMG_002.heic', name: 'IMG_002.heic', path: '/var/mobile/.../DCIM/IMG_002.heic' },
+    { id: 'IMG_001.jpg', name: 'IMG_001.jpg', path: 'IMG_001.jpg', width: 4032, height: 3024 },
+    { id: 'DCIM/IMG_002.heic', name: 'IMG_002.heic', path: 'DCIM/IMG_002.heic' },
   ],
   ...over,
 })
 
-const bridgeStub = (result: unknown, calls: { options?: { extensions: string[]; maxItems: number }; removed?: string } = {}): LocalGalleryBridge => ({
+const bridgeStub = (
+  result: unknown,
+  calls: { options?: { extensions: string[]; maxItems: number }; removed?: string } = {},
+  over: Partial<LocalGalleryBridge> = {},
+): LocalGalleryBridge => ({
   importFolder: async (options) => {
     calls.options = options
     return result as Awaited<ReturnType<LocalGalleryBridge['importFolder']>>
   },
   removeGallery: async (options) => { calls.removed = options.path },
   exists: async () => ({ exists: true }),
+  ...over,
 })
 
 beforeEach(() => {
@@ -196,19 +203,57 @@ describe('the on-device local catalogue', () => {
     expect(deserializeLocalCatalogue(held.written())!.galleries).toHaveLength(0)
     expect(deletes).toEqual([`https://api.test/api/device-galleries/${record.id}`])
   })
+
+  test('a folder already gone skips native removal but still drops the record', async () => {
+    const held = memoryStore()
+    await addLocalGallery('https://api.test', {
+      store: held.store,
+      bridge: bridgeStub(imported()),
+      fetcher: async () => new Response('{"galleries":[]}'),
+    })
+    const record = deserializeLocalCatalogue(held.written())!.galleries[0]
+    const calls: { removed?: string } = {}
+    await removeLocalGallery('https://api.test', record, {
+      store: held.store,
+      bridge: bridgeStub({}, calls, { exists: async () => ({ exists: false }) }),
+      fetcher: async () => new Response('{}'),
+    })
+    expect(calls.removed).toBeUndefined()
+    expect(deserializeLocalCatalogue(held.written())!.galleries).toHaveLength(0)
+  })
+
+  test('a removal failure keeps the record so the remove can be retried', async () => {
+    const held = memoryStore()
+    await addLocalGallery('https://api.test', {
+      store: held.store,
+      bridge: bridgeStub(imported()),
+      fetcher: async () => new Response('{"galleries":[]}'),
+    })
+    const record = deserializeLocalCatalogue(held.written())!.galleries[0]
+    await expect(
+      removeLocalGallery('https://api.test', record, {
+        store: held.store,
+        bridge: bridgeStub({}, {}, { removeGallery: async () => { throw new Error('busy') } }),
+        fetcher: async () => new Response('{}'),
+      }),
+    ).rejects.toThrow('busy')
+    expect(deserializeLocalCatalogue(held.written())!.galleries).toHaveLength(1)
+  })
 })
 
 describe('the local manifest', () => {
+  const ROOT_URI = 'file:///var/mobile/Containers/Data/Application/APP/Library/Application%20Support/LocalGalleries'
+
   const record = (over: Partial<LocalGalleryRecord> = {}): LocalGalleryRecord => ({
     id: 'aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee',
     title: 'Kodak moments',
-    rootPath: '/var/mobile/root',
+    rootPath: 'aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee',
     sourceKind: 'folder',
     itemCount: 3,
     items: [
-      { id: 'a.jpg', name: 'a.jpg', path: '/var/mobile/root/a.jpg', width: 4000, height: 3000 },
-      { id: 'b.jpg', name: 'b.jpg', path: '/var/mobile/root/b.jpg' },
-      { id: 'c.jpg', name: 'c.jpg', path: '/var/mobile/root/c.jpg' },
+      { id: 'a.jpg', name: 'a.jpg', path: 'a.jpg', width: 4000, height: 3000 },
+      { id: 'b.jpg', name: 'b.jpg', path: 'b.jpg' },
+      { id: 'c.jpg', name: 'c.jpg', path: 'c.jpg' },
     ],
     addedAt: '2026-10-01T00:00:00.000Z',
     lastSeenAt: '2026-10-01T00:00:00.000Z',
@@ -216,11 +261,11 @@ describe('the local manifest', () => {
   })
 
   test('items project to viewer media through the file scheme, dims intact', () => {
-    const manifest = localGalleryManifest(record())
+    const manifest = localGalleryManifest(record(), ROOT_URI)
     expect(manifest.slug).toBe('aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee')
     expect(manifest.title).toBe('Kodak moments')
     expect(manifest.images).toHaveLength(3)
-    expect(manifest.images[0].src).toBe(Capacitor.convertFileSrc('/var/mobile/root/a.jpg'))
+    expect(manifest.images[0].src).toBe(Capacitor.convertFileSrc(`${ROOT_URI}/aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee/a.jpg`))
     expect(manifest.images[0].width).toBe(4000)
     expect(manifest.images[0].height).toBe(3000)
     // Undimensioned items get the guessed box the viewer heals on decode.
@@ -228,8 +273,15 @@ describe('the local manifest', () => {
     expect(manifest.images[1].height).toBe(800)
   })
 
+  test('relative paths resolve under the supplied root, so a moved container still serves', () => {
+    const moved = 'file:///var/mobile/Containers/Data/Application/NEW/Library/Application%20Support/LocalGalleries/'
+    const manifest = localGalleryManifest(record(), moved)
+    expect(manifest.images[0].src).toBe(
+      Capacitor.convertFileSrc('file:///var/mobile/Containers/Data/Application/NEW/Library/Application%20Support/LocalGalleries/aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee/a.jpg'))
+  })
+
   test('hidden items stay out of the manifest', () => {
-    const manifest = localGalleryManifest(record({ hidden: ['b.jpg'] }))
+    const manifest = localGalleryManifest(record({ hidden: ['b.jpg'] }), ROOT_URI)
     expect(manifest.images.map((image) => image.id)).toEqual(['a.jpg', 'c.jpg'])
   })
 

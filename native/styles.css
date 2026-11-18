@@ -860,7 +860,10 @@ html.light body.manorama-native :is(.native-welcome, .native-list-shell, .native
 .native-library-layout .native-account-ad-cta { min-height: 44px; display: inline-flex; align-items: center; margin: 0; }
 .native-library-footer { flex-direction: column; align-items: flex-start; gap: 0; margin-top: 24px; padding: 0; }
 .native-library-footer button { min-height: 44px; padding: 0; border: 0; background: none; color: inherit; font: inherit; cursor: pointer; }
-.native-library-footer .site-footer-copy button { min-height: 0; display: inline; }
+/* Inline-level so the line's copy still wraps around it, but a real box:
+   inline would ignore min-height, while inline-flex keeps the 44px touch
+   target and centres the label inside it. */
+.native-library-footer .site-footer-copy button { display: inline-flex; align-items: center; min-height: 44px; }
 .native-lib-foot-meta { font-size: 14px; opacity: .75; }
 .native-library-footer :is(.site-footer-link, .site-footer-copy) { color: var(--m-secondary); line-height: 1.6; }
 .native-library-footer button:hover { text-decoration: underline; }

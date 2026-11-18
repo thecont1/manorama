@@ -350,6 +350,69 @@ test('a saved gallery keeps its vault entry ids when the online manifest is merg
   expect(entryIds).not.toContain('')
 })
 
+test('a local gallery open keeps every saved gallery and adds no merge entry', async () => {
+  // Local galleries carry an empty owner+slug identity — they live beside
+  // the vault, not in it, so the picker must not mint them a vault id or
+  // drop the galleries the store already found.
+  const store = makeStore([
+    grid(),
+    grid({ galleryId: 'gallery-b', slug: 'second-album', title: 'Second album', frames: [frame('three', 0)] }),
+  ])
+  const local: GalleryManifest = {
+    slug: 'local-gallery-id',
+    title: 'From Files',
+    caption: '',
+    date: '',
+    images: [{ id: 'local-one', filename: 'one.jpg', src: 'capacitor://localhost/_capacitor_file_/one.jpg', width: 800, height: 600, alt: 'A photograph', c2pa: false, placeholder: '' }],
+  }
+  const container = mount(
+    <GlobalView
+      store={store}
+      tier="pro"
+      current={{ owner: '', slug: '' }}
+      onlineGallery={{ selection: { owner: '', slug: '' }, manifest: local }}
+      objectUrls={objectUrls()}
+      onOpenFrame={() => {}}
+      onClose={() => {}}
+    />,
+  )
+  await settle()
+
+  expect(store.calls.listGridGalleries).toBe(1)
+  expect(container.querySelectorAll('.native-global-gallery')).toHaveLength(2)
+  expect(container.querySelectorAll('[data-grid-frame]')).toHaveLength(3)
+  expect(container.textContent).not.toContain('From Files')
+  container.remove()
+})
+
+test('a vault read failure while a local gallery is open reports the error, not a lone local entry', async () => {
+  const store = makeStore([])
+  store.listGridGalleries = async () => { throw new Error('vault locked') }
+  const local: GalleryManifest = {
+    slug: 'local-gallery-id',
+    title: 'From Files',
+    caption: '',
+    date: '',
+    images: [{ id: 'local-one', filename: 'one.jpg', src: 'capacitor://localhost/_capacitor_file_/one.jpg', width: 800, height: 600, alt: 'A photograph', c2pa: false, placeholder: '' }],
+  }
+  const container = mount(
+    <GlobalView
+      store={store}
+      tier="pro"
+      current={{ owner: '', slug: '' }}
+      onlineGallery={{ selection: { owner: '', slug: '' }, manifest: local }}
+      objectUrls={objectUrls()}
+      onOpenFrame={() => {}}
+      onClose={() => {}}
+    />,
+  )
+  await settle()
+
+  expect(container.textContent).toContain('could not be read')
+  expect(container.querySelectorAll('[data-grid-frame]')).toHaveLength(0)
+  container.remove()
+})
+
 test('online current gallery is selectable immediately while the vault is empty', async () => {
   const current = { owner: 'photographer', slug: 'quiet-light' }
   const manifest: GalleryManifest = { slug: current.slug, title: 'Quiet light', caption: '', date: '', images: [{ id: 'online-one', filename: 'one.jpg', src: 'https://manorama.xyz/api/photo', width: 800, height: 600, alt: 'A photograph', c2pa: false, placeholder: '' }] }

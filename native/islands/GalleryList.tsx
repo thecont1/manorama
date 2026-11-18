@@ -63,7 +63,7 @@ import { checkAppUpdate, dismissAppUpdate, dismissedUpdateVersion, type AppUpdat
 import { loadGlobalViewEnabled, saveGlobalViewEnabled } from '../lib/global-view'
 import { beginProviderSignIn, clearPendingQuickAdd, clearSessionToken, getOwnerSlug, getPendingQuickAdd, getSessionToken, setOwnerSlug as persistOwnerSlug, type AuthProvider, type NativeGallerySelection } from '../lib/session'
 import { requestReorderClose } from '../lib/reorder-close-guard'
-import { addLocalGallery, loadLocalCatalogue, localGalleryManifest, removeLocalGallery } from '../lib/local-gallery'
+import { addLocalGallery, loadLocalCatalogue, localGalleriesRootUri, localGalleryManifest, removeLocalGallery } from '../lib/local-gallery'
 import type { LocalCatalogue, LocalGalleryRecord } from '../../desktop/lib/catalogue'
 import { galleryPolicyKey, loadGalleryStreamOnly, saveGalleryStreamOnly, DEFAULT_VAULT_LOAD_POLICY, createVaultSettingsController, type GalleryLoadOverride } from '../lib/vault-settings'
 import type { AdSuppression } from '../../app/lib/ads-visibility'
@@ -922,12 +922,20 @@ export default function GalleryList({ apiBase, owner, slug, deepLinkSelection, o
 
   // A local gallery mounts the same shared Viewer: the manifest is built
   // from the on-device record — originals over the file scheme — so the
-  // cloud fetch effect never runs for it (the selection stays empty).
-  const enterLocalGallery = (record: LocalGalleryRecord) => {
+  // cloud fetch effect never runs for it (the selection stays empty). The
+  // root URI is resolved at open because the app container moves between
+  // launches; the record itself only ever holds relative paths.
+  const enterLocalGallery = async (record: LocalGalleryRecord) => {
+    let built: GalleryManifest
+    try {
+      built = localGalleryManifest(record, await localGalleriesRootUri())
+    } catch {
+      setError('The gallery could not be opened.')
+      return
+    }
     positionRef.current = null
     setSelection({ owner: '', slug: '' })
     setVaultProgress(null)
-    const built = localGalleryManifest(record)
     setManifest(built)
     setSettings(loadGallerySettings(record.id, built))
     setStatus('idle')
@@ -2114,7 +2122,7 @@ export default function GalleryList({ apiBase, owner, slug, deepLinkSelection, o
                   },
                   devices,
                   {
-                    onOpen: () => enterLocalGallery(record),
+                    onOpen: () => void enterLocalGallery(record),
                     action: (
                       <button
                         type="button"
@@ -2204,7 +2212,7 @@ export default function GalleryList({ apiBase, owner, slug, deepLinkSelection, o
           <button type="button" onClick={() => {
             const record = localMenuRecord
             setLocalMenuRecord(null)
-            enterLocalGallery(record)
+            void enterLocalGallery(record)
           }}>Open gallery</button>
           <button type="button" class="lib-menu-danger" onClick={() => {
             const record = localMenuRecord

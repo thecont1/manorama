@@ -24,9 +24,11 @@ import { getSessionToken } from './session'
 /**
  * Local galleries on the phone: a picked folder's photographs are copied
  * into the app container (bytes verbatim — never re-encoded, invariant 2)
- * and catalogued exactly like the desktop model. The record's paths are
- * device-only by contract; the sync payload is `deviceGalleryInput`'s
- * shape — title, kind, count, deviceId — so no filename or path can leak.
+ * and catalogued exactly like the desktop model. Record paths are relative
+ * to the LocalGalleries root — the app container moves between launches —
+ * and are resolved at read time. The record's paths are device-only by
+ * contract; the sync payload is `deviceGalleryInput`'s shape — title, kind,
+ * count, deviceId — so no filename or path can leak.
  */
 
 export type LocalFolderImportResult = {
@@ -140,8 +142,9 @@ export const addLocalGallery = async (
 }
 
 /** Removes the copied originals, the catalogue record, and — best-effort —
- *  the synced mirror row. The local record is final either way; the mirror
- *  reconciles on the next sync. */
+ *  the synced mirror row. The catalogue record is dropped only when the
+ *  folder was removed or was already absent — a removal failure propagates
+ *  so the record (and a retry) survives. */
 export const removeLocalGallery = async (
   apiBase: string,
   record: LocalGalleryRecord,
@@ -153,7 +156,8 @@ export const removeLocalGallery = async (
 ): Promise<void> => {
   const bridge = deps.bridge ?? productionBridge()
   const store = deps.store ?? filesystemStore
-  await bridge.removeGallery({ path: record.rootPath }).catch(() => {})
+  const { exists } = await bridge.exists({ path: record.rootPath })
+  if (exists) await bridge.removeGallery({ path: record.rootPath })
   const catalogue = await loadLocalCatalogue(store)
   catalogue.galleries = catalogue.galleries.filter((gallery) => gallery.id !== record.id)
   await saveLocalCatalogue(catalogue, store)
@@ -161,12 +165,28 @@ export const removeLocalGallery = async (
   if (token) await removeDeviceGallery(apiBase, token, record, deps.fetcher).catch(() => {})
 }
 
+/** The LocalGalleries root's file URI, resolved fresh — the app container
+ *  moves between launches, so nothing absolute is ever persisted. */
+export const localGalleriesRootUri = async (): Promise<string> => {
+  const { uri } = await Filesystem.getUri({ path: 'Application Support/LocalGalleries', directory: Directory.Library })
+  return uri.replace(/\/+$/, '')
+}
+
+/** Joins a catalogue-relative path onto the root URI — each segment is
+ *  encoded so spaces and # in filenames survive the URL round-trip. */
+const joinFileUri = (rootUri: string, galleryId: string, path: string): string =>
+  `${rootUri.replace(/\/+$/, '')}/${encodeURIComponent(galleryId)}/${path.split('/').map(encodeURIComponent).join('/')}`
+
 /** The manifest the shared Viewer consumes — originals addressed through
- *  the app's file scheme so bytes never leave the device. */
-export const localGalleryManifest = (record: LocalGalleryRecord): GalleryManifest => ({
+ *  the app's file scheme so bytes never leave the device. Relative record
+ *  paths resolve under `rootUri` (`localGalleriesRootUri`); a leading slash
+ *  marks a legacy absolute record, used as written. */
+export const localGalleryManifest = (record: LocalGalleryRecord, rootUri: string): GalleryManifest => ({
   slug: record.id,
   title: record.title,
   caption: '',
   date: '',
-  images: visibleItemsFor(record).map((item) => toGalleryMediaItem(item, (path) => Capacitor.convertFileSrc(path))),
+  images: visibleItemsFor(record).map((item) =>
+    toGalleryMediaItem(item, (path) =>
+      Capacitor.convertFileSrc(path.startsWith('/') ? path : joinFileUri(rootUri, record.rootPath, path)))),
 })
