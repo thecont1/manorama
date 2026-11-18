@@ -3,6 +3,7 @@
 /* Frost-tier material system — inert until a shell marker lands
    (data-ios-shell / data-android-shell). See docs/liquid-glass-design-system.md. */
 @import '../app/styles/glass.css';
+@import './styles/glass.css';
 
 /* Native gallery chrome is a single reachable row. Every control shares the
    same dynamic height; the photograph remains untouched above it. */
