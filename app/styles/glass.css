@@ -337,3 +337,146 @@ html.light {
     box-shadow: inset 0 0 0 1px var(--glass-edge);
   }
 }
+
+/* ── G2c — canvas-adjacent frost (#229). Chrome that rides the
+   photograph itself: the picker's two bars float as glass over the
+   matrix, the diptych/system-side arrows become pills, the "The End."
+   card takes the frost recipe — the plate element carries the same
+   .viewer-endcap class, so it inherits the card's glass while the ten
+   plate rules (cadence, dressing, tap-to-arm) stay enforced elsewhere.
+   The named dims are untouched: .native-global-view, .filmstrip-scrim,
+   .curtain and the .viewer-filmstrip surface keep their own filters. */
+
+/* Picker top bar and bottom bar — the mode name and the sizer/actions
+   row. Both are children of .viewer-filmstrip, which stays exempt; the
+   bars frost over it. */
+:root:is([data-ios-shell], [data-android-shell], [data-macos-shell])
+  .gallery-shell .viewer-filmstrip :is(.viewer-picker-top, .viewer-picker-header) {
+  background: var(--glass-fill-regular);
+  backdrop-filter: blur(16px) saturate(1.4);
+  -webkit-backdrop-filter: blur(16px) saturate(1.4);
+  box-shadow: var(--glass-rim), var(--glass-shadow);
+}
+
+/* Strip/vertical/diptych nav arrows — floating single controls. The
+   gated hover keeps a glass fill: the base hover's near-opaque .82
+   black would retire the material. */
+:root:is([data-ios-shell], [data-android-shell], [data-macos-shell])
+  .gallery-shell .stage-arrows button {
+  background: var(--glass-fill-regular);
+  backdrop-filter: blur(16px) saturate(1.4);
+  -webkit-backdrop-filter: blur(16px) saturate(1.4);
+  box-shadow: var(--glass-rim), var(--glass-shadow);
+}
+:root:is([data-ios-shell], [data-android-shell], [data-macos-shell])
+  .gallery-shell .stage-arrows button:hover {
+  background: var(--glass-fill-frost);
+}
+
+/* The magnifier housing — glass fill and rim only, never a
+   backdrop-filter: the lens is an ancestor of the mirrored world's
+   <img>s, and .magnifier-world covers the whole interior, so a blur
+   would cost a composite for pixels nobody sees. It mounts on
+   document.body, so the frost gate alone scopes it (unlike the other
+   canvas surfaces it is not under .gallery-shell). The conic ::before
+   stays — it is already the specular rim a glass edge wants. */
+:root:is([data-ios-shell], [data-android-shell], [data-macos-shell])
+  .magnifier-lens {
+  background: var(--glass-fill-lens);
+  box-shadow: var(--glass-rim), var(--glass-shadow);
+}
+
+/* "The End." — every variant: the strip card, the feed footer and the
+   single-mode overlay (its base background is the opaque canvas, so the
+   gated fill wins on specificity). The plate wears the same class, so
+   the ad card frosts with it. The fill tints from --gallery-canvas
+   rather than a fixed token: --ink is chosen to contrast the canvas,
+   so a canvas-tinted card stays legible under bg-light where a dark
+   fill would put dark text on dark glass. */
+:root:is([data-ios-shell], [data-android-shell], [data-macos-shell])
+  .gallery-shell .viewer-endcap {
+  background: color-mix(in srgb, var(--gallery-canvas) 60%, transparent);
+  backdrop-filter: blur(24px) saturate(1.4);
+  -webkit-backdrop-filter: blur(24px) saturate(1.4);
+  box-shadow: var(--glass-rim), var(--glass-shadow);
+}
+
+/* Tier 0 for the canvas lane — chrome surfaces go --glass-solid; the
+   endcap goes solid canvas, which is exactly its pre-glass look (the
+   card was transparent over --gallery-canvas). The lens never blurred,
+   so it still swaps its tinted backing for the solid surface. Under
+   html.light the solid fill is light but the arrow glyph's --ink still
+   answers the canvas — on a dark canvas that is light-on-light — so
+   the glyph flips to the light-theme --glass-ink (dark) in every arm. */
+@media (prefers-reduced-transparency: reduce), (prefers-contrast: more) {
+  :root:is([data-ios-shell], [data-android-shell], [data-macos-shell])
+    .gallery-shell .viewer-filmstrip :is(.viewer-picker-top, .viewer-picker-header),
+  :root:is([data-ios-shell], [data-android-shell], [data-macos-shell])
+    .gallery-shell .stage-arrows button,
+  :root:is([data-ios-shell], [data-android-shell], [data-macos-shell])
+    .gallery-shell .stage-arrows button:hover,
+  :root:is([data-ios-shell], [data-android-shell], [data-macos-shell])
+    .magnifier-lens {
+    background: var(--glass-solid);
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
+    box-shadow: inset 0 0 0 1px var(--glass-edge);
+  }
+  :root.light:is([data-ios-shell], [data-android-shell], [data-macos-shell])
+    .gallery-shell .stage-arrows button {
+    color: var(--glass-ink);
+  }
+  :root:is([data-ios-shell], [data-android-shell], [data-macos-shell])
+    .gallery-shell .viewer-endcap {
+    background: var(--gallery-canvas);
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
+    box-shadow: inset 0 0 0 1px var(--glass-edge);
+  }
+}
+:root:is([data-ios-shell], [data-android-shell], [data-macos-shell])[data-reduced-transparency]
+  .gallery-shell .viewer-filmstrip :is(.viewer-picker-top, .viewer-picker-header),
+:root:is([data-ios-shell], [data-android-shell], [data-macos-shell])[data-reduced-transparency]
+  .gallery-shell .stage-arrows button,
+:root:is([data-ios-shell], [data-android-shell], [data-macos-shell])[data-reduced-transparency]
+  .gallery-shell .stage-arrows button:hover,
+:root:is([data-ios-shell], [data-android-shell], [data-macos-shell])[data-reduced-transparency]
+  .magnifier-lens {
+  background: var(--glass-solid);
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+  box-shadow: inset 0 0 0 1px var(--glass-edge);
+}
+:root.light:is([data-ios-shell], [data-android-shell], [data-macos-shell])[data-reduced-transparency]
+  .gallery-shell .stage-arrows button {
+  color: var(--glass-ink);
+}
+:root:is([data-ios-shell], [data-android-shell], [data-macos-shell])[data-reduced-transparency]
+  .gallery-shell .viewer-endcap {
+  background: var(--gallery-canvas);
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+  box-shadow: inset 0 0 0 1px var(--glass-edge);
+}
+@supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+  :root:is([data-ios-shell], [data-android-shell], [data-macos-shell])
+    .gallery-shell .viewer-filmstrip :is(.viewer-picker-top, .viewer-picker-header),
+  :root:is([data-ios-shell], [data-android-shell], [data-macos-shell])
+    .gallery-shell .stage-arrows button,
+  :root:is([data-ios-shell], [data-android-shell], [data-macos-shell])
+    .gallery-shell .stage-arrows button:hover,
+  :root:is([data-ios-shell], [data-android-shell], [data-macos-shell])
+    .magnifier-lens {
+    background: var(--glass-solid);
+    box-shadow: inset 0 0 0 1px var(--glass-edge);
+  }
+  :root.light:is([data-ios-shell], [data-android-shell], [data-macos-shell])
+    .gallery-shell .stage-arrows button {
+    color: var(--glass-ink);
+  }
+  :root:is([data-ios-shell], [data-android-shell], [data-macos-shell])
+    .gallery-shell .viewer-endcap {
+    background: var(--gallery-canvas);
+    box-shadow: inset 0 0 0 1px var(--glass-edge);
+  }
+}
