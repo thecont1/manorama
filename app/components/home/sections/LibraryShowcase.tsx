@@ -17,10 +17,11 @@ import { LIBRARY_STATES } from '../home-manifest'
  * The frame is steel and stays steel — the band is one object on the page,
  * not a piece of the page's chrome, so it does not turn with the theme.
  *
- * The captures are served at exactly twice the viewable area: the frame is
- * at most 1312 CSS pixels wide and its 2-pixel rules take four of them, so
- * the picture is 1308 across and the file is 2616. On a retina screen the
- * capture's own pixels land one for one on the device's.
+ * The captures are served at exactly twice the viewable area: the frame's
+ * outer box is 1732 and its 2-pixel rules take four of them, so the picture
+ * is 1728 across and the file is 3456 — the size the capture was made at.
+ * On a retina screen the capture's own pixels land one for one on the
+ * device's.
  */
 export default function LibraryShowcase() {
   return (
@@ -31,7 +32,12 @@ export default function LibraryShowcase() {
           Dark or light, one switch — and a quiet view that sinks the interface, so the
           photographs come forward.
         </p>
+      </div>
 
+      {/* The frame sits in a row of its own: the capture is shown at the size
+          it was taken, which is wider than the page's measure, so it breaks
+          out of the text column and centres itself on the page. */}
+      <div class="home-library-row">
         <div
           class="home-library home-rise home-rise-3"
           data-library-loop
@@ -47,19 +53,19 @@ export default function LibraryShowcase() {
               >
                 <source
                   type="image/avif"
-                  srcSet={`/home/${state.src}-sm.avif 1308w, /home/${state.src}.avif 2616w`}
-                  sizes="(min-width: 1440px) 1308px, 92vw"
+                  srcSet={`/home/${state.src}-sm.avif 1728w, /home/${state.src}.avif 3456w`}
+                  sizes="(min-width: 1800px) 1728px, 96vw"
                 />
                 <source
                   type="image/webp"
-                  srcSet={`/home/${state.src}-sm.webp 1308w, /home/${state.src}.webp 2616w`}
-                  sizes="(min-width: 1440px) 1308px, 92vw"
+                  srcSet={`/home/${state.src}-sm.webp 1728w, /home/${state.src}.webp 3456w`}
+                  sizes="(min-width: 1800px) 1728px, 96vw"
                 />
                 <img
                   src={`/home/${state.src}.jpg`}
                   alt={state.alt}
-                  width={2616}
-                  height={1641}
+                  width={3456}
+                  height={2168}
                   loading={index === 0 ? 'eager' : 'lazy'}
                   decoding={index === 0 ? 'sync' : 'async'}
                   fetchpriority={index === 0 ? 'high' : 'auto'}

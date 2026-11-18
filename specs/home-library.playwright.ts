@@ -181,15 +181,16 @@ test.describe('the Library band', () => {
     expect(measured.drawnWidth).toBeLessThanOrEqual(measured.naturalWidth)
   })
 
-  test('the viewable area is exactly half the capture, so a retina screen lands it one for one', async ({ browser }) => {
-    // The frame is at most 1312 CSS pixels wide and its 2-pixel rules take
-    // four of them, so the viewable area is 1308 and the file is 2616.
+  test('the canvas is the capture’s own size, so a retina screen lands it one for one', async ({ browser }) => {
+    // The captures are 3456×2168, which is a 1728×1084 window at 2×. The
+    // canvas is drawn at that logical size, so the picture is shown at the
+    // scale it was made and the file's own pixels land on the device's.
     for (const { scale, expected } of [
       { scale: 1, expected: 'lib-dark-sm.avif' },
       { scale: 2, expected: 'lib-dark.avif' },
     ]) {
       const context = await browser.newContext({
-        viewport: { width: 1440, height: 900 },
+        viewport: { width: 2560, height: 1440 },
         deviceScaleFactor: scale,
       })
       const page = await context.newPage()
@@ -213,14 +214,46 @@ test.describe('the Library band', () => {
           served: image.currentSrc.split('/').pop(),
         }
       })
-      // The file the browser is given is exactly what this screen needs:
-      // the viewable area's own pixels at 1×, twice them at 2×.
-      expect(measured.viewWidth).toBeCloseTo(1308, 0)
+      // The canvas is the capture's logical size, and the file is exactly
+      // what this screen needs: the canvas's own pixels at 1×, twice them
+      // at 2×.
+      expect(measured.viewWidth).toBeCloseTo(1728, 0)
+      expect(measured.viewHeight).toBeCloseTo(1084, 0)
       expect(measured.served, `at ${scale}×`).toBe(expected)
       expect(measured.fileWidth).toBeCloseTo(measured.viewWidth * scale, 0)
-      // The half-size file rounds the height to a whole pixel, so it may
-      // sit half a pixel off the viewable area's height.
-      expect(Math.abs(measured.fileHeight - measured.viewHeight * scale)).toBeLessThanOrEqual(1)
+      expect(measured.fileHeight).toBeCloseTo(measured.viewHeight * scale, 0)
+      await context.close()
+    }
+  })
+
+  test('a narrower screen shrinks the canvas and never upscales the file', async ({ browser }) => {
+    for (const width of [375, 1440]) {
+      const context = await browser.newContext({
+        viewport: { width, height: 900 },
+        deviceScaleFactor: 2,
+      })
+      const page = await context.newPage()
+      await open(page)
+      await bringUp(page)
+      const measured = await page.evaluate(async () => {
+        const band = document.querySelector<HTMLElement>('[data-library-loop]')!
+        const stage = band.querySelector<HTMLElement>('.home-library-stage')!.getBoundingClientRect()
+        const image = band.querySelector<HTMLImageElement>('[data-library-layer="0"] img')!
+        const probe = new Image()
+        probe.src = image.currentSrc
+        await probe.decode()
+        return {
+          viewWidth: stage.width,
+          fileWidth: probe.naturalWidth,
+          overflow: document.documentElement.scrollWidth - document.documentElement.clientWidth,
+        }
+      })
+      // Smaller than the full size, and the file is still never stretched
+      // past its own pixels.
+      expect(measured.viewWidth).toBeLessThan(1728)
+      expect(measured.fileWidth).toBeGreaterThanOrEqual(measured.viewWidth)
+      // And the frame never pushes the page sideways.
+      expect(measured.overflow).toBeLessThanOrEqual(1)
       await context.close()
     }
   })

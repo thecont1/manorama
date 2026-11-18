@@ -1204,11 +1204,26 @@ html.light .home-demo-device--duo .home-demo-device-body {
      dark enough to carry cream type at full contrast. */
   --home-library-frame: #646c78;
   --home-library-ink: #f3f0e8;
+  /* How far the frame keeps off the edge of the screen. The frame is
+     wider than the page's measure, so it stands closer to the edge than
+     the text does. */
+  --home-library-inset: clamp(16px, 2vw, 40px);
+}
+
+/* The frame's own row, outside the page's measure. */
+.home-library-row {
+  margin-top: var(--home-gap-block);
 }
 
 .home-library {
   position: relative;
-  margin-top: var(--home-gap-block);
+  /* The capture was taken on a 1728×1084 window at 2×, so that is the
+     size its canvas is drawn at: the picture is shown at the scale it
+     was made, and on a wide screen the file's own pixels land one for
+     one on the device's. The frame's 2-pixel rules take four of the
+     width, so the outer box is 1732. */
+  width: min(1732px, calc(100% - 2 * var(--home-library-inset)));
+  margin-inline: auto;
   border: 2px solid var(--home-library-frame);
   border-bottom: var(--home-library-rail) solid var(--home-library-frame);
   background: var(--home-surface);
@@ -1216,13 +1231,11 @@ html.light .home-demo-device--duo .home-demo-device-body {
 
 /* The picture's own box holds the capture's exact ratio — the ratio of the
    file the browser is actually given — so the picture is never cropped and
-   never stretched. The file is 2616 wide and the viewable area is 1308,
-   so on a retina screen the capture's pixels land one for one on the
-   device's. */
+   never stretched. */
 .home-library-stage {
   position: relative;
   overflow: hidden;
-  aspect-ratio: 2616 / 1641;
+  aspect-ratio: 3456 / 2168;
   background: var(--home-surface);
 }
 

@@ -1,13 +1,13 @@
 // Converts the four Library captures — dark, quiet and dark, quiet and
 // light, light — into the formats the homepage serves: AVIF, WebP and a
-// JPEG fallback, at a generous size and at half size for narrow screens.
+// JPEG fallback, at the capture's own size and at half size for standard
+// screens.
 //
-// The captures are 3456×2168. The frame that holds them is at most 1312
-// CSS pixels wide and its 2-pixel rules take four of them, so the
-// viewable area is 1308. The large variant is therefore served at 2616 —
-// exactly twice that — which lands the capture's own pixels one for one on
-// a retina screen's device pixels, and the half-size variant lands the
-// same way on a standard screen.
+// The captures are 3456×2168, which is a 1728×1084 window at 2×. The
+// viewer's canvas is that window's logical size, so the large variant is
+// served at the capture's own 3456 and the half-size variant at 1728: a
+// retina screen lands the capture's pixels one for one on the device's,
+// and a standard screen lands the half-size file's one for one.
 //
 // Run it from the repository root with node — sharp's native binding hangs
 // under bun in this checkout:
@@ -34,8 +34,8 @@ const jobs = [
 for (const job of jobs) {
   const input = `${root}${job.src}`
   const variants = [
-    { suffix: '', width: 2616 },
-    { suffix: '-sm', width: 1308 },
+    { suffix: '', width: 3456 },
+    { suffix: '-sm', width: 1728 },
   ]
   for (const variant of variants) {
     const pipeline = sharp(input).resize({ width: variant.width, withoutEnlargement: true })

@@ -220,11 +220,12 @@ describe('the Library loop', () => {
 
   test('never stretches the capture: the frame holds its own ratio', () => {
     const html = page()
-    // The file is served at exactly twice the viewable area, so a retina
-    // screen's device pixels land one for one on the capture's own.
-    expect(html).toContain('width="2616"')
-    expect(html).toContain('height="1641"')
-    expect(html).toContain('/home/lib-dark-sm.avif 1308w, /home/lib-dark.avif 2616w')
+    // The capture is 3456×2168 — a 1728×1084 window at 2×. The canvas is
+    // drawn at that logical size, so the file's own pixels land one for
+    // one on a retina screen's.
+    expect(html).toContain('width="3456"')
+    expect(html).toContain('height="2168"')
+    expect(html).toContain('/home/lib-dark-sm.avif 1728w, /home/lib-dark.avif 3456w')
     expect(html).toContain('class="home-library-stage"')
   })
 })
