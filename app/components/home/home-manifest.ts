@@ -153,6 +153,67 @@ export const ASSETS: Asset[] = [
 
 export const assetById = (id: string): Asset | undefined => ASSETS.find((a) => a.id === id)
 
+/**
+ * One appearance of the Library.
+ *
+ * The four captures are the same Library — dark, quiet and dark, quiet and
+ * light, light — and the loop moves through them in this order. Because
+ * the quiet captures are the same pixels with the words sunk to a whisper
+ * and the photographs left at full brightness, the dissolve between a
+ * loud state and its quiet twin reads as the interface going out rather
+ * than as a cut between two unrelated pictures.
+ */
+export type LibraryState = {
+  /** The file basename under /home, without an extension. */
+  src: string
+  /** The name of the state, in the app's own words. */
+  name: string
+  /** The one line that says what the state is for. */
+  caption: string
+  /** What a reader of the picture would see. */
+  alt: string
+}
+
+/**
+ * The Library's four appearances, in the order the loop walks them.
+ *
+ * The captures are 3456×2168 — a 1728×1084 window at 2× — and they are
+ * served at that width: `src` names the file the homepage publishes the
+ * capture as. The canvas is drawn at the capture's logical size, so a 2×
+ * screen asks the device for exactly the pixels the file holds, and
+ * nothing is resampled in between.
+ */
+export const LIBRARY_STATES: LibraryState[] = [
+  {
+    src: 'lib-dark',
+    name: 'Dark mode',
+    caption: 'Every control, lit.',
+    alt:
+      'The manorama Library in dark mode: the wordmark and the Library heading in the left column, the Add Gallery button, a strip of pinned gallery photographs across the top and a grid of local galleries below.',
+  },
+  {
+    src: 'lib-quiet-dark',
+    name: 'Quiet and Dark mode',
+    caption: 'The interface steps back.',
+    alt:
+      'The same Library in dark mode with the quiet view on: every word and control has sunk to a whisper while the photographs keep their full brightness.',
+  },
+  {
+    src: 'lib-quiet-light',
+    name: 'Quiet and Light mode',
+    caption: 'Quiet, in daylight too.',
+    alt:
+      'The same Library in light mode with the quiet view on: a pale ground, the photographs at full brightness, and the words sunk almost to nothing.',
+  },
+  {
+    src: 'lib-light',
+    name: 'Light mode',
+    caption: 'The same Library. Different light.',
+    alt:
+      'The manorama Library in light mode: the same wordmark, the Add Gallery button, the strip of pinned photographs and the grid of local galleries, on a pale ground.',
+  },
+]
+
 export type Source = {
   id: string
   name: string

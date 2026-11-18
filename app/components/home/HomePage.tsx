@@ -5,6 +5,7 @@ import Footer from './sections/Footer'
 import Header from './sections/Header'
 import Hero from './sections/Hero'
 import HowItWorks from './sections/HowItWorks'
+import LibraryShowcase from './sections/LibraryShowcase'
 import Pricing from './sections/Pricing'
 import Unify from './sections/Unify'
 
@@ -43,6 +44,7 @@ export default function HomePage({
       <main id="content">
         <Hero samplePath={samplePath} demo={demo} />
         <Unify />
+        <LibraryShowcase />
         <HowItWorks />
         <Features />
         <Pricing />

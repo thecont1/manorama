@@ -439,23 +439,24 @@ test.describe('the marketing homepage', () => {
   test('the page loads only the chrome and shared island enhancement scripts', async ({ page }) => {
     await open(page)
     // Vite's dev client is inline and absent from production. The remaining
-    // scripts are the four homepage utilities plus HonoX's shared hydration.
+    // scripts are the five homepage utilities plus HonoX's shared hydration.
     const scripts = await page.evaluate(() =>
       [...document.querySelectorAll('script')]
         .filter((s) => !(s.textContent || '').includes('/@vite/client'))
         .map((s) => s.getAttribute('src') ?? 'inline'),
     )
-    expect(scripts.slice(0, 5)).toEqual([
+    expect(scripts.slice(0, 6)).toEqual([
       '/theme-init.js',
       '/home-theme.js',
       '/home-menu.js',
       '/home-hero.js',
+      '/home-library.js',
       '/hydrate-guard.js',
     ])
     // Dev serves the entry from source; a built Worker serves the manifest's
     // hashed asset. Either way it is one client module and nothing else.
-    expect(scripts).toHaveLength(6)
-    expect(scripts[5]).toMatch(/^\/(?:app\/client\.ts|static\/client-[\w-]+\.js)(?:[?#].*)?$/)
+    expect(scripts).toHaveLength(7)
+    expect(scripts[6]).toMatch(/^\/(?:app\/client\.ts|static\/client-[\w-]+\.js)(?:[?#].*)?$/)
   })
 
   test('the visible marketing copy stays inside the budget', async ({ page }) => {

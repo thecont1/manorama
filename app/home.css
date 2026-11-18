@@ -1185,6 +1185,247 @@ html.light .home-demo-device--duo .home-demo-device-body {
   }
 }
 
+/* ── the Library loop ─────────────────────────────────────────────── */
+
+/* The four captures of the Library — dark, quiet and dark, quiet and
+   light, light — dissolved into one another. The frame is a rule around
+   the picture; its bottom rule is far thicker than the rest, and the
+   captions live inside that rule, so the state and the line that says
+   what it is for are held by the frame rather than floating under it.
+
+   The frame is steel, and it stays steel: the band is one object on the
+   page, not a piece of the page's chrome, so it does not turn with the
+   theme. The type on the bottom rule is the same cream in both themes,
+   for the same reason. */
+
+.home-library-band {
+  --home-library-rail: clamp(68px, 5.2vw, 78px);
+  /* Steel, constant in both themes. The caption sits on it, so it is
+     dark enough to carry cream type at full contrast. */
+  --home-library-frame: #646c78;
+  --home-library-ink: #f3f0e8;
+  /* How far the frame keeps off the edge of the screen. The frame is
+     wider than the page's measure, so it stands closer to the edge than
+     the text does. */
+  --home-library-inset: clamp(16px, 2vw, 40px);
+}
+
+/* The frame's own row, outside the page's measure. */
+.home-library-row {
+  margin-top: var(--home-gap-block);
+}
+
+.home-library {
+  position: relative;
+  /* The capture was taken on a 1728×1084 window at 2×, so that is the
+     size its canvas is drawn at: the picture is shown at the scale it
+     was made, and on a wide screen the file's own pixels land one for
+     one on the device's. The frame's 2-pixel rules take four of the
+     width, so the outer box is 1732. */
+  width: min(1732px, calc(100% - 2 * var(--home-library-inset)));
+  margin-inline: auto;
+  border: 2px solid var(--home-library-frame);
+  border-bottom: var(--home-library-rail) solid var(--home-library-frame);
+  background: var(--home-surface);
+}
+
+/* The picture's own box holds the capture's exact ratio — the ratio of the
+   file the browser is actually given — so the picture is never cropped and
+   never stretched. */
+.home-library-stage {
+  position: relative;
+  overflow: hidden;
+  aspect-ratio: 3456 / 2168;
+  background: var(--home-surface);
+}
+
+.home-library-layer {
+  position: absolute;
+  inset: 0;
+  display: block;
+  opacity: 0;
+  transition: opacity 1100ms cubic-bezier(.4, 0, .2, 1);
+}
+
+.home-library-layer img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+/* The dissolve is driven by one attribute on the frame, so the page still
+   holds its first state with scripting off. */
+.home-library[data-state='0'] .home-library-layer[data-library-layer='0'],
+.home-library[data-state='1'] .home-library-layer[data-library-layer='1'],
+.home-library[data-state='2'] .home-library-layer[data-library-layer='2'],
+.home-library[data-state='3'] .home-library-layer[data-library-layer='3'] {
+  opacity: 1;
+}
+
+/* The bottom rule, filled with steel: the type on it is the same cream in
+   both themes, because the frame does not turn. */
+.home-library-rail {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: var(--home-library-rail);
+  /* The rule is the border, so the captions sit down inside it: the
+     rail's lower edge is the frame's lower edge. */
+  margin-bottom: calc(-1 * var(--home-library-rail));
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: clamp(12px, 2vw, 28px);
+  padding-inline: clamp(14px, 1.8vw, 26px);
+  color: var(--home-library-ink);
+}
+
+.home-library-captions {
+  position: relative;
+  flex: 1 1 auto;
+  min-width: 0;
+  height: 100%;
+}
+
+.home-library-caption {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  gap: clamp(8px, 1.2vw, 16px);
+  margin: 0;
+  opacity: 0;
+  transform: translateY(7px);
+  transition: opacity 280ms ease, transform 280ms cubic-bezier(.22, 1, .36, 1);
+  /* The caption that is leaving waits for the middle of the dissolve; the
+     one that is arriving takes its place the moment the other is gone. The
+     rail is never blank and never holds two sentences. */
+  transition-delay: 280ms;
+}
+
+/* The caption that is on show waits for the dissolve to be most of the
+   way through before it arrives; the one that is leaving goes at once.
+   The two never overlap, so the rule is never two sentences at once. */
+.home-library[data-state='0'] .home-library-caption[data-library-caption='0'],
+.home-library[data-state='1'] .home-library-caption[data-library-caption='1'],
+.home-library[data-state='2'] .home-library-caption[data-library-caption='2'],
+.home-library[data-state='3'] .home-library-caption[data-library-caption='3'] {
+  opacity: 1;
+  transform: none;
+  transition-delay: 560ms;
+}
+
+.home-library-index {
+  flex: none;
+  font-family: 'DM Mono', ui-monospace, monospace;
+  font-size: 12px;
+  letter-spacing: .08em;
+  opacity: .5;
+}
+
+.home-library-name {
+  flex: none;
+  font-family: 'Bricolage Grotesque', 'Manrope', ui-sans-serif, system-ui, sans-serif;
+  font-size: clamp(16px, 1.45vw, 20px);
+  font-weight: 600;
+  letter-spacing: -.01em;
+  line-height: 1.2;
+}
+
+.home-library-sep {
+  flex: none;
+  opacity: .5;
+}
+
+.home-library-line {
+  min-width: 0;
+  font-size: clamp(14px, 1.2vw, 16px);
+  opacity: .74;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.home-library-controls {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: clamp(10px, 1.4vw, 18px);
+}
+
+.home-library-dots {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+}
+
+.home-library-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: currentColor;
+  opacity: .26;
+  transition: opacity 280ms ease;
+}
+
+.home-library-dot.is-on {
+  opacity: 1;
+}
+
+.home-library-pause {
+  font-family: 'DM Mono', ui-monospace, monospace;
+  font-size: 11px;
+  letter-spacing: .1em;
+  text-transform: lowercase;
+  color: inherit;
+  background: none;
+  border: 0;
+  /* A touch target the size the header's own controls use. */
+  min-height: 44px;
+  padding: 8px 4px;
+  cursor: pointer;
+  opacity: .62;
+  transition: opacity 200ms ease;
+}
+
+.home-library-pause:hover {
+  opacity: 1;
+}
+
+@media (max-width: 719px) {
+  /* The rule holds two lines on a narrow screen: the state above, the
+     line that says what it is for below. */
+  .home-library-caption {
+    flex-direction: column;
+    align-items: flex-start;
+    justify-content: center;
+    gap: 2px;
+  }
+
+  .home-library-sep {
+    display: none;
+  }
+
+  .home-library-line {
+    white-space: normal;
+  }
+
+  .home-library-dots {
+    display: none;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .home-library-layer,
+  .home-library-caption,
+  .home-library-dot,
+  .home-library-pause {
+    transition: none;
+  }
+}
+
 /* ── the steps ─────────────────────────────────────────────────────── */
 
 .home-steps {

@@ -22,6 +22,7 @@ page, and no capture is re-encoded at request time (AGENTS invariant 1).
 | H3 | One photograph, fitted, chrome hidden | Features band, left of the pair | `h3-iphone` |
 | H4 | The gallery opening, title set large | Features band, beside H3 | `h4-macos-curtain` |
 | H5 | The same gallery on a larger screen | How it works, right column | `h5-ipad` |
+| L1 | The Library itself, in its four appearances | Its own band, between Unify and How it works | `lib-dark`, `lib-quiet-dark`, `lib-quiet-light`, `lib-light` |
 
 The manifest is `app/components/home/home-manifest.ts`. Each asset carries a `status`:
 
@@ -45,6 +46,7 @@ The manifest is `app/components/home/home-manifest.ts`. Each asset carries a `st
 | H3 | `demo-captures/ios/03-first-image-hover.png` | 1284×2778 | 642, 1284 | AVIF, WebP, JPEG | interim |
 | H4 | `demo-captures/macos/02-gallery-curtain.png` | 1440×900 | 1440 | AVIF, WebP, JPEG | interim |
 | H5 | `demo-captures/ipad/03-first-image-hover.png` | 2752×2064 | 1376, 2752 | AVIF, WebP, JPEG | interim |
+| L1 | `demo-captures/library/01-dark-mode.png` … `04-light-mode.png` | 3456×2168 | 3456, never resized | WebP, lossless | interim |
 
 The files were produced from those captures by `scripts/home-images.mjs`:
 
@@ -57,6 +59,68 @@ three tall captures (H2, H3, H5) so a phone does not download a 1284-pixel file 
 260-pixel column. The served file is never enlarged: `withoutEnlargement` is on, and
 each `<picture>` carries the intrinsic `width`/`height` so the box is reserved and the
 image is never stretched (invariant 13).
+
+The four Library captures are published by their own script, because they are four
+frames of one loop rather than four separate slots:
+
+```sh
+node scripts/home-library-images.mjs
+```
+
+**It never resizes them.** It writes `public/home/lib-*.webp` at the capture's own
+3456×2168, and the size is checked on the way out rather than assumed: a file that
+came back a pixel short would fail the script. That is the whole of the 2× business.
+The captures are 3456×2168, which is a 1728×1084 window at 2×, and the band's canvas
+is drawn at that logical size — so a 2× screen asks the device for 3456 pixels and
+the file is the one that answers, with nothing resampled in between. On a 1× screen
+the browser downsamples the same file; the picture is never stretched past its own
+pixels.
+
+The format is WebP, **lossless**. The four files are 18.6 MB rather than the 34 MB
+the captures weigh, and the pixels that arrive are the pixels that were captured —
+measured, not one of the 7,492,608 pixels in any of the four differs from the
+capture by a single level. The profile, the EXIF and the XMP ride along inside the
+file.
+
+Two things worth knowing, both measured rather than assumed:
+
+- The captures carry an sRGB profile *and* a cICP chunk declaring BT.2020 primaries
+  at the same time. A **lossless PNG re-encode of them is not lossless in practice**:
+  88% of the pixels moved, by as much as 163 levels. WebP's lossless path does not
+  have that problem, which is the reason for the format.
+- Writing the file back out through sharp re-encodes it, and sharp's defaults are
+  lossy — a lossless WebP written that way comes out at a fifth of the size and
+  visibly wrong. The bytes go down verbatim instead.
+
+The acceptance spec holds both ends of this: the served file must be the capture's
+own 3456×2168, and the browser's rendering of it must match the browser's
+rendering of the capture *exactly* — the same pixels, not approximately.
+
+Because the files are large enough to notice, the page asks for one at a time. Only
+the first is in the markup, and it is lazy, so the band costs nothing until a
+visitor comes to it; the loop fetches each capture as it reaches it and holds the
+state on screen until the next one has arrived and been decoded.
+
+The frame is steel and does not turn with the theme: the band is one object on the
+page, not a piece of the page's chrome, so it reads the same in dark and in light.
+
+### The Library band (L1)
+
+The band is a loop: the four captures dissolve into one another on a clock, and the
+frame's bottom rule — far thicker than the other three — holds the caption that names
+the state on show. It is the only part of the page that moves on its own.
+
+Two things about it are the owner's to decide:
+
+- **The captures carry the Library's placeholder ad plate** in the left column — the
+  house poster that stands in for sponsored photographs. It is not a third-party
+  advertisement, and the owner has ruled that it may stay for this demo. The rule
+  above rejected a Library capture for showing an ad plate at all, so the ruling
+  does not extend to launch without a second look.
+- **The owner's Library is in the frame**, with its own galleries, its own counts and
+  its own device names. The names in it are place-city names rather than private
+  titles, and the account line is the product's own copy — but the page is public,
+  so the captures need the owner's eye before launch.
 
 ### Why these stand-ins, and what is wrong with them
 
@@ -96,6 +160,7 @@ This is the plan's list, with what is still owed for each row.
 | H3 | iPhone: one photograph fitted, `italy` | 9:19.5, 1290×2796, served at 430/860 | Chrome hidden on the main shot | Status bar time and carrier, no personal notifications | A fresh capture; the interim one shows the hover state |
 | H4 | Current SwiftUI macOS shell (`macos/ManoramaMac`), **not** Tauri, showing a Local gallery in the Library with the sidebar | 16:10 | Native window chrome kept | Finder paths, usernames, local folder names | A capture of the current shell |
 | H5 | iPad: one photograph fitted | 4:3 | Chrome hidden | Status bar, no notifications | Not in the plan's original list; added so the page has a tablet surface |
+| L1 | The desktop Library in its four appearances — dark, quiet and dark, quiet and light, light — one Library captured four times so the dissolve reads as the words going out | 16:10, captured at 3456×2168 (a 1728×1084 window at 2×), served at 3456 as lossless WebP, never resized | Library chrome, in a steel frame that does not turn with the theme | The placeholder ad plate in the left column, which the owner has allowed to stay for this demo; the owner's own gallery titles, counts and device names | The owner's approval of the captures before launch |
 
 **The H2 rule.** If a composite is unavoidable, its caption says "Illustration".
 
@@ -130,8 +195,10 @@ with a dashed tile reading "URL missing". There are no dead links on the page.
 
 ## 5. Launch blockers that belong to this page
 
-1. **Owner approval for H1–H5.** Every capture on the page is interim. The page should
-   not launch on unapproved photography.
+1. **Owner approval for H1–H5 and L1.** Every capture on the page is interim. The page
+   should not launch on unapproved photography. L1 is the one that most needs it: it
+   is the owner's own Library, on a band that moves. The ad plate in it is settled
+   for the demo; the captures themselves are not yet approved.
 2. **More than one photograph.** The interim captures all show the same frame.
 3. **App Store URL** for iPhone & iPad — the only surface still hidden in production.
    Mac and Windows publish through `downloads.manorama.xyz`.

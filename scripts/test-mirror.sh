@@ -42,7 +42,11 @@ repo="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 parent="${MANORAMA_TEST_ROOT:-${TMPDIR:-/tmp}/manorama-test-root}"
 mkdir -p "$parent"
 root="$(mktemp -d "$parent/run-XXXXXXXX")"
-trap 'rm -rf "$root"' EXIT
+# Step out of the mirror before removing it. A delete that targets the
+# current working directory is refused by the recoverable-delete runtime,
+# and the mirror is 1.7GB: without this the scratch root survives every
+# run and the disk fills up.
+trap 'cd "$repo" && rm -rf "$root"' EXIT
 
 # Build output and the nested worktrees are the only large subtrees; everything
 # else is small enough to copy on every run.
