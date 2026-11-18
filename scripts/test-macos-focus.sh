@@ -902,6 +902,12 @@ echo "== 16. the window remembers its frame =="
 # falls off smaller displays — with a fixed inset keeping it clear of
 # every edge, and dimensions clamped so it still fits the smallest
 # supported screen.
+# The horizontal margin needs more room than the vertical one: AppKit
+# nudges a restored frame that sits closer to a screen edge than its own
+# interior margin — ≈206pt from the left on a 1728-wide display — and the
+# shifted frame reads as forgotten under the strict comparison (#256).
+# The margin scales with the visible width so the rectangle stays
+# interior on small screens, with a floor past the observed nudge point.
 # kAXPosition is top-left-origin while NSScreen frames are bottom-left —
 # on the main screen the conversion is axY = screenHeight - (vy + vh).
 read SH VX VY VW VH <<EOF
@@ -909,10 +915,19 @@ $(osascript -l JavaScript -e 'ObjC.import("AppKit"); var s=ObjC.unwrap($.NSScree
 EOF
 AXVY=$(( SH - VY - VH ))
 INSET=48
-TW=$(( VW - 2 * INSET )); [ "$TW" -gt 900 ] && TW=900
+XMARGIN=$(( VW / 8 )); [ "$XMARGIN" -lt 240 ] && XMARGIN=240
+MINW=760
+TW=$(( VW - 2 * XMARGIN )); [ "$TW" -gt 900 ] && TW=900
 TH=$(( VH - 2 * INSET )); [ "$TH" -gt 620 ] && TH=620
-TX=$(( VX + INSET ))
+TX=$(( VX + XMARGIN ))
 TY=$(( AXVY + INSET ))
+# The window has a 760pt minimum width — below a 1240pt visible width no
+# rectangle honours both that and the interior margin, so there is no
+# frame a restored launch could remember. Stand the check down rather
+# than feed the window a size it cannot take.
+if [ "$TW" -lt "$MINW" ]; then
+  note "skipped: a ${TW}pt target cannot honour the ${MINW}pt minimum on a ${VW}pt screen"
+else
 SET_RESULT=$(/tmp/focusprobe "$BUNDLE_ID" setbounds "$TX" "$TY" "$TW" "$TH" 2>/dev/null)
 note "setbounds: ${SET_RESULT:-none} (target ${TX},${TY} ${TW}x${TH} of visible ${VW}x${VH})"
 sleep 1
@@ -962,6 +977,7 @@ EOF
   else
     bad "the window's frame survives a relaunch" "set ${SET:-none}, got ${BACK:-none}"
   fi
+fi
 fi
 
 echo
