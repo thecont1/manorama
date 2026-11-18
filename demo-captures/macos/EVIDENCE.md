@@ -13,6 +13,15 @@ lives inside the share sheet — in the normal state and again with macOS
 | `08-share-connecting-normal.png` | `.desktop-share--sheet .desktop-paste` (publish connecting step) | normal — flat inner form inside the sheet card |
 | `08-share-connecting-tier0.png` | same | Reduce transparency on — still flat, no double glass |
 
+Window-mode evidence for the Phase 2 contract (windowed by default,
+opt-in fullscreen via Settings, `Settings` as its own scene):
+
+| File | Surface | Mode |
+| --- | --- | --- |
+| `09-settings-window.png` | `manorama Settings` scene | single "Open in full screen" toggle, off — the whole pane |
+| `10-library-windowed.png` | Library window | `--windowed` launch — 1280×840 default frame, traffic lights, welcome |
+| `11-library-fullscreen.png` | Library window | `openInFullScreen` on, launch without `--windowed` — own Space |
+
 ## Method
 
 - A separate evidence app (`MANORAMA_MACOS_BUNDLE_ID=in.thecontrarian.manorama.evidence`,
@@ -45,3 +54,23 @@ lives inside the share sheet — in the normal state and again with macOS
   Verified by pixel diff: the earlier single-domain write produced
   byte-identical captures, which is exactly the class of false evidence the
   diff guards against.
+
+- Window-mode set (`09`–`11`): evidence app
+  `MANORAMA_MACOS_BUNDLE_ID=in.thecontrarian.manorama.desktop.evidence`,
+  build dir `/tmp/mano-evidence-build`, launched as
+  `open -n <app> --args --seed-folder <container>/seed-ETHIOPIA --store <container>/evidence-store/folders.json --config <container>/evidence-config [--windowed]`.
+  The seed folder is an APFS clone *inside* the app's container — the
+  sandbox grants no access to an arbitrary outside path. `--store` and
+  `--config` together isolate session/catalogue state; a distinct bundle id
+  alone does not. Fullscreen arm: `defaults write <bid> openInFullScreen -bool true`,
+  then launch without `--windowed`; remove the key afterwards.
+- Capturing a fullscreen Space headlessly: `screencapture` of the display
+  shows whichever Space is frontmost, not necessarily the app's —
+  `screencapture -l <windowID>` (id via the window list probe) captures the
+  window regardless of which Space is active. The 1728×1084 content window
+  plus its 1728×32 shell strip at y=33 is the fullscreen pair; a windowed
+  launch at the saved default is 1280×840 with traffic lights.
+- Note for the suite: a launch that had a prior fullscreen window record
+  could still land on a Space once even under `--windowed` with the pref
+  absent — the restoration correction raced the Space migration rather
+  than blocking it. Reproduced once; tracked separately.

@@ -15,6 +15,14 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 
 CONFIG="${1:-debug}"
+case "$CONFIG" in
+  # debug compiles without optimisation — the shell is thin enough that the
+  # faster build is the better iteration loop; release stays -O for the
+  # artifact desktop-release.yml ships.
+  debug)   OPTIMISATION=-Onone ;;
+  release) OPTIMISATION=-O ;;
+  *) echo "usage: scripts/build-macos.sh [debug|release]" >&2; exit 2 ;;
+esac
 APP="macos/ManoramaMac"
 # Test builds may override the bundle id and output directory — a suite
 # that must coexist with an installed copy needs a REAL distinct
@@ -35,8 +43,8 @@ echo "==> compiling the Swift app"
 # The app is assembled as a plain .app bundle rather than through an Xcode
 # project: the shell is a handful of Swift files and the viewer bundle is a
 # copied resource, so an Xcode project would add ceremony without adding
-# capability. Signing and notarisation come later, from the same Developer
-# ID identity the Tauri build already uses.
+# capability. Signing runs below from the Developer ID identity;
+# notarisation is the remaining step, handled outside this script.
 #
 # The compiler and the SDK are resolved from one explicitly selected
 # developer directory, so they can never come from different Xcodes.
@@ -65,7 +73,7 @@ echo "macOS SDK: $SDK_VERSION ($SDK_PATH)"
 export SDKROOT="$SDK_PATH"
 mkdir -p "$BUILD_DIR"
 "$SWIFTC" \
-  -O \
+  $OPTIMISATION \
   -sdk "$SDK_PATH" \
   -target arm64-apple-macosx15.0 \
   -framework AppKit \
