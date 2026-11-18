@@ -91,6 +91,50 @@ describe('scanDropboxFolder dimensions', () => {
     expect(scan.images[0]?.height).toBe(171)
   })
 
+  test('reaches past a large C2PA manifest when the head window misses the frame header', async () => {
+    // Signed files carry ~100–200KB 'jumb' APP11 boxes ahead of the SOF
+    // marker, so the 128KB head probe reads a valid JPEG start with no frame
+    // header in it. A null parse earns one wider read before the preview's
+    // 256px proportions get mistaken for the photograph's.
+    const ranges: string[] = []
+    const fetchImpl = async (input: Parameters<typeof fetch>[0], init?: RequestInit) => {
+      const url = String(input)
+      if (url.includes('files/list_folder')) return listing([entry()])
+      if (url.includes('sharing/get_shared_link_metadata')) return json({ name: 'Italy 2018' })
+      if (url.includes('sharing/get_shared_link_file')) {
+        const range = String((init?.headers as Record<string, string> | undefined)?.Range ?? '')
+        ranges.push(range)
+        // The narrow window answers a headless JPEG (SOI, no SOF); the wide
+        // one reaches the real frame header.
+        return range.endsWith('1048575') ? jpeg(2560, 1707) : new Response(new Uint8Array([0xff, 0xd8]), { status: 200 })
+      }
+      if (url.includes('files/get_thumbnail_v2')) return jpeg(256, 171)
+      return json({}, 404)
+    }
+
+    const scan = await scanDropboxFolder(FOLDER, env, fetchImpl as typeof fetch)
+
+    expect(ranges).toEqual(['bytes=0-131071', 'bytes=0-1048575'])
+    expect(scan.images[0]?.width).toBe(2560)
+    expect(scan.images[0]?.height).toBe(1707)
+  })
+
+  test('still trusts the preview when no window reaches the frame header', async () => {
+    const fetchImpl = async (input: Parameters<typeof fetch>[0]) => {
+      const url = String(input)
+      if (url.includes('files/list_folder')) return listing([entry()])
+      if (url.includes('sharing/get_shared_link_metadata')) return json({ name: 'Italy 2018' })
+      if (url.includes('sharing/get_shared_link_file')) return new Response(new Uint8Array([0xff, 0xd8]), { status: 200 })
+      if (url.includes('files/get_thumbnail_v2')) return jpeg(256, 171)
+      return json({}, 404)
+    }
+
+    const scan = await scanDropboxFolder(FOLDER, env, fetchImpl as typeof fetch)
+
+    expect(scan.images[0]?.width).toBe(256)
+    expect(scan.images[0]?.height).toBe(171)
+  })
+
   test('falls back to 4:3 when neither the original nor a preview answers', async () => {
     const fetchImpl = async (input: Parameters<typeof fetch>[0]) => {
       const url = String(input)

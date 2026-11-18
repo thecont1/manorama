@@ -109,16 +109,24 @@ const contentRequest = async (endpoint: string, arg: unknown, env: DropboxEnv, f
  *  last resort, where its proportions still beat a guess. */
 const imageDimensions = async (sourceUrl: string, filename: string, env: DropboxEnv, fallback: { width?: number; height?: number } | undefined, fetchImpl: typeof fetch) => {
   if (fallback?.width && fallback?.height) return { width: fallback.width, height: fallback.height }
-  try {
-    const response = await contentRequest('sharing/get_shared_link_file', { url: sourceUrl, path: dropboxPath(filename) }, env, fetchImpl, { Range: 'bytes=0-131071' }, PROBE_RETRY_WAIT_MS)
-    const dimensions = probeImageDimensions(new Uint8Array(await response.arrayBuffer()))
-    if (dimensions) return dimensions
-  } catch (error) {
-    // The budget stopping a probe is not a provider failure — let it
-    // escape so the scan can drop the tail instead of guessing dims.
-    if (error instanceof ScanBudgetExhausted) throw error
-    // A provider that refuses a ranged read is not a failed scan — the preview
-    // below still shapes the frame.
+  // C2PA claim stores ride in APP11 'jumb' boxes ahead of the frame header
+  // and are unbounded — a ~200KB manifest pushes the SOF marker past the
+  // 128KB head window, so a null parse earns one wider read before the
+  // preview's proportions get trusted over the real frame's.
+  for (const range of ['bytes=0-131071', 'bytes=0-1048575']) {
+    try {
+      const response = await contentRequest('sharing/get_shared_link_file', { url: sourceUrl, path: dropboxPath(filename) }, env, fetchImpl, { Range: range }, PROBE_RETRY_WAIT_MS)
+      const dimensions = probeImageDimensions(new Uint8Array(await response.arrayBuffer()))
+      if (dimensions) return dimensions
+    } catch (error) {
+      // The budget stopping a probe is not a provider failure — let it
+      // escape so the scan can drop the tail instead of guessing dims.
+      if (error instanceof ScanBudgetExhausted) throw error
+      // A provider that refuses a ranged read is not a failed scan — the
+      // preview below still shapes the frame. A refused narrow read won't
+      // answer a wider one either.
+      break
+    }
   }
   try {
     const response = await contentRequest('files/get_thumbnail_v2', {
