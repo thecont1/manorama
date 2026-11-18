@@ -1,7 +1,7 @@
 import { afterAll, beforeAll, describe, expect, mock, test } from 'bun:test'
 import { Window } from 'happy-dom'
-import { render } from 'hono/jsx/dom'
 import { useState } from 'hono/jsx'
+import { unmountTracker } from '../../../test/unmount'
 import type { MediaReference } from '../../../packages/core/encrypted-source'
 
 const globals = globalThis as any
@@ -21,7 +21,13 @@ beforeAll(() => {
     releaseAllEncryptedDisplays: () => {},
   }))
 })
+// Mounts leave through the tracker: its drop removes the child via a
+// flushed state update, so reconciliation runs effect cleanup — a root
+// render(null) skips it exactly like wiping innerHTML does.
+const mounts = unmountTracker()
+
 afterAll(() => {
+  mounts.unmountAll()
   Object.assign(globals, previous)
   mock.restore()
 })
@@ -35,7 +41,7 @@ describe('HeicImg encrypted media', () => {
       return <><button type="button" onClick={() => setShow(false)}>hide</button>{show ? <HeicImg src="" media={media} galleryId="0123456789abcdef" filename="a.jpg" alt="" /> : null}</>
     }
     const container = dom.document.createElement('div') as unknown as HTMLElement
-    render(<Harness />, container)
+    mounts.mount(<Harness />, container)
     await new Promise((resolve) => setTimeout(resolve, 10))
     expect(container.querySelector('img')?.getAttribute('src')).toBe('blob:decrypted')
     container.querySelector('button')!.dispatchEvent(new dom.Event('click', { bubbles: true }) as unknown as Event)
@@ -55,7 +61,7 @@ describe('HeicImg encrypted media', () => {
       const { HeicImg } = await import('./HeicImg')
       const media: MediaReference = { kind: 'encrypted', provider: 'mega', sourceKind: 'folder', sourceId: 'source', nodeId: 'node' }
       const container = dom.document.createElement('div') as unknown as HTMLElement
-      render(<HeicImg src="" media={media} galleryId="0123456789abcdef" filename="a.heic" alt="" />, container)
+      mounts.mount(<HeicImg src="" media={media} galleryId="0123456789abcdef" filename="a.heic" alt="" />, container)
       await new Promise((resolve) => setTimeout(resolve, 10))
       // The decoded rendition is what renders, and the held multi-MB original
       // is back in the resolver's working set — a rail of these cannot overflow it.
@@ -72,7 +78,7 @@ describe('HeicImg encrypted media', () => {
   test('a failed rendition falls back to the original src', async () => {
     const { HeicImg } = await import('./HeicImg')
     const container = dom.document.createElement('div') as unknown as HTMLElement
-    render(<HeicImg src="https://cdn.example/original.jpg" preview="https://cdn.example/thumb.jpg" filename="a.jpg" alt="" />, container)
+    mounts.mount(<HeicImg src="https://cdn.example/original.jpg" preview="https://cdn.example/thumb.jpg" filename="a.jpg" alt="" />, container)
     const img = container.querySelector('img')!
     expect(img.getAttribute('src')).toBe('https://cdn.example/thumb.jpg')
     img.dispatchEvent(new dom.Event('error') as unknown as Event)

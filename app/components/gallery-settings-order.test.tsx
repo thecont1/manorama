@@ -1,6 +1,7 @@
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test'
 import { Window } from 'happy-dom'
-import { flushSync, render } from 'hono/jsx/dom'
+import { flushSync } from 'hono/jsx/dom'
+import { unmountTracker } from '../../test/unmount'
 import type { Child } from 'hono/jsx'
 import OwnerGalleryPanel, { type OwnerGalleryPanelProps } from './viewer/OwnerGalleryPanel'
 import GalleryDetailsView from './GalleryDetailsView'
@@ -40,17 +41,23 @@ beforeAll(() => {
 })
 
 afterAll(() => {
+  mounts.unmountAll()
   globals.window = prev.window
   globals.document = prev.document
   globals.fetch = prev.fetch
 })
+
+// Mounts leave through the tracker: its drop removes the child via a
+// flushed state update, so reconciliation runs effect cleanup — a root
+// render(null) skips it exactly like wiping innerHTML does.
+const mounts = unmountTracker()
 
 /** Mounts a node into a detached container for assertions. */
 const mount = (node: Child) => {
   const container = dom.document.createElement('div')
   dom.document.body.appendChild(container)
   flushSync(() => {
-    render(node as never, container as unknown as HTMLElement)
+    mounts.mount(node as never, container as unknown as HTMLElement)
   })
   return container as unknown as HTMLElement
 }

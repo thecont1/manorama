@@ -1,6 +1,6 @@
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test'
 import { Window } from 'happy-dom'
-import { render } from 'hono/jsx/dom'
+import { unmountTracker } from '../../test/unmount'
 import EncryptedGallery from './EncryptedGallery'
 import { defaultGallerySettings } from '../../packages/core/gallery-settings'
 import type { GalleryManifest } from '../../packages/core/imagesource'
@@ -44,10 +44,15 @@ const settle = async () => {
 const MANIFEST = { slug: 'guinea', title: 'guinea', caption: '', date: '', images: [] } as GalleryManifest
 const keyStore = { get: async () => null, put: async () => undefined, remove: async () => undefined }
 
+// Mounts leave through the tracker: its drop removes the child via a
+// flushed state update, so reconciliation runs effect cleanup — a root
+// render(null) skips it exactly like wiping innerHTML does.
+const mounts = unmountTracker()
+
 const mount = async (sourceUrl: string) => {
   const container = dom.document.createElement('div') as unknown as HTMLElement
   dom.document.body.appendChild(container as unknown as Parameters<typeof dom.document.body.appendChild>[0])
-  render(
+  mounts.mount(
     <EncryptedGallery
       galleryId="2b5dee85-7a75-4c48-93ec-ea1869361480"
       sourceUrl={sourceUrl}
@@ -74,6 +79,7 @@ beforeAll(() => {
 })
 
 afterAll(() => {
+  mounts.unmountAll()
   globals.window = previousWindow
   globals.document = previousDocument
   globals.localStorage = previousLocalStorage

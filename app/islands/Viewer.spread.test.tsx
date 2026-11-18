@@ -1,7 +1,8 @@
 import { afterAll, afterEach, beforeAll, describe, expect, test } from 'bun:test'
 import { Window } from 'happy-dom'
-import { flushSync, render } from 'hono/jsx/dom'
+import { flushSync } from 'hono/jsx/dom'
 import { useState } from 'hono/jsx'
+import { unmountTracker } from '../../test/unmount'
 import Viewer from './Viewer'
 import { GalleryCurtain } from '../components/GalleryShell'
 import { defaultGallerySettings } from '../lib/gallery-settings'
@@ -83,8 +84,14 @@ beforeAll(() => {
 
 const disposers: (() => void)[] = []
 
+// Mounts leave through the tracker: its drop removes the child via a
+// flushed state update, so reconciliation runs effect cleanup — a root
+// render(null) skips it exactly like wiping innerHTML does.
+const mounts = unmountTracker()
+
 afterEach(() => {
   for (const dispose of disposers.splice(0)) dispose()
+  mounts.unmountAll()
   dom.document.body.innerHTML = ''
   dom.document.body.classList.remove('gallery-entered')
   dom.localStorage.clear()
@@ -117,11 +124,13 @@ const mount = async ({ mode = 'spread', initialIndex = 0, foldLayout = layoutFor
   const curtainRoot = withCurtain ? dom.document.createElement('div') : undefined
   if (curtainRoot) {
     root.appendChild(curtainRoot)
-    render(<GalleryCurtain settings={settings} />, curtainRoot as unknown as HTMLElement)
   }
   const viewerRoot = dom.document.createElement('div')
   root.appendChild(viewerRoot)
-  render(
+  const dropCurtain = curtainRoot
+    ? mounts.mount(<GalleryCurtain settings={settings} />, curtainRoot as unknown as HTMLElement)
+    : undefined
+  const dropViewer = mounts.mount(
     <Viewer
       slug="spread"
       galleryTitle="Spread"
@@ -136,11 +145,12 @@ const mount = async ({ mode = 'spread', initialIndex = 0, foldLayout = layoutFor
     />,
     viewerRoot as unknown as HTMLElement,
   )
-  // Renders into distinct containers: unmount each through the renderer so
-  // effect cleanups run — deleting DOM alone skips them.
+  // Renders into distinct containers: unmount each through its tracker
+  // drop — deleting DOM alone skips effect cleanup, and so does
+  // render(null).
   const dispose = () => {
-    render(null, viewerRoot as unknown as HTMLElement)
-    if (curtainRoot) render(null, curtainRoot as unknown as HTMLElement)
+    dropViewer()
+    dropCurtain?.()
   }
   disposers.push(dispose)
   await settle()
@@ -204,7 +214,6 @@ describe('explicit Spread', () => {
     dom.localStorage.setItem('manorama:view:spread-resize', JSON.stringify({ mode: 'spread' }))
     const root = dom.document.createElement('div')
     dom.document.body.appendChild(root)
-    disposers.push(() => render(null, root as unknown as HTMLElement))
     const calls: SpreadCall[] = []
     let widen: (() => void) | null = null
     const settings = {
@@ -223,7 +232,8 @@ describe('explicit Spread', () => {
         foldRenderer={(props) => { calls.push(props); return <div data-spread-stage /> }}
       />
     }
-    render(<Harness />, root as unknown as HTMLElement)
+    const dropHarness = mounts.mount(<Harness />, root as unknown as HTMLElement)
+    disposers.push(dropHarness)
     await settle()
     expect(root.querySelector('.viewer-stage.mode-strip')).not.toBeNull()
     expect(calls).toHaveLength(0)
@@ -237,11 +247,10 @@ describe('explicit Spread', () => {
     expect(root.querySelector('[data-spread-stage]')).not.toBeNull()
     expect(root.querySelector('[data-chrome-position]')?.getAttribute('aria-label')).toContain('Photograph 3 of 4')
 
-    render(null, root as unknown as HTMLElement)
+    dropHarness()
     const remount = dom.document.createElement('div')
     dom.document.body.appendChild(remount)
-    disposers.push(() => render(null, remount as unknown as HTMLElement))
-    render(
+    disposers.push(mounts.mount(
       <Viewer
         slug="spread-resize"
         images={images}
@@ -251,7 +260,7 @@ describe('explicit Spread', () => {
         foldRenderer={(props) => { calls.push(props); return <div data-spread-stage /> }}
       />,
       remount as unknown as HTMLElement,
-    )
+    ))
     await settle()
     expect(remount.querySelector('[data-spread-stage]')).not.toBeNull()
   })

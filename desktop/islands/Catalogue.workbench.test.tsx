@@ -1,7 +1,7 @@
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, test } from 'bun:test'
 import { readFileSync } from 'node:fs'
 import { Window } from 'happy-dom'
-import { render } from 'hono/jsx/dom'
+import { unmountTracker } from '../../test/unmount'
 import { releaseAllOverlays } from '../../app/lib/overlay-stack'
 import { hashPassword } from '../lib/library-prefs'
 import Catalogue from './Catalogue'
@@ -34,6 +34,11 @@ let previousGoogleClientId: string | undefined
 type Frame = { id: number; callback: FrameRequestCallback }
 let frames: Frame[] = []
 let nextFrameId = 0
+
+// Mounts leave through the tracker: its drop removes the child via a
+// flushed state update, so reconciliation runs effect cleanup — a root
+// render(null) skips it exactly like wiping innerHTML does.
+const mounts = unmountTracker()
 const runFrames = () => {
   const queued = frames
   frames = []
@@ -195,6 +200,11 @@ const installTauri = (signedIn: boolean, providerTokens?: Record<string, unknown
     transformCallback: () => 1,
     metadata: { currentWebview: { label: 'main' }, currentWindow: { label: 'main' } },
   }
+  // The event plugin's unlisten path reaches past invoke to the plugin
+  // internals — a mounted island's cleanups call it on the way down.
+  ;(dom as unknown as { __TAURI_EVENT_PLUGIN_INTERNALS__: { unregisterListener: () => void } }).__TAURI_EVENT_PLUGIN_INTERNALS__ = {
+    unregisterListener: () => {},
+  }
 }
 
 const mount = async (signedIn: boolean, providerTokens?: Record<string, unknown>, tier: 'free' | 'pro' = 'pro', extraFiles?: Record<string, string>): Promise<HTMLElement> => {
@@ -203,7 +213,7 @@ const mount = async (signedIn: boolean, providerTokens?: Record<string, unknown>
   // this one boundary so every query below is typed by the DOM library.
   const container = dom.document.createElement('div') as unknown as HTMLElement
   dom.document.body.appendChild(container as unknown as Parameters<typeof dom.document.body.appendChild>[0])
-  render(<Catalogue apiBase="https://manorama.xyz" />, container)
+  mounts.mount(<Catalogue apiBase="https://manorama.xyz" />, container)
   await settle()
   return container
 }
@@ -320,6 +330,7 @@ beforeEach(() => {
   readFileGate = null
   dom.localStorage.clear()
   dom.document.documentElement.className = ''
+  mounts.unmountAll()
   dom.document.body.innerHTML = ''
   dom.window.history.replaceState(null, '', 'http://localhost/')
 })
@@ -328,6 +339,7 @@ afterEach(() => {
   releaseAllOverlays()
   readFileGate?.reject(new Error('test teardown'))
   readFileGate = null
+  mounts.unmountAll()
   dom.document.body.innerHTML = ''
 })
 
@@ -683,7 +695,7 @@ describe('desktop catalogue workbench', () => {
       vaultKeys.set('manorama.gallery-key.v1.mega-gallery-id', megaSource)
       const container = dom.document.createElement('div') as unknown as HTMLElement
       dom.document.body.appendChild(container as unknown as Parameters<typeof dom.document.body.appendChild>[0])
-      render(<Catalogue apiBase="https://manorama.xyz" />, container)
+      mounts.mount(<Catalogue apiBase="https://manorama.xyz" />, container)
       await settle()
       const title = [...container.querySelectorAll<HTMLElement>('.lib-card-title')]
         .find((el) => el.textContent === 'kashmir, in winter')!
@@ -2072,7 +2084,7 @@ describe('desktop catalogue workbench', () => {
     try {
       const container = dom.document.createElement('div') as unknown as HTMLElement
       dom.document.body.appendChild(container as unknown as Parameters<typeof dom.document.body.appendChild>[0])
-      render(<Catalogue apiBase="https://manorama.xyz" />, container)
+      mounts.mount(<Catalogue apiBase="https://manorama.xyz" />, container)
       await settle()
 
       // The badge is the saved-copy record surfacing on the card.

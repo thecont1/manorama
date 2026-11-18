@@ -1,6 +1,7 @@
 import { afterAll, afterEach, beforeAll, describe, expect, test } from 'bun:test'
 import { Window } from 'happy-dom'
-import { flushSync, render } from 'hono/jsx/dom'
+import { flushSync } from 'hono/jsx/dom'
+import { unmountTracker } from '../../../test/unmount'
 import SettingsSheet from './SettingsSheet'
 import { releaseAllOverlays } from '../../lib/overlay-stack'
 import type { SettingsSheetProps } from './SettingsSheet'
@@ -39,12 +40,17 @@ const mounted = (overrides: Partial<SettingsSheetProps> = {}) => {
   /** Re-renders the mounted sheet with prop overrides. */
   const renderSheet = (props: Partial<SettingsSheetProps>) => {
     flushSync(() => {
-      render(<SettingsSheet {...base} {...overrides} {...props} />, container as unknown as HTMLElement)
+      mounts.mount(<SettingsSheet {...base} {...overrides} {...props} />, container as unknown as HTMLElement)
     })
   }
   renderSheet({})
   return { root: container as unknown as HTMLElement, renderSheet }
 }
+
+// Mounts leave through the tracker: its drop removes the child via a
+// flushed state update, so reconciliation runs effect cleanup — a root
+// render(null) skips it exactly like wiping innerHTML does.
+const mounts = unmountTracker()
 
 /** The popover's sheet element. */
 const sheet = (root: HTMLElement) => root.querySelector<HTMLElement>('.m-sheet')
@@ -84,6 +90,7 @@ afterAll(() => {
 
 afterEach(() => {
   releaseAllOverlays()
+  mounts.unmountAll()
   dom.document.body.innerHTML = ''
 })
 

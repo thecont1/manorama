@@ -1,6 +1,7 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, test } from 'bun:test'
 import { Window } from 'happy-dom'
-import { flushSync, render } from 'hono/jsx/dom'
+import { flushSync } from 'hono/jsx/dom'
+import { unmountTracker } from '../../test/unmount'
 import Viewer from './Viewer'
 import { defaultGallerySettings } from '../lib/gallery-settings'
 import type { GalleryMediaItem } from '../../packages/core/imagesource'
@@ -40,7 +41,7 @@ const images: GalleryMediaItem[] = [{
 const mountViewer = (): HTMLElement => {
   const root = dom.document.createElement('div')
   dom.document.body.appendChild(root)
-  render(
+  mounts.mount(
     <Viewer
       slug={SLUG}
       galleryTitle="Shortcuts"
@@ -51,6 +52,11 @@ const mountViewer = (): HTMLElement => {
   )
   return root as unknown as HTMLElement
 }
+
+// Mounts leave through the tracker: its drop removes the child via a
+// flushed state update, so reconciliation runs effect cleanup — a root
+// render(null) skips it exactly like wiping innerHTML does.
+const mounts = unmountTracker()
 
 /** Dispatches a bubbling keydown — the window listener's event shape. */
 const press = (target: unknown, key: string) => {
@@ -87,6 +93,7 @@ beforeAll(() => {
 })
 
 afterAll(() => {
+  mounts.unmountAll()
   globals.window = prev.window
   globals.document = prev.document
   globals.fetch = prev.fetch
@@ -94,6 +101,7 @@ afterAll(() => {
 
 describe('the shortcuts sheet', () => {
   beforeEach(() => {
+    mounts.unmountAll()
     dom.document.body.innerHTML = ''
     dom.document.body.classList.add('gallery-entered')
   })
