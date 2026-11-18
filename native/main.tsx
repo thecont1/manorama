@@ -6,6 +6,7 @@ import GalleryList from './islands/GalleryList'
 import { RevenueCatBilling, type BillingState } from './lib/billing'
 import { authErrorMessage, beginProviderSignIn, getSessionAppUserId, installNativeAuth, type AuthProvider, type NativeGallerySelection } from './lib/session'
 import { applyTheme, readStoredTheme, storeTheme, type Theme } from '../app/lib/owner-theme'
+import { initGlassBend } from './lib/glass-bend'
 import './styles.css'
 
 const root = document.getElementById('app')
@@ -14,6 +15,11 @@ if (!root) throw new Error('Native app root is missing')
 // present before first paint, not after module evaluation.
 
 const apiBase = import.meta.env.VITE_API_BASE || 'https://manorama.xyz'
+
+// Tier-A bend is a no-op off Android — the module gates itself on UA,
+// feDisplacementMap support and a single-segment viewport before the
+// data-android-glass marker ever lands.
+initGlassBend()
 
 function NativeApp() {
   const [authError, setAuthError] = useState<string | null>(null)

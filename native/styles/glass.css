@@ -1,0 +1,46 @@
+/* G5 — Tier-A bend, Android Chromium WebView only.
+
+   The displacement map runs through backdrop-filter, so it refracts the
+   backdrop the glass sits over — never the element's own paint. That is
+   how the issue's text-free-chrome constraint is honoured: foreground
+   glyphs cannot be distorted by a filter that never sees them. The marker
+   itself is set by native/lib/glass-bend.ts only after feature-detection,
+   a single-segment check and a session baseline pass, so these rules are
+   inert everywhere else — including older Chromium, which keeps Tier-B
+   frost from app/styles/glass.css.
+
+   Bend rides on the same surfaces the regular recipe paints: the chrome
+   pills and the stage arrows. Sheets stay Tier-B — a 24px frost under a
+   bent backdrop costs compositing for no visible gain on the form factor
+   that can least afford it. */
+
+:root[data-android-glass] .gallery-shell .m-chrome-pill,
+:root[data-android-glass] .gallery-shell .stage-arrows > button {
+  backdrop-filter: url(#manorama-bend) blur(16px) saturate(1.4);
+  -webkit-backdrop-filter: url(#manorama-bend) blur(16px) saturate(1.4);
+}
+
+/* Tier 0 — the bend arm must not outlive the shared accessibility arms in
+   app/styles/glass.css. Reduced transparency/contrast or the shell's
+   data-reduced-transparency stamp drops these surfaces to the same solid
+   fill and edge line as every other pill. */
+@media (prefers-reduced-transparency: reduce), (prefers-contrast: more) {
+  :root[data-android-glass] .gallery-shell :is(.m-chrome-pill, .stage-arrows > button) {
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
+  }
+}
+:root[data-android-glass][data-reduced-transparency] .gallery-shell
+  :is(.m-chrome-pill, .stage-arrows > button) {
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+}
+/* If the marker is ever set where url() is unsupported — the runtime gate
+   should prevent it — the surfaces drop back to the Tier-B frost recipe
+   rather than losing their backdrop entirely. */
+@supports not ((backdrop-filter: url(#a)) or (-webkit-backdrop-filter: url(#a))) {
+  :root[data-android-glass] .gallery-shell :is(.m-chrome-pill, .stage-arrows > button) {
+    backdrop-filter: blur(16px) saturate(1.4);
+    -webkit-backdrop-filter: blur(16px) saturate(1.4);
+  }
+}
