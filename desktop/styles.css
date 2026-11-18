@@ -403,9 +403,11 @@ body.manorama-desktop .app-update-dismiss:hover { color: rgba(var(--ink), 1); }
 
 /* The share and paste panels are card-level surfaces inside the
    catalogue — regular, not the drawer's sheet-depth frost. The --sheet
-   variant renders inside a sheet and stays transparent. */
+   variant renders inside a sheet and stays transparent; a .desktop-paste
+   nested in that sheet is sheet content, not its own card, so the
+   exclusion walks the ancestor too. */
 :root[data-macos-shell] .desktop-share:not(.desktop-share--sheet),
-:root[data-macos-shell] .desktop-paste {
+:root[data-macos-shell] .desktop-paste:not(.desktop-share--sheet .desktop-paste) {
   background: var(--glass-fill-regular);
   backdrop-filter: blur(16px) saturate(1.4);
   -webkit-backdrop-filter: blur(16px) saturate(1.4);
@@ -449,7 +451,7 @@ body.manorama-desktop .app-update-dismiss:hover { color: rgba(var(--ink), 1); }
 @media (prefers-reduced-transparency: reduce), (prefers-contrast: more) {
   :root[data-macos-shell] .desktop-toast-stack .admin-toast,
   :root[data-macos-shell] .desktop-share:not(.desktop-share--sheet),
-  :root[data-macos-shell] .desktop-paste,
+  :root[data-macos-shell] .desktop-paste:not(.desktop-share--sheet .desktop-paste),
   :root[data-macos-shell] body.manorama-desktop .stage-arrows > button,
   :root[data-macos-shell] body.manorama-desktop .stage-arrows > button:hover,
   :root[data-macos-shell] .admin-drawer-panel {
@@ -468,7 +470,7 @@ body.manorama-desktop .app-update-dismiss:hover { color: rgba(var(--ink), 1); }
 }
 :root[data-macos-shell][data-reduced-transparency] .desktop-toast-stack .admin-toast,
 :root[data-macos-shell][data-reduced-transparency] .desktop-share:not(.desktop-share--sheet),
-:root[data-macos-shell][data-reduced-transparency] .desktop-paste,
+:root[data-macos-shell][data-reduced-transparency] .desktop-paste:not(.desktop-share--sheet .desktop-paste),
 :root[data-macos-shell][data-reduced-transparency] body.manorama-desktop .stage-arrows > button,
 :root[data-macos-shell][data-reduced-transparency] body.manorama-desktop .stage-arrows > button:hover,
 :root[data-macos-shell][data-reduced-transparency] .admin-drawer-panel {
@@ -487,7 +489,7 @@ body.manorama-desktop .app-update-dismiss:hover { color: rgba(var(--ink), 1); }
 @supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
   :root[data-macos-shell] .desktop-toast-stack .admin-toast,
   :root[data-macos-shell] .desktop-share:not(.desktop-share--sheet),
-  :root[data-macos-shell] .desktop-paste,
+  :root[data-macos-shell] .desktop-paste:not(.desktop-share--sheet .desktop-paste),
   :root[data-macos-shell] body.manorama-desktop .stage-arrows > button,
   :root[data-macos-shell] body.manorama-desktop .stage-arrows > button:hover,
   :root[data-macos-shell] .admin-drawer-panel {
