@@ -13,6 +13,14 @@ import { LIBRARY_STATES } from '../home-manifest'
  * thicker than the rest: the captions live inside that rule, so the name
  * of the state and the line that says what it is for are held by the
  * frame itself rather than floating under it.
+ *
+ * The frame is steel and stays steel — the band is one object on the page,
+ * not a piece of the page's chrome, so it does not turn with the theme.
+ *
+ * The captures are served at exactly twice the viewable area: the frame is
+ * at most 1312 CSS pixels wide and its 2-pixel rules take four of them, so
+ * the picture is 1308 across and the file is 2616. On a retina screen the
+ * capture's own pixels land one for one on the device's.
  */
 export default function LibraryShowcase() {
   return (
@@ -39,19 +47,19 @@ export default function LibraryShowcase() {
               >
                 <source
                   type="image/avif"
-                  srcSet={`/home/${state.src}-sm.avif 1344w, /home/${state.src}.avif 2688w`}
-                  sizes="(min-width: 1440px) 1312px, 92vw"
+                  srcSet={`/home/${state.src}-sm.avif 1308w, /home/${state.src}.avif 2616w`}
+                  sizes="(min-width: 1440px) 1308px, 92vw"
                 />
                 <source
                   type="image/webp"
-                  srcSet={`/home/${state.src}-sm.webp 1344w, /home/${state.src}.webp 2688w`}
-                  sizes="(min-width: 1440px) 1312px, 92vw"
+                  srcSet={`/home/${state.src}-sm.webp 1308w, /home/${state.src}.webp 2616w`}
+                  sizes="(min-width: 1440px) 1308px, 92vw"
                 />
                 <img
                   src={`/home/${state.src}.jpg`}
                   alt={state.alt}
-                  width={2688}
-                  height={1687}
+                  width={2616}
+                  height={1641}
                   loading={index === 0 ? 'eager' : 'lazy'}
                   decoding={index === 0 ? 'sync' : 'async'}
                   fetchpriority={index === 0 ? 'high' : 'auto'}

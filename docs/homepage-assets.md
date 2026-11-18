@@ -46,7 +46,7 @@ The manifest is `app/components/home/home-manifest.ts`. Each asset carries a `st
 | H3 | `demo-captures/ios/03-first-image-hover.png` | 1284×2778 | 642, 1284 | AVIF, WebP, JPEG | interim |
 | H4 | `demo-captures/macos/02-gallery-curtain.png` | 1440×900 | 1440 | AVIF, WebP, JPEG | interim |
 | H5 | `demo-captures/ipad/03-first-image-hover.png` | 2752×2064 | 1376, 2752 | AVIF, WebP, JPEG | interim |
-| L1 | `demo-captures/library/01-dark-mode.png` … `04-light-mode.png` | 3456×2168 | 1344, 2688 | AVIF, WebP, JPEG | interim |
+| L1 | `demo-captures/library/01-dark-mode.png` … `04-light-mode.png` | 3456×2168 | 1308, 2616 | AVIF, WebP, JPEG | interim |
 
 The files were produced from those captures by `scripts/home-images.mjs`:
 
@@ -67,10 +67,15 @@ frames of one loop rather than four separate slots:
 node scripts/home-library-images.mjs
 ```
 
-It writes `public/home/lib-*.{avif,webp,jpg}` and a `-sm` variant of each, at 2688
-and 1344 pixels wide. The band that holds them is at most 1344 CSS pixels across, so
-2688 is exactly twice the widest it is ever drawn and the dashboard's own words stay
-crisp on a retina screen.
+It writes `public/home/lib-*.{avif,webp,jpg}` and a `-sm` variant of each, at 2616
+and 1308 pixels wide. The band that holds them is at most 1312 CSS pixels across and
+the frame's 2-pixel rules take four of them, so the viewable area is 1308 — exactly
+half the file's width, and half its height. A retina screen is therefore served the
+capture's own pixels one for one, and a standard screen is served the half-size
+file the same way.
+
+The frame is steel and does not turn with the theme: the band is one object on the
+page, not a piece of the page's chrome, so it reads the same in dark and in light.
 
 ### The Library band (L1)
 
@@ -127,7 +132,7 @@ This is the plan's list, with what is still owed for each row.
 | H3 | iPhone: one photograph fitted, `italy` | 9:19.5, 1290×2796, served at 430/860 | Chrome hidden on the main shot | Status bar time and carrier, no personal notifications | A fresh capture; the interim one shows the hover state |
 | H4 | Current SwiftUI macOS shell (`macos/ManoramaMac`), **not** Tauri, showing a Local gallery in the Library with the sidebar | 16:10 | Native window chrome kept | Finder paths, usernames, local folder names | A capture of the current shell |
 | H5 | iPad: one photograph fitted | 4:3 | Chrome hidden | Status bar, no notifications | Not in the plan's original list; added so the page has a tablet surface |
-| L1 | The desktop Library in its four appearances — dark, quiet and dark, quiet and light, light — one Library captured four times so the dissolve reads as the words going out | 16:10, captured at 3456×2168, served at 1344 and 2688 | Library chrome | The placeholder ad plate in the left column; the owner's own gallery titles, counts and device names | The owner's approval of the captures, and a ruling on the ad plate |
+| L1 | The desktop Library in its four appearances — dark, quiet and dark, quiet and light, light — one Library captured four times so the dissolve reads as the words going out | 16:10, captured at 3456×2168, served at 1308 and 2616 | Library chrome, in a steel frame that does not turn with the theme | The placeholder ad plate in the left column; the owner's own gallery titles, counts and device names | The owner's approval of the captures, and a ruling on the ad plate |
 
 **The H2 rule.** If a composite is unavoidable, its caption says "Illustration".
 

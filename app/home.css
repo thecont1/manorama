@@ -1191,27 +1191,38 @@ html.light .home-demo-device--duo .home-demo-device-body {
    light, light — dissolved into one another. The frame is a rule around
    the picture; its bottom rule is far thicker than the rest, and the
    captions live inside that rule, so the state and the line that says
-   what it is for are held by the frame rather than floating under it. */
+   what it is for are held by the frame rather than floating under it.
+
+   The frame is steel, and it stays steel: the band is one object on the
+   page, not a piece of the page's chrome, so it does not turn with the
+   theme. The type on the bottom rule is the same cream in both themes,
+   for the same reason. */
 
 .home-library-band {
   --home-library-rail: clamp(68px, 5.2vw, 78px);
+  /* Steel, constant in both themes. The caption sits on it, so it is
+     dark enough to carry cream type at full contrast. */
+  --home-library-frame: #646c78;
+  --home-library-ink: #f3f0e8;
 }
 
 .home-library {
   position: relative;
   margin-top: var(--home-gap-block);
-  border: 2px solid var(--home-ink);
-  border-bottom: var(--home-library-rail) solid var(--home-ink);
+  border: 2px solid var(--home-library-frame);
+  border-bottom: var(--home-library-rail) solid var(--home-library-frame);
   background: var(--home-surface);
 }
 
 /* The picture's own box holds the capture's exact ratio — the ratio of the
    file the browser is actually given — so the picture is never cropped and
-   never stretched. */
+   never stretched. The file is 2616 wide and the viewable area is 1308,
+   so on a retina screen the capture's pixels land one for one on the
+   device's. */
 .home-library-stage {
   position: relative;
   overflow: hidden;
-  aspect-ratio: 2688 / 1687;
+  aspect-ratio: 2616 / 1641;
   background: var(--home-surface);
 }
 
@@ -1239,8 +1250,8 @@ html.light .home-demo-device--duo .home-demo-device-body {
   opacity: 1;
 }
 
-/* The bottom rule, filled with ink: the type on it is the page's own
-   ground colour, which inverts with the theme without a second rule. */
+/* The bottom rule, filled with steel: the type on it is the same cream in
+   both themes, because the frame does not turn. */
 .home-library-rail {
   position: absolute;
   left: 0;
@@ -1255,7 +1266,7 @@ html.light .home-demo-device--duo .home-demo-device-body {
   justify-content: space-between;
   gap: clamp(12px, 2vw, 28px);
   padding-inline: clamp(14px, 1.8vw, 26px);
-  color: var(--home-bg);
+  color: var(--home-library-ink);
 }
 
 .home-library-captions {
@@ -1358,7 +1369,9 @@ html.light .home-demo-device--duo .home-demo-device-body {
   color: inherit;
   background: none;
   border: 0;
-  padding: 8px 0;
+  /* A touch target the size the header's own controls use. */
+  min-height: 44px;
+  padding: 8px 4px;
   cursor: pointer;
   opacity: .62;
   transition: opacity 200ms ease;

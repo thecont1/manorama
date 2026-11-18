@@ -161,19 +161,98 @@ test.describe('the Library band', () => {
     await page.setViewportSize({ width: 1440, height: 900 })
     await open(page)
     const band = await bringUp(page)
-    const measured = await band.evaluate((el) => {
+    const measured = await band.evaluate(async (el) => {
       const stage = el.querySelector<HTMLElement>('.home-library-stage')!.getBoundingClientRect()
       const image = el.querySelector<HTMLImageElement>('[data-library-layer="0"] img')!
+      // Read the file itself: a picture chosen from a `w` srcset reports a
+      // density-corrected `naturalWidth`, not the file's pixel count.
+      const probe = new Image()
+      probe.src = image.currentSrc
+      await probe.decode()
       return {
         stageRatio: stage.width / stage.height,
-        imageRatio: image.naturalWidth / image.naturalHeight,
+        imageRatio: probe.naturalWidth / probe.naturalHeight,
         drawnWidth: image.getBoundingClientRect().width,
-        naturalWidth: image.naturalWidth,
+        naturalWidth: probe.naturalWidth,
       }
     })
     expect(Math.abs(measured.stageRatio - measured.imageRatio)).toBeLessThan(0.01)
     // The served file is never blown up past its own pixels.
     expect(measured.drawnWidth).toBeLessThanOrEqual(measured.naturalWidth)
+  })
+
+  test('the viewable area is exactly half the capture, so a retina screen lands it one for one', async ({ browser }) => {
+    // The frame is at most 1312 CSS pixels wide and its 2-pixel rules take
+    // four of them, so the viewable area is 1308 and the file is 2616.
+    for (const { scale, expected } of [
+      { scale: 1, expected: 'lib-dark-sm.avif' },
+      { scale: 2, expected: 'lib-dark.avif' },
+    ]) {
+      const context = await browser.newContext({
+        viewport: { width: 1440, height: 900 },
+        deviceScaleFactor: scale,
+      })
+      const page = await context.newPage()
+      await open(page)
+      await bringUp(page)
+      const measured = await page.evaluate(async () => {
+        const band = document.querySelector<HTMLElement>('[data-library-loop]')!
+        const stage = band.querySelector<HTMLElement>('.home-library-stage')!.getBoundingClientRect()
+        const image = band.querySelector<HTMLImageElement>('[data-library-layer="0"] img')!
+        // The picture in the page is chosen from a `w` srcset, so its own
+        // `naturalWidth` is the density-corrected width, not the file's.
+        // Read the file itself for the true pixel count.
+        const probe = new Image()
+        probe.src = image.currentSrc
+        await probe.decode()
+        return {
+          viewWidth: stage.width,
+          viewHeight: stage.height,
+          fileWidth: probe.naturalWidth,
+          fileHeight: probe.naturalHeight,
+          served: image.currentSrc.split('/').pop(),
+        }
+      })
+      // The file the browser is given is exactly what this screen needs:
+      // the viewable area's own pixels at 1×, twice them at 2×.
+      expect(measured.viewWidth).toBeCloseTo(1308, 0)
+      expect(measured.served, `at ${scale}×`).toBe(expected)
+      expect(measured.fileWidth).toBeCloseTo(measured.viewWidth * scale, 0)
+      // The half-size file rounds the height to a whole pixel, so it may
+      // sit half a pixel off the viewable area's height.
+      expect(Math.abs(measured.fileHeight - measured.viewHeight * scale)).toBeLessThanOrEqual(1)
+      await context.close()
+    }
+  })
+
+  test('the frame is steel in both themes, and the type on it stays cream', async ({ page }) => {
+    await page.setViewportSize({ width: 1440, height: 900 })
+    await open(page)
+    await bringUp(page)
+
+    const read = async () =>
+      page.evaluate(() => {
+        const band = document.querySelector<HTMLElement>('[data-library-loop]')!
+        const rail = band.querySelector<HTMLElement>('.home-library-rail')!
+        return {
+          frame: getComputedStyle(band).borderTopColor,
+          rule: getComputedStyle(band).borderBottomColor,
+          type: getComputedStyle(rail).color,
+        }
+      })
+
+    const dark = await read()
+    await page.evaluate(() => document.documentElement.classList.add('light'))
+    await page.waitForTimeout(300)
+    const light = await read()
+
+    // Steel is steel: the frame does not turn with the theme.
+    expect(dark.frame).toBe('rgb(100, 108, 120)')
+    expect(light.frame).toBe(dark.frame)
+    expect(light.rule).toBe(dark.rule)
+    // And the type on the rule is the same cream in both.
+    expect(dark.type).toBe('rgb(243, 240, 232)')
+    expect(light.type).toBe(dark.type)
   })
 
   test('the pause control stops the loop, and the band is whole without scripting', async ({ browser }) => {
@@ -221,6 +300,42 @@ test.describe('the Library band', () => {
     await page.waitForTimeout(6000)
     await expect(band).toHaveAttribute('data-state', '0')
     await context.close()
+  })
+
+  test('the pause control is a keyboard-reachable button with the house focus ring', async ({ page }) => {
+    await page.setViewportSize({ width: 1440, height: 900 })
+    await open(page)
+    await bringUp(page)
+
+    // Tab from the top of the document until the control takes focus.
+    await page.evaluate(() => {
+      window.scrollTo(0, 0)
+      document.body.focus()
+    })
+    let landed = false
+    for (let step = 0; step < 40 && !landed; step += 1) {
+      await page.keyboard.press('Tab')
+      landed = await page.evaluate(
+        () => document.activeElement?.hasAttribute('data-library-pause') ?? false,
+      )
+    }
+    expect(landed, 'the control is in the tab path').toBe(true)
+
+    const focus = await page.evaluate(() => {
+      const button = document.querySelector<HTMLElement>('[data-library-pause]')!
+      const style = getComputedStyle(button)
+      const box = button.getBoundingClientRect()
+      return {
+        visible: button.matches(':focus-visible'),
+        outline: `${style.outlineStyle} ${style.outlineWidth} ${style.outlineColor}`,
+        height: Math.round(box.height),
+      }
+    })
+    expect(focus.visible).toBe(true)
+    // The house ring: the accent, solid, with the page's own offset.
+    expect(focus.outline).toBe('solid 2px rgb(252, 15, 192)')
+    // And a touch target the size of the header's own controls.
+    expect(focus.height).toBeGreaterThanOrEqual(44)
   })
 
   test('the band names every state in its captions', async ({ page }) => {
