@@ -402,12 +402,15 @@ struct GlassChromeOverlay: View {
         .allowsHitTesting(false)
     }
 
-    /// A capsule's seat — where its sheet morph's glass launches from.
+    /// A capsule's seat — where its sheet morph's glass launches from. The
+    /// watch is the whole frame, not just the size: a safe-area shift or a
+    /// cluster re-layout can move a capsule without resizing it, and the
+    /// morph must still launch from where it actually sits.
     private func seatProbe(_ key: String) -> some View {
         GeometryReader { geometry in
             Color.clear
                 .onAppear { capsuleSeats[key] = geometry.frame(in: .global) }
-                .onChange(of: geometry.size) { _, _ in capsuleSeats[key] = geometry.frame(in: .global) }
+                .onChange(of: geometry.frame(in: .global)) { _, frame in capsuleSeats[key] = frame }
         }
         .allowsHitTesting(false)
     }
