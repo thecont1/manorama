@@ -20,7 +20,7 @@ private final class ManoramaBridgeViewController: CAPBridgeViewController {
     private var reduceTransparencyObserver: NSObjectProtocol?
     /// iOS 26+ glass chrome: the model the injected observer feeds and the
     /// handler registered on the configuration (retained here for routing).
-    private var glassModel: GlassChromeModel?
+    fileprivate var glassModel: GlassChromeModel?
     private var glassHandler: GlassScriptHandler?
 
     override func webView(with frame: CGRect, configuration: WKWebViewConfiguration) -> WKWebView {
@@ -170,6 +170,13 @@ class SceneDelegate: UIResponder, UIWindowSceneDelegate {
         guard let windowScene = scene as? UIWindowScene,
               let webView = (window?.rootViewController as? CAPBridgeViewController)?.webView else { return }
         let javaScript = Self.layoutJavaScript(for: webView, windowScene: windowScene, dispatchEvent: true)
+        // The native capsules reseat on the same geometry pass — an
+        // identical payload means identical regions, so this belongs before
+        // the dedup guard rather than after it.
+        if #available(iOS 27.1, *) {
+            (window?.rootViewController as? ManoramaBridgeViewController)?.glassModel?.reservedRegions =
+                Self.activeReservedRegionFrames(for: webView)
+        }
         guard javaScript != lastInjectedLayout else { return }
         let previousLayout = lastInjectedLayout
         // The cache tracks the most recently dispatched payload so a changed
@@ -212,6 +219,17 @@ class SceneDelegate: UIResponder, UIWindowSceneDelegate {
         let assignment = "window.__MANORAMA_IOS_LAYOUT__ = \(json);"
         guard dispatchEvent else { return assignment }
         return assignment + "window.dispatchEvent(new CustomEvent('manorama:layout', { detail: window.__MANORAMA_IOS_LAYOUT__ }));"
+    }
+
+    /// Active reserved regions as window-coordinate frames — the glass
+    /// overlay's capsule seats are published in window space, so the frames
+    /// are converted rather than passed through in webView space.
+    @available(iOS 27.1, *)
+    private static func activeReservedRegionFrames(for webView: WKWebView) -> [CGRect] {
+        (webView.reservedRegions(kind: .division, options: .includeInactive) +
+            webView.reservedRegions(kind: .occlusion, options: .includeInactive))
+            .filter(\.isActive)
+            .map { webView.convert($0.frame, to: nil) }
     }
 
     private static func reservedRegionDictionaries(for webView: WKWebView) -> [[String: Any]] {

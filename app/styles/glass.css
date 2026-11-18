@@ -174,9 +174,7 @@ html.light {
 /* The pills — top-bar Library plus the bottom cluster (position, Settings,
    Info) and the curtain's Library exit. On iOS/macOS 26+ the takeover rules
    hide them behind native capsules; on older systems and Android they are
-   the chrome and read as frost. The regular recipe's fill deliberately
-   beats .m-chrome--side's near-opaque .92 — the Duo vertical bar needs the
-   lighter glass or the blur never reads. */
+   the chrome and read as frost. */
 :root:is([data-ios-shell], [data-android-shell], [data-macos-shell])
   .gallery-shell .m-chrome-pill {
   background: var(--glass-fill-regular);
@@ -184,6 +182,19 @@ html.light {
   -webkit-backdrop-filter: blur(16px) saturate(1.4);
   box-shadow: var(--glass-rim), var(--glass-shadow);
   transition: transform .12s cubic-bezier(.22, 1, .36, 1);
+}
+
+/* G4 — Duo vertical-bar pills keep their near-opaque .92: a Tier-B blur
+   over the system bar's thin strip is invisible, so the pill would read
+   as bare text. This arm deliberately outlives the Tier-0 arms below —
+   the bar is always dark, whichever accessibility state applies. Covers
+   ViewerChrome's side column and the curtain's Library exit. */
+:root:is([data-ios-shell], [data-android-shell], [data-macos-shell])
+  .gallery-shell .m-chrome--side .m-chrome-pill {
+  background: rgba(10, 10, 10, .92);
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+  box-shadow: none;
 }
 :root:is([data-ios-shell], [data-android-shell], [data-macos-shell])
   .gallery-shell .m-chrome-pill:active {
