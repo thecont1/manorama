@@ -12,6 +12,9 @@
   --glass-fill-frost: rgba(18, 18, 24, .40);
   --glass-fill-rim: rgba(18, 18, 24, .22);
   --glass-fill-tint: rgba(76, 130, 255, .36);
+  /* Toast-depth fill — dark enough that light text over a bright cover
+     stays legible (≥4.5:1) while the material still reads as glass. */
+  --glass-fill-toast: rgba(18, 18, 24, .72);
 
   /* Flat fills inside glass — never a second lens. */
   --glass-flat-child: rgba(255, 255, 255, .10);
@@ -44,6 +47,7 @@ html.light {
   --glass-fill-regular: rgba(255, 255, 255, .15);
   --glass-fill-frost: rgba(255, 255, 255, .28);
   --glass-fill-rim: rgba(255, 255, 255, .08);
+  --glass-fill-toast: rgba(255, 255, 255, .55);
   --glass-flat-child: rgba(255, 255, 255, .34);
   --glass-flat-chip: rgba(255, 255, 255, .52);
   --glass-flat-trough: rgba(29, 29, 31, .07);

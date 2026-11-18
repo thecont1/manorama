@@ -29,9 +29,19 @@ lives inside the share sheet — in the normal state and again with macOS
   inert stub so `connect()` stays pending and no OAuth/network side effect
   fires. Same class of evidence the iOS capture harness uses for states the
   shell cannot reach unaided.
-- Tier 0: real `Reduce transparency` system setting (writes to
-  `com.apple.universalaccess reduceTransparency` plus the
-  `com.apple.Accessibility` store), relaunch, capture, restore. Verified by
-  pixel diff — the earlier single-domain write did not reach the WKWebView
-  media query (captures were byte-identical), which is exactly the class of
-  false evidence the diff guards against.
+- Tier 0: real `Reduce transparency` system setting across three stores,
+  saved and restored by original value — never a blanket `write 0`. Before
+  capture, record each key's current value AND whether it exists (a missing
+  key is a state too: `defaults read` exits non-zero on it):
+
+    defaults read com.apple.universalaccess reduceTransparency
+    defaults read com.apple.Accessibility ReduceTransparencyEnabled
+    defaults -currentHost read com.apple.Accessibility ReduceTransparencyEnabled
+
+  Write `true` to all three — the currentHost store is the one that
+  actually propagates to the WKWebView media query — relaunch, capture.
+  Afterwards, and on failure alike (wrap the capture in a `trap`), write
+  each saved value back and `defaults delete` every key that did not exist.
+  Verified by pixel diff: the earlier single-domain write produced
+  byte-identical captures, which is exactly the class of false evidence the
+  diff guards against.
