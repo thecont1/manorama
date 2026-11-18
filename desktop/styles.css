@@ -384,3 +384,117 @@ body.manorama-desktop .app-update-dismiss {
   cursor: pointer; border-radius: 50%;
 }
 body.manorama-desktop .app-update-dismiss:hover { color: rgba(var(--ink), 1); }
+
+/* ── G3 — macOS desktop-bundle frost (#230). The SwiftUI shell stamps
+   data-macos-shell at document start; Tauri (Windows/Linux) never sees
+   the attribute and keeps the flat rgba below — the gate is what makes
+   "unchanged" true, not a second stylesheet. The takeover is already
+   upstream: on macOS 26+ the shell's native capsules retire the web
+   pills (app/styles.css `data-macos-glass` hide rules), so what remains
+   painted is the frost lane. Recipes follow the web phases — regular
+   for pills and panel cards, frost for the drawer, dim for the scrim. */
+
+:root[data-macos-shell] .desktop-toast-stack .admin-toast {
+  background: var(--glass-fill-regular);
+  backdrop-filter: blur(16px) saturate(1.4);
+  -webkit-backdrop-filter: blur(16px) saturate(1.4);
+  box-shadow: var(--glass-rim), var(--glass-shadow);
+}
+
+/* The share and paste panels are card-level surfaces inside the
+   catalogue — regular, not the drawer's sheet-depth frost. The --sheet
+   variant renders inside a sheet and stays transparent. */
+:root[data-macos-shell] .desktop-share:not(.desktop-share--sheet),
+:root[data-macos-shell] .desktop-paste {
+  background: var(--glass-fill-regular);
+  backdrop-filter: blur(16px) saturate(1.4);
+  -webkit-backdrop-filter: blur(16px) saturate(1.4);
+  box-shadow: var(--glass-rim), var(--glass-shadow);
+}
+
+/* The viewer's stage arrows — the desktop round buttons join the same
+   chrome family as the native pills. The gated hover keeps a glass
+   fill: the shared base hover's near-opaque .82 black would retire the
+   material. */
+:root[data-macos-shell] body.manorama-desktop .stage-arrows > button {
+  background: var(--glass-fill-regular);
+  backdrop-filter: blur(16px) saturate(1.4);
+  -webkit-backdrop-filter: blur(16px) saturate(1.4);
+  box-shadow: var(--glass-rim), var(--glass-shadow);
+}
+:root[data-macos-shell] body.manorama-desktop .stage-arrows > button:hover {
+  background: var(--glass-fill-frost);
+}
+
+/* The account drawer is the desktop's sheet — frost depth. Its scrim
+   dims like every other veil: it was never a lens. */
+:root[data-macos-shell] .admin-drawer-panel {
+  background: var(--glass-fill-frost);
+  backdrop-filter: blur(24px) saturate(1.4);
+  -webkit-backdrop-filter: blur(24px) saturate(1.4);
+  box-shadow: var(--glass-rim), var(--glass-shadow);
+}
+:root[data-macos-shell] .admin-drawer-scrim {
+  background: var(--glass-dim);
+  backdrop-filter: blur(4px);
+  -webkit-backdrop-filter: blur(4px);
+}
+
+/* Tier 0 — reduced transparency/contrast, a shell-stamped attribute, or
+   a webview with no backdrop-filter all land on the same solid + edge.
+   The scrim keeps its dim; it was only ever a veil. Under html.light
+   the stage's --ink stays light (body:has(.viewer-stage) re-pins it)
+   while --glass-solid goes light too — the arrow glyph flips to the
+   light-theme --glass-ink or it vanishes on the solid. */
+@media (prefers-reduced-transparency: reduce), (prefers-contrast: more) {
+  :root[data-macos-shell] .desktop-toast-stack .admin-toast,
+  :root[data-macos-shell] .desktop-share:not(.desktop-share--sheet),
+  :root[data-macos-shell] .desktop-paste,
+  :root[data-macos-shell] body.manorama-desktop .stage-arrows > button,
+  :root[data-macos-shell] body.manorama-desktop .stage-arrows > button:hover,
+  :root[data-macos-shell] .admin-drawer-panel {
+    background: var(--glass-solid);
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
+    box-shadow: inset 0 0 0 1px var(--glass-edge);
+  }
+  :root.light[data-macos-shell] body.manorama-desktop .stage-arrows > button {
+    color: var(--glass-ink);
+  }
+  :root[data-macos-shell] .admin-drawer-scrim {
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
+  }
+}
+:root[data-macos-shell][data-reduced-transparency] .desktop-toast-stack .admin-toast,
+:root[data-macos-shell][data-reduced-transparency] .desktop-share:not(.desktop-share--sheet),
+:root[data-macos-shell][data-reduced-transparency] .desktop-paste,
+:root[data-macos-shell][data-reduced-transparency] body.manorama-desktop .stage-arrows > button,
+:root[data-macos-shell][data-reduced-transparency] body.manorama-desktop .stage-arrows > button:hover,
+:root[data-macos-shell][data-reduced-transparency] .admin-drawer-panel {
+  background: var(--glass-solid);
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+  box-shadow: inset 0 0 0 1px var(--glass-edge);
+}
+:root.light[data-macos-shell][data-reduced-transparency] body.manorama-desktop .stage-arrows > button {
+  color: var(--glass-ink);
+}
+:root[data-macos-shell][data-reduced-transparency] .admin-drawer-scrim {
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+}
+@supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+  :root[data-macos-shell] .desktop-toast-stack .admin-toast,
+  :root[data-macos-shell] .desktop-share:not(.desktop-share--sheet),
+  :root[data-macos-shell] .desktop-paste,
+  :root[data-macos-shell] body.manorama-desktop .stage-arrows > button,
+  :root[data-macos-shell] body.manorama-desktop .stage-arrows > button:hover,
+  :root[data-macos-shell] .admin-drawer-panel {
+    background: var(--glass-solid);
+    box-shadow: inset 0 0 0 1px var(--glass-edge);
+  }
+  :root.light[data-macos-shell] body.manorama-desktop .stage-arrows > button {
+    color: var(--glass-ink);
+  }
+}
