@@ -148,8 +148,8 @@ const PRIVACY_URL = 'https://manorama.xyz/privacy'
 const AUTHOR_URL = 'https://thecontrarian.in'
 
 /** The footer markup the web and mobile shells use, verbatim, with the click
- *  routed to the system browser: inside the desktop webview a bare external
- *  href would navigate the app itself away from the catalogue. */
+ *  routed to the system browser: inside the Tauri webview a bare external href
+ *  would navigate the app itself away from the catalogue. */
 const externalAnchor = (url: string) => ({
   href: url,
   target: '_blank',
@@ -2625,17 +2625,20 @@ export default function Catalogue({ apiBase }: { apiBase: string }) {
                 <img src="/manorama-merged-logo.png" alt="manorama" class="landing-brand-mark" />
               </span>
             </header>
-            <h1><span class="desktop-welcome-h1-line">Your <em>photographic</em> life.</span> <span class="desktop-welcome-h1-line">One beautiful <em>Library</em>.</span></h1>
-            <p class="landing-brand-intro">Pick a folder on this Mac. Or paste a Dropbox, Google Drive, iCloud or MEGA public shared folder. manorama turns it into a full-screen gallery that you can add to your Library and even share with others.</p>
+            <h1>Your shared folders, shown properly</h1>
+            <p class="landing-brand-intro">Pick a folder on this Mac, or paste a shared Dropbox, Google Drive, iCloud or MEGA album link. manorama turns it into a quiet, full-screen gallery at your own address.</p>
             <div class="desktop-signin">
-              {[...SIGN_IN_PROVIDERS]
-                .sort((a, b) => (a.id === 'apple' ? -1 : b.id === 'apple' ? 1 : 0))
-                .map(({ id, label, Glyph }) => (
-                  <button type="button" class={`desktop-signin-button desktop-signin-button--${id}`} key={id} onClick={() => signIn(id)}>
-                    <Glyph />
-                    <span>Continue with {label}</span>
-                  </button>
-                ))}
+              <span class="desktop-signin-lead">Continue with</span>
+              <div class="desktop-signin-icons">
+                {[...SIGN_IN_PROVIDERS]
+                  .sort((a, b) => (a.id === 'apple' ? -1 : b.id === 'apple' ? 1 : 0))
+                  .map(({ id, label, Glyph }) => (
+                    <button type="button" class="desktop-signin-icon" key={id} aria-label={`Continue with ${label}`} onClick={() => signIn(id)}>
+                      <Glyph />
+                      <span class="desktop-signin-label">{label}</span>
+                    </button>
+                  ))}
+              </div>
             </div>
             {authError ? <p class="landing-note" role="alert">{authError}</p> : null}
             {notice ? <p class="landing-note">{notice}</p> : null}

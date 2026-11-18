@@ -6,7 +6,7 @@ import Foundation
 /// handler asks about it for every photograph it serves — constantly.
 /// So the list is computed once, on the main actor, and read from
 /// whichever thread the request arrived on. Computing it per request meant
-/// re-reading `folders.json` and re-resolving a security-scoped bookmark
+/// re-reading `roots.json` and re-resolving a security-scoped bookmark
 /// for every single image, which is what a photograph gallery should
 /// never be paying for.
 final class GrantedRoots: @unchecked Sendable {

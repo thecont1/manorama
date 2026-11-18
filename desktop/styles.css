@@ -56,22 +56,13 @@ body.manorama-desktop {
 }
 .desktop-welcome-header { display: grid; place-items: center; }
 .desktop-welcome-header .landing-brand-mark { width: clamp(300px, 32vw, 520px); max-width: 100%; }
-/* The headline is the homepage's: same two lines, same italic accent words in
-   the signature pink — the surface reads as one product door. */
 .desktop-welcome h1 {
   margin: clamp(26px, 4vh, 48px) auto 0;
   font-family: 'Bricolage Grotesque', 'Manrope', ui-sans-serif, system-ui, sans-serif;
   font-size: clamp(30px, 4.6vw, 46px);
   font-weight: 700;
-  letter-spacing: -.035em;
-  line-height: 1.04;
-}
-.desktop-welcome-h1-line { display: block; white-space: nowrap; }
-.desktop-welcome h1 em {
-  font-style: italic;
-  font-weight: 560;
-  letter-spacing: -.01em;
-  color: #fc0fc0;
+  letter-spacing: -.03em;
+  line-height: 1.12;
 }
 .desktop-welcome .landing-brand-intro {
   max-width: 38rem;
@@ -79,34 +70,52 @@ body.manorama-desktop {
   font-size: clamp(15px, 1.35vw, 20px);
   line-height: 1.45;
 }
-/* Full-width labelled provider buttons — the same door the native welcome
-   opens with, so the desktop landing no longer asks a first-time user to
-   decode three unlabelled glyphs. */
-.desktop-signin {
-  margin-top: clamp(42px, 7vh, 78px);
-  display: grid;
-  gap: 12px;
-  width: min(100%, 420px);
-  margin-inline: auto;
+.desktop-signin-lead {
+  color: rgba(var(--ink), .52);
+  font-family: 'DM Mono', ui-monospace, monospace;
+  font-size: 11px;
+  letter-spacing: .08em;
+  text-transform: uppercase;
 }
-.desktop-signin-button {
-  min-height: 52px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 12px;
-  padding: 12px 18px;
-  border: 1px solid rgba(var(--ink), .22);
-  border-radius: 12px;
-  background: rgb(var(--ink));
-  color: var(--gallery-canvas);
-  font: inherit;
-  font-weight: 600;
+.desktop-signin { margin-top: clamp(42px, 7vh, 78px); text-align: center; }
+.desktop-signin-lead { display: block; margin-bottom: 22px; }
+/* Three glyphs in a row, each named beneath. The row is the whole chooser, so
+   no glyph depends on its neighbour's position to be understood. */
+/* 100%, not a viewport unit: the landing column is inset, and a row sized off
+   the viewport overflows it and stops being centred under the lead. No width on
+   the row: it stays full-width so `justify-content` centres the cells. */
+.desktop-signin-icons { display: flex; justify-content: center; align-items: flex-start; gap: clamp(8px, 2.5vw, 28px); margin-inline: auto; }
+.desktop-signin-icon {
+  display: grid;
+  justify-items: center;
+  gap: 10px;
+  /* Equal cells, so the glyphs sit at equal intervals however long a name is —
+     "Google Drive" is more than twice "Apple" and would otherwise push the row
+     off centre. */
+  flex: 0 0 clamp(88px, 26vw, 112px);
+  min-width: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: rgb(var(--ink));
   cursor: pointer;
 }
-.desktop-signin-button svg { width: 20px; height: 20px; flex: none; }
-.desktop-signin-button:focus-visible { outline: 2px solid rgba(var(--ink), .85); outline-offset: 3px; }
+/* The visible name is the accessible name too: WCAG 2.5.3 wants the visible
+   label inside the accessible one, and the row has to read on its own. */
+.desktop-signin-label {
+  font-family: 'DM Mono', ui-monospace, monospace;
+  font-size: 10px;
+  letter-spacing: .08em;
+  text-transform: uppercase;
+  color: rgba(var(--ink), .62);
+  white-space: nowrap;
+}
+.desktop-signin-icon svg { width: 46px; height: 46px; filter: drop-shadow(0 6px 16px rgba(252, 15, 192, .28)); transition: transform 180ms cubic-bezier(.3, 1.45, .5, 1), filter 180ms ease; }
+.desktop-signin-icon:hover svg,
+.desktop-signin-icon:focus-visible svg { transform: translateY(-4px) scale(1.08); filter: drop-shadow(0 10px 22px rgba(252, 15, 192, .45)); }
 .desktop-welcome .landing-note { color: rgba(var(--ink), .7); }
+.desktop-account-signin { margin-top: 34px; text-align: left; }
+.desktop-account-signin .desktop-signin-icons { justify-content: flex-start; }
 .desktop-notice { color: rgba(var(--ink), .68); }
 
 /* ── The catalogue workbench ──────────────────────────────────────────────
@@ -198,13 +207,6 @@ body.manorama-desktop {
 .desktop-paste button:hover, .desktop-paste button:focus-visible { border-color: rgba(var(--ink), .78); color: rgb(var(--ink)); }
 .desktop-paste-hint { margin: 0; color: rgba(var(--ink), .48); font-size: 11px; line-height: 1.4; }
 
-/* The redirect-paste fallback is an escape hatch, not the path: a quiet
-   disclosure under the automatic-handoff copy, expanded only where the
-   redirect can never arrive (dev builds mark it open at render). */
-.desktop-paste-fallback > summary { width: fit-content; cursor: pointer; color: rgba(var(--ink), .58); font-size: 12px; }
-.desktop-paste-fallback > summary:hover { color: rgb(var(--ink)); }
-.desktop-paste-fallback[open] .desktop-paste { margin-top: 10px; }
-
 /* ── The viewing stage ─────────────────────────────────────────────────── */
 
 /* Viewer/curtain geometry matches native. */
@@ -222,6 +224,9 @@ html.light body.manorama-desktop .desktop-shell { background: #e9e5dc; color: rg
 html.light body.manorama-desktop .desktop-paste,
 html.light body.manorama-desktop .desktop-share { background: rgba(0, 0, 0, .04); }
 
+@media (prefers-reduced-motion: reduce) {
+  .desktop-signin-icon svg { transition: none; }
+}
 .desktop-share-provider-note, .desktop-share-hint { color: rgba(var(--ink), .68); font-size: 11px; }
 .desktop-paste-hint { margin: 0; color: rgba(var(--ink), .68); font-size: 11px; line-height: 1.4; }
 

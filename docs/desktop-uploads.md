@@ -38,11 +38,10 @@ Redirect delivery differs by provider:
   same scheme sign-in already registers; `session.ts`'s deep-link router
   hands non-handoff URLs to `handleProviderDeepLink`.
 - **Google Drive** — Google's installed-app clients only allow the loopback
-  form. The shell binds an ephemeral `http://127.0.0.1:<port>` receiver
-  (`oauth_loopback_begin`/`oauth_loopback_finish` — `OAuthLoopback.swift`
-  on macOS; a plain `TcpListener` in `src-tauri`, std lib only — no new
-  crates), answers the one redirect with a "return to the app" page, and
-  hands the request target back for parsing.
+  form. `src-tauri` binds an ephemeral `http://127.0.0.1:<port>` with a
+  plain `TcpListener` (`oauth_loopback_begin`/`oauth_loopback_finish`, std
+  lib only — no new crates), answers the one redirect with a "return to
+  the app" page, and hands the request target back for parsing.
 
 Both flows have the paste-the-link fallback for dev builds (unbundled
 binaries cannot receive scheme links; the paste field accepts either the

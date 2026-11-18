@@ -2,9 +2,9 @@ import { MAX_GALLERY_ITEMS, type GalleryMediaItem } from '../../packages/core/im
 import { MAX_GALLERY_TITLE_LENGTH } from '../../packages/core/device-gallery'
 
 /**
- * Local folder/card scanning for the desktop shells — pure logic. Directory
- * access is injected (`ReadDir`), so the fs plugin stays behind the adapter
- * in `tauri.ts` and this module runs unchanged in `bun test`.
+ * Local folder/card scanning for the Tauri shell — pure logic. Directory
+ * access is injected (`ReadDir`), so the Tauri fs plugin stays behind the
+ * adapter in `tauri.ts` and this module runs unchanged in `bun test`.
  *
  * The product contract: a scanned gallery references originals in place.
  * Nothing here copies, moves, renames, or deletes a byte.

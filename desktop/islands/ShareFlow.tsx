@@ -210,25 +210,22 @@ export default function ShareFlow({
       {step === 'connecting' && provider ? (
         <div class="desktop-share-connecting">
           <p>Finish connecting {provider.label} in your browser — the app picks the result up automatically.</p>
-          <details class="desktop-paste-fallback" open={import.meta.env.DEV ? true : undefined}>
-            <summary>Having trouble? Paste the link manually</summary>
-            <form class="desktop-paste" onSubmit={submitPastedRedirect}>
-              <label>
-                Redirect link
-                <input
-                  value={pasteUrl}
-                  onInput={(event) => setPasteUrl((event.currentTarget as HTMLInputElement).value)}
-                  placeholder={providerId === 'drive' ? 'http://127.0.0.1:…/?code=…&state=…' : 'in.thecontrarian.manorama.desktop://oauth/dropbox?code=…&state=…'}
-                  autoCapitalize="none"
-                  autoCorrect="off"
-                />
-              </label>
-              <Button variant="primary" type="submit">Complete connection</Button>
-              <p class="desktop-paste-hint">
-                If the browser finished but the app did not pick it up, paste the full link it landed on.
-              </p>
-            </form>
-          </details>
+          <form class="desktop-paste" onSubmit={submitPastedRedirect}>
+            <label>
+              Redirect link
+              <input
+                value={pasteUrl}
+                onInput={(event) => setPasteUrl((event.currentTarget as HTMLInputElement).value)}
+                placeholder={providerId === 'drive' ? 'http://127.0.0.1:…/?code=…&state=…' : 'in.thecontrarian.manorama.desktop://oauth/dropbox?code=…&state=…'}
+                autoCapitalize="none"
+                autoCorrect="off"
+              />
+            </label>
+            <Button variant="primary" type="submit">Complete connection</Button>
+            <p class="desktop-paste-hint">
+              Dev builds cannot receive the redirect — paste the full link the browser lands on.
+            </p>
+          </form>
           <Button variant="quiet" onClick={cancelConnect}>Cancel</Button>
         </div>
       ) : null}

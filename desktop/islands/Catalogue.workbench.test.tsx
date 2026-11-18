@@ -702,10 +702,10 @@ describe('desktop catalogue workbench', () => {
     expect(container.querySelector('.admin-page')).toBeNull()
     const welcome = container.querySelector('.landing-page.desktop-welcome')!
     expect(welcome.querySelector('.desktop-welcome-header img')).not.toBeNull()
-    const chooser = [...welcome.querySelectorAll<HTMLButtonElement>('.desktop-signin-button')]
+    const chooser = [...welcome.querySelectorAll<HTMLButtonElement>('.desktop-signin-icon')]
     expect(chooser.length).toBeGreaterThan(1)
-    expect(chooser[0].textContent).toContain('Continue with Apple')
-    for (const button of chooser) expect(button.querySelector('svg')).not.toBeNull()
+    expect(chooser[0].getAttribute('aria-label')).toBe('Continue with Apple')
+    for (const button of chooser) expect(button.textContent?.trim().length).toBeGreaterThan(0)
   })
 
   test('details mounts from a card with exactly the local actions and no banned surfaces', async () => {

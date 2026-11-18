@@ -1,12 +1,7 @@
 # Plan: Bridge the macOS (Tauri) app's UI/UX to the web app
 
-Status: superseded · Owner: Mahesh · Source of truth for the "right" look: the web
+Status: draft · Owner: Mahesh · Source of truth for the "right" look: the web
 Library at `manorama.xyz/thecontrarian` (screenshot captured 2026-11-06).
-
-**The macOS shell this plan polished no longer ships.** `macos/ManoramaMac/`
-is the shell now — see `docs/desktop-local-viewer.md` and
-`docs/macos-swiftui-port-assessment.md`. Retained as a record of the
-Tauri-era parity work.
 
 ## 0. What's actually broken today (evidence)
 
