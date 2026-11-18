@@ -115,7 +115,7 @@ for (const viewport of [{ width: 375, height: 812 }, { width: 1376, height: 1032
     const cardMenu = page.getByRole('menu')
     await expect(cardMenu).toBeVisible()
     await expect(cardMenu.getByRole('menuitem')).toHaveText([
-      'Pin gallery', 'Share link', 'Post to X', 'Gallery details', 'Reorder photographs', 'Refresh gallery contents', 'Remove gallery',
+      'Pin gallery', 'Copy link', 'Post to X', 'Gallery details', 'Reorder photographs', 'Refresh gallery contents', 'Remove gallery',
     ])
     await expect(page.getByRole('dialog').locator('h2')).toBeFocused()
     await page.keyboard.press('Escape')
@@ -229,7 +229,7 @@ for (const viewport of [{ width: 375, height: 812 }, { width: 1376, height: 1032
     const settings = page.locator('.native-settings')
     await expect(settings).toBeVisible()
     await page.screenshot({ path: `demo-captures/admin-gallery-focus/native-${viewport.width}-account.png`, fullPage: false })
-    await expect(settings.getByRole('radiogroup', { name: 'New galleries', exact: true })).toBeVisible()
+    await expect(settings.getByRole('radiogroup', { name: 'New galleries', exact: true })).toHaveCount(0)
     await expect(settings.getByText('House cards', { exact: true })).toBeVisible()
     await settings.getByRole('button', { name: /Visionary/, exact: false }).click()
     const visionary = page.locator('.native-visionary')
@@ -281,11 +281,11 @@ for (const viewport of [{ width: 375, height: 812 }, { width: 1376, height: 1032
     // in, behind More Settings.
     await page.getByRole('button', { name: 'Gallery Settings', exact: true }).click()
     await page.getByRole('button', { name: 'More Settings', exact: true }).click()
-    const keepCopy = page.getByRole('switch', { name: 'Keep a copy on this device' })
-    await expect(keepCopy).toHaveAttribute('aria-checked', 'true')
-    await keepCopy.click()
+    const keepCopy = page.getByRole('switch', { name: 'Keep copy on this device' })
     await expect(keepCopy).toHaveAttribute('aria-checked', 'false')
-    await expect(page.getByRole('status').filter({ hasText: 'Streaming from cloud' })).toBeVisible()
+    await keepCopy.click()
+    await expect(keepCopy).toHaveAttribute('aria-checked', 'true')
+    await expect(page.getByRole('status').filter({ hasText: 'encrypted' })).toBeVisible()
     await page.screenshot({ path: `docs/redesign-parity/native-${viewport.width}-viewer-details.png`, fullPage: true })
     await page.getByRole('button', { name: /^Back to / }).click()
     await expect(keepCopy).toHaveCount(0)

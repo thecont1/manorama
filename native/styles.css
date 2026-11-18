@@ -848,15 +848,23 @@ html.light body.manorama-native :is(.native-welcome, .native-list-shell, .native
 .native-library-heading { margin-bottom: 12px; }
 .native-library-heading h1 { color: var(--m-ink); }
 .native-library-tools .native-library-finding { margin: 14px 0 0; min-height: 0; font-size: 13px; }
-.native-library-layout .native-lib-foot { margin: 0 0 20px; padding: 0; border: 0; font-size: 13px; flex-wrap: wrap; }
+.native-library-layout .native-lib-foot { display: block; margin: 0 0 20px; padding: 0; border: 0; font-size: 15px; }
+.native-library-tools .native-lib-foot { margin: 12px 0 0; }
+.native-lib-foot-line { margin: 0; line-height: 1.25; }
+.native-lib-foot-line + .native-lib-foot-line { margin-top: 2px; }
 .native-library-layout .native-library-sponsor { grid-area: sponsor; padding: 0 20px 20px; }
-.native-library-layout .native-account-ad { margin: 16px 0 0; padding: 0; background: none; border-radius: 0; }
-.native-library-layout .native-account-ad-slot { display: grid; grid-template-columns: minmax(0, 1fr); gap: 12px; }
-.native-library-layout .native-account-ad-frame { width: 100%; height: auto; aspect-ratio: 2 / 3; justify-self: center; background: none; }
-.native-library-layout .native-account-ad-frame img { height: auto; }
+.native-library-layout .native-account-ad { display: flex; align-items: flex-start; gap: 12px; margin: 0 0 24px; padding: 0; background: none; border-radius: 0; }
+.native-library-layout .native-account-ad-frame { flex: none; width: auto; height: auto; display: block; overflow: hidden; background: none; }
+.native-library-layout .native-account-ad-frame img { display: block; width: auto; }
+.native-library-layout .native-account-ad-copy { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
 .native-library-layout .native-account-ad-cta { min-height: 44px; display: inline-flex; align-items: center; margin: 0; }
 .native-library-footer { flex-direction: column; align-items: flex-start; gap: 0; margin-top: 24px; padding: 0; }
 .native-library-footer button { min-height: 44px; padding: 0; border: 0; background: none; color: inherit; font: inherit; cursor: pointer; }
+/* Inline-level so the line's copy still wraps around it, but a real box:
+   inline would ignore min-height, while inline-flex keeps the 44px touch
+   target and centres the label inside it. */
+.native-library-footer .site-footer-copy button { display: inline-flex; align-items: center; min-height: 44px; }
+.native-lib-foot-meta { font-size: 14px; opacity: .75; }
 .native-library-footer :is(.site-footer-link, .site-footer-copy) { color: var(--m-secondary); line-height: 1.6; }
 .native-library-footer button:hover { text-decoration: underline; }
 .native-library-layout .native-list-card {
@@ -937,6 +945,10 @@ body.manorama-native[data-native-fold-divided] .native-library-layout .native-se
 /* Settings keeps the shared owner grammar while embedding the live vault
    controls rather than mounting a second settings shell. */
 .native-settings { background: var(--m-ground); color: var(--m-ink); }
+.native-settings .site-footer { flex-direction: column; align-items: flex-start; gap: 0; margin-top: 24px; padding: 0; }
+.native-settings .site-footer-copy { color: var(--m-secondary); line-height: 1.6; }
+.native-settings .site-footer-copy button { min-height: 0; display: inline; padding: 0; border: 0; background: none; color: inherit; font: inherit; cursor: pointer; }
+.native-settings .site-footer-copy button:hover { text-decoration: underline; }
 /* As a Library pane it takes over the list column under the shared topbar —
    the same gentle enter the web/desktop pane uses. */
 .native-settings--pane { min-width: 0; animation: lib-pane-in .38s cubic-bezier(.4, 0, .2, 1) both; }

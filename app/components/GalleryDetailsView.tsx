@@ -138,7 +138,6 @@ export function GalleryDetailsView({
   rail,
   deviceStatus,
   onBack,
-  onOpen,
   onShare,
   onEditName,
   onEditCaption,
@@ -186,23 +185,6 @@ export function GalleryDetailsView({
             <p class="m-note d-upgrade-note">{PIPELINE_LOCK_MESSAGE} <a href={upgradeHref}>Upgrade</a></p>
           ) : null}
           <ActionGroup>
-            <ActionRow
-              label={GALLERY_ROWS.open.label}
-              icon={GALLERY_ROWS.open.icon()}
-              onClick={onOpen}
-              disabled={busy}
-            />
-            {/* The full address is already on the header — the row states the
-                action, not a second copy of the path. */}
-            <ActionRow
-              label={GALLERY_ROWS.share.label}
-              icon={GALLERY_ROWS.share.icon()}
-              onClick={onShare}
-              disabled={busy}
-            />
-          </ActionGroup>
-
-          <ActionGroup>
             <ActionRow label={GALLERY_ROWS.name.label} icon={GALLERY_ROWS.name.icon()} value={title} onClick={onEditName} disabled={locked} />
             {/* A present caption reads in full on the header — only an empty
                 one needs the row to state it. */}
@@ -210,10 +192,18 @@ export function GalleryDetailsView({
             {onEditAddress ? (
               <ActionRow label={GALLERY_ROWS.address.label} icon={GALLERY_ROWS.address.icon()} value={address} onClick={onEditAddress} disabled={locked} />
             ) : null}
-            <ActionRow label={GALLERY_ROWS.reorder.label} icon={GALLERY_ROWS.reorder.icon()} value={imageCount} onClick={onReorder} disabled={locked} />
+            {/* The full address is already on the header — the row states the
+                action, not a second copy of the path. */}
+            <ActionRow
+              label="Copy link"
+              icon={GALLERY_ROWS.share.icon()}
+              onClick={onShare}
+              disabled={busy}
+            />
           </ActionGroup>
 
           <ActionGroup>
+            <ActionRow label={GALLERY_ROWS.reorder.label} icon={GALLERY_ROWS.reorder.icon()} value={imageCount} onClick={onReorder} disabled={locked} />
             <ActionRow label={GALLERY_ROWS.refresh.label} icon={GALLERY_ROWS.refresh.icon()} onClick={onRefresh} disabled={locked} />
             {onOpenSource ? (
               <ActionRow label={GALLERY_ROWS.openSource.label} icon={GALLERY_ROWS.openSource.icon()} onClick={onOpenSource} disabled={locked} />
@@ -226,14 +216,14 @@ export function GalleryDetailsView({
                   flip adds "Streams" it would otherwise shift the control
                   span's index and swap the switch node mid-gesture. */}
               <ActionRow
-                label={GALLERY_ROWS.keepCopy.label}
+                label="Keep copy on this device"
                 icon={GALLERY_ROWS.keepCopy.icon()}
                 value={keepValue ?? ''}
                 control={(
                   <Switch
                     checked={!streamOnly}
                     onChange={(keep) => onStreamOnlyChange(!keep)}
-                    label={`Keep a copy on ${deviceLabel ?? 'this device'}`}
+                    label="Keep copy on this device"
                     describedBy="gallery-keep-note"
                     disabled={busy}
                   />
@@ -256,10 +246,12 @@ export function GalleryDetailsView({
               label={GALLERY_ROWS.remove.label}
               icon={GALLERY_ROWS.remove.icon()}
               tone="destructive"
-              value={`Photographs stay in ${sourceLabel}`}
               onClick={onRemove}
               disabled={busy}
             />
+            {/* The consequence reads on its own line — inline it truncates
+                on a phone. */}
+            <p class="m-note m-panel-note">Photographs stay in {sourceLabel}.</p>
           </ActionGroup>
         </div>
       </div>

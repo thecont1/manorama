@@ -1,8 +1,9 @@
-import { afterAll, afterEach, beforeAll, describe, expect, test } from 'bun:test'
+import { afterAll, afterEach, beforeAll, describe, expect, mock, test } from 'bun:test'
 import { readdirSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { Capacitor } from '@capacitor/core'
+import * as filesystemModule from '@capacitor/filesystem'
 import { Window } from 'happy-dom'
 import { flushSync, render } from 'hono/jsx/dom'
 import { useState } from 'hono/jsx'
@@ -11,6 +12,8 @@ import type { AdFrame } from '../../packages/core/adframe'
 import type { AdPolicyInput } from '../lib/ads'
 import type { BillingState, RevenueCatBilling } from '../lib/billing'
 import { offlineGalleryId, type OfflineGalleryStore, type OfflineGridGallery } from '../lib/offline-gallery'
+import { GALLERY_STREAM_ONLY_KEY, galleryPolicyKey } from '../lib/vault-settings'
+import { newCatalogue, serializeLocalCatalogue, type LocalGalleryRecord } from '../../desktop/lib/catalogue'
 
 /**
  * The account slot is a lifecycle feature — entitlement flips and slow
@@ -175,7 +178,7 @@ describe('account slot entitlement', () => {
       image.dispatchEvent(new dom.Event('load') as unknown as Event)
       await settle()
       const frame = container.querySelector('.native-account-ad-frame') as HTMLElement
-      expect(frame.style.maxWidth).toBe('60px')
+      expect(image.style.height).toBe('80px')
       expect(frame.style.aspectRatio).toBe('180 / 240')
       controls.setSurface(false)
       await settle()
@@ -531,6 +534,12 @@ describe('signed-in account area', () => {
     const trigger = [...container.querySelectorAll('button')].find((button) => button.textContent === 'Add Gallery') as HTMLButtonElement
     trigger.click()
     await settle()
+    // "Add Gallery" opens the chooser — a folder on this device or a shared
+    // cloud link. These tests exercise the link form.
+    const cloudRow = [...container.querySelectorAll('button')].find((button) => button.textContent?.includes('A shared cloud link')) as HTMLButtonElement
+    expect(cloudRow).not.toBeNull()
+    cloudRow.click()
+    await settle()
     return container.querySelector('#m-add-gallery-form') as HTMLFormElement
   }
 
@@ -586,7 +595,7 @@ describe('signed-in account area', () => {
         { id: 'second', ref: 'second', filename: 'second.jpg', src: 'https://cdn.example/second.jpg', width: 800, height: 1200 },
       ],
     })] }) })
-    const { container } = mountAccount()
+    const { container } = mountAccount({ billing: entitlement('free') })
     await settle()
 
     const html = container.innerHTML
@@ -601,7 +610,7 @@ describe('signed-in account area', () => {
     expect(html).not.toContain('You are a Free User')
     // The status line under the heading reports vault state first — kept
     // means a complete committed copy, and nothing is saved yet.
-    expect(container.querySelector('.native-library-finding')?.textContent).toBe('1 gallery, 0 kept on this iPhone.')
+    expect(container.querySelector('.native-lib-foot')?.textContent).toContain('0 galleries on this iPhone')
     expect(html).toContain('Kashmir')
     expect(html).toContain('A winter album')
     expect(html).toContain('kashmir')
@@ -811,6 +820,154 @@ describe('signed-in account area', () => {
     expect(galleryCalls().some((call) => call.url === 'https://manorama.xyz/api/gallery/quiet-owner/mac-light')).toBe(true)
   })
 
+  describe('a local open raced against a newer navigation', () => {
+    // The Filesystem plugin object is a registerPlugin proxy whose get trap
+    // mints a fresh wrapper per read — assignment never reaches the impl —
+    // so the seam is mock.module: the island's own binding resolves through
+    // the registry at call time and sees the stub. The stub answers the
+    // catalogue read and holds the root-URI resolution open; every other
+    // plugin call rejects like the missing-IndexedDB web impl does, which is
+    // the degradation the vault callers already survive.
+    let pendingRoots: Array<(value: { uri: string }) => void>
+    let catalogueJson = ''
+    const installFilesystemStub = () => {
+      pendingRoots = []
+      mock.module('@capacitor/filesystem', () => ({
+        Directory: filesystemModule.Directory,
+        Encoding: filesystemModule.Encoding,
+        Filesystem: new Proxy({} as Record<string, unknown>, {
+          get(_, prop) {
+            if (prop === 'readFile') {
+              return async (options: { path?: string }) => {
+                if (options?.path === 'local-catalogue.json') return { data: catalogueJson }
+                throw new Error('File does not exist')
+              }
+            }
+            if (prop === 'getUri') return () => new Promise<{ uri: string }>((resolve) => { pendingRoots.push(resolve) })
+            if (prop === 'writeFile') return async () => ({})
+            return async () => { throw new Error('not implemented in test') }
+          },
+        }),
+      }))
+    }
+    // mock.restore() does not unwind module mocks — re-registering the real
+    // namespace is the un-mock.
+    const restoreFilesystem = () => {
+      mock.module('@capacitor/filesystem', () => filesystemModule)
+    }
+
+    const localRecord = (id: string, title: string): LocalGalleryRecord => ({
+      id,
+      title,
+      rootPath: id,
+      sourceKind: 'folder',
+      itemCount: 2,
+      items: [
+        { id: `${id}-a.jpg`, name: 'a.jpg', path: 'a.jpg', width: 4000, height: 3000 },
+        { id: `${id}-b.jpg`, name: 'b.jpg', path: 'b.jpg' },
+      ],
+      addedAt: '2026-10-01T00:00:00.000Z',
+      lastSeenAt: '2026-10-01T00:00:00.000Z',
+    })
+
+    /** The catalogue lands in the real Filesystem path the island reads;
+     *  every other path answers missing so the strict-store translation is
+     *  exercised rather than bypassed. */
+    const installLocalCatalogue = (records: LocalGalleryRecord[]) => {
+      const catalogue = {
+        ...newCatalogue('87654321-4321-4321-4321-ba0987654321', 'iPhone'),
+        galleries: records,
+      }
+      catalogueJson = serializeLocalCatalogue(catalogue)
+    }
+
+    const localPhoto = (index: number) => ({
+      id: `nav-${index}`,
+      filename: `nav-${index}.svg`,
+      src: `data:image/svg+xml,${encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" width="64" height="90"/>')}`,
+      width: 64,
+      height: 90,
+      alt: `Nav photograph ${index + 1}`,
+      c2pa: false,
+      placeholder: `data:image/svg+xml,${encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" width="64" height="90"/>')}`,
+    })
+    const kashmirPayload = JSON.stringify({
+      manifest: { slug: 'kashmir', title: 'Kashmir', caption: '', date: '', images: [localPhoto(0), localPhoto(1)] },
+      settings: { title: 'Kashmir', caption: '', date: '', curtainKicker: '', curtainPrompt: '', defaultMode: 'strip', defaultShowArrows: false, defaultShowCaptions: false, imageCaptions: {}, imageAlts: {} },
+    })
+
+    const openLocalTile = async (container: HTMLElement, title: string) => {
+      const opener = [...container.querySelectorAll<HTMLButtonElement>('.lib-device-open')]
+        .find((button) => button.textContent === title)
+      expect(opener).not.toBeUndefined()
+      opener!.click()
+      await settle()
+    }
+
+    test('a published open wins — the stale local continuation installs nothing', async () => {
+      installLocalStorage()
+      signInStorage()
+      stubFetch({
+        galleries: json({ galleries: [accountSummary()] }),
+        fallback: (url) => url.includes('/api/gallery/')
+          ? new Response(kashmirPayload, { status: 200, headers: { 'content-type': 'application/json' } })
+          : new Response('{}', { status: 404 }),
+      })
+      installLocalCatalogue([localRecord('aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee', 'On-device album')])
+      installFilesystemStub()
+      try {
+        const { container } = mountAccount({ billing: entitlement('pro') })
+        await settle()
+        await openLocalTile(container, 'On-device album')
+        expect(pendingRoots).toHaveLength(1)
+        // The published card opens while the local open still awaits its
+        // root URI — the dispatch bumps the open generation.
+        ;(container.querySelector('.lib-card-title') as HTMLButtonElement).click()
+        await settle()
+        expect(container.querySelector('.viewer-stage')).not.toBeNull()
+        expect(container.textContent).toContain('Kashmir')
+        // The stale continuation resolves now — it must not install its
+        // manifest, selection, or nav entry over the published open.
+        pendingRoots[0]!({ uri: 'file:///container/Library/Application%20Support/LocalGalleries' })
+        await settle()
+        expect(container.querySelector('.viewer-stage')).not.toBeNull()
+        expect(container.textContent).toContain('Kashmir')
+        expect(container.textContent).not.toContain('On-device album')
+      } finally {
+        restoreFilesystem()
+      }
+    })
+
+    test('the newer of two racing local opens wins', async () => {
+      installLocalStorage()
+      signInStorage()
+      stubFetch({ galleries: json({ galleries: [] }) })
+      installLocalCatalogue([
+        localRecord('aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee', 'First album'),
+        localRecord('bbbbcccc-dddd-4eee-8fff-ffffffffffff', 'Second album'),
+      ])
+      installFilesystemStub()
+      try {
+        const { container } = mountAccount({ billing: entitlement('pro') })
+        await settle()
+        await openLocalTile(container, 'First album')
+        await openLocalTile(container, 'Second album')
+        expect(pendingRoots).toHaveLength(2)
+        // Resolve the newer open first, then the stale one — only the
+        // second may install; the first's late root URI changes nothing.
+        pendingRoots[1]!({ uri: 'file:///container/Library/Application%20Support/LocalGalleries' })
+        await settle()
+        pendingRoots[0]!({ uri: 'file:///container/Library/Application%20Support/LocalGalleries' })
+        await settle()
+        expect(container.querySelector('.viewer-stage')).not.toBeNull()
+        expect(container.textContent).toContain('Second album')
+        expect(container.textContent).not.toContain('First album')
+      } finally {
+        restoreFilesystem()
+      }
+    })
+  })
+
   test('Settings carries the device legend — the pill, this phone named, Forget on the others', async () => {
     installLocalStorage()
     signInStorage()
@@ -832,9 +989,11 @@ describe('signed-in account area', () => {
 
     await openSettings(container)
     const headings = [...container.querySelectorAll('.m-actiongroup-label')].map((heading) => heading.textContent)
-    expect(headings).toContain('Your devices')
+    // No heading crowds the box — the device list is the whole group.
+    expect(headings).not.toContain('Your devices')
     const legend = container.querySelector('.lib-devices-legend') as HTMLElement | null
     expect(legend).not.toBeNull()
+    expect(legend!.querySelector('.lib-devices-legend-label')).toBeNull()
     expect(legend!.textContent).toContain('iPhone')
     expect(legend!.textContent).toContain('Mac')
     expect(legend!.querySelectorAll('.device-pill')).toHaveLength(2)
@@ -865,16 +1024,10 @@ describe('signed-in account area', () => {
     expect(headings).toContain('House cards')
     expect(headings).toContain('This iPhone')
 
-    // The new-galleries segment names what it governs.
-    const policy = container.querySelector('[role="radiogroup"][aria-label="New galleries"]') as HTMLElement
-    expect(policy).not.toBeNull()
-    const policyOptions = [...policy.querySelectorAll('[role="radio"]')] as HTMLButtonElement[]
-    expect(policyOptions.map((option) => option.textContent)).toEqual([
-      'Keep a copy',
-      'Stream only',
-    ])
-    // Stream is the default — bytes only enter the vault on express request.
-    expect(policyOptions.map((option) => option.getAttribute('aria-checked'))).toEqual(['false', 'true'])
+    // There is no account-wide load policy — each gallery's Details owns
+    // its own keep-copy switch, so no "New galleries" segment may appear.
+    expect(container.querySelector('[role="radiogroup"][aria-label="New galleries"]')).toBeNull()
+    expect(container.querySelector('[aria-label="When opening an online gallery"]')).toBeNull()
 
     // The picker switch carries its plain-language description.
     const pickerRow = [...container.querySelectorAll('.m-actionrow')]
@@ -948,10 +1101,10 @@ describe('signed-in account area', () => {
     expect(container.querySelector('[aria-label="Pinned galleries"] [data-lib-card="pinned"] .lib-rail')).not.toBeNull()
     expect(container.querySelectorAll('[data-lib-card="pinned"] .lib-th')).toHaveLength(2)
     expect(container.querySelector('[data-lib-card="pinned"]')?.textContent).toContain('Temporary gallery')
-    expect(container.querySelectorAll('[aria-label="Your galleries"] .native-library-cover')).toHaveLength(1)
+    expect(container.querySelectorAll('[aria-label="Cloud galleries"] .native-library-cover')).toHaveLength(1)
     expect(container.querySelector('[data-lib-card="compact"] img')?.getAttribute('src')).toBe('https://cdn.example/first.jpg')
     expect(container.querySelector('details:not([open]) [data-lib-card="hidden-gallery"]')).not.toBeNull()
-    expect(container.querySelector('[aria-label="Your galleries"] [data-lib-card="hidden-gallery"]')).toBeNull()
+    expect(container.querySelector('[aria-label="Cloud galleries"] [data-lib-card="hidden-gallery"]')).toBeNull()
     ;(container.querySelector('[data-lib-card="pinned"] .lib-card-menu') as HTMLButtonElement).click()
     await settle()
     ;([...container.querySelectorAll<HTMLButtonElement>('[role="menuitem"]')].find((button) => button.textContent === 'Unpin gallery'))!.click()
@@ -974,7 +1127,7 @@ describe('signed-in account area', () => {
     await settle()
     const items = [...container.querySelectorAll('[role="menuitem"]')] as HTMLButtonElement[]
     expect(items.map((item) => item.textContent)).toEqual([
-      'Pin gallery', 'Share link', 'Post to X', 'Gallery details', 'Reorder photographs', 'Refresh gallery contents', 'Remove gallery',
+      'Pin gallery', 'Copy link', 'Post to X', 'Gallery details', 'Reorder photographs', 'Refresh gallery contents', 'Remove gallery',
     ])
     ;(items.find((item) => item.textContent === 'Remove gallery'))!.click()
     await settle()
@@ -1027,7 +1180,7 @@ describe('signed-in account area', () => {
     expect(container.querySelectorAll('.native-gallery-list > li')).toHaveLength(5)
     // The plan line at the foot is the warning now — every gallery still lists.
     const foot = container.querySelector('.native-lib-foot')
-    expect(foot?.textContent).toContain('All 5 of 3 free galleries used.')
+    expect(foot?.textContent).toContain('5 of 3 Cloud galleries')
     expect(foot?.textContent).toContain('Go Visionary')
     expect(container.querySelectorAll('.lib-th.is-active')).toHaveLength(0)
     expect(container.querySelector('main .native-account-delete')).toBeNull()
@@ -1159,7 +1312,12 @@ describe('signed-in account area', () => {
     signInStorage()
     stubFetch({ galleries: json({ galleries: [accountSummary({ slug: 'kashmir' })] }) })
     // A committed vault copy: status cached, images meeting the list's count.
+    // It counts as kept only while the gallery is still meant to be kept —
+    // the default stream policy alone never earns the word.
     const kashmirId = await offlineGalleryId({ owner: 'quiet-owner', slug: 'kashmir' })
+    // Preferences reads window.localStorage, not the SecureStorage fallback
+    // globalThis.localStorage the rest of this file stubs.
+    window.localStorage.setItem(`CapacitorStorage.${GALLERY_STREAM_ONLY_KEY}`, JSON.stringify({ [galleryPolicyKey('quiet-owner', 'kashmir')]: 'vault' }))
     const store = {
       listGalleries: async () => [
         { status: 'cached', galleryId: kashmirId, owner: 'quiet-owner', slug: 'kashmir', title: 'Kashmir', images: 12 },
@@ -1167,12 +1325,18 @@ describe('signed-in account area', () => {
       listGridGalleries: async () => [],
       readThumbnail: async () => undefined,
     } as unknown as OfflineGalleryStore
-    const { container } = mountAccount({ store })
-    await settle()
+    const { container } = mountAccount({ store, billing: entitlement('free') })
+    try {
+      await settle()
 
-    expect(container.querySelector('.native-library-finding')?.textContent).toBe('1 gallery, 1 kept on this iPhone.')
-    // The card agrees — the same predicate drives its device word.
-    expect(container.querySelector('.lib-card-sub')?.textContent).toContain('On this iPhone')
+      expect(container.querySelector('.native-lib-foot')?.textContent).toContain('1 gallery on this iPhone')
+      // The card agrees — the same predicate drives its device word.
+      expect(container.querySelector('.lib-card-sub')?.textContent).toContain('On this iPhone')
+    } finally {
+      // The seed lives in the real localStorage — it must not leak into the
+      // next test's policy reads, even when an assertion throws.
+      window.localStorage.removeItem(`CapacitorStorage.${GALLERY_STREAM_ONLY_KEY}`)
+    }
   })
 
   test('sign out clears the session, the owner slug, and billing', async () => {
@@ -1609,10 +1773,10 @@ describe('signed-in account area', () => {
     ;([...container.querySelectorAll('[role="menuitem"]')].find((item) => item.textContent === 'Gallery details') as HTMLButtonElement).click()
     await settle()
     const keep = container.querySelector('[role="switch"]') as HTMLButtonElement
-    expect(keep.getAttribute('aria-checked')).toBe('true')
+    expect(keep.getAttribute('aria-checked')).toBe('false')
     keep.click()
     await settle()
-    expect(keep.getAttribute('aria-checked')).toBe('false')
+    expect(keep.getAttribute('aria-checked')).toBe('true')
     ;([...container.querySelectorAll('.m-actionrow')].find((row) => row.textContent?.includes('Remove from Library')) as HTMLButtonElement).click()
     await settle()
     const confirmation = container.querySelector('.m-sheet') as HTMLElement
@@ -1678,7 +1842,7 @@ describe('signed-in account area', () => {
     await settle()
     const items = [...container.querySelectorAll('[role="menuitem"]')] as HTMLButtonElement[]
     expect(items.map((item) => item.textContent)).toEqual([
-      'Pin gallery', 'Share link', 'Post to X', 'Gallery details', 'Reorder photographs', 'Refresh gallery contents', 'Remove gallery',
+      'Pin gallery', 'Copy link', 'Post to X', 'Gallery details', 'Reorder photographs', 'Refresh gallery contents', 'Remove gallery',
     ])
     // Words, not drawings — the sheet is a list of sentences.
     expect(items.every((item) => item.querySelector('svg') === null)).toBe(true)
@@ -1695,7 +1859,7 @@ describe('signed-in account area', () => {
     expect(reorder.disabled).toBe(true)
     expect(refresh.disabled).toBe(true)
     expect(reorder.title).toBe('Temporary galleries cannot be edited on this plan')
-    expect(pipelineItems.find((item) => item.textContent === 'Share link')!.disabled).toBe(false)
+    expect(pipelineItems.find((item) => item.textContent === 'Copy link')!.disabled).toBe(false)
   })
 
   test('Add is a deliberate sheet and the gear returns to the Library', async () => {

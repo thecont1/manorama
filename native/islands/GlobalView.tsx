@@ -178,18 +178,25 @@ export default function GlobalView({
         let found: OfflineGridGallery[]
         if (tier === 'pro') {
           found = await store.listGridGalleries()
-        } else if (!current) {
+        } else if (!current || (current.owner === '' && current.slug === '')) {
+          // A Local gallery has no vault identity to read — its frames are
+          // projected from the open manifest below, not the store.
           found = []
         } else {
           const grid = await store.gridGallery(await offlineGalleryId(current))
           found = grid ? [grid] : []
         }
         if (!active) return
-        if (found.length === 0 && current && !onlineGallery && retriesLeft > 0) {
+        if (found.length === 0 && current && !onlineGallery && (current.owner !== '' || current.slug !== '') && retriesLeft > 0) {
           timer = setTimeout(() => setRetriesLeft((left) => left - 1), 700)
           return
         }
-        if (onlineGallery) {
+        // A Local gallery's identity is an empty owner+slug — it lives
+        // beside the vault, not in it, so there is nothing to merge into.
+        // Skipping the merge keeps every offline gallery the store found.
+        const mergeable = onlineGallery
+          && (onlineGallery.selection.owner !== '' || onlineGallery.selection.slug !== '')
+        if (mergeable) {
           // A cached copy of this same gallery already knows which vault entry
           // holds each photograph's saved bytes. Merging the online manifest
           // must not throw that away: a frame rebuilt with an empty entryId
@@ -204,11 +211,25 @@ export default function GlobalView({
             title: onlineGallery.manifest.title,
             frames: manifestFrames(onlineGallery.manifest.images, cached),
           })
+        } else if (onlineGallery) {
+          // The open gallery is Local: it has no vault id, so project its
+          // manifest under a stable non-vault key — added on top of whatever
+          // the store returned rather than substituted for it, so the saved
+          // galleries survive intact.
+          found.unshift({
+            galleryId: 'local-current',
+            ...onlineGallery.selection,
+            title: onlineGallery.manifest.title,
+            frames: manifestFrames(onlineGallery.manifest.images),
+          })
         }
         setGalleries(found)
       } catch {
         if (!active) return
-        if (onlineGallery) {
+        // The single-entry fallback is for a published gallery whose vault
+        // read failed — never for a Local one, where it would replace the
+        // whole found list with only the Local entry.
+        if (onlineGallery && (onlineGallery.selection.owner !== '' || onlineGallery.selection.slug !== '')) {
           setGalleries([{ galleryId: 'online-current', ...onlineGallery.selection, title: onlineGallery.manifest.title, frames: manifestFrames(onlineGallery.manifest.images) }])
         } else setLoadError(true)
       }

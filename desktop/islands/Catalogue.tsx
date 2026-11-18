@@ -33,7 +33,7 @@ import {
 import { assetUrl, isDesktopRuntime, pathExists, pickGalleryFolder, readDirEntries, readFileBytes, registerSavedGalleryRoots, revealGalleryRoot, sharePost } from '../lib/tauri'
 import { invoke } from '@tauri-apps/api/core'
 import { removeDeviceGallery, syncDeviceGalleries } from '../lib/sync'
-import { copyText, shareGalleryOnWeb } from '../../app/lib/gallery-share'
+import { copyText } from '../../app/lib/gallery-share'
 import { AccountApiError, createAccountGallery, deleteAccount, deleteDeviceGalleryRecord, fetchAccountGalleries, fetchAccountGallery, fetchAccountIdentities, fetchAccountProfile, fetchDeviceGalleries, fetchDevices, forgetDevice, mintLinkHandoff, patchAccountOwnerSlug, probeAccountGallery, refreshAccountGallery, registerDevice, scanGalleryLink, setAccountGalleryHidden, setAccountGalleryPin, setAccountGalleryPositions, setDeviceGalleryHidden, standaloneDeviceGalleries, unlinkAccountIdentity } from '../lib/account'
 import { previewSrcFor, sourceLabelFor } from '../../native/lib/library-media'
 import { postToXPhotos, type PostToXPhoto } from '../../native/lib/post-to-x'
@@ -69,7 +69,7 @@ import { desktopOfflineStore, desktopVaultPersistence, openDesktopEncryptedSessi
 import { desktopVault } from '../lib/vault'
 import { EncryptedSourceLockedError, EncryptedSourceMismatchError } from '../../native/lib/encrypted-gallery'
 import { openGalleryNetworkFirst, OfflineGalleryUnavailableError, type OfflineGallerySummary, type OfflineGridGallery } from '../../native/lib/offline-gallery'
-import { applyVaultCap, galleryPolicyKey, loadGalleryStreamOnly, loadVaultCapPreference, loadVaultLoadPolicy, saveGalleryStreamOnly, type VaultLoadPolicy } from '../../native/lib/vault-settings'
+import { applyVaultCap, galleryPolicyKey, loadGalleryStreamOnly, loadVaultCapPreference, loadVaultLoadPolicy, saveGalleryStreamOnly, type GalleryLoadOverride, type VaultLoadPolicy } from '../../native/lib/vault-settings'
 import VaultSettings, { formatBytes } from '../../native/islands/VaultSettings'
 import { Meter } from '../../app/components/ui/Meter'
 import { WebSettings, type AccountIdentityWeb } from '../../app/components/WebSettings'
@@ -414,7 +414,7 @@ export default function Catalogue({ apiBase }: { apiBase: string }) {
   const [savedThumbs, setSavedThumbs] = useState<ReadonlyMap<string, string>>(new Map())
   const savedThumbsRef = useRef<ReadonlyMap<string, string>>(new Map())
   const [vaultLoadPolicy, setVaultLoadPolicy] = useState<VaultLoadPolicy | null>(null)
-  const [streamOnlyPolicies, setStreamOnlyPolicies] = useState<Record<string, boolean>>({})
+  const [streamOnlyPolicies, setStreamOnlyPolicies] = useState<Record<string, GalleryLoadOverride>>({})
   // Live rail tracker: usage + the cap actually enforced, re-polled so a
   // background fill, a purge, or a cap change in Settings shows through.
   const [vaultSpace, setVaultSpace] = useState<{ measuredBytes: number; cap: number | null } | null>(null)
@@ -2153,7 +2153,8 @@ export default function Catalogue({ apiBase }: { apiBase: string }) {
     vaultOpenAbortRef.current?.abort()
     const abort = new AbortController()
     vaultOpenAbortRef.current = abort
-    const streamOnly = streamOnlyPolicies[galleryPolicyKey(owner, gallery.slug)] === true
+    const galleryLoadOverride = streamOnlyPolicies[galleryPolicyKey(owner, gallery.slug)] ?? vaultLoadPolicy ?? 'stream'
+    const streamOnly = galleryLoadOverride === 'stream'
     try {
       // A complete saved copy is the point of saving it: open straight
       // from the vault — no manifest fetch, no background fill, zero
@@ -2183,7 +2184,7 @@ export default function Catalogue({ apiBase }: { apiBase: string }) {
         selection: { owner, slug: gallery.slug, galleryId: gallery.id, sourceUrl: gallery.sourceUrl ?? undefined },
         fetchOnline: (signal) => fetchAccountGallery(base, owner, gallery.slug, session.token, fetch, signal),
         store: desktopOfflineStore,
-        cachePolicy: streamOnly ? 'stream' : vaultLoadPolicy ?? 'stream',
+        cachePolicy: galleryLoadOverride,
         onProgress: (progress) => setNotice(`Saving ${progress.completed} of ${progress.total} photos to your encrypted vault…`),
         signal: abort.signal,
         openEncryptedSession: openDesktopEncryptedSession,
@@ -2380,7 +2381,7 @@ export default function Catalogue({ apiBase }: { apiBase: string }) {
   const setGalleryStreamOnly = async (gallery: GallerySummary, streamOnly: boolean) => {
     const owner = ownerSlug ?? session?.ownerSlug
     if (!owner) return
-    const next = { ...streamOnlyPolicies, [galleryPolicyKey(owner, gallery.slug)]: streamOnly }
+    const next = { ...streamOnlyPolicies, [galleryPolicyKey(owner, gallery.slug)]: (streamOnly ? 'stream' : 'vault') as GalleryLoadOverride }
     setStreamOnlyPolicies(next)
     await saveGalleryStreamOnly(next, desktopVaultPersistence).catch(() => {})
   }
@@ -2825,9 +2826,10 @@ export default function Catalogue({ apiBase }: { apiBase: string }) {
     }
   }
   const galSettingsGallery = galSettingsSlug ? liveAccountGalleries.find((gallery) => gallery.slug === galSettingsSlug) ?? null : null
-  const galSettingsStreamOnly = galSettingsGallery
-    ? streamOnlyPolicies[galleryPolicyKey(ownerSlug ?? session?.ownerSlug ?? '', galSettingsGallery.slug)] === true
-    : false
+  const galSettingsLoadOverride = galSettingsGallery
+    ? streamOnlyPolicies[galleryPolicyKey(ownerSlug ?? session?.ownerSlug ?? '', galSettingsGallery.slug)] ?? vaultLoadPolicy ?? 'stream'
+    : 'stream'
+  const galSettingsStreamOnly = galSettingsLoadOverride === 'stream'
   const galSettingsSaved = galSettingsGallery ? savedGalleryFor(galSettingsGallery) : null
 
   // Hidden galleries gather below — the flag is a field on each kind's
@@ -3499,15 +3501,13 @@ export default function Catalogue({ apiBase }: { apiBase: string }) {
               openViewer(detailsRecord.id, 0)
             }}
             publishedUrl={detailsPublishedUrl}
-            onShareLink={detailsPublishedUrl ? async () => {
-              const shared = await shareGalleryOnWeb({ title: detailsRecord.title, caption: '', url: detailsPublishedUrl })
-              if (shared === 'shared') return 'Link shared'
-              if (shared === 'cancelled') return null
-              // No system share in the webview — the clipboard keeps the same
-              // contract, and a failed copy leaves the address visible.
-              return (await copyText(detailsPublishedUrl)) ? 'Link copied — paste it anywhere' : detailsPublishedUrl
-            } : undefined}
-            onShare={openShareFromDetails}
+            onShare={detailsPublishedUrl ? async () =>
+              // The shared "Copy link" row — the same contract as the
+              // native caller: the clipboard, never the share chooser or
+              // the publish sheet. A failed copy leaves the address visible.
+              (await copyText(detailsPublishedUrl)) ? 'Link copied — paste it anywhere' : detailsPublishedUrl
+            : undefined}
+            onPublish={openShareFromDetails}
             onReorder={() => {
               closeDetails()
               openViewer(detailsRecord.id, 0, true)

@@ -4,6 +4,7 @@ import { defaultGallerySettings } from '../../app/lib/gallery-settings'
 import { EncryptedOfflineGalleryStore } from './offline-gallery'
 import type { NativeTier } from './billing'
 import {
+  GALLERY_STREAM_ONLY_KEY,
   galleryPolicyKey, loadGalleryStreamOnly, saveGalleryStreamOnly,
   applyVaultCap,
   assertCapAllowed,
@@ -160,7 +161,6 @@ describe('vault settings controller', () => {
     const snapshot = await controller.snapshot()
     expect(snapshot.cap).toBe(512 * 1024 * 1024)
     expect(snapshot.preference).toBe(512 * 1024 * 1024)
-    expect(snapshot.loadPolicy).toBe('stream')
     expect(snapshot.galleries).toHaveLength(1)
     expect(snapshot.usage.measuredBytes).toBeGreaterThan(0)
     // The stored Pro cap is applied on read: writes after this point evict
@@ -206,14 +206,6 @@ describe('vault settings controller', () => {
     expect(vault.cap).toBe(FREE_VAULT_CAP_BYTES)
   })
 
-  test('selectLoadPolicy persists without changing existing encrypted copies', async () => {
-    const { controller, vault } = makeController()
-    await vault.write('gallery-a', 'one', new TextEncoder().encode('encrypted'))
-    await controller.selectLoadPolicy('stream')
-    expect((await controller.snapshot()).loadPolicy).toBe('stream')
-    expect(await vault.read('gallery-a', 'one')).not.toBeNull()
-  })
-
   test('purgeGallery and forgetEverything delegate to the store boundary', async () => {
     const { controller, store } = makeController()
     const selection = { owner: 'photographer', slug: 'quiet-light' }
@@ -244,13 +236,20 @@ describe('vault settings controller', () => {
 })
 
 
-test('gallery download opt-out defaults off and stays isolated by owner and gallery', async () => {
+test('gallery load override defaults off, migrates legacy flags, and stays isolated by owner and gallery', async () => {
   const persistence = new MemoryPersistence()
   expect(await loadGalleryStreamOnly(persistence)).toEqual({})
   const key = galleryPolicyKey('one', 'album')
-  await saveGalleryStreamOnly({ [key]: true }, persistence)
+  await saveGalleryStreamOnly({ [key]: 'vault' }, persistence)
   const policies = await loadGalleryStreamOnly(persistence)
-  expect(policies[key]).toBe(true)
+  expect(policies[key]).toBe('vault')
   expect(policies[galleryPolicyKey('two', 'album')]).toBeUndefined()
   expect(policies[galleryPolicyKey('one', 'other')]).toBeUndefined()
+  // The map used to store bare stream-only flags: `true` migrates to the
+  // 'stream' override it always meant; `false` was "not opted out" and drops.
+  const optedOut = galleryPolicyKey('one', 'skip')
+  await persistence.set(GALLERY_STREAM_ONLY_KEY, JSON.stringify({ [key]: true, [optedOut]: false }))
+  const migrated = await loadGalleryStreamOnly(persistence)
+  expect(migrated[key]).toBe('stream')
+  expect(migrated[optedOut]).toBeUndefined()
 })

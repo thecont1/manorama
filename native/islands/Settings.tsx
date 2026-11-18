@@ -10,7 +10,7 @@ import type { Device } from '../../packages/core/devices'
 import { DeviceLegend } from '../../app/components/library/DeviceLegend'
 import type { AccountIdentity } from '../lib/api'
 import type { NativeTier } from '../lib/billing'
-import type { VaultLoadPolicy, VaultSettingsController } from '../lib/vault-settings'
+import type { VaultSettingsController } from '../lib/vault-settings'
 import VaultSettings from './VaultSettings'
 
 type HouseCardAction = { label: string; onClick: () => void; disabled?: boolean }
@@ -29,9 +29,6 @@ type Props = {
   retainedCount: number
   galleryLimit: number
   controller: VaultSettingsController
-  loadPolicy: VaultLoadPolicy | null
-  loadPolicyBusy: boolean
-  onLoadPolicy: (policy: VaultLoadPolicy) => void
   globalViewEnabled: boolean | null
   globalViewBusy: boolean
   onGlobalView: (enabled: boolean) => void
@@ -73,7 +70,7 @@ const providerName = (provider: string) => ({ apple: 'Apple', google: 'Google', 
 export default function Settings(props: Props) {
   const {
     accountName, ownerSlugDraft, identities, identityNote, tier, retainedCount, galleryLimit,
-    loadPolicy, globalViewEnabled, devices, deviceId, theme, houseCards,
+    globalViewEnabled, devices, deviceId, theme, houseCards,
     deleteConfirming, deleting, deleteError,
   } = props
   const linked = new Set((identities ?? []).map((identity) => identity.provider))
@@ -152,23 +149,14 @@ export default function Settings(props: Props) {
             onChange={(value) => props.onTheme(value as Theme)}
           />
         </div>
-        <div class="m-panel m-settings-control">
-          <label>New galleries</label>
-          {loadPolicy === null
-            ? <p class="m-note">Reading…</p>
-            : <Segmented
-                label="New galleries"
-                value={loadPolicy}
-                options={[{ value: 'vault', label: 'Keep a copy' }, { value: 'stream', label: 'Stream only' }]}
-                onChange={(value) => { if (!props.loadPolicyBusy) props.onLoadPolicy(value as VaultLoadPolicy) }}
-              />}
-        </div>
         <ActionRow
           label="Photo picker"
           control={<Switch checked={globalViewEnabled === true} label={`Let galleries show photographs already saved on ${nativeDeviceLabel()}`} disabled={props.globalViewBusy || globalViewEnabled === null} onChange={props.onGlobalView} />}
         />
         {globalViewEnabled ? <ActionRow label="Open photo picker" onClick={props.onOpenPicker} /> : null}
-        <p class="m-note m-panel-note">Everything stays encrypted and on the device. The picker lets galleries show photographs already saved on {nativeDeviceLabel()}.</p>
+        <p class="m-note m-panel-note">The picker lets galleries show photographs already saved on {nativeDeviceLabel()}.</p>
+      </ActionGroup>
+      <ActionGroup label="Vault" note="Everything stays encrypted and on the device.">
         <VaultSettings controller={props.controller} tier={tier} embedded />
       </ActionGroup>
 
@@ -177,13 +165,14 @@ export default function Settings(props: Props) {
           the legend, and where a device the owner no longer uses is
           forgotten. No device name is ever stored. */}
       {devices.length ? (
-        <ActionGroup label="Your devices" note="No device name is stored — only a random identifier and its type.">
+        <ActionGroup note="No device name is stored — only a random identifier and its type.">
           <div class="m-panel">
             <DeviceLegend
               devices={devices}
               selfId={deviceId}
               onForget={props.onForgetDevice}
               onForgetPending={props.forgetDeviceBusy}
+              hideLabel
             />
           </div>
         </ActionGroup>
@@ -197,7 +186,6 @@ export default function Settings(props: Props) {
       <ActionGroup label="About">
         {props.appUpdate ? <ActionRow label="App update" value={`v${props.appUpdate.version} available`} onClick={props.onOpenUpdate} /> : null}
         <ActionRow label="Privacy Policy" onClick={props.onOpenPrivacy} />
-        <ActionRow label="Mahesh Shantaram · thecontrarian.in" onClick={props.onOpenAuthor} />
         <ActionRow label="Sign out" onClick={props.onSignOut} />
         {deleteConfirming ? <div class="m-panel m-settings-delete">
           <p>This removes your galleries, device catalogue and sign-in methods from manorama. Nothing at the source is touched. If you subscribe, cancel first — App Store: Settings › Subscriptions; web: your Stripe receipt.</p>
@@ -208,6 +196,10 @@ export default function Settings(props: Props) {
         </div> : <ActionRow label="Delete account" tone="destructive" onClick={props.onRequestDelete} />}
         {deleteError ? <p class="m-note m-panel-note" role="alert">{deleteError}</p> : null}
       </ActionGroup>
+
+      <footer class="site-footer">
+        <p class="site-footer-copy">© 2026 Mahesh Shantaram / <button type="button" onClick={props.onOpenAuthor}>thecontrarian.in</button><br />Photographs in galleries belong to their respective owners.</p>
+      </footer>
     </div>
   )
   if (props.presentation === 'pane') {

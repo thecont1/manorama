@@ -100,7 +100,6 @@ const makeController = (snapshot?: Partial<VaultSettingsSnapshot>): FakeControll
     snapshotValue: {
       cap: FREE_VAULT_CAP_BYTES,
       preference: undefined,
-      loadPolicy: 'vault',
       usage: usage(),
       galleries: [...summaries],
       ...snapshot,
@@ -116,9 +115,6 @@ const makeController = (snapshot?: Partial<VaultSettingsSnapshot>): FakeControll
       calls.selectCap.push(preference)
       this.snapshotValue = { ...this.snapshotValue, cap: preference === null ? null : preference, preference }
       return { evictedBytes: 0 }
-    },
-    async selectLoadPolicy(policy) {
-      this.snapshotValue = { ...this.snapshotValue, loadPolicy: policy }
     },
     async purgeGallery(galleryId) {
       if (this.failNextPurge) {
@@ -181,12 +177,12 @@ describe('VaultSettings island', () => {
     expect(container.querySelector('.native-vault-meter')).not.toBeNull()
   })
 
-  test('each select carries a dropdown affordance', async () => {
+  test('the cap select carries a dropdown affordance', async () => {
     const container = mount(makeController(), 'free')
     await settle()
 
     const selects = container.querySelectorAll('.native-vault-select select')
-    expect(selects.length).toBe(2)
+    expect(selects.length).toBe(1)
     for (const select of selects) {
       const caret = select.parentElement?.querySelector('svg[aria-hidden="true"]')
       expect(caret).not.toBeNull()

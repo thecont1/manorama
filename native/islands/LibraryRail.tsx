@@ -101,6 +101,11 @@ const RailCell = ({
 
   const dimensions = natural && natural.src === src ? natural : image
   const dpr = deviceImageDpr(typeof window === 'undefined' ? 1 : window.devicePixelRatio)
+  // Scanner fallbacks (4×3 stills, 16×9 video) mark unknown dimensions, not
+  // intrinsic pixels — clamping to them shrinks the cell to ~1px on a hi-dpi
+  // screen. Only a real measurement earns the no-upscale clamp; the decoded
+  // size replaces it the moment the bytes land.
+  const measured = Boolean(natural && natural.src === src) || (image.width > 16 && image.height > 16)
   return (
     <button
       type="button"
@@ -118,11 +123,12 @@ const RailCell = ({
       onClick={() => onOpen(index)}
     >
       {src ? <img src={src} alt="" width={image.width} height={image.height} draggable={false} class="on"
-        style={{ maxWidth: `${dimensions.width / dpr}px`, maxHeight: `${dimensions.height / dpr}px` }}
+        style={measured ? { maxWidth: `${dimensions.width / dpr}px`, maxHeight: `${dimensions.height / dpr}px` } : undefined}
         onLoad={(event: Event) => {
           const img = event.currentTarget as HTMLImageElement
           if (img.naturalWidth && img.naturalHeight) setNatural({ src, width: img.naturalWidth, height: img.naturalHeight })
         }}
+        onError={() => setSrc(undefined)}
       /> : null}
     </button>
   )
