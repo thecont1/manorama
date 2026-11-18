@@ -809,6 +809,26 @@ esac
 # Leave the test domain the way a default install finds it.
 defaults delete "$BUNDLE_ID" openInFullScreen 2>/dev/null
 
+# The windowed decision's correction also has to still be listening after
+# the window is visible: a restoration record's Space migration can land
+# a beat after the window ordered in (#252). `--probe-enter-fullscreen`
+# makes the app drive its own `toggleFullScreen` once the window is
+# visible — a real entry with no input event in flight, which is exactly
+# how the system's replay arrives. A user press comes later, through the
+# View menu in section 15, and must still be honoured.
+stop_app || { echo "FATAL: the shell would not quit"; exit 1; }
+EXTRA_ARGS="--windowed --probe-enter-fullscreen"
+launch "$SEED_DIR" keep
+FULL=$(wait_window false 15)
+note "fullscreen entry without input at launch: ${FULL:-no window}"
+case "$FULL" in
+  *fullscreen=false*) ok "a launch-time fullscreen entry with no input is undone" ;;
+  *) bad "a launch-time fullscreen entry with no input is undone" "state: ${FULL:-no window}" ;;
+esac
+# The undo runs a Space transition — let it land before the next case's
+# press, so the View menu advertises "Enter Full Screen" again.
+sleep 1
+
 echo
 echo "== 15. fullscreen is a trip the user controls =="
 # The window is windowed after the precedence check. Entering and leaving

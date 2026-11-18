@@ -448,11 +448,19 @@ final class AppModel {
             queue: .main
         ) { [weak self, weak window] _ in
             MainActor.assumeIsolated {
+                let windowFullScreen = window?.styleMask.contains(.fullScreen) ?? false
+                let fromInput = Self.fullscreenCameFromInput()
+                Trace.log("launch-mode: fullscreen entry — fullScreen=\(windowFullScreen) fromInput=\(fromInput)")
                 self?.disarmLaunchMode()
                 guard let window,
                       window.styleMask.contains(.fullScreen),
-                      !Self.fullscreenCameFromInput() else { return }
-                window.toggleFullScreen(nil)
+                      !fromInput else { return }
+                // AppKit absorbs a toggle issued synchronously inside
+                // didEnterFullScreen — the transition is still settling.
+                // Defer the undo a tick so it lands on a stable state.
+                DispatchQueue.main.async { [weak window] in
+                    MainActor.assumeIsolated { window?.toggleFullScreen(nil) }
+                }
             }
         }
         launchModeCloseObserver = center.addObserver(
@@ -462,11 +470,17 @@ final class AppModel {
         ) { [weak self] _ in
             MainActor.assumeIsolated { self?.disarmLaunchMode() }
         }
-        // The correction only guards the launch itself: restoration
-        // records replay while the window orders in, so once it is
-        // visible the judgement is done and the observer retires.
+        // The watch ends on a grace after first visibility, not on
+        // visibility itself: the saved Space record's migration can land
+        // just after the window ordered in — the entry is still the
+        // system's replay, and an observer retired on `.visible` never
+        // sees it (#252). The grace stays short: restoration replays in
+        // the launch beat, while a person's route to fullscreen — a key,
+        // a menu pick, the green light — takes longer and always arrives
+        // behind a real input event anyway.
         if window.isVisible {
-            disarmLaunchMode()
+            scheduleProbeFullScreenEntry(window)
+            scheduleLaunchModeDisarm()
         } else {
             launchModeVisibilityObserver = center.addObserver(
                 forName: NSWindow.didChangeOcclusionStateNotification,
@@ -474,10 +488,40 @@ final class AppModel {
                 queue: .main
             ) { [weak self, weak window] _ in
                 MainActor.assumeIsolated {
-                    guard let window,
+                    guard let self, let window,
                           window.occlusionState.contains(.visible) else { return }
-                    self?.disarmLaunchMode()
+                    if let token = self.launchModeVisibilityObserver {
+                        center.removeObserver(token)
+                        self.launchModeVisibilityObserver = nil
+                    }
+                    self.scheduleProbeFullScreenEntry(window)
+                    self.scheduleLaunchModeDisarm()
                 }
+            }
+        }
+    }
+
+    /// Retire the correction's watch two seconds after the window has
+    /// appeared — far longer than the system's restoration replay and far
+    /// shorter than any route a person has to the fullscreen control
+    /// (#252).
+    private func scheduleLaunchModeDisarm() {
+        DispatchQueue.main.asyncAfter(deadline: .now() + .seconds(2)) { [weak self] in
+            MainActor.assumeIsolated { self?.disarmLaunchMode() }
+        }
+    }
+
+    /// A test seam: `--probe-enter-fullscreen` makes the app drive its own
+    /// fullscreen entry shortly after the window first appears — a real
+    /// `toggleFullScreen` with no input event in flight, which is exactly
+    /// how a saved Space record's entry arrives (#252). The focus suite
+    /// watches whether the windowed correction undoes it.
+    private func scheduleProbeFullScreenEntry(_ window: NSWindow) {
+        guard CommandLine.arguments.contains("--probe-enter-fullscreen") else { return }
+        DispatchQueue.main.asyncAfter(deadline: .now() + .milliseconds(500)) { [weak window] in
+            MainActor.assumeIsolated {
+                Trace.log("launch-mode: probe enters fullscreen")
+                window?.toggleFullScreen(nil)
             }
         }
     }
