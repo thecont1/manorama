@@ -14,7 +14,7 @@ of an `<img>`.
 | Tier | Where | What |
 | --- | --- | --- |
 | **N — native glass** | macOS 26+ (shipped); iOS/iPadOS 26+ overlay | `.glassEffect(.regular.interactive())` sibling capsules, `SheetGlassSurface` morph, Reduce-Transparency solid sibling, `minHeight: 44` (Dynamic Type) |
-| **A — web bend** | Android Chromium WebView only | SVG `feDisplacementMap` (`native/lib/glass-bend.ts`) on text-free chrome — displacement distorts glyphs |
+| **A — web bend** | Android Chromium WebView only | SVG `feDisplacementMap` through `backdrop-filter` (`native/lib/glass-bend.ts`) — refracts the backdrop under chrome pills and stage arrows; the displacement never touches foreground paint, so glyphs stay crisp |
 | **B — web frost** | in-document surfaces, all shells, all OS versions | backdrop-filter blur+saturate, specular rim, edge line, `--glass-*` fills |
 | **0 — solid** | reduced transparency / increased contrast / no backdrop-filter | CSS fallback for web; a Swift branch for native — RT is not a media query there |
 
@@ -40,7 +40,7 @@ attributes gate Tier-B paint overrides only — never `visibility:hidden`.
 | `data-ios-shell` | `SceneDelegate` injects at document start | iOS + iPadOS, any version |
 | `data-ios-glass` | same, `#available(iOS 26)` — **added in G1 with the overlay** | takeover active |
 | `data-android-shell` | blocking inline script in `native/index.html` (UA sniff) | Capacitor Android |
-| `data-android-glass` | `glass-detect.ts` once tier-A verifies (G5) | bend active |
+| `data-android-glass` | `native/lib/glass-bend.ts` — after `feDisplacementMap` + `backdrop-filter url()` support, a single-segment viewport, and a same-session no-bend baseline | bend active |
 
 `body.manorama-native` / `body.manorama-desktop` are static classes on the
 bundles' `<body>` (FOUC-free; no script timing). The desktop bundle is served
@@ -112,10 +112,20 @@ floating single controls), `.glass-regular` (pills, toolbars, popovers),
 
 | Phase | Scope | Status |
 | --- | --- | --- |
-| G0 | tokens, markers, gates, `check-glass` + `glass-freeze` | this branch |
-| G1 | iOS/iPadOS native overlay (spike capsule → always-separate cluster, `SheetGlassSurface`, non-touch keep-alive) | |
-| G2a/b/c | frost surfaces: chrome+overlays · library+commerce · canvas-adjacent | |
-| G3 | macOS desktop-bundle frost + native parity | |
-| G4 | iPhone Duo — close #35, side-pill fill override, Duo glass | |
-| G5 | Android tier-A bend, session-scoped degradation | |
-| G6 | evidence refresh + docs | |
+| G0 | tokens, markers, gates, `check-glass` + `glass-freeze` | merged |
+| G1 | iOS/iPadOS native overlay (spike capsule → always-separate cluster, `SheetGlassSurface`, non-touch keep-alive) | PR #235 merged; second review #237 merged |
+| G2a/b/c | frost surfaces: chrome+overlays · library+commerce · canvas-adjacent | #227/#236, #228/#239, #229/#240 merged |
+| G3 | macOS desktop-bundle frost + native parity | PR #242 |
+| G4 | iPhone Duo — close #35, side-pill fill override, Duo glass | PR #243 |
+| G5 | Android tier-A bend, session-scoped degradation | PR #244 |
+| G6 | evidence refresh + docs | this branch |
+
+Two details the phases added that the tier table above does not show:
+- **Duo seating is native-side too.** `SceneDelegate` publishes the active
+  `reservedRegions` to the overlay model on the same pass that posts
+  `__MANORAMA_IOS_LAYOUT__`; capsules clear a leading system bar and the
+  bottom cluster centres in the widest unreserved run of screen.
+- **Vertical-bar pills keep `.92`.** Under the frost gate
+  `.m-chrome--side .m-chrome-pill` retains its near-opaque fill — a Tier-B
+  blur inside the system bar's thin strip is invisible, and the arm outlives
+  Tier 0 because the bar is always dark.
