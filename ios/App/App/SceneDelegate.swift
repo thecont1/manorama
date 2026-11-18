@@ -17,6 +17,7 @@ private final class ManoramaBridgeViewController: CAPBridgeViewController {
     var onLayoutChange: (() -> Void)?
     var onNewDocument: (() -> Void)?
     private var documentLoadObservation: NSKeyValueObservation?
+    private var reduceTransparencyObserver: NSObjectProtocol?
     /// iOS 26+ glass chrome: the model the injected observer feeds and the
     /// handler registered on the configuration (retained here for routing).
     private var glassModel: GlassChromeModel?
@@ -54,7 +55,12 @@ private final class ManoramaBridgeViewController: CAPBridgeViewController {
 
         webView.configuration.userContentController.addUserScript(
             WKUserScript(
-                source: "document.documentElement.dataset.iosShell = '1';" + SceneDelegate.layoutJavaScript(for: webView, windowScene: windowScene, dispatchEvent: false),
+                // data-reduced-transparency is a condition, not a gate — it
+                // sits beside the shell marker so CSS need not rely on the
+                // media query seeing the OS accessibility toggle.
+                source: "document.documentElement.dataset.iosShell = '1';"
+                    + "document.documentElement.toggleAttribute('data-reduced-transparency', \(UIAccessibility.isReduceTransparencyEnabled ? "true" : "false"));"
+                    + SceneDelegate.layoutJavaScript(for: webView, windowScene: windowScene, dispatchEvent: false),
                 injectionTime: .atDocumentStart,
                 forMainFrameOnly: true
             )
@@ -81,6 +87,26 @@ private final class ManoramaBridgeViewController: CAPBridgeViewController {
                 (self: ManoramaBridgeViewController, _) in
                 self.onLayoutChange?()
             }
+        }
+        // The document-start stamp covers page load; this covers the user
+        // flipping Reduce Transparency while the app sits loaded. Same
+        // toggleAttribute call, so the two paths can never disagree.
+        reduceTransparencyObserver = NotificationCenter.default.addObserver(
+            forName: UIAccessibility.reduceTransparencyStatusDidChangeNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            let enabled = UIAccessibility.isReduceTransparencyEnabled
+            self?.webView?.evaluateJavaScript(
+                "document.documentElement.toggleAttribute('data-reduced-transparency', \(enabled ? "true" : "false"));",
+                completionHandler: nil
+            )
+        }
+    }
+
+    deinit {
+        if let reduceTransparencyObserver {
+            NotificationCenter.default.removeObserver(reduceTransparencyObserver)
         }
     }
 
