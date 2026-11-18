@@ -10,7 +10,7 @@ export const desktopScreen = (state: { signedIn: boolean }): 'welcome' | 'catalo
   state.signedIn ? 'catalogue' : 'welcome'
 
 /**
- * The paste-the-link fallback exists only because a `tauri dev` build cannot
+ * The paste-the-link fallback exists only because an unbundled dev build cannot
  * receive deep links — bundled builds never show it, and a signed-in user
  * never needs it.
  */
