@@ -1,5 +1,5 @@
 import { flushSync, render } from 'hono/jsx/dom'
-import { useState } from 'hono/jsx'
+import { createElement, Fragment, useState } from 'hono/jsx'
 
 /**
  * Unmounts mounts through reconciliation — the only path that runs effect
@@ -18,6 +18,10 @@ import { useState } from 'hono/jsx'
  * drop flips the flag inside a `flushSync`, so the child unwinds
  * synchronously. `unmountAll` drains every tracked drop — call it before
  * clearing the DOM or restoring globals.
+ *
+ * Plain `createElement` calls rather than JSX: the client build sweeps
+ * everything reachable and its transform targets `react/jsx-runtime`,
+ * which this repo does not have.
  */
 export const unmountTracker = () => {
   const drops: (() => void)[] = []
@@ -27,9 +31,9 @@ export const unmountTracker = () => {
       const Harness = () => {
         const [show, setShow] = useState(true)
         drop = () => setShow(false)
-        return <>{show ? jsxNode : null}</>
+        return createElement(Fragment, null, show ? jsxNode : null)
       }
-      render(<Harness />, container)
+      render(createElement(Harness, null), container)
       const disposer = () => flushSync(() => drop?.())
       drops.push(disposer)
       return disposer
