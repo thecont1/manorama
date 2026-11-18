@@ -138,7 +138,7 @@ describe('the gallery-settings row contract', () => {
     expectCanonical(root, [
       'Open gallery', 'Copy link',
       'Name', 'Caption', 'Address', 'Reorder photographs',
-      'Refresh gallery contents', 'Open source',
+      'Refresh gallery contents', 'View source',
       'Keep a copy', 'Remove saved copy',
       'Remove from Library',
     ])
@@ -173,7 +173,7 @@ describe('the gallery-settings row contract', () => {
     )
     expectCanonical(root, [
       'Name', 'Caption', 'Address', 'Copy link',
-      'Reorder photographs', 'Refresh gallery contents', 'Open source',
+      'Reorder photographs', 'Refresh gallery contents', 'View source',
       'Keep copy on this device', 'Remove saved copy',
       'Remove from Library',
     ])
@@ -187,7 +187,7 @@ describe('the gallery-settings row contract', () => {
     const root = mount(<GalleryDetailsView {...detailsProps} platform="web" />)
     expectCanonical(root, [
       'Name', 'Caption', 'Address', 'Copy link',
-      'Reorder photographs', 'Refresh gallery contents', 'Open source',
+      'Reorder photographs', 'Refresh gallery contents', 'View source',
       'Remove from Library',
     ])
     expect(root.querySelector('.m-actiongroup-label')).toBeNull()

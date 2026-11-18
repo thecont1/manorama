@@ -112,11 +112,11 @@ describe('the web owner panel', () => {
     expect(row(library, 'Open gallery')).toBeTruthy()
   })
 
-  test('the Open source row only renders when the host provides it', () => {
+  test('the View source row only renders when the host provides it', () => {
     const plain = mounted()
-    expect(row(plain, 'Open source')).toBeFalsy()
+    expect(row(plain, 'View source')).toBeFalsy()
     const sourced = mounted({ onOpenSource: () => {} })
-    expect(row(sourced, 'Open source')).toBeTruthy()
+    expect(row(sourced, 'View source')).toBeTruthy()
   })
 
   test('name and caption PATCH their own field and report through onTitleSaved', async () => {

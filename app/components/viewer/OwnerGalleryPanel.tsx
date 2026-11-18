@@ -45,7 +45,7 @@ export type OwnerGalleryPanelProps = {
   onOpen?: () => void
   /** Reorder stays a dashboard deep-link until Phase B replaces it. */
   onReorder?: () => void
-  /** Account galleries: opens the provider source (the menu's Open source
+  /** Account galleries: opens the provider source (the menu's View source
    *  logic — encrypted sources resolve their own URL first). */
   onOpenSource?: () => void
   /** The host's on-device group — the "On this Mac" ActionGroup with the

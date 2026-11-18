@@ -107,7 +107,7 @@ test('?details=<slug> opens the Gallery settings sheet — web-only, no vault/of
     await expect(sheet.getByText(/vault/i)).toHaveCount(0)
     await expect(sheet.getByText(/offline/i)).toHaveCount(0)
     await expect(page.getByRole('switch')).toHaveCount(0)
-    for (const label of ['Open gallery', 'Share link', 'Name', 'Caption', 'Address', 'Reorder photographs', 'Refresh gallery contents', 'Open source', 'Remove from Library']) {
+    for (const label of ['Open gallery', 'Share link', 'Name', 'Caption', 'Address', 'Reorder photographs', 'Refresh gallery contents', 'View source', 'Remove from Library']) {
       await expect(sheet.getByRole('button', { name: label }), label).toBeVisible()
     }
 
@@ -132,8 +132,8 @@ test('the ⋯ menu opens the gallery’s own Settings sheet — the same panel t
     await expect(page).toHaveURL(`${base}/${owner}`)
     await expect(sheet.locator('.m-owner-panel-title')).toHaveText(title)
     // From the Library the panel earns an Open row the viewer never needs;
-    // Open source rides along because the host wires it.
-    for (const label of ['Open gallery', 'Share link', 'Name', 'Caption', 'Address', 'Reorder photographs', 'Refresh gallery contents', 'Open source', 'Remove from Library']) {
+    // View source rides along because the host wires it.
+    for (const label of ['Open gallery', 'Share link', 'Name', 'Caption', 'Address', 'Reorder photographs', 'Refresh gallery contents', 'View source', 'Remove from Library']) {
       await expect(sheet.getByRole('button', { name: label }), label).toBeVisible()
     }
     await sheet.getByRole('button', { name: 'Close', exact: true }).click()
@@ -184,7 +184,7 @@ test('owner viewer Settings carries gallery management inline — no Details nav
     // No "Manage gallery" handoff to the dashboard anywhere on web.
     await expect(dialog.getByRole('button', { name: 'Manage gallery' })).toHaveCount(0)
     // The rows' accessible names carry their values ("Name Mixed album"),
-    // so match on the label itself. The viewer wires no Open/Open source —
+    // so match on the label itself. The viewer wires no Open/View source —
     // it is already inside the gallery.
     for (const label of ['Share link', 'Name', 'Caption', 'Address', 'Reorder photographs', 'Refresh gallery contents', 'Remove from Library']) {
       await expect(dialog.getByRole('button', { name: label }), label).toBeVisible()

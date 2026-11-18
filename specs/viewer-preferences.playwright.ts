@@ -10,7 +10,7 @@ import { test, expect, type BrowserContext, type Page } from '@playwright/test'
  *      always starts at the first photograph with a clean URL.
  *   2. The Library's gallery anchors open same-page: the strip preview is
  *      already in the dashboard, so drilling in is a navigation, not a new
- *      tab. External links (ad CTA, Open source) still carry _blank.
+ *      tab. External links (ad CTA, View source) still carry _blank.
  *
  * This spec exists so neither can be undone quietly. It asserts the contracts
  * rather than the implementation, so refactors are free to move the code.

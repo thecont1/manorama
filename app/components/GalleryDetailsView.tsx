@@ -90,7 +90,7 @@ export const GALLERY_ROWS = {
   reorder: { label: 'Reorder photographs', icon: () => icon('M7 4v16M4 7l3-3 3 3', 'M17 20V4M14 17l3 3 3-3') },
   refresh: { label: 'Refresh gallery contents', icon: () => icon('M20 11a8 8 0 1 0-2.3 5.7M20 4v7h-7') },
   openSource: {
-    label: 'Open source',
+    label: 'View source',
     icon: () => icon('M14 4h6v6', 'M20 4l-9.5 9.5', 'M19 13.5V19a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V6a1 1 0 0 1 1-1h5.5'),
   },
   openFolder: {

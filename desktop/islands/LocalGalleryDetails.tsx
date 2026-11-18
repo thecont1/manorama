@@ -16,7 +16,7 @@ type Props = {
   onRename: (title: string) => void | Promise<void>
   onRemove: () => void | Promise<void>
   /** Opens the gallery's folder on this Mac — the local counterpart of an
-   *  account gallery's "Open source". */
+   *  account gallery's "View source". */
   onRevealFolder?: () => void
 }
 

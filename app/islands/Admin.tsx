@@ -1277,7 +1277,7 @@ export default function Admin({ galleries: initialGalleries, owner, ownerName, p
           upgradeHref={upgradeHref}
           onOpen={blockedProviderFor(galSettingsGallery) === 'proton' ? undefined : () => { openGallery(galSettingsGallery) }}
           onOpenSource={galSettingsGallery.sourceUrl ? () => {
-            // The menu's old Open source row: an encrypted v2 gallery
+            // The menu's old View source row: an encrypted v2 gallery
             // resolves its real URL through the key store first;
             // every other source opens the stored link directly.
             if (galSettingsGallery.manifestVersion === 2 && galSettingsGallery.id && isEncryptedSourceUrl(galSettingsGallery.sourceUrl!)) {

@@ -1655,7 +1655,7 @@ export default function Catalogue({ apiBase }: { apiBase: string }) {
     }
   }
 
-  // "Open source" resolves the full provider link for encrypted galleries —
+  // "View source" resolves the full provider link for encrypted galleries —
   // the stored sourceUrl is keyless; this device's custody holds the key.
   const openSourceResolved = async (gallery: GallerySummary) => {
     if (!gallery.sourceUrl) return
@@ -3702,7 +3702,7 @@ export default function Catalogue({ apiBase }: { apiBase: string }) {
                 setNotice('Gallery removed')
               }}
               onOpenSource={galSettingsGallery.sourceUrl ? () => {
-                // The menu's old Open source row: an encrypted sourceUrl is
+                // The menu's old View source row: an encrypted sourceUrl is
                 // stored keyless — rebuild the provider link from this
                 // device's custody; anything else opens as stored.
                 const g = galSettingsGallery

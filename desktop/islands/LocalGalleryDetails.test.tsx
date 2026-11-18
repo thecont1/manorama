@@ -239,7 +239,7 @@ describe('local gallery settings panel (desktop)', () => {
     await settle()
     expect(reveals).toBe(1)
 
-    // Unwired, the row is absent — the local counterpart of Open source.
+    // Unwired, the row is absent — the local counterpart of View source.
     const { container: plain } = mount()
     expect(row(plain, 'Open folder')).toBeUndefined()
   })
