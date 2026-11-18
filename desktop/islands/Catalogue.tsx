@@ -2628,17 +2628,14 @@ export default function Catalogue({ apiBase }: { apiBase: string }) {
             <h1>Your shared folders, shown properly</h1>
             <p class="landing-brand-intro">Pick a folder on this Mac, or paste a shared Dropbox, Google Drive, iCloud or MEGA album link. manorama turns it into a quiet, full-screen gallery at your own address.</p>
             <div class="desktop-signin">
-              <span class="desktop-signin-lead">Continue with</span>
-              <div class="desktop-signin-icons">
-                {[...SIGN_IN_PROVIDERS]
-                  .sort((a, b) => (a.id === 'apple' ? -1 : b.id === 'apple' ? 1 : 0))
-                  .map(({ id, label, Glyph }) => (
-                    <button type="button" class="desktop-signin-icon" key={id} aria-label={`Continue with ${label}`} onClick={() => signIn(id)}>
-                      <Glyph />
-                      <span class="desktop-signin-label">{label}</span>
-                    </button>
-                  ))}
-              </div>
+              {[...SIGN_IN_PROVIDERS]
+                .sort((a, b) => (a.id === 'apple' ? -1 : b.id === 'apple' ? 1 : 0))
+                .map(({ id, label, Glyph }) => (
+                  <button type="button" class={`desktop-signin-button desktop-signin-button--${id}`} key={id} onClick={() => signIn(id)}>
+                    <Glyph />
+                    <span>Continue with {label}</span>
+                  </button>
+                ))}
             </div>
             {authError ? <p class="landing-note" role="alert">{authError}</p> : null}
             {notice ? <p class="landing-note">{notice}</p> : null}
