@@ -350,10 +350,11 @@ test('a saved gallery keeps its vault entry ids when the online manifest is merg
   expect(entryIds).not.toContain('')
 })
 
-test('a local gallery open keeps every saved gallery and adds no merge entry', async () => {
+test('a local gallery open keeps every saved gallery and projects its frames beside them', async () => {
   // Local galleries carry an empty owner+slug identity — they live beside
   // the vault, not in it, so the picker must not mint them a vault id or
-  // drop the galleries the store already found.
+  // drop the galleries the store already found. The open manifest still
+  // lands on top under a non-vault key.
   const store = makeStore([
     grid(),
     grid({ galleryId: 'gallery-b', slug: 'second-album', title: 'Second album', frames: [frame('three', 0)] }),
@@ -379,9 +380,54 @@ test('a local gallery open keeps every saved gallery and adds no merge entry', a
   await settle()
 
   expect(store.calls.listGridGalleries).toBe(1)
-  expect(container.querySelectorAll('.native-global-gallery')).toHaveLength(2)
-  expect(container.querySelectorAll('[data-grid-frame]')).toHaveLength(3)
-  expect(container.textContent).not.toContain('From Files')
+  const sections = container.querySelectorAll('.native-global-gallery')
+  expect(sections).toHaveLength(3)
+  expect(container.querySelectorAll('[data-grid-frame]')).toHaveLength(4)
+  // The local entry is the current gallery — it heads the picker and names it.
+  expect(sections[0]!.querySelectorAll('[data-grid-frame]')).toHaveLength(1)
+  expect(container.textContent).toContain('From Files')
+  container.remove()
+})
+
+test('picker preference off still projects the open local gallery — no vault lookup for an empty identity', async () => {
+  // A Visionary owner with the global picker disabled is presented as
+  // free: the free branch must not feed the local gallery's empty
+  // owner+slug to offlineGalleryId (it throws there), and the manifest
+  // projection is what keeps the frames visible.
+  const store = makeStore([])
+  const local: GalleryManifest = {
+    slug: 'local-gallery-id',
+    title: 'From Files',
+    caption: '',
+    date: '',
+    images: [
+      { id: 'local-one', filename: 'one.jpg', src: 'capacitor://localhost/_capacitor_file_/one.jpg', width: 800, height: 600, alt: 'A photograph', c2pa: false, placeholder: '' },
+      { id: 'local-two', filename: 'two.jpg', src: 'capacitor://localhost/_capacitor_file_/two.jpg', width: 700, height: 500, alt: 'Another photograph', c2pa: false, placeholder: '' },
+    ],
+  }
+  const opened: { owner: string; slug: string; index: number }[] = []
+  const container = mount(
+    <GlobalView
+      store={store}
+      tier="free"
+      current={{ owner: '', slug: '' }}
+      onlineGallery={{ selection: { owner: '', slug: '' }, manifest: local }}
+      objectUrls={objectUrls()}
+      onOpenFrame={(selection: GallerySelection, index: number) => { opened.push({ ...selection, index }) }}
+      onClose={() => {}}
+    />,
+  )
+  await settle()
+
+  expect(store.calls.listGridGalleries).toBe(0)
+  expect(store.calls.gridGallery).toEqual([])
+  expect(container.textContent).not.toContain('could not be read')
+  expect(container.querySelectorAll('[data-grid-frame]')).toHaveLength(2)
+  expect(container.textContent).toContain('From Files')
+  expect(container.querySelector('img')?.getAttribute('src')).toBe('capacitor://localhost/_capacitor_file_/one.jpg')
+  click(container.querySelectorAll('[data-grid-frame]')[1])
+  await settle()
+  expect(opened).toEqual([{ owner: '', slug: '', index: 1 }])
   container.remove()
 })
 

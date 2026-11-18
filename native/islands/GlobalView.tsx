@@ -178,14 +178,16 @@ export default function GlobalView({
         let found: OfflineGridGallery[]
         if (tier === 'pro') {
           found = await store.listGridGalleries()
-        } else if (!current) {
+        } else if (!current || (current.owner === '' && current.slug === '')) {
+          // A Local gallery has no vault identity to read — its frames are
+          // projected from the open manifest below, not the store.
           found = []
         } else {
           const grid = await store.gridGallery(await offlineGalleryId(current))
           found = grid ? [grid] : []
         }
         if (!active) return
-        if (found.length === 0 && current && !onlineGallery && retriesLeft > 0) {
+        if (found.length === 0 && current && !onlineGallery && (current.owner !== '' || current.slug !== '') && retriesLeft > 0) {
           timer = setTimeout(() => setRetriesLeft((left) => left - 1), 700)
           return
         }
@@ -208,6 +210,17 @@ export default function GlobalView({
             ...onlineGallery.selection,
             title: onlineGallery.manifest.title,
             frames: manifestFrames(onlineGallery.manifest.images, cached),
+          })
+        } else if (onlineGallery) {
+          // The open gallery is Local: it has no vault id, so project its
+          // manifest under a stable non-vault key — added on top of whatever
+          // the store returned rather than substituted for it, so the saved
+          // galleries survive intact.
+          found.unshift({
+            galleryId: 'local-current',
+            ...onlineGallery.selection,
+            title: onlineGallery.manifest.title,
+            frames: manifestFrames(onlineGallery.manifest.images),
           })
         }
         setGalleries(found)
