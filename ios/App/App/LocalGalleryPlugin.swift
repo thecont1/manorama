@@ -79,12 +79,20 @@ public class LocalGalleryPlugin: CAPPlugin, CAPBridgedPlugin, UIDocumentPickerDe
         }
     }
 
+    /// Catalogue paths are relative to the LocalGalleries root — the app
+    /// container moves between launches, so nothing absolute may persist.
+    /// A leading slash means a legacy absolute record, resolved as written.
+    private func resolve(_ path: String) -> URL {
+        if path.hasPrefix("/") { return URL(fileURLWithPath: path) }
+        return localGalleriesRoot.appendingPathComponent(path, isDirectory: true)
+    }
+
     @objc func removeGallery(_ call: CAPPluginCall) {
         guard let path = call.getString("path") else {
             call.reject("A path is required")
             return
         }
-        let target = URL(fileURLWithPath: path).standardizedFileURL
+        let target = resolve(path).standardizedFileURL
         let root = localGalleriesRoot.standardizedFileURL
         guard target.path.hasPrefix(root.path + "/") else {
             call.reject("Only folders this app copied can be removed")
@@ -103,7 +111,7 @@ public class LocalGalleryPlugin: CAPPlugin, CAPBridgedPlugin, UIDocumentPickerDe
             call.reject("A path is required")
             return
         }
-        call.resolve(["exists": FileManager.default.fileExists(atPath: path)])
+        call.resolve(["exists": FileManager.default.fileExists(atPath: resolve(path).path)])
     }
 
     /// Root files plus exactly one level of subdirectories — the depth the
@@ -117,6 +125,12 @@ public class LocalGalleryPlugin: CAPPlugin, CAPBridgedPlugin, UIDocumentPickerDe
         let galleryId = UUID().uuidString.lowercased()
         let destination = localGalleriesRoot.appendingPathComponent(galleryId, isDirectory: true)
         try fileManager.createDirectory(at: destination, withIntermediateDirectories: true)
+        // The destination is kept only for a non-empty import — a copy that
+        // throws or a folder with no matching images leaves nothing behind.
+        var keepDestination = false
+        defer {
+            if !keepDestination { try? fileManager.removeItem(at: destination) }
+        }
 
         let keys: [URLResourceKey] = [.isDirectoryKey, .isHiddenKey]
         let options: FileManager.DirectoryEnumerationOptions = [.skipsPackageDescendants]
@@ -161,7 +175,7 @@ public class LocalGalleryPlugin: CAPPlugin, CAPBridgedPlugin, UIDocumentPickerDe
                 try fileManager.removeItem(at: target)
             }
             try fileManager.copyItem(at: entry.url, to: target)
-            var item: [String: Any] = ["id": entry.relative, "name": entry.url.lastPathComponent, "path": target.path]
+            var item: [String: Any] = ["id": entry.relative, "name": entry.url.lastPathComponent, "path": entry.relative]
             if let dims = LocalGalleryPlugin.pixelDimensions(of: target) {
                 item["width"] = dims.width
                 item["height"] = dims.height
@@ -177,11 +191,12 @@ public class LocalGalleryPlugin: CAPPlugin, CAPBridgedPlugin, UIDocumentPickerDe
         var result: [String: Any] = [
             "galleryId": galleryId,
             "title": source.lastPathComponent,
-            "rootPath": destination.path,
+            "rootPath": galleryId,
             "sourceKind": removable ? "card" : "folder",
             "items": items,
         ]
         if total > items.count { result["truncated"] = total }
+        keepDestination = !items.isEmpty
         return result
     }
 

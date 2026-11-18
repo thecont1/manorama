@@ -110,16 +110,24 @@ final class GlassChromeModel: ObservableObject {
     weak var webView: WKWebView?
     private var keepAliveTimer: Timer?
     private var touchActive = false
+    /// The pending suppression release — cancelled whenever a new picker
+    /// session starts so only the latest timer can clear pickerSuppress.
+    private var pickerReleaseWork: DispatchWorkItem?
 
     /// The position capsule opens the picker — hide the capsules now rather
     /// than waiting on the observer's filmstrip report. If the picker never
     /// opens (invoke missed its pill), the timeout hands the capsules back
-    /// instead of leaving them stuck off.
+    /// instead of leaving them stuck off. A release scheduled by an earlier
+    /// session is cancelled first — otherwise its 1.5s deadline could fire
+    /// mid-session and bring the capsules back over the open picker.
     func openPicker(_ selector: String) {
+        pickerReleaseWork?.cancel()
         pickerSuppress = true
-        DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) { [weak self] in
+        let release = DispatchWorkItem { [weak self] in
             self?.pickerSuppress = false
         }
+        pickerReleaseWork = release
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.5, execute: release)
         invoke(selector)
     }
 
@@ -381,6 +389,9 @@ struct GlassChromeOverlay: View {
                     .glassEffect(.clear.interactive(), in: .capsule)
             }
         }
+        // Seat the sheet morph at THIS capsule's frame, known before the
+        // tap — the action still falls back to .zero when no frame landed.
+        .background(seatProbe(key))
     }
 
     /// Publishes a view's own frame (window space) to the pass-through.
