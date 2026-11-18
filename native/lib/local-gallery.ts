@@ -56,11 +56,21 @@ export type LocalCatalogueStore = {
 
 const CATALOGUE_FILE = 'local-catalogue.json'
 
+/** A missing file is not a failure — the strict reader mints a fresh
+ *  catalogue for it. Anything else that broke the read propagates. */
+const isMissingFileError = (error: unknown): boolean =>
+  error instanceof Error && /not exist|no such file|not found/i.test(error.message)
+
 const filesystemStore: LocalCatalogueStore = {
   async load() {
-    const read = await Filesystem.readFile({ path: CATALOGUE_FILE, directory: Directory.Data, encoding: Encoding.UTF8 })
-    const data = read.data
-    return typeof data === 'string' ? data : await data.text()
+    try {
+      const read = await Filesystem.readFile({ path: CATALOGUE_FILE, directory: Directory.Data, encoding: Encoding.UTF8 })
+      const data = read.data
+      return typeof data === 'string' ? data : await data.text()
+    } catch (error) {
+      if (isMissingFileError(error)) return null
+      throw error
+    }
   },
   async save(contents) {
     await Filesystem.writeFile({ path: CATALOGUE_FILE, directory: Directory.Data, encoding: Encoding.UTF8, recursive: true, data: contents })
@@ -87,6 +97,19 @@ export const loadLocalCatalogue = async (store: LocalCatalogueStore = filesystem
 
 export const saveLocalCatalogue = async (catalogue: LocalCatalogue, store: LocalCatalogueStore = filesystemStore): Promise<void> => {
   await store.save(serializeLocalCatalogue(catalogue))
+}
+
+/** The strict counterpart for mutation flows: `loadLocalCatalogue` degrades
+ *  a corrupt file to empty for display, but a caller about to rewrite the
+ *  file must not do that — an empty stand-in would silently drop every
+ *  other gallery's record. Confirmed-missing still mints a fresh catalogue;
+ *  a read failure or a present-but-unparseable file propagates. */
+const loadLocalCatalogueStrict = async (store: LocalCatalogueStore): Promise<LocalCatalogue> => {
+  const stored = await store.load()
+  if (stored === null) return newCatalogue(await nativeDeviceId(), nativeDeviceLabel())
+  const parsed = deserializeLocalCatalogue(stored)
+  if (!parsed) throw new Error('The local-gallery catalogue could not be parsed.')
+  return parsed
 }
 
 export type LocalGalleryAdd =
@@ -142,9 +165,10 @@ export const addLocalGallery = async (
 }
 
 /** Removes the copied originals, the catalogue record, and — best-effort —
- *  the synced mirror row. The catalogue record is dropped only when the
- *  folder was removed or was already absent — a removal failure propagates
- *  so the record (and a retry) survives. */
+ *  the synced mirror row. The catalogue is validated before the folder is
+ *  touched: a corrupt or unreadable file propagates so the native copy
+ *  survives with every record, and the catalogue record is dropped only
+ *  when the folder was removed or was already absent. */
 export const removeLocalGallery = async (
   apiBase: string,
   record: LocalGalleryRecord,
@@ -156,9 +180,9 @@ export const removeLocalGallery = async (
 ): Promise<void> => {
   const bridge = deps.bridge ?? productionBridge()
   const store = deps.store ?? filesystemStore
+  const catalogue = await loadLocalCatalogueStrict(store)
   const { exists } = await bridge.exists({ path: record.rootPath })
   if (exists) await bridge.removeGallery({ path: record.rootPath })
-  const catalogue = await loadLocalCatalogue(store)
   catalogue.galleries = catalogue.galleries.filter((gallery) => gallery.id !== record.id)
   await saveLocalCatalogue(catalogue, store)
   const token = await getSessionToken()

@@ -1,7 +1,7 @@
 import { Capacitor } from '@capacitor/core'
 import { afterEach, beforeEach, describe, expect, test } from 'bun:test'
 import { parseDeviceGalleryInput, DEVICE_GALLERY_ID_PATTERN } from '../../packages/core/device-gallery'
-import { deserializeLocalCatalogue, type LocalGalleryRecord } from '../../desktop/lib/catalogue'
+import { deserializeLocalCatalogue, newCatalogue, serializeLocalCatalogue, type LocalGalleryRecord } from '../../desktop/lib/catalogue'
 import { addLocalGallery, loadLocalCatalogue, localGalleryManifest, removeLocalGallery, type LocalCatalogueStore, type LocalGalleryBridge } from './local-gallery'
 
 const TOKEN_KEY = 'capacitor-storage_manorama.session-token'
@@ -39,6 +39,18 @@ const memoryStore = (initial?: string): { store: LocalCatalogueStore; written: (
 }
 
 const GALLERY_ID = 'aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee'
+
+const manifestRecord = (over: Partial<LocalGalleryRecord> = {}): LocalGalleryRecord => ({
+  id: GALLERY_ID,
+  title: 'Kodak moments',
+  rootPath: GALLERY_ID,
+  sourceKind: 'folder',
+  itemCount: 1,
+  items: [{ id: 'a.jpg', name: 'a.jpg', path: 'a.jpg', width: 4000, height: 3000 }],
+  addedAt: '2026-10-01T00:00:00.000Z',
+  lastSeenAt: '2026-10-01T00:00:00.000Z',
+  ...over,
+})
 
 const imported = (over: Record<string, unknown> = {}) => ({
   galleryId: GALLERY_ID,
@@ -238,6 +250,84 @@ describe('the on-device local catalogue', () => {
       }),
     ).rejects.toThrow('busy')
     expect(deserializeLocalCatalogue(held.written())!.galleries).toHaveLength(1)
+  })
+
+  test('a corrupt catalogue stops the removal before the folder is touched', async () => {
+    // An empty stand-in written over a corrupt file would silently drop
+    // every other gallery's record — the strict read must fail loudly and
+    // leave both the native copy and the file exactly as they were.
+    const held = memoryStore('{not json')
+    const calls: { removed?: string; probed?: string } = {}
+    await expect(
+      removeLocalGallery('https://api.test', manifestRecord(), {
+        store: held.store,
+        bridge: {
+          importFolder: async () => ({}),
+          removeGallery: async (options) => { calls.removed = options.path },
+          exists: async (options) => { calls.probed = options.path; return { exists: true } },
+        },
+        fetcher: async () => new Response('{}'),
+      }),
+    ).rejects.toThrow('could not be parsed')
+    expect(calls.probed).toBeUndefined()
+    expect(calls.removed).toBeUndefined()
+    expect(held.written()).toBe('{not json')
+  })
+
+  test('a catalogue read failure (not "missing") propagates without deleting', async () => {
+    const calls: { removed?: string } = {}
+    await expect(
+      removeLocalGallery('https://api.test', manifestRecord(), {
+        store: {
+          load: async () => { throw new Error('permission denied') },
+          save: async () => {},
+        },
+        bridge: bridgeStub({}, calls),
+        fetcher: async () => new Response('{}'),
+      }),
+    ).rejects.toThrow('permission denied')
+    expect(calls.removed).toBeUndefined()
+  })
+
+  test('a confirmed-missing catalogue does not block folder removal', async () => {
+    storage.set(DEVICE_ID_KEY, DEVICE_ID)
+    const held = memoryStore()
+    const calls: { removed?: string } = {}
+    await removeLocalGallery('https://api.test', manifestRecord(), {
+      store: held.store,
+      bridge: bridgeStub({}, calls),
+      fetcher: async () => new Response('{}'),
+    })
+    expect(calls.removed).toBe(manifestRecord().rootPath)
+    const written = deserializeLocalCatalogue(held.written())
+    expect(written).not.toBeNull()
+    expect(written!.deviceId).toBe(DEVICE_ID)
+    expect(written!.galleries).toHaveLength(0)
+  })
+
+  test('removing one record preserves every other record in the catalogue', async () => {
+    const held = memoryStore()
+    const fetcher = async () => new Response('{"galleries":[]}')
+    await addLocalGallery('https://api.test', {
+      store: held.store,
+      bridge: bridgeStub(imported()),
+      fetcher,
+    })
+    await addLocalGallery('https://api.test', {
+      store: held.store,
+      bridge: bridgeStub(imported({ galleryId: 'bbbbcccc-dddd-4eee-8fff-ffffffffffff', title: 'Field card', rootPath: 'bbbbcccc-dddd-4eee-8fff-ffffffffffff' })),
+      fetcher,
+    })
+    const catalogue = deserializeLocalCatalogue(held.written())!
+    expect(catalogue.galleries).toHaveLength(2)
+    await removeLocalGallery('https://api.test', catalogue.galleries[0], {
+      store: held.store,
+      bridge: bridgeStub({}, {}),
+      fetcher,
+    })
+    const remaining = deserializeLocalCatalogue(held.written())!.galleries
+    expect(remaining).toHaveLength(1)
+    expect(remaining[0].id).toBe('bbbbcccc-dddd-4eee-8fff-ffffffffffff')
   })
 })
 
