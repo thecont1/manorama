@@ -14,9 +14,12 @@ of an `<img>`.
 | Tier | Where | What |
 | --- | --- | --- |
 | **N — native glass** | macOS 26+ (shipped); iOS/iPadOS 26+ overlay | `.glassEffect(.regular.interactive())` sibling capsules, `SheetGlassSurface` morph, Reduce-Transparency solid sibling, `minHeight: 44` (Dynamic Type) |
-| **A — web bend** | Android Chromium WebView only | SVG `feDisplacementMap` through `backdrop-filter` (`native/lib/glass-bend.ts`) — refracts the backdrop under chrome pills and stage arrows; the displacement never touches foreground paint, so glyphs stay crisp |
+| **A — web bend** *(pending — no producer sets `data-android-glass` yet)* | Android Chromium WebView only | SVG `feDisplacementMap` through `backdrop-filter`, refracting the backdrop under chrome pills and stage arrows; the displacement never touches foreground paint, so glyphs stay crisp. Activation requires feature detection, a single-segment check and a same-session no-bend baseline |
 | **B — web frost** | in-document surfaces, all shells, all OS versions | backdrop-filter blur+saturate, specular rim, edge line, `--glass-*` fills |
 | **0 — solid** | reduced transparency / increased contrast / no backdrop-filter | CSS fallback for web; a Swift branch for native — RT is not a media query there |
+
+Tier A is specified but not yet implemented — nothing in tree sets
+`data-android-glass`. Until a producer lands, Android surfaces remain Tier B.
 
 On the web side, real bend does not render in WebKit — the frost tier is the
 ceiling inside WKWebView. Native shell chrome is where true Liquid Glass lives.
@@ -40,7 +43,7 @@ attributes gate Tier-B paint overrides only — never `visibility:hidden`.
 | `data-ios-shell` | `SceneDelegate` injects at document start | iOS + iPadOS, any version |
 | `data-ios-glass` | same, `#available(iOS 26)` — **added in G1 with the overlay** | takeover active |
 | `data-android-shell` | blocking inline script in `native/index.html` (UA sniff) | Capacitor Android |
-| `data-android-glass` | `native/lib/glass-bend.ts` — after `feDisplacementMap` + `backdrop-filter url()` support, a single-segment viewport, and a same-session no-bend baseline | bend active |
+| `data-android-glass` | **pending — no producer yet**; spec: only after `feDisplacementMap` + `backdrop-filter url()` support, a single-segment viewport, and a same-session no-bend baseline | bend active |
 
 `body.manorama-native` / `body.manorama-desktop` are static classes on the
 bundles' `<body>` (FOUC-free; no script timing). The desktop bundle is served

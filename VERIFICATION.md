@@ -147,7 +147,7 @@ eyeballing where hardware is unavailable:
 | iPad 2752×2064 landscape | `demo-captures/ipad/` six-state matrix | Refreshed 2026-11-17 |
 | macOS | `demo-captures/macos/` six-state matrix | 2026-11-16 — predates the G3 frost pass; refresh pending |
 | iPhone Duo | `demo-captures/duo/` | **Gap — real-device only.** iOS 27.x simulators on this host render blank; Playwright two-segment runs are geometry coverage, not native evidence |
-| Android | `demo-captures/android/` | **Gap — one stale capture.** No paired device/emulator; bend trip, fold fallback and mid-range pass all outstanding |
+| Android | `demo-captures/android/` | **Gap — one stale capture.** No paired device/emulator; the Tier-A bend itself is pending (no producer sets `data-android-glass` yet) — bend trip, fold fallback and mid-range pass all outstanding |
 | Web (unchanged) | `demo-captures/web/` | Machine-proven by the freeze spec; a fresh matrix is cosmetic, not load-bearing |
 
 ### Accessibility and performance notes
@@ -159,15 +159,21 @@ eyeballing where hardware is unavailable:
   sheet-morph springs (`.spring` skipped under
   `accessibilityReduceMotion`); the curtain dissolve already had its own
   reduced-motion path.
-- Glass never wraps an `<img>` (gate + freeze spec), and no per-thumbnail
-  glass exists anywhere — chrome and larger surfaces only. The compositing
-  audit therefore reduces to the named surfaces in the phase list; the
-  picker matrix and Global View thumbnails carry no backdrop-filter at any
-  depth.
-- The Android bend trip is an rAF frame-budget check (over
+- Glass near images is checked within limits, not proven absolutely. The
+  gate checks selector *text* — no `.glass-*` selector may name an `img`
+  descendant — but it cannot see where a class is actually applied in the
+  markup. The freeze spec asserts no backdrop-filter ancestor within three
+  levels of a viewer or picker image, in a run with no shell attributes —
+  so shell-attribute-gated repaints are not covered, and neither is an
+  ancestor at depth four or above. What is claimed: no `.glass-*` selector
+  targets an `img` descendant, and no per-thumbnail glass exists anywhere —
+  chrome and larger surfaces only — so the compositing audit reduces to
+  the named surfaces in the phase list; the picker matrix and Global View
+  thumbnails carry no backdrop-filter at any depth the spec exercises.
+- The Android bend trip is specified as an rAF frame-budget check (over
   `max(20ms, baseline × 1.2)` sustained 3s), session-scoped with no
-  persistence — the unit suite covers the trip, the sub-3s reset, and the
-  absence of `localStorage` access.
+  persistence — **pending implementation**; no producer currently sets
+  `data-android-glass`.
 - Text-at-4.5:1 after blur on real backdrops is verified per surface during
   the device capture pass — folded into the same gap rows above rather than
   claimed.
