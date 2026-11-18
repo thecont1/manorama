@@ -603,9 +603,13 @@ elif POSITION=$(open_gallery); then
 note "readout after reopening: ${POSITION:-none}"
 dismiss_curtain
 act
-/tmp/focusprobe "$BUNDLE_ID" clickweb >/dev/null 2>&1
-sleep 2
-if /tmp/focusprobe "$BUNDLE_ID" pressnative "Library" >/dev/null 2>&1; then
+# The capsule mounts only while the viewer chrome is showing, and the
+# chrome idles out in about two seconds — a wake in one probe invocation
+# and a press in the next always loses to the auto-hide (#255). `clicknative`
+# does both in one process: hovers to wake the chrome, finds the capsule
+# fresh, and clicks it through the real pointer path — which also proves
+# the glass surface hit-tests a pointer, not just AXPress.
+if /tmp/focusprobe "$BUNDLE_ID" clicknative "Library" >/dev/null 2>&1; then
   ok "the glass capsule is present and pressable"
 else
   bad "the glass capsule is present and pressable" "no native Library button in the AX tree"
