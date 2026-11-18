@@ -305,9 +305,17 @@ struct GlassChromeOverlay: View {
 
     /// Leading padding that clears a reserved region hugging the left edge —
     /// the Duo's vertical system bar when it lands leading. Safe-area insets
-    /// do not describe that bar, so the seat is measured from regions.
+    /// do not describe that bar, so the seat is measured from regions. The
+    /// region must also cross the capsule's own vertical band: a horizontal
+    /// division spans the full width (minX ≈ 0) but never meets the top
+    /// seat, and must not push the capsule sideways.
     private var leadingSeat: CGFloat {
-        let barEdge = model.reservedRegions.filter { $0.minX <= 1 }.map(\.maxX).max() ?? 0
+        let bandTop = model.safeInsets.top + 8
+        let bandBottom = bandTop + 44 // the capsule's minHeight
+        let barEdge = model.reservedRegions
+            .filter { $0.minX <= 1 && $0.minY < bandBottom && $0.maxY > bandTop }
+            .map(\.maxX)
+            .max() ?? 0
         return barEdge > 0 ? barEdge + 16 : 16
     }
 
