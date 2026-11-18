@@ -324,6 +324,43 @@ test.describe('the Library band', () => {
     }
   })
 
+  test('the band never shows an empty layer', async ({ page }) => {
+    await page.setViewportSize({ width: 1440, height: 900 })
+    await open(page)
+    await bringUp(page)
+
+    // Watch the loop go right round, and check at every moment that the
+    // layer on show has its picture in it. The loop fetches each capture
+    // as it reaches it, so this is where a fetch that never arrived would
+    // show up as a band with a hole in it.
+    const readings = await page.evaluate(async () => {
+      const band = document.querySelector<HTMLElement>('[data-library-loop]')!
+      const layers = Array.from(band.querySelectorAll<HTMLElement>('[data-library-layer]'))
+      const out: { state: string; empty: boolean }[] = []
+      const started = performance.now()
+      while (performance.now() - started < 20000) {
+        const state = band.dataset.state ?? '0'
+        const layer = layers.find((candidate) => candidate.dataset.libraryLayer === state)
+        const opacity = layer ? Number(getComputedStyle(layer).opacity) : 0
+        // Only the layer that is actually on show matters.
+        if (opacity > 0.5) {
+          const img = layer?.querySelector('img')
+          out.push({ state, empty: !img || !img.complete || img.naturalWidth === 0 })
+        }
+        await new Promise((resolve) => requestAnimationFrame(resolve))
+      }
+      return out
+    })
+
+    expect(readings.length, 'the loop was watched').toBeGreaterThan(0)
+    expect(
+      readings.filter((reading) => reading.empty).length,
+      'a layer was empty while it was on show',
+    ).toBe(0)
+    // And every state was reached with its picture in place.
+    expect(new Set(readings.map((reading) => reading.state)).size).toBe(4)
+  })
+
   test('the page asks for one capture at a time, not all four', async ({ page }) => {
     await page.setViewportSize({ width: 1440, height: 900 })
     const response = await page.goto(`${BASE}/`, { waitUntil: 'domcontentloaded' })
