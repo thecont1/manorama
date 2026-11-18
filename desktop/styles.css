@@ -70,6 +70,11 @@ body.manorama-desktop {
   font-size: clamp(15px, 1.35vw, 20px);
   line-height: 1.45;
 }
+/* Two chooser presentations share the .desktop-signin container: the icon
+   row for every shell, and under the SwiftUI shell's data-macos-shell
+   marker the door-style labelled buttons the native welcome opens with.
+   The marker gates both the markup and the container rule, so Windows and
+   Linux Tauri builds keep the icon chooser untouched. */
 .desktop-signin-lead {
   color: rgba(var(--ink), .52);
   font-family: 'DM Mono', ui-monospace, monospace;
@@ -113,9 +118,35 @@ body.manorama-desktop {
 .desktop-signin-icon svg { width: 46px; height: 46px; filter: drop-shadow(0 6px 16px rgba(252, 15, 192, .28)); transition: transform 180ms cubic-bezier(.3, 1.45, .5, 1), filter 180ms ease; }
 .desktop-signin-icon:hover svg,
 .desktop-signin-icon:focus-visible svg { transform: translateY(-4px) scale(1.08); filter: drop-shadow(0 10px 22px rgba(252, 15, 192, .45)); }
-.desktop-welcome .landing-note { color: rgba(var(--ink), .7); }
 .desktop-account-signin { margin-top: 34px; text-align: left; }
 .desktop-account-signin .desktop-signin-icons { justify-content: flex-start; }
+
+:root[data-macos-shell] .desktop-signin {
+  margin-top: clamp(42px, 7vh, 78px);
+  display: grid;
+  gap: 12px;
+  width: min(100%, 420px);
+  margin-inline: auto;
+  text-align: initial;
+}
+.desktop-signin-button {
+  min-height: 52px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  padding: 12px 18px;
+  border: 1px solid rgba(var(--ink), .22);
+  border-radius: 12px;
+  background: rgb(var(--ink));
+  color: var(--gallery-canvas);
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+}
+.desktop-signin-button svg { width: 20px; height: 20px; flex: none; }
+.desktop-signin-button:focus-visible { outline: 2px solid rgba(var(--ink), .85); outline-offset: 3px; }
+.desktop-welcome .landing-note { color: rgba(var(--ink), .7); }
 .desktop-notice { color: rgba(var(--ink), .68); }
 
 /* ── The catalogue workbench ──────────────────────────────────────────────
@@ -206,6 +237,16 @@ body.manorama-desktop {
 .desktop-paste button { justify-self: start; border: 1px solid rgba(var(--ink), .22); border-radius: 999px; padding: 9px 14px; background: transparent; color: rgba(var(--ink), .82); font: inherit; font-size: 12px; cursor: pointer; }
 .desktop-paste button:hover, .desktop-paste button:focus-visible { border-color: rgba(var(--ink), .78); color: rgb(var(--ink)); }
 .desktop-paste-hint { margin: 0; color: rgba(var(--ink), .48); font-size: 11px; line-height: 1.4; }
+/* The redirect-paste fallback is an escape hatch, not the path: a quiet
+   disclosure under the automatic-handoff copy, expanded only where the
+   redirect can never arrive (dev builds mark it open at render). */
+.desktop-paste-fallback > summary { width: fit-content; cursor: pointer; color: var(--m-secondary); font-size: 12px; }
+.desktop-paste-fallback > summary:hover { color: rgb(var(--ink)); }
+.desktop-paste-fallback[open] .desktop-paste { margin-top: 10px; }
+
+@media (prefers-reduced-motion: reduce) {
+  .desktop-signin-icon svg { transition: none; }
+}
 
 /* ── The viewing stage ─────────────────────────────────────────────────── */
 

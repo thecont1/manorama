@@ -698,14 +698,22 @@ describe('desktop catalogue workbench', () => {
   })
 
   test('signed out, the desktop shows the welcome chooser', async () => {
-    const container = await mount(false)
-    expect(container.querySelector('.admin-page')).toBeNull()
-    const welcome = container.querySelector('.landing-page.desktop-welcome')!
-    expect(welcome.querySelector('.desktop-welcome-header img')).not.toBeNull()
-    const chooser = [...welcome.querySelectorAll<HTMLButtonElement>('.desktop-signin-icon')]
-    expect(chooser.length).toBeGreaterThan(1)
-    expect(chooser[0].getAttribute('aria-label')).toBe('Continue with Apple')
-    for (const button of chooser) expect(button.textContent?.trim().length).toBeGreaterThan(0)
+    document.documentElement.dataset.macosShell = '1'
+    try {
+      const container = await mount(false)
+      expect(container.querySelector('.admin-page')).toBeNull()
+      const welcome = container.querySelector('.landing-page.desktop-welcome')!
+      expect(welcome.querySelector('.desktop-welcome-header img')).not.toBeNull()
+      const chooser = [...welcome.querySelectorAll<HTMLButtonElement>('.desktop-signin-button')]
+      expect(chooser.map((button) => button.textContent?.trim())).toEqual([
+        'Continue with Apple',
+        'Continue with Dropbox',
+        'Continue with Google Drive',
+      ])
+      for (const button of chooser) expect(button.querySelector('svg')).not.toBeNull()
+    } finally {
+      delete document.documentElement.dataset.macosShell
+    }
   })
 
   test('details mounts from a card with exactly the local actions and no banned surfaces', async () => {
