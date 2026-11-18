@@ -442,11 +442,27 @@ const manoramaDevSeed = (): Plugin => {
   }
 }
 
+/** Spec files under `app/islands/` are swept into the client bundle by
+ *  honox's `import.meta.glob` of every tsx there — the island name filter
+ *  only gates hydration, not bundling, so every spec shipped ~1 MB of dead
+ *  chunks (happy-dom included). Rolldown's glob accepts no negation or
+ *  extglob, so exclusion happens here instead: in the client build only,
+ *  test files load as empty modules — the dynamic-import keys stay dead
+ *  (SSR never stamps a spec's component name) and none of their imports
+ *  reach the graph. Dev and SSR builds are untouched. */
+const noTestIslands = (): Plugin => ({
+  name: 'manorama-no-test-islands',
+  apply: (_config, { command, mode }) => command === 'build' && mode === 'client',
+  enforce: 'pre',
+  load: (id) => (/\/app\/islands\/[^/]*\.test\.tsx$/.test(id) ? 'export default {}' : null),
+})
+
 export default defineConfig(() => ({
   cacheDir: '.work/vite-web-cache',
   define: { __MANORAMA_COMMIT__: JSON.stringify(buildCommit) },
   plugins: [
     manoramaDevSeed(),
+    noTestIslands(),
     honox({
       devServer: {
         adapter,
