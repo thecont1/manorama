@@ -28,6 +28,7 @@ export default jsxRenderer(({ children, title, description, ogImage, ownerTheme,
       {home ? <script src="/home-theme.js" defer></script> : null}
       {home ? <script src="/home-menu.js" defer></script> : null}
       {home ? <script src="/home-hero.js" defer></script> : null}
+      {home ? <script src="/home-library.js" defer></script> : null}
       <Link href="/app/styles.css" rel="stylesheet" />
       {home ? <Link href="/app/home.css" rel="stylesheet" /> : null}
       <title>{title}</title>

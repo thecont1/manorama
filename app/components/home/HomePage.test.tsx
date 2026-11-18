@@ -174,6 +174,58 @@ describe('the homepage story', () => {
   })
 })
 
+describe('the Library loop', () => {
+  test('carries the four appearances in the order the loop walks them', () => {
+    const html = page()
+    const layers = [...html.matchAll(/data-library-layer="(\d)"/g)].map((m) => m[1]!)
+    const captions = [...html.matchAll(/data-library-caption="(\d)"/g)].map((m) => m[1]!)
+    expect(layers).toEqual(['0', '1', '2', '3'])
+    expect(captions).toEqual(['0', '1', '2', '3'])
+    for (const src of ['lib-dark', 'lib-quiet-dark', 'lib-quiet-light', 'lib-light']) {
+      expect(html).toContain(`/home/${src}.jpg`)
+      expect(html).toContain(`/home/${src}.avif`)
+      expect(html).toContain(`/home/${src}-sm.webp`)
+    }
+  })
+
+  test('holds its first state on the server, so the band is whole without scripting', () => {
+    const html = page()
+    expect(html).toContain('data-library-loop')
+    expect(html).toContain('data-state="0"')
+    // Only the first layer and the first caption are exposed; the rest are
+    // marked hidden, so a reader is given one state at a time.
+    expect(html).toContain('data-library-layer="0" aria-hidden="false"')
+    expect(html).toContain('data-library-caption="0" aria-hidden="false"')
+    expect(html).toContain('data-library-layer="1" aria-hidden="true"')
+    expect(html).toContain('data-library-caption="3" aria-hidden="true"')
+  })
+
+  test('names each state and says what it is for', () => {
+    const html = page()
+    expect(html).toContain('Dark mode')
+    expect(html).toContain('Quiet and Dark mode')
+    expect(html).toContain('Quiet and Light mode')
+    expect(html).toContain('Light mode')
+    expect(html).toContain('Every control, lit.')
+    expect(html).toContain('The interface steps back.')
+    expect(html).toContain('Quiet, in daylight too.')
+    expect(html).toContain('The same Library. Different light.')
+  })
+
+  test('keeps the pause control out of the way until the script takes over', () => {
+    const html = page()
+    expect(html).toContain('data-library-pause')
+    expect(html).toMatch(/data-library-pause[^>]*hidden/)
+  })
+
+  test('never stretches the capture: the frame holds its own ratio', () => {
+    const html = page()
+    expect(html).toContain('width="2688"')
+    expect(html).toContain('height="1687"')
+    expect(html).toContain('class="home-library-stage"')
+  })
+})
+
 describe('the pricing section', () => {
   test('states the approved prices', () => {
     const html = page()
@@ -397,7 +449,8 @@ describe('the index route renders the homepage', () => {
     expect(html).toContain('src="/home-theme.js"')
     expect(html).toContain('src="/home-menu.js"')
     expect(html).toContain('src="/home-hero.js"')
-    expect(html.match(/<script/g)).toHaveLength(4)
+    expect(html).toContain('src="/home-library.js"')
+    expect(html.match(/<script/g)).toHaveLength(5)
     expect(html).toContain('data-demo-stage')
     expect(html).toContain('data-demo-ready="false"')
     expect(html).toContain('/home-demo/')
@@ -419,7 +472,7 @@ describe('the index route renders the homepage', () => {
   test('the Worker off switch restores the static hero without the island', async () => {
     const app = mountIndexRoute()
     const html = await (await app.request('/', {}, { ...env, MANORAMA_HOME_DEMO: 'off' })).text()
-    expect(html.match(/<script/g)).toHaveLength(4)
+    expect(html.match(/<script/g)).toHaveLength(5)
     expect(html).not.toContain('has-island')
     expect(html).not.toContain('data-demo-stage')
     expect(html).not.toContain('/home-demo/')

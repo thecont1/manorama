@@ -22,6 +22,7 @@ page, and no capture is re-encoded at request time (AGENTS invariant 1).
 | H3 | One photograph, fitted, chrome hidden | Features band, left of the pair | `h3-iphone` |
 | H4 | The gallery opening, title set large | Features band, beside H3 | `h4-macos-curtain` |
 | H5 | The same gallery on a larger screen | How it works, right column | `h5-ipad` |
+| L1 | The Library itself, in its four appearances | Its own band, between Unify and How it works | `lib-dark`, `lib-quiet-dark`, `lib-quiet-light`, `lib-light` |
 
 The manifest is `app/components/home/home-manifest.ts`. Each asset carries a `status`:
 
@@ -45,6 +46,7 @@ The manifest is `app/components/home/home-manifest.ts`. Each asset carries a `st
 | H3 | `demo-captures/ios/03-first-image-hover.png` | 1284×2778 | 642, 1284 | AVIF, WebP, JPEG | interim |
 | H4 | `demo-captures/macos/02-gallery-curtain.png` | 1440×900 | 1440 | AVIF, WebP, JPEG | interim |
 | H5 | `demo-captures/ipad/03-first-image-hover.png` | 2752×2064 | 1376, 2752 | AVIF, WebP, JPEG | interim |
+| L1 | `demo-captures/library/01-dark-mode.png` … `04-light-mode.png` | 3456×2168 | 1344, 2688 | AVIF, WebP, JPEG | interim |
 
 The files were produced from those captures by `scripts/home-images.mjs`:
 
@@ -57,6 +59,35 @@ three tall captures (H2, H3, H5) so a phone does not download a 1284-pixel file 
 260-pixel column. The served file is never enlarged: `withoutEnlargement` is on, and
 each `<picture>` carries the intrinsic `width`/`height` so the box is reserved and the
 image is never stretched (invariant 13).
+
+The four Library captures are produced by their own script, because they are four
+frames of one loop rather than four separate slots:
+
+```sh
+node scripts/home-library-images.mjs
+```
+
+It writes `public/home/lib-*.{avif,webp,jpg}` and a `-sm` variant of each, at 2688
+and 1344 pixels wide. The band that holds them is at most 1344 CSS pixels across, so
+2688 is exactly twice the widest it is ever drawn and the dashboard's own words stay
+crisp on a retina screen.
+
+### The Library band (L1)
+
+The band is a loop: the four captures dissolve into one another on a clock, and the
+frame's bottom rule — far thicker than the other three — holds the caption that names
+the state on show. It is the only part of the page that moves on its own.
+
+Two things about it are the owner's to decide:
+
+- **The captures carry the Library's placeholder ad plate** in the left column — the
+  house poster that stands in for sponsored photographs. It is not a third-party
+  advertisement, but the rule above rejected a Library capture for showing an ad
+  plate at all, so this band needs the same ruling.
+- **The owner's Library is in the frame**, with its own galleries, its own counts and
+  its own device names. The names in it are place-city names rather than private
+  titles, and the account line is the product's own copy — but the page is public,
+  so the captures need the owner's eye before launch.
 
 ### Why these stand-ins, and what is wrong with them
 
@@ -96,6 +127,7 @@ This is the plan's list, with what is still owed for each row.
 | H3 | iPhone: one photograph fitted, `italy` | 9:19.5, 1290×2796, served at 430/860 | Chrome hidden on the main shot | Status bar time and carrier, no personal notifications | A fresh capture; the interim one shows the hover state |
 | H4 | Current SwiftUI macOS shell (`macos/ManoramaMac`), **not** Tauri, showing a Local gallery in the Library with the sidebar | 16:10 | Native window chrome kept | Finder paths, usernames, local folder names | A capture of the current shell |
 | H5 | iPad: one photograph fitted | 4:3 | Chrome hidden | Status bar, no notifications | Not in the plan's original list; added so the page has a tablet surface |
+| L1 | The desktop Library in its four appearances — dark, quiet and dark, quiet and light, light — one Library captured four times so the dissolve reads as the words going out | 16:10, captured at 3456×2168, served at 1344 and 2688 | Library chrome | The placeholder ad plate in the left column; the owner's own gallery titles, counts and device names | The owner's approval of the captures, and a ruling on the ad plate |
 
 **The H2 rule.** If a composite is unavoidable, its caption says "Illustration".
 
@@ -130,8 +162,9 @@ with a dashed tile reading "URL missing". There are no dead links on the page.
 
 ## 5. Launch blockers that belong to this page
 
-1. **Owner approval for H1–H5.** Every capture on the page is interim. The page should
-   not launch on unapproved photography.
+1. **Owner approval for H1–H5 and L1.** Every capture on the page is interim. The page
+   should not launch on unapproved photography. L1 is the one that most needs it: it
+   is the owner's own Library, on a band that moves.
 2. **More than one photograph.** The interim captures all show the same frame.
 3. **App Store URL** for iPhone & iPad — the only surface still hidden in production.
    Mac and Windows publish through `downloads.manorama.xyz`.
