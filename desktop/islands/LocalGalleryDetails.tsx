@@ -14,12 +14,15 @@ type Props = {
   availability: GalleryAvailability
   onOpen: () => void
   /** The public link, only once this record's synced row carries a slug.
-   *  Its presence is what makes "Share link" truthful instead of "Publish". */
+   *  Its presence is what makes "Copy link" truthful instead of "Publish". */
   publishedUrl?: string | null
-  /** Shares the existing link — never re-uploads. Resolves to the status
-   *  line the surface shows, or null when the owner cancelled. */
-  onShareLink?: () => Promise<string | null>
-  onShare: () => void
+  /** Copies the existing link — never re-uploads, never opens a chooser.
+   *  Resolves to the status line the surface shows, or null when the copy
+   *  was skipped. */
+  onShare?: () => Promise<string | null>
+  /** Opens the publish flow — uploading originals to create the public
+   *  gallery. Only rendered while no usable link exists. */
+  onPublish: () => void
   /** Opens the viewer's picker straight into Edit mode — the same place
    *  an account gallery's "Reorder photographs" row lands. */
   onReorder?: () => void
@@ -53,8 +56,8 @@ export default function LocalGalleryDetails({
   availability,
   onOpen,
   publishedUrl = null,
-  onShareLink,
   onShare,
+  onPublish,
   onReorder,
   onRescan,
   onRename,
@@ -93,8 +96,8 @@ export default function LocalGalleryDetails({
   }
 
   const shareLink = async () => {
-    if (locked || !onShareLink) return
-    const status = await onShareLink()
+    if (locked || !onShare) return
+    const status = await onShare()
     if (status) setNote(status)
   }
 
@@ -153,11 +156,12 @@ export default function LocalGalleryDetails({
           disabled={unavailable || locked}
         />
         {/* Publish means uploading originals to create the public gallery;
-            once a usable link exists the action is sharing that link, not
+            once a usable link exists the action is copying that link — the
+            same "Copy link" row the shared details view shows — never
             publishing again. */}
-        {publishedUrl && onShareLink ? (
+        {publishedUrl && onShare ? (
           <ActionRow
-            label={GALLERY_ROWS.share.label}
+            label="Copy link"
             icon={GALLERY_ROWS.share.icon()}
             value={`…/${publishedUrl.split('/').at(-1)}`}
             onClick={() => void shareLink()}
@@ -167,7 +171,7 @@ export default function LocalGalleryDetails({
           <ActionRow
             label={GALLERY_ROWS.publish.label}
             icon={GALLERY_ROWS.publish.icon()}
-            onClick={onShare}
+            onClick={onPublish}
             disabled={unavailable || locked}
           />
         )}

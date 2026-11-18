@@ -154,7 +154,7 @@ describe('the gallery-settings row contract', () => {
         availability="available"
         onOpen={noop}
         publishedUrl={null}
-        onShare={noop}
+        onPublish={noop}
         onReorder={noop}
         onRescan={noop}
         onRename={async () => {}}

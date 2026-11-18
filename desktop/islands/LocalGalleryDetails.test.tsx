@@ -75,7 +75,7 @@ type Props = Parameters<typeof LocalGalleryDetails>[0]
 const mount = (overrides: Partial<Props> = {}) => {
   const calls = {
     open: 0,
-    share: 0,
+    publish: 0,
     rescan: 0,
     rename: [] as string[],
     remove: 0,
@@ -86,8 +86,8 @@ const mount = (overrides: Partial<Props> = {}) => {
     availability: overrides.availability ?? 'available',
     onOpen: overrides.onOpen ?? (() => { calls.open += 1 }),
     publishedUrl: overrides.publishedUrl ?? null,
-    onShareLink: overrides.onShareLink,
-    onShare: overrides.onShare ?? (() => { calls.share += 1 }),
+    onShare: overrides.onShare,
+    onPublish: overrides.onPublish ?? (() => { calls.publish += 1 }),
     onReorder: overrides.onReorder === undefined ? undefined : () => { calls.reorder += 1 },
     onRescan: overrides.onRescan
       ? async () => { calls.rescan += 1; await overrides.onRescan?.() }
@@ -276,7 +276,7 @@ describe('local gallery settings panel (desktop)', () => {
     shareRow.click()
     await settle()
     expect(calls.open).toBe(0)
-    expect(calls.share).toBe(0)
+    expect(calls.publish).toBe(0)
   })
 
   test('when available, Open and Share are enabled and fire', async () => {
@@ -291,15 +291,15 @@ describe('local gallery settings panel (desktop)', () => {
     ;(row(container, 'Publish') as HTMLButtonElement).click()
     await settle()
     expect(calls.open).toBe(1)
-    expect(calls.share).toBe(1)
+    expect(calls.publish).toBe(1)
   })
 
-  test('a published link swaps Publish for Share link, which never re-uploads', async () => {
+  test('a published link swaps Publish for Copy link, which never re-uploads', async () => {
     const { container } = mount({
       publishedUrl: 'https://manorama.xyz/thecontrarian/italy-amore-mio',
-      onShareLink: async () => 'Link copied — paste it anywhere',
+      onShare: async () => 'Link copied — paste it anywhere',
     })
-    const shareRow = row(container, 'Share link') as HTMLButtonElement
+    const shareRow = row(container, 'Copy link') as HTMLButtonElement
     expect(shareRow).not.toBeNull()
     expect(shareRow.textContent).toContain('…/italy-amore-mio')
     // No publish path exists for a gallery that already has a link.
@@ -314,9 +314,9 @@ describe('local gallery settings panel (desktop)', () => {
   test('a cancelled share leaves no status behind', async () => {
     const { container } = mount({
       publishedUrl: 'https://manorama.xyz/thecontrarian/italy-amore-mio',
-      onShareLink: async () => null,
+      onShare: async () => null,
     })
-    ;(row(container, 'Share link') as HTMLButtonElement).click()
+    ;(row(container, 'Copy link') as HTMLButtonElement).click()
     await settle()
     const notes = [...container.querySelectorAll('.m-note[role="status"]')].map((el) => el.textContent)
     expect(notes).toEqual([])

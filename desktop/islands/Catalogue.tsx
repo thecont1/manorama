@@ -33,7 +33,7 @@ import {
 import { assetUrl, isDesktopRuntime, pathExists, pickGalleryFolder, readDirEntries, readFileBytes, registerSavedGalleryRoots, revealGalleryRoot, sharePost } from '../lib/tauri'
 import { invoke } from '@tauri-apps/api/core'
 import { removeDeviceGallery, syncDeviceGalleries } from '../lib/sync'
-import { copyText, shareGalleryOnWeb } from '../../app/lib/gallery-share'
+import { copyText } from '../../app/lib/gallery-share'
 import { AccountApiError, createAccountGallery, deleteAccount, deleteDeviceGalleryRecord, fetchAccountGalleries, fetchAccountGallery, fetchAccountIdentities, fetchAccountProfile, fetchDeviceGalleries, fetchDevices, forgetDevice, mintLinkHandoff, patchAccountOwnerSlug, probeAccountGallery, refreshAccountGallery, registerDevice, scanGalleryLink, setAccountGalleryHidden, setAccountGalleryPin, setAccountGalleryPositions, setDeviceGalleryHidden, standaloneDeviceGalleries, unlinkAccountIdentity } from '../lib/account'
 import { previewSrcFor, sourceLabelFor } from '../../native/lib/library-media'
 import { postToXPhotos, type PostToXPhoto } from '../../native/lib/post-to-x'
@@ -3501,15 +3501,13 @@ export default function Catalogue({ apiBase }: { apiBase: string }) {
               openViewer(detailsRecord.id, 0)
             }}
             publishedUrl={detailsPublishedUrl}
-            onShareLink={detailsPublishedUrl ? async () => {
-              const shared = await shareGalleryOnWeb({ title: detailsRecord.title, caption: '', url: detailsPublishedUrl })
-              if (shared === 'shared') return 'Link shared'
-              if (shared === 'cancelled') return null
-              // No system share in the webview — the clipboard keeps the same
-              // contract, and a failed copy leaves the address visible.
-              return (await copyText(detailsPublishedUrl)) ? 'Link copied — paste it anywhere' : detailsPublishedUrl
-            } : undefined}
-            onShare={openShareFromDetails}
+            onShare={detailsPublishedUrl ? async () =>
+              // The shared "Copy link" row — the same contract as the
+              // native caller: the clipboard, never the share chooser or
+              // the publish sheet. A failed copy leaves the address visible.
+              (await copyText(detailsPublishedUrl)) ? 'Link copied — paste it anywhere' : detailsPublishedUrl
+            : undefined}
+            onPublish={openShareFromDetails}
             onReorder={() => {
               closeDetails()
               openViewer(detailsRecord.id, 0, true)
