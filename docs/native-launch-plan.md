@@ -268,6 +268,14 @@ Android foldables expose `@media (horizontal-viewport-segments: 2)` with
 E3 is P1 — ship without it if Xcode 27.1 is not installed by Sep 25. E1 and E2 are pure CSS/TS
 and testable on the desktop today, so they can land regardless.
 
+G4 addendum: the glass capsules reseat on the same `reservedRegions` pass that feeds
+`__MANORAMA_IOS_LAYOUT__` — `SceneDelegate` publishes the active division and occlusion
+frames to the overlay model in window coordinates, the top capsule clears a leading
+vertical bar, and the bottom cluster centres in the widest free run of screen. Web side
+pills keep their near-opaque `.92` fill under the frost gate since Tier-B blur is
+invisible inside the system bar's thin strip. Duo verification is real-device only — iOS 27.x
+simulators on this host render blank.
+
 ### F. Store submission
 
 | ID | Task | Done when |

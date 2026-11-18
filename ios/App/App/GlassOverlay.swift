@@ -102,6 +102,11 @@ final class GlassChromeModel: ObservableObject {
     /// GeometryReader under .ignoresSafeArea() reports zero, which was
     /// pinning the capsules into the status bar and home indicator.
     @Published var safeInsets: UIEdgeInsets = .zero
+    /// Active reserved regions in window coordinates — the hinge and the
+    /// vertical system bar on iPhone Duo. SceneDelegate feeds them from the
+    /// same layout pass that posts __MANORAMA_IOS_LAYOUT__, so a capsule
+    /// can never seat inside a region the system owns.
+    @Published var reservedRegions: [CGRect] = []
     /// Set the moment the position capsule is tapped — the picker's own
     /// chrome:false report follows a bridge round-trip behind it, so
     /// without this the capsules linger ~300ms over the opening filmstrip.
@@ -270,17 +275,18 @@ struct GlassChromeOverlay: View {
     @GestureState private var fingerDown = false
 
     var body: some View {
-        GeometryReader { _ in
+        GeometryReader { geo in
             ZStack(alignment: .topLeading) {
                 if model.chromeVisible && !model.pickerSuppress {
                     libraryCapsule
-                        .padding(.leading, 16)
+                        .padding(.leading, leadingSeat)
                         .padding(.top, model.safeInsets.top + 8)
                 }
                 if model.chromeVisible && model.curtainRaised && !model.pickerSuppress {
                     controlsCluster
                         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
                         .padding(.bottom, model.safeInsets.bottom + 16)
+                        .offset(x: clusterOffset(in: geo.size.width))
                 }
                 if let sheet = model.sheetRect {
                     SheetGlassSurface(start: sheetSeat, end: sheet, reduceMotion: reduceMotion, reduceTransparency: reduceTransparency)
@@ -295,6 +301,46 @@ struct GlassChromeOverlay: View {
         .onPreferenceChange(GlassHitRectsKey.self) { model.hitRects = $0 }
         .onChange(of: fingerDown) { _, down in model.setFingerDown(down) }
         .onDisappear { model.setFingerDown(false) }
+    }
+
+    /// Leading padding that clears a reserved region hugging the left edge —
+    /// the Duo's vertical system bar when it lands leading. Safe-area insets
+    /// do not describe that bar, so the seat is measured from regions. The
+    /// region must also cross the capsule's own vertical band: a horizontal
+    /// division spans the full width (minX ≈ 0) but never meets the top
+    /// seat, and must not push the capsule sideways.
+    private var leadingSeat: CGFloat {
+        let bandTop = model.safeInsets.top + 8
+        let bandBottom = bandTop + 44 // the capsule's minHeight
+        let barEdge = model.reservedRegions
+            .filter { $0.minX <= 1 && $0.minY < bandBottom && $0.maxY > bandTop }
+            .map(\.maxX)
+            .max() ?? 0
+        return barEdge > 0 ? barEdge + 16 : 16
+    }
+
+    /// Centre of the widest run of screen not covered by a reserved region,
+    /// as an offset from the container's own centre. On an unfolded Duo the
+    /// hinge's division region splits the width in two; the cluster takes
+    /// the wider half — the segment without the system bar. Zero keeps the
+    /// default centring when nothing is reserved.
+    private func clusterOffset(in width: CGFloat) -> CGFloat {
+        let regions = model.reservedRegions
+        guard !regions.isEmpty, width > 0 else { return 0 }
+        var cuts: [CGFloat] = [0, width]
+        for region in regions {
+            cuts.append(min(max(region.minX, 0), width))
+            cuts.append(min(max(region.maxX, 0), width))
+        }
+        cuts.sort()
+        var best: (start: CGFloat, width: CGFloat) = (0, 0)
+        for i in 0..<(cuts.count - 1) {
+            let gap = cuts[i + 1] - cuts[i]
+            let mid = cuts[i] + gap / 2
+            let covered = regions.contains { mid >= $0.minX && mid <= $0.maxX }
+            if gap > best.width, !covered { best = (cuts[i], gap) }
+        }
+        return best.width > 0 ? best.start + best.width / 2 - width / 2 : 0
     }
 
     /// Feeds the capsule's touch into the shared @GestureState — true while
