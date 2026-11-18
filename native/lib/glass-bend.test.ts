@@ -33,7 +33,7 @@ const fakeRaf = () => {
 const fakeDoc = () => {
   const dom = new Window({ width: 393, height: 873, url: 'http://localhost/' })
   const doc = dom.document as unknown as Document
-  return { root: doc.documentElement, body: doc.body, doc }
+  return { dom, root: doc.documentElement, body: doc.body, doc }
 }
 
 const androidWin = (overrides: Record<string, unknown> = {}) => ({
@@ -135,6 +135,84 @@ describe('glass bend — gating', () => {
     raf.step(t)
     for (let i = 0; i < 100; i += 1) {
       t += 16
+      raf.step(t)
+    }
+    expect(report.degraded).toBe(false)
+    expect(root.dataset.androidGlass).toBe('1')
+  })
+
+  test('a background/resume cycle does not feed hidden time to the sustain clock', () => {
+    const raf = fakeRaf()
+    const { dom, doc, root } = fakeDoc()
+    const win = androidWin({ requestAnimationFrame: raf.requestAnimationFrame, cancelAnimationFrame: raf.cancelAnimationFrame })
+    const report = initGlassBend({ win, doc, ...deps() })
+    for (let t = 16; t <= 1300; t += 16) raf.step(t)
+    expect(root.dataset.androidGlass).toBe('1')
+    // Background the page mid-flight, then resume — rAF timestamps jump.
+    doc.dispatchEvent(new dom.Event('visibilitychange') as unknown as Event)
+    let t = 1300 + 30_000
+    for (let i = 0; i < 20; i += 1) {
+      t += 16
+      raf.step(t)
+    }
+    expect(report.degraded).toBe(false)
+    expect(root.dataset.androidGlass).toBe('1')
+    // The measured baseline survives — a genuinely slow run still trips.
+    for (let i = 0; i < 80; i += 1) {
+      t += 40
+      raf.step(t)
+    }
+    expect(report.degraded).toBe(true)
+  })
+
+  test('hiding mid-baseline restarts collection rather than counting hidden time', () => {
+    const raf = fakeRaf()
+    const { dom, doc } = fakeDoc()
+    const win = androidWin({ requestAnimationFrame: raf.requestAnimationFrame, cancelAnimationFrame: raf.cancelAnimationFrame })
+    const report = initGlassBend({ win, doc, ...deps() })
+    for (let t = 16; t <= 320; t += 16) raf.step(t)
+    doc.dispatchEvent(new dom.Event('visibilitychange') as unknown as Event)
+    let t = 320 + 30_000
+    for (let i = 0; i < 90; i += 1) {
+      t += 16
+      raf.step(t)
+    }
+    // Hidden time stayed out of the average — ~16ms, not ~seconds.
+    expect(report.baselineMs).not.toBeNull()
+    expect(report.baselineMs!).toBeLessThan(50)
+    expect(report.enabled).toBe(true)
+  })
+
+  test('disabled (folded) time does not count toward the three-second trip', () => {
+    const raf = fakeRaf()
+    const segments = mql(false)
+    const { doc, root } = fakeDoc()
+    const win = androidWin({
+      matchMedia: () => segments,
+      requestAnimationFrame: raf.requestAnimationFrame,
+      cancelAnimationFrame: raf.cancelAnimationFrame,
+    })
+    const report = initGlassBend({ win, doc, ...deps() })
+    for (let t = 16; t <= 1300; t += 16) raf.step(t)
+    let t = 1300
+    // Two seconds over budget — the sustain clock is running.
+    for (let i = 0; i < 50; i += 1) {
+      t += 40
+      raf.step(t)
+    }
+    // Fold for two seconds — frames keep ticking but bend is off.
+    segments.matches = true
+    for (const l of segments.listeners) l()
+    for (let i = 0; i < 50; i += 1) {
+      t += 40
+      raf.step(t)
+    }
+    segments.matches = false
+    for (const l of segments.listeners) l()
+    // Another two seconds over budget — under three since the fold reset
+    // the clock; a stale overSince would trip immediately.
+    for (let i = 0; i < 50; i += 1) {
+      t += 40
       raf.step(t)
     }
     expect(report.degraded).toBe(false)

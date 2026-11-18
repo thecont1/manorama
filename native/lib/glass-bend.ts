@@ -126,7 +126,8 @@ export const initGlassBend = (deps: GlassBendDeps = {}): GlassBendReport => {
   svg.setAttribute('aria-hidden', 'true')
   svg.setAttribute('style', 'position:absolute;width:0;height:0;overflow:hidden')
   svg.innerHTML =
-    `<filter id="${BEND_FILTER_ID}" x="-5%" y="-5%" width="110%" height="110%">` +
+    `<filter id="${BEND_FILTER_ID}" x="-5%" y="-5%" width="110%" height="110%" ` +
+    `color-interpolation-filters="sRGB">` +
     `<feImage href="${url}" xlink:href="${url}" preserveAspectRatio="none" result="map"/>` +
     `<feDisplacementMap in="SourceGraphic" in2="map" scale="${DISPLACEMENT_SCALE}" ` +
     `xChannelSelector="R" yChannelSelector="G"/>` +
@@ -183,6 +184,10 @@ export const initGlassBend = (deps: GlassBendDeps = {}): GlassBendReport => {
         } else {
           overSince = null
         }
+      } else {
+        // Disabled time — folded, for instance — never feeds the sustain
+        // clock; only uninterrupted enabled frames count.
+        overSince = null
       }
     }
     last = time
@@ -199,6 +204,21 @@ export const initGlassBend = (deps: GlassBendDeps = {}): GlassBendReport => {
     if (mql.addEventListener) mql.addEventListener('change', onSegmentChange)
     else mql.addListener?.(onSegmentChange)
   }
+
+  // A backgrounded page stops rAF; on return the first delta would read
+  // as one giant over-budget frame and burn the sustain clock. Hide and
+  // resume alike re-anchor the frame clock and drop any in-flight
+  // over-budget run. Baseline collection restarts only while it is still
+  // incomplete — a measured baseline survives ordinary background cycles.
+  doc.addEventListener?.('visibilitychange', () => {
+    last = 0
+    overSince = null
+    if (report.baselineMs === null) {
+      baselineEnd = null
+      baselineSum = 0
+      baselineCount = 0
+    }
+  })
 
   return report
 }
