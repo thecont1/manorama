@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'hono/jsx'
-import { hasMacosShell, publishAddFolder, publishAddGallery, publishClose, publishNavigation, shellPost } from '../lib/shell'
+import { hasMacosShell, publishAddFolder, publishAddGallery, publishChrome, publishClose, publishNavigation, shellPost } from '../lib/shell'
 import GalleryShell from '../../app/components/GalleryShell'
-import Viewer from '../../app/islands/Viewer'
+import Viewer, { type ViewerChromeControl, type ViewerChromeHandle } from '../../app/islands/Viewer'
 import EncryptedGallery from '../../app/islands/EncryptedGallery'
 import { defaultGallerySettings, type GallerySettings } from '../../app/lib/gallery-settings'
 import { houseAdFrameFor, type AdFrame } from '../../app/lib/adframe'
@@ -353,11 +353,16 @@ export default function Catalogue({ apiBase }: { apiBase: string }) {
   // to move, it never sets it. Under Tauri there is no shell, so the handle
   // simply goes unused and the build is unchanged.
   const navigationRef = useRef<{ goTo(index: number): void } | null>(null)
+  const chromeRef = useRef<ViewerChromeHandle | null>(null)
+  const chromeProps = typeof document !== 'undefined' && document.documentElement.dataset.macosGlass === '1'
+    ? { chromeRef, onChromeFocus: (control: ViewerChromeControl) => shellPost({ type: 'focus', control }) }
+    : {}
   // Tell the native shell what the shell needs to know: whether a gallery is
   // open, and which photograph it is on. Both calls are no-ops without a
   // shell, so the Tauri build is unaffected.
   useEffect(() => {
     publishNavigation(navigationRef)
+    publishChrome(chromeRef)
     // The shell's Gallery menu has a Close Gallery item; the page owns
     // what closing means, so the shell asks the page.
     publishClose(() => {
@@ -2481,6 +2486,7 @@ export default function Catalogue({ apiBase }: { apiBase: string }) {
       plate,
       initialIndex: accountViewer.index,
       navigationRef,
+      ...chromeProps,
       onPositionChange: (position: { index: number }) => {
         shellPost({ type: 'position', index: position.index, total: accountViewer.manifest.images.length })
       },
@@ -2580,6 +2586,7 @@ export default function Catalogue({ apiBase }: { apiBase: string }) {
             editStore={localEditStore}
             allowFullscreen={false}
             navigationRef={navigationRef}
+            {...chromeProps}
             onPositionChange={(position: { index: number }) => {
               shellPost({ type: 'position', index: position.index, total: manifest.images.length })
             }}

@@ -11,17 +11,21 @@
  * behaves exactly as it did before this file existed.
  */
 
+import type { ViewerChromeControl, ViewerChromeHandle } from '../../app/islands/Viewer'
+
 export type ShellMessage =
   | { type: 'ready' }
   | { type: 'position'; index: number; total: number }
   | { type: 'gallery'; open: boolean; title?: string }
   | { type: 'escape' }
+  | { type: 'focus'; control: ViewerChromeControl }
 
 type ShellOutbound = { post: (message: ShellMessage) => void }
 
 type ShellWindow = {
   __MANORAMA_SHELL__?: ShellOutbound
   __manoramaGoTo?: (index: number) => void
+  __manoramaChrome?: ViewerChromeHandle
   __manoramaCloseGallery?: () => void
   __manoramaAddGallery?: () => void
   __manoramaAddFolder?: () => void
@@ -60,13 +64,16 @@ export const hasMacosShell = (): boolean =>
  */
 export type NavigationHandle = { current: { goTo(index: number): void } | null }
 
-/**
- * Publish a navigation handle to the shell.
- *
- * The shell calls this rather than reaching into the page: it needs one
- * entry point, and the page needs one place where the mounted Viewer's
- * handle lives.
- */
+export const publishChrome = (handle: { current: ViewerChromeHandle | null }) => {
+  const w = shellWindow()
+  if (!w) return
+  w.__manoramaChrome = {
+    activate: (control) => handle.current?.activate(control),
+    setActive: (active) => handle.current?.setActive(active),
+    focusStage: () => handle.current?.focusStage(),
+  }
+}
+
 export const publishNavigation = (handle: NavigationHandle) => {
   const w = shellWindow()
   if (!w) return
