@@ -15,6 +15,14 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 
 CONFIG="${1:-debug}"
+case "$CONFIG" in
+  # debug compiles without optimisation — the shell is thin enough that the
+  # faster build is the better iteration loop; release stays -O for the
+  # artifact desktop-release.yml ships.
+  debug)   OPTIMISATION=-Onone ;;
+  release) OPTIMISATION=-O ;;
+  *) echo "usage: scripts/build-macos.sh [debug|release]" >&2; exit 2 ;;
+esac
 APP="macos/ManoramaMac"
 # Test builds may override the bundle id and output directory — a suite
 # that must coexist with an installed copy needs a REAL distinct
@@ -65,7 +73,7 @@ echo "macOS SDK: $SDK_VERSION ($SDK_PATH)"
 export SDKROOT="$SDK_PATH"
 mkdir -p "$BUILD_DIR"
 "$SWIFTC" \
-  -O \
+  $OPTIMISATION \
   -sdk "$SDK_PATH" \
   -target arm64-apple-macosx15.0 \
   -framework AppKit \

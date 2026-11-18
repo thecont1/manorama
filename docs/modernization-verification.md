@@ -22,13 +22,17 @@ developer directory, exports `SDKROOT`, and asserts the Mach-O reports
 
 ## Window preference and restoration
 
-- `--windowed` is a test override and always wins.
-- Otherwise the Settings scene's **Open in full screen** (`openInFullScreen`
-  defaults key, off by default) decides whether the launch enters a Space.
+- The launch *decision* is deterministic: `--windowed` overrides the
+  preference; otherwise the Settings scene's **Open in full screen**
+  (`openInFullScreen` defaults key, off by default) decides whether the
+  launch asks for a Space.
 - The saved window frame restores either way; the preference only governs
   fullscreen, and only at launch.
 - Reopening the Library or a deep-link handoff never re-applies the preference.
-- A fullscreen record from the kiosk era cannot defeat the windowed default.
+- The decision's *outcome* is a correction attempt, not a guarantee: a
+  fullscreen record left over from the kiosk era can still land the window
+  on a Space if its restoration entry arrives after the correction's
+  observers retire — reproduced once during this lane and tracked as #252.
 - `Settings` is a separate scene; it is never a fallback target for window or
   deep-link routing.
 
@@ -53,7 +57,7 @@ sweep; CocoaPods (SPM only); multi-window galleries.
 | --- | --- | --- |
 | macOS 15 (floor) | **Named gap** | Compiler and `vtool` prove `minos 15.0`; no macOS 15 runtime exists locally. Needs a 15.x machine or VM for the launch/smoke row. |
 | macOS 26 | **Named gap** | Local machine runs 27.2.1; no 26.x runtime available. Liquid Glass-era appearance row remains unverified. |
-| macOS 27.2.1 (current, tested) | ✅ Verified | Debug build `minos 15.0, sdk 27.0`; isolated evidence app (`--config`/`--store`, distinct bundle id): windowed 1280×840 default launch, `manorama Settings` pane with the single toggle, fullscreen Space on preference, relaunch-windowed after pref removal. Captures `09`–`11` in `demo-captures/macos/`. |
+| macOS 27.2.1 (current, tested) | ✅ Verified | Optimized `build-macos.sh` output, `minos 15.0, sdk 27.0`; isolated evidence app (`--config`/`--store`, distinct bundle id): observed windowed 1280×840 launch, `manorama Settings` pane with the single toggle, fullscreen Space on the preference arm. Captures `09`–`11` in `demo-captures/macos/`. Windowed-launch *outcome* is an observation, not a guarantee — see #252. |
 | iOS/iPadOS 17 (floor) | **Named gap** | `IPHONEOS_DEPLOYMENT_TARGET 17.0` set on all four targets and CapApp-SPM `.v17` regenerated; no iOS 17 runtime installed. Sim runtimes can't be assumed — needs download or a device. |
 | iOS 26.5 (first-glass generation) | ✅ Verified | iPhone 17 Pro Max simulator, plain production build: launches, welcome door renders, system chrome correct (1320×2868). |
 | iOS/iPadOS 27.x (current) | ✅ Verified | Six-state matrix captured on iPhone 17 Pro Max sim (1320×2868, `demo-captures/ios-69/`), iPhone 6.5" class (1284×2778, `demo-captures/ios/`), iPad Pro 13" landscape (2752×2064, `demo-captures/ipad/`). Scene/Duo resize + reserved-region paths regression-tested through the fold/G4 work. |
@@ -69,7 +73,7 @@ simulator evidence cannot prove them.
 | `bunx tsc --noEmit` | ✅ pass |
 | Unit suite via `scripts/test-mirror.sh` | ✅ pass (incl. `check-glass` 9/9, workbench 76/76) |
 | `vite.config.desktop-shell.ts` + `build:desktop` | ✅ pass |
-| `scripts/build-macos.sh debug` | ✅ pass — `minos 15.0, linked sdk 27.0` |
+| `scripts/build-macos.sh debug` (`-Onone`) | ✅ pass — `minos 15.0, linked sdk 27.0` |
 | `test-macos-focus.sh` window-mode contract | ✅ updated for windowed default / opt-in fullscreen / `--windowed` override / Settings persistence, run during the Phase-2 lane |
 | Boundary harness | ✅ preserved and run during the lane |
 | Playwright desktop specs | **Not run on this lane** — needs the dev-seed env vars; last green during the frost PRs |
@@ -79,9 +83,11 @@ simulator evidence cannot prove them.
 
 `demo-captures/macos/`: `09-settings-window.png` (the single-toggle scene),
 `10-library-windowed.png` (1280×840 default), `11-library-fullscreen.png`
-(fullscreen Space). Provenance: `feat/modernization-tail`, debug build,
-macOS 27.2.1, Xcode 27.1 / macOS SDK 27.0, evidence bundle id
-`in.thecontrarian.manorama.desktop.evidence`, isolated `--config`/`--store`.
+(fullscreen Space). Provenance: `feat/modernization-tail`, optimized
+`build-macos.sh` output (`debug` compiled `-O` at capture time; it selects
+`-Onone` from this commit on), macOS 27.2.1, Xcode 27.1 / macOS SDK 27.0,
+evidence bundle id `in.thecontrarian.manorama.desktop.evidence`, isolated
+`--config`/`--store`.
 
 ## Owner actions
 
