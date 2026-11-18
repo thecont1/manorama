@@ -380,6 +380,15 @@ final class AppModel {
     /// a person cannot act before then, so every entry after visibility
     /// is intent.
     @ObservationIgnored private var launchModeVisibilityObserver: NSObjectProtocol?
+    /// Marks the start of a fullscreen entry so the grace deadline does
+    /// not retire the watch mid-transition (#252).
+    @ObservationIgnored private var launchModeWillEnterObserver: NSObjectProtocol?
+    /// A fullscreen entry has begun but not yet finished. The grace
+    /// deadline checks it before retiring the watch.
+    @ObservationIgnored private var launchModeEntryPending = false
+    /// The post-visibility grace has ended; a pending transition that
+    /// completes or fails after this retires the watch itself.
+    @ObservationIgnored private var launchModeGraceExpired = false
 
     /// Enter fullscreen once the window is ready — only if the launch
     /// decision asked for it and the window is not already there. AppKit
@@ -442,6 +451,13 @@ final class AppModel {
             return
         }
         let center = NotificationCenter.default
+        launchModeWillEnterObserver = center.addObserver(
+            forName: NSWindow.willEnterFullScreenNotification,
+            object: window,
+            queue: .main
+        ) { [weak self] _ in
+            MainActor.assumeIsolated { self?.launchModeEntryPending = true }
+        }
         launchModeObserver = center.addObserver(
             forName: NSWindow.didEnterFullScreenNotification,
             object: window,
@@ -451,6 +467,7 @@ final class AppModel {
                 let windowFullScreen = window?.styleMask.contains(.fullScreen) ?? false
                 let fromInput = Self.fullscreenCameFromInput()
                 Trace.log("launch-mode: fullscreen entry — fullScreen=\(windowFullScreen) fromInput=\(fromInput)")
+                self?.launchModeEntryPending = false
                 self?.disarmLaunchMode()
                 guard let window,
                       window.styleMask.contains(.fullScreen),
@@ -463,6 +480,12 @@ final class AppModel {
                 }
             }
         }
+        // A transition that fails mid-flight never posts didEnter — and
+        // `windowDidFailToEnterFullScreen` is delegate-only, so no
+        // notification exists to clear `launchModeEntryPending`. The
+        // watch then lingers until the next entry or the window's close;
+        // a stale watch can only see entries it would judge user-driven
+        // anyway, so lingering is harmless.
         launchModeCloseObserver = center.addObserver(
             forName: NSWindow.willCloseNotification,
             object: window,
@@ -507,7 +530,17 @@ final class AppModel {
     /// (#252).
     private func scheduleLaunchModeDisarm() {
         DispatchQueue.main.asyncAfter(deadline: .now() + .seconds(2)) { [weak self] in
-            MainActor.assumeIsolated { self?.disarmLaunchMode() }
+            MainActor.assumeIsolated {
+                guard let self else { return }
+                self.launchModeGraceExpired = true
+                // A transition that began inside the grace can finish
+                // after it — disarming now would retire the watch
+                // mid-flight and let the restored entry stand. The
+                // pending didEnter judges the entry and retires the
+                // watch itself.
+                guard !self.launchModeEntryPending else { return }
+                self.disarmLaunchMode()
+            }
         }
     }
 
@@ -545,9 +578,13 @@ final class AppModel {
         if let launchModeObserver { center.removeObserver(launchModeObserver) }
         if let launchModeCloseObserver { center.removeObserver(launchModeCloseObserver) }
         if let launchModeVisibilityObserver { center.removeObserver(launchModeVisibilityObserver) }
+        if let launchModeWillEnterObserver { center.removeObserver(launchModeWillEnterObserver) }
         launchModeObserver = nil
         launchModeCloseObserver = nil
         launchModeVisibilityObserver = nil
+        launchModeWillEnterObserver = nil
+        launchModeEntryPending = false
+        launchModeGraceExpired = false
     }
 
     // MARK: - The probe
