@@ -1682,7 +1682,7 @@ describe('desktop catalogue workbench', () => {
       const panel = container.querySelector('.m-owner-panel')
       expect(panel).not.toBeNull()
       expect([...panel!.querySelectorAll('.m-actionrow-label')].map((el) => el.textContent)).toEqual([
-        'Open gallery', 'Name', 'Caption', 'Address', 'View source',
+        'Open gallery', 'View source', 'Name', 'Caption', 'Address',
         'Keep a copy', 'Save to this Mac', 'Remove from Library',
       ])
       for (const label of ['More Settings', 'Copy link', 'Reorder photos', 'Reorder photographs', 'Refresh gallery', 'Refresh gallery contents', 'Post to X']) {

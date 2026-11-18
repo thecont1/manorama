@@ -136,9 +136,9 @@ describe('the gallery-settings row contract', () => {
       />,
     )
     expectCanonical(root, [
-      'Open gallery', 'Copy link',
+      'Open gallery', 'View source', 'Copy link',
       'Name', 'Caption', 'Address', 'Reorder photographs',
-      'Refresh gallery contents', 'View source',
+      'Refresh gallery contents',
       'Keep a copy', 'Remove saved copy',
       'Remove from Library',
     ])

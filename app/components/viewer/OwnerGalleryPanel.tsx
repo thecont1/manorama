@@ -390,13 +390,21 @@ export default function OwnerGalleryPanel({
           {upgradeHref ?? libraryHref ? <a href={upgradeHref ?? libraryHref}>Upgrade</a> : null}
         </p>
       ) : null}
-      {layer !== 'rest' || onOpen ? (
+      {layer !== 'rest' || onOpen || onOpenSource ? (
         <ActionGroup>
           {layer !== 'quick' && onOpen ? (
             <ActionRow
               label={GALLERY_ROWS.open.label}
               icon={GALLERY_ROWS.open.icon()}
               onClick={onOpen}
+            />
+          ) : null}
+          {layer !== 'quick' && onOpenSource ? (
+            <ActionRow
+              label={GALLERY_ROWS.openSource.label}
+              icon={GALLERY_ROWS.openSource.icon()}
+              onClick={onOpenSource}
+              disabled={locked}
             />
           ) : null}
           {layer !== 'rest' ? (
@@ -440,24 +448,14 @@ export default function OwnerGalleryPanel({
           ) : null}
         </ActionGroup>
       ) : null}
-      {layer !== 'rest' || onOpenSource ? (
+      {layer !== 'rest' ? (
         <ActionGroup>
-          {layer !== 'rest' ? (
-            <ActionRow
-              label={readState === 'busy' ? (readElapsed > 0 ? `Refreshing… ${readElapsed}s` : 'Refreshing…') : GALLERY_ROWS.refresh.label}
-              icon={GALLERY_ROWS.refresh.icon()}
-              onClick={readFolderAgain}
-              disabled={locked || readState === 'busy'}
-            />
-          ) : null}
-          {layer !== 'quick' && onOpenSource ? (
-            <ActionRow
-              label={GALLERY_ROWS.openSource.label}
-              icon={GALLERY_ROWS.openSource.icon()}
-              onClick={onOpenSource}
-              disabled={locked}
-            />
-          ) : null}
+          <ActionRow
+            label={readState === 'busy' ? (readElapsed > 0 ? `Refreshing… ${readElapsed}s` : 'Refreshing…') : GALLERY_ROWS.refresh.label}
+            icon={GALLERY_ROWS.refresh.icon()}
+            onClick={readFolderAgain}
+            disabled={locked || readState === 'busy'}
+          />
         </ActionGroup>
       ) : null}
       {readState === 'busy' && readElapsed >= 20 && layer !== 'rest' ? (
