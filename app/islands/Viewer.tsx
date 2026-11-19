@@ -2939,7 +2939,6 @@ export default function Viewer({ slug, galleryTitle, images: sourceImages, encry
         if (control === 'library') { onReturnToGalleries?.(); return }
         if (!document.body.classList.contains('gallery-entered')) return
         nativeInvokerRef.current = control
-        pendingNativeFocus = control
         if (control === 'position') openGrid()
         else if (control === 'settings') openSettings()
         else openImageProvenance()
