@@ -763,6 +763,26 @@ export default function GalleryList({ apiBase, owner, slug, deepLinkSelection, o
     setAccountTier(answeredTierRef.current?.token === token ? answeredTierRef.current.tier : null)
   }
 
+  // An entitlement flip means setUserTier is promoting or demoting rows
+  // behind the cached list. The promotion rides a webhook that lands a
+  // beat after the store confirms the purchase, so re-pull now for what
+  // has already settled and once more past the webhook's usual latency —
+  // without this the footer flips to Visionary while the rows keep their
+  // Free-era "Temporary gallery" badges until a remount.
+  const billingProRef = useRef<boolean | undefined>(undefined)
+  useEffect(() => {
+    const now = billingState?.isPro
+    if (now === undefined || billingProRef.current === undefined) {
+      billingProRef.current = now
+      return
+    }
+    if (now === billingProRef.current) return
+    billingProRef.current = now
+    setAccountRevision((revision) => revision + 1)
+    const late = [2000, 6000].map((ms) => setTimeout(() => setAccountRevision((revision) => revision + 1), ms))
+    return () => late.forEach(clearTimeout)
+  }, [billingState?.isPro])
+
   // The account area resolves once per base from secure storage; a failed
   // list keeps its section quiet rather than blocking the manual form.
   useEffect(() => {

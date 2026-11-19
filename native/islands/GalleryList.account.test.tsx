@@ -1249,6 +1249,42 @@ describe('signed-in account area', () => {
     expect(JSON.parse(String(pin?.init?.body))).toEqual({ pinned: false })
   })
 
+  test('an entitlement upgrade re-pulls the list once the webhook has settled', async () => {
+    installLocalStorage()
+    signInStorage()
+    // The store confirms the purchase first; setUserTier lands on the
+    // server a beat later through the RevenueCat webhook, so the row can
+    // only drop its Temporary badge on a follow-up pull.
+    let promoted = false
+    stubFetch({
+      galleries: () => json({ galleries: [accountSummary({
+        retention: promoted ? 'retained' : 'pipeline',
+        expiresAt: promoted ? null : '2036-12-19T00:00:00.000Z',
+      })] }),
+    })
+    let setBilling!: (next: BillingState | undefined) => void
+    const Harness = () => {
+      const [billingState, setBillingState] = useState<BillingState | undefined>(entitlement('free'))
+      setBilling = setBillingState
+      return <GalleryList apiBase="https://manorama.xyz" billingState={billingState} onSignIn={() => {}} billing={{} as RevenueCatBilling} />
+    }
+    const container = dom.document.createElement('div') as unknown as HTMLElement
+    dom.document.body.appendChild(container as unknown as Parameters<typeof dom.document.body.appendChild>[0])
+    render(<Harness />, container)
+    await settle()
+    expect(container.querySelector('[data-lib-card="kashmir"]')?.textContent).toContain('Temporary gallery')
+
+    setBilling(entitlement('pro'))
+    await settle()
+    // The immediate re-pull answers before the webhook lands — still Free-era.
+    expect(container.querySelector('[data-lib-card="kashmir"]')?.textContent).toContain('Temporary gallery')
+    promoted = true
+    await new Promise((resolve) => setTimeout(resolve, 2400))
+    await settle()
+    expect(container.querySelector('[data-lib-card="kashmir"]')?.textContent).not.toContain('Temporary gallery')
+    expect(container.querySelector('[data-lib-card="kashmir"]')?.textContent).toContain('12 photographs')
+  })
+
   test('gallery actions live in the card menu and deletion waits for confirmation', async () => {
     installLocalStorage()
     signInStorage()
