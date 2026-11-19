@@ -2228,13 +2228,19 @@ export default function GalleryList({ apiBase, owner, slug, deepLinkSelection, o
               <span class="native-lib-foot-copy">
                 <span class="native-lib-foot-line">
                   You are a manorama {isPro ? 'Visionary' : 'Free User'} hosting{' '}
-                  <span class="num">{allowance.permanent}</span> of <span class="num">{galleryLimit}</span> Cloud galleries
-                  {isPro ? null : <> and <span class="num">{allowance.temporary}</span> of <span class="num">{FREE_PIPELINE_LIMIT}</span> Temporary galleries</>}.
+                  {/* A downgrade never evicts retained galleries, so the count
+                      can outrun the cap — those stay Cloud galleries, not the
+                      temporary ones the merged allowance folds them into. */}
+                  {retainedAccountGalleries.length > galleryLimit
+                    ? <><span class="num">{retainedAccountGalleries.length}</span> Cloud galleries (<span class="num">{retainedAccountGalleries.length - galleryLimit}</span> over the {isPro ? 'Visionary' : 'Free'} limit)</>
+                    : <><span class="num">{allowance.permanent}</span> of <span class="num">{galleryLimit}</span> Cloud galleries</>}
+                  {isPro ? null : <> and <span class="num">{temporaryAccountGalleries.length}</span> of <span class="num">{FREE_PIPELINE_LIMIT}</span> Temporary galleries</>}.
                 </span>
                 <span class="native-lib-foot-line native-lib-foot-meta">
                   {vaultUsageBytes !== undefined ? `${formatBytes(vaultUsageBytes)} in vault · ` : null}
                   {keptOnDevice} {keptOnDevice === 1 ? 'gallery' : 'galleries'} on {nativeDeviceLabel()}
                 </span>
+                <span class="m-sr-only">, opens Settings</span>
               </span>
               <svg class="m-actionrow-chevron" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true">
                 <path d="M9 6l6 6-6 6" />
