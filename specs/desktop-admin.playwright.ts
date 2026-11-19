@@ -263,7 +263,7 @@ test('desktop admin details: Library → Details → share sheet, both themes, c
       // Library → Gallery settings through the card's ··· menu.
       const card = page.locator('.lib-card').first()
       await card.locator('.lib-card-menu').click()
-      await page.getByRole('dialog').getByRole('button', { name: 'Gallery settings' }).click()
+      await page.getByRole('dialog').getByRole('button', { name: 'More settings…' }).click()
       await expect(details).toBeVisible()
       // The sheet states the gallery's own facts once: the panel head
       // carries the title and the count/source line — never both.
@@ -277,18 +277,23 @@ test('desktop admin details: Library → Details → share sheet, both themes, c
       for (const banned of ['public', 'provider', 'vault', 'offline']) {
         await expect(details).not.toContainText(banned)
       }
-      // Exactly the seven action rows, in the contract's order, and no more.
-      await expect(details.locator('.m-actionrow')).toHaveCount(7)
+      // Exactly the four action rows, in the contract's order, and no more —
+      // management actions live in the card menu, not the settings sheet.
+      await expect(details.locator('.m-actionrow')).toHaveCount(4)
       const labels = await details.locator('.m-actionrow-label').allTextContents()
-      expect(labels.map(label => label.trim())).toEqual(['Open gallery', 'Publish', 'Name', 'Reorder photographs', 'Refresh gallery contents', 'Open folder', 'Remove from Library'])
+      expect(labels.map(label => label.trim())).toEqual(['Open gallery', 'View source', 'Name', 'Remove from Library'])
 
       await mkdir(evidence, { recursive: true })
       await page.screenshot({ path: resolve(evidence, `window-${theme}-details.png`), animations: 'disabled', timeout: 10_000 })
 
       // Publish opens the shared Sheet: the sheet presentation, never
       // the inline header, and the upload-confirmation copy. Nothing here may
-      // connect or upload to a real provider.
-      await details.getByRole('button', { name: 'Publish' }).click()
+      // connect or upload to a real provider. The action lives in the card
+      // menu, so the settings sheet closes first.
+      await page.getByRole('dialog').getByRole('button', { name: 'Close', exact: true }).click()
+      await expect(details).toHaveCount(0)
+      await card.locator('.lib-card-menu').click()
+      await page.getByRole('dialog').getByRole('button', { name: 'Publish this gallery' }).click()
       const share = page.locator('.desktop-share--sheet')
       await expect(share).toBeVisible()
       await expect(page.locator('.desktop-share-header')).toHaveCount(0)
@@ -298,15 +303,10 @@ test('desktop admin details: Library → Details → share sheet, both themes, c
       await expect(share).toContainText('Google Drive')
       await page.screenshot({ path: resolve(evidence, `window-${theme}-share.png`), animations: 'disabled', timeout: 10_000 })
 
-      // Closing the sheet returns to Details, untouched.
+      // Closing the sheet returns to the Library and the URL is clean.
       await page.getByRole('button', { name: 'Close' }).click()
       await expect(share).toBeHidden()
-      await expect(details).toBeVisible()
-
-      // Back returns to the Library and the URL is clean.
-      await details.getByRole('button', { name: 'Back' }).click()
       await expect(page.locator('.desktop-catalogue')).toBeVisible()
-      await expect(details).toHaveCount(0)
       expect(new URL(page.url()).search).toBe('')
     }
 

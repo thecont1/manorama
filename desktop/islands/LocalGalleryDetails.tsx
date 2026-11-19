@@ -15,8 +15,8 @@ type Props = {
   onOpen: () => void
   onRename: (title: string) => void | Promise<void>
   onRemove: () => void | Promise<void>
-  /** Opens the gallery's folder on this Mac — the local counterpart of an
-   *  account gallery's "View source". */
+  /** "View source" for a local record — reveals the gallery's folder in
+   *  Finder. */
   onRevealFolder?: () => void
 }
 
@@ -109,6 +109,9 @@ export default function LocalGalleryDetails({
         ) : null}
       </header>
 
+      {/* The same lead group an account gallery opens with: Open gallery,
+          then View source — for a local record the source is its folder and
+          "viewing" it is a Finder reveal. */}
       <ActionGroup>
         <ActionRow
           label={GALLERY_ROWS.open.label}
@@ -116,6 +119,14 @@ export default function LocalGalleryDetails({
           onClick={onOpen}
           disabled={unavailable || locked}
         />
+        {onRevealFolder ? (
+          <ActionRow
+            label={GALLERY_ROWS.openSource.label}
+            icon={GALLERY_ROWS.openSource.icon()}
+            onClick={onRevealFolder}
+            disabled={locked}
+          />
+        ) : null}
       </ActionGroup>
 
       <ActionGroup>
@@ -127,17 +138,6 @@ export default function LocalGalleryDetails({
           disabled={locked}
         />
       </ActionGroup>
-
-      {onRevealFolder ? (
-        <ActionGroup>
-          <ActionRow
-            label={GALLERY_ROWS.openFolder.label}
-            icon={GALLERY_ROWS.openFolder.icon()}
-            onClick={onRevealFolder}
-            disabled={locked}
-          />
-        </ActionGroup>
-      ) : null}
 
       {note ? <p class="m-note" role="status">{note}</p> : null}
 

@@ -316,7 +316,7 @@ test('window-1280x840: details surface and share sheet over real photographs, bo
     // Library → Gallery settings through the card's ··· menu.
     const card = page.locator('.lib-card').first()
     await card.locator('.lib-card-menu').click()
-    await page.getByRole('dialog').getByRole('button', { name: 'Gallery settings' }).click()
+    await page.getByRole('dialog').getByRole('button', { name: 'More settings…' }).click()
     await expect(details).toBeVisible()
     // The sheet states the gallery's own facts once: the panel head
     // carries the title and the count/source line — never both.
@@ -332,7 +332,7 @@ test('window-1280x840: details surface and share sheet over real photographs, bo
     }
     await expect(details.locator('.m-actionrow')).toHaveCount(4)
     const labels = await details.locator('.m-actionrow-label').allTextContents()
-    expect(labels.map(label => label.trim())).toEqual(['Open gallery', 'Name', 'Open folder', 'Remove from Library'])
+    expect(labels.map(label => label.trim())).toEqual(['Open gallery', 'View source', 'Name', 'Remove from Library'])
 
     mkdirSync(evidence, { recursive: true })
     await page.screenshot({ path: resolve(evidence, `${engine}-window-1280x840-${theme}-details.png`), animations: 'disabled', timeout: 15_000 })

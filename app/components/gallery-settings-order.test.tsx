@@ -58,6 +58,11 @@ const mount = (node: Child) => {
 const rowLabels = (root: HTMLElement) =>
   [...root.querySelectorAll<HTMLElement>('.m-actionrow-label')].map((el) => el.textContent)
 
+/** Row labels per .m-actiongroup — the clubbing contract under test. */
+const groupLabels = (root: HTMLElement) =>
+  [...root.querySelectorAll<HTMLElement>('.m-actiongroup')].map((group) =>
+    [...group.querySelectorAll<HTMLElement>('.m-actionrow-label')].map((el) => el.textContent))
+
 const BANNED = ['Remove gallery', 'Stream only', 'Manage gallery', 'Source available']
 
 /** Asserts the exact row order and that retired labels stay absent. */
@@ -115,7 +120,6 @@ const detailsProps = {
   onRefresh: noop,
   onOpenSource: noop,
   onStreamOnlyChange: noop,
-  onPurge: noop,
   onRemove: noop,
 }
 
@@ -123,8 +127,7 @@ describe('the gallery-settings row contract', () => {
   test('the web owner panel orders groups 1–5 and hosts the device group', () => {
     const deviceGroup = (
       <ActionGroup label="On this Mac">
-        <ActionRow label="Keep a copy" control={<span>On this Mac</span>} />
-        <ActionRow label="Remove saved copy" />
+        <ActionRow label="Keep a copy on this Mac" control={<span>On this Mac</span>} />
       </ActionGroup>
     )
     const root = mount(
@@ -137,10 +140,19 @@ describe('the gallery-settings row contract', () => {
     )
     expectCanonical(root, [
       'Open gallery', 'View source', 'Copy link',
-      'Name', 'Caption', 'Address', 'Reorder photographs',
-      'Refresh gallery contents',
-      'Keep a copy', 'Remove saved copy',
+      'Name', 'Caption', 'Address',
+      'Reorder photographs', 'Refresh gallery contents',
+      'Keep a copy on this Mac',
       'Remove from Library',
+    ])
+    // Metadata and management are clubbed separately — reorder and refresh
+    // share one panel, and neither rides inside the metadata group.
+    expect(groupLabels(root)).toEqual([
+      ['Open gallery', 'View source', 'Copy link'],
+      ['Name', 'Caption', 'Address'],
+      ['Reorder photographs', 'Refresh gallery contents'],
+      ['Keep a copy on this Mac'],
+      ['Remove from Library'],
     ])
     // The device group keeps its own label — the only labelled group.
     expect(root.querySelector('.m-actiongroup-label')?.textContent).toBe('On this Mac')
@@ -158,11 +170,11 @@ describe('the gallery-settings row contract', () => {
       />,
     )
     expectCanonical(root, [
-      'Open gallery', 'Name', 'Open folder', 'Remove from Library',
+      'Open gallery', 'View source', 'Name', 'Remove from Library',
     ])
   })
 
-  test('the native details view keeps the device group between refresh and remove', () => {
+  test('the native details view mirrors the macOS settings sheet', () => {
     const root = mount(
       <GalleryDetailsView
         {...detailsProps}
@@ -171,13 +183,26 @@ describe('the gallery-settings row contract', () => {
         hasSavedCopy
       />,
     )
+    // The macOS Gallery Settings sheet: open/source first, then the
+    // metadata group, then the management pair, then the device group and
+    // removal. Copy link stays in the ··· menu; saved-copy removal rides
+    // the switch.
     expectCanonical(root, [
-      'Name', 'Caption', 'Address', 'Copy link',
-      'Reorder photographs', 'Refresh gallery contents', 'View source',
-      'Keep copy on this device', 'Remove saved copy',
+      'Open gallery', 'View source',
+      'Name', 'Caption', 'Address',
+      'Reorder photographs', 'Refresh gallery contents',
+      'Keep a copy on this iPhone',
       'Remove from Library',
     ])
-    expect(root.querySelector('.m-actiongroup-label')?.textContent).toBe('On this iPhone')
+    expect(groupLabels(root)).toEqual([
+      ['Open gallery', 'View source'],
+      ['Name', 'Caption', 'Address'],
+      ['Reorder photographs', 'Refresh gallery contents'],
+      ['Keep a copy on this iPhone'],
+      ['Remove from Library'],
+    ])
+    // No "On this iPhone" heading — the row label names the device itself.
+    expect(root.querySelector('.m-actiongroup-label')).toBeNull()
     // The availability warning is the only place "available" may appear —
     // and only when the source is actually gone.
     expect(root.textContent).not.toContain('Source available')

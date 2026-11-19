@@ -273,6 +273,90 @@ const stripImgRetry = (event: Event) => {
   }, 1500)
 }
 
+/** The Gallery Settings sheet's preview strip — the same filmstrip anatomy
+ *  the Library card carries, but a window onto the gallery rather than a
+ *  scroller: it never scrolls, so only as many cells as the frame can hold
+ *  are mounted (plus one spare that covers the edge while decoded ratios
+ *  replace the stored ones). */
+/** The cells mounted before the frame can be measured — enough to paint
+ *  the first strip, then the aspect walk takes over. */
+const PREVIEW_FALLBACK_CELLS = 8
+
+const DetailsPreviewStrip = ({ gallery, galleryUrl, onOpen }: {
+  gallery: GallerySummary
+  galleryUrl: string
+  onOpen(index: number): void
+}) => {
+  const frameRef = useRef<HTMLDivElement>(null)
+  const [count, setCount] = useState(() => Math.min(gallery.images.length, PREVIEW_FALLBACK_CELLS))
+  const title = gallery.title || gallery.slug
+  useEffect(() => {
+    const frame = frameRef.current
+    if (!frame) return
+    const update = () => {
+      const width = frame.clientWidth
+      const height = frame.clientHeight
+      if (!width || !height) return
+      let used = 0
+      let next = 0
+      for (const image of gallery.images) {
+        used += (height * Math.max(1, image.width)) / Math.max(1, image.height)
+        next += 1
+        if (used >= width) break
+      }
+      setCount((previous) => {
+        const filled = Math.min(gallery.images.length, next + 1)
+        return previous === filled ? previous : filled
+      })
+    }
+    update()
+    const observer = typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(update)
+    observer?.observe(frame)
+    return () => observer?.disconnect()
+  }, [gallery.id])
+  return (
+    <div class="admin-gallery-strip-frame" ref={frameRef} aria-label={`${title} images`}>
+      <ul class="admin-gallery-strip" aria-label={`${title} photographs`}>
+        {gallery.images.slice(0, count).map((image, index) => (
+          <li class={`admin-gallery-strip-item${image.hidden ? ' is-hidden' : ''}`} key={image.id} data-image-id={image.id}>
+            <a
+              href={galleryUrl}
+              onClick={(event: MouseEvent) => { event.preventDefault(); onOpen(index) }}
+              draggable={false}
+              aria-label={`${title}, ${image.hidden ? 'hidden ' : ''}${itemKind(image)} ${index + 1} of ${gallery.imageCount}`}
+            >
+              <HeicImg
+                src={image.src || previewSrcFor(image)}
+                preview={previewSrcFor(image)}
+                media={image.media}
+                previewMedia={image.variants?.[0]?.media}
+                galleryId={gallery.id}
+                filename={image.filename}
+                alt=""
+                loading="lazy"
+                draggable={false}
+                style={{ aspectRatio: `${Math.max(1, image.width)} / ${Math.max(1, image.height)}` }}
+                onLoad={(event: Event) => {
+                  const img = event.currentTarget as HTMLImageElement
+                  // Stored dims are the placeholder's shape — the decoded
+                  // frame owns the real ratio once it lands.
+                  if (img.naturalWidth && img.naturalHeight) img.style.aspectRatio = `${img.naturalWidth} / ${img.naturalHeight}`
+                  img.classList.add('is-loaded')
+                }}
+                onError={stripImgRetry}
+              />
+              {isVideoPreview(image) ? <span class="admin-strip-badge" aria-hidden="true">{videoBadge(image)}</span> : null}
+              {image.hidden
+                ? <span class="admin-strip-badge admin-strip-badge--hidden" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7-10-7-10-7z"/><circle cx="12" cy="12" r="3"/><path d="m4 4 16 16"/></svg></span>
+                : null}
+            </a>
+          </li>
+        ))}
+      </ul>
+    </div>
+  )
+}
+
 const readCatalogueFile = () => invoke<string | null>('read_private_file', { name: CATALOGUE_FILE })
 const writeCatalogueFile = (contents: string) =>
   invoke('write_private_file', { name: CATALOGUE_FILE, contents })
@@ -2227,8 +2311,7 @@ export default function Catalogue({ apiBase }: { apiBase: string }) {
       if (fill) {
         void fill.then((fillResult) => {
           if (abort.signal.aborted) return
-          if (fillResult?.status === 'skipped-video') setNotice('This gallery includes video — offline saving is not supported for mixed galleries yet.')
-          else if (fillResult?.status === 'over-cap') setNotice('This gallery is larger than the encrypted vault can hold — viewing stays online.')
+          if (fillResult?.status === 'over-cap') setNotice('This gallery is larger than the encrypted vault can hold — viewing stays online.')
           else if (fillResult?.status === 'complete') {
             setNotice('Offline copy saved in your encrypted vault.')
             void refreshSavedGalleries()
@@ -2349,9 +2432,9 @@ export default function Catalogue({ apiBase }: { apiBase: string }) {
     }
   }
 
-  /** "Save to this Mac" — the card-menu twin of an open under the 'vault'
-   *  load policy: downloads the gallery into the encrypted vault without
-   *  mounting the Viewer. */
+  /** The Keep-a-copy fill — downloads the gallery into the encrypted vault
+   *  without mounting the Viewer. The same 'vault' load-policy twin an open
+   *  performs; the Keep switch starts it. */
   const saveToVault = async (gallery: GallerySummary) => {
     if (!session) return
     const owner = ownerSlug ?? session.ownerSlug
@@ -2364,8 +2447,7 @@ export default function Catalogue({ apiBase }: { apiBase: string }) {
         undefined,
         (progress) => setNotice(`Saving ${progress.completed} of ${progress.total} photos to your encrypted vault…`),
       )
-      if (result.status === 'skipped-video') setNotice('This gallery includes video — offline saving is not supported for mixed galleries yet.')
-      else if (result.status === 'skipped-encrypted') setNotice('This gallery cannot be saved on this Mac yet — its encrypted form predates the vault.')
+      if (result.status === 'skipped-encrypted') setNotice('This gallery cannot be saved on this Mac yet — its encrypted form predates the vault.')
       else if (result.status === 'over-cap') setNotice('This gallery is larger than the encrypted vault can hold — raise the limit in Settings.')
       else setNotice('Saved on this Mac — encrypted, viewable only in manorama.')
       await refreshSavedGalleries()
@@ -2404,14 +2486,23 @@ export default function Catalogue({ apiBase }: { apiBase: string }) {
     else lease.dispose?.()
   }
 
-  /** A stream-only flag belongs to this gallery on this Mac — it cancels
-   *  future fills but never deletes a copy the owner already saved. */
+  /** A stream-only flag belongs to this gallery on this Mac. Choosing it is
+   *  a deletion choice as well as a future-downloads one — the copy the
+   *  vault was keeping goes with the policy, as the switch's text states. */
   const setGalleryStreamOnly = async (gallery: GallerySummary, streamOnly: boolean) => {
     const owner = ownerSlug ?? session?.ownerSlug
     if (!owner) return
     const next = { ...streamOnlyPolicies, [galleryPolicyKey(owner, gallery.slug)]: (streamOnly ? 'stream' : 'vault') as GalleryLoadOverride }
     setStreamOnlyPolicies(next)
     await saveGalleryStreamOnly(next, desktopVaultPersistence).catch(() => {})
+    if (streamOnly) {
+      const saved = savedGalleryFor(gallery)
+      if (saved) await removeSavedCopy(saved.galleryId)
+    } else if (!savedGalleryFor(gallery)) {
+      // Keep is a save choice, not only a future-opens one — the fill
+      // starts now, with progress riding the same notices as Save to Mac.
+      void saveToVault(gallery)
+    }
   }
 
   // The local viewer's manifest/settings/edit store must keep stable
@@ -3586,7 +3677,7 @@ export default function Catalogue({ apiBase }: { apiBase: string }) {
               <button type="button" disabled={busy || isLocked(cardMenu.gallery)} onClick={() => { const gallery = cardMenu.gallery; setCardMenu(null); void openAccountGallery(gallery, 0, true) }}>Reorder photos</button>
               <button type="button" disabled={busy || isLocked(cardMenu.gallery)} onClick={() => { void refreshFromMenu(cardMenu) }}>Refresh gallery</button>
               <button type="button" disabled={busy} onClick={() => { void openPostToXAccount(cardMenu.gallery) }}>Post to X</button>
-              <button type="button" disabled={busy} onClick={() => { setGalSettingsSlug(cardMenu.gallery.slug); setCardMenu(null) }}>Gallery Settings</button>
+              <button type="button" disabled={busy} onClick={() => { setGalSettingsSlug(cardMenu.gallery.slug); setCardMenu(null) }}>More settings…</button>
             </>) : cardMenu.kind === 'device' ? (<>
               {accountTier === 'pro' ? (
                 <button type="button" disabled={busy} onClick={() => { void setGalleryHidden(cardMenu, !cardMenu.gallery.hidden) }}>
@@ -3616,7 +3707,7 @@ export default function Catalogue({ apiBase }: { apiBase: string }) {
               <button type="button" disabled={busy || availability[cardMenu.record.id] === 'unavailable'} onClick={() => { const record = cardMenu.record; setCardMenu(null); openViewer(record.id, 0, true) }}>Reorder photos</button>
               <button type="button" disabled={busy} onClick={() => { void refreshFromMenu(cardMenu) }}>Refresh gallery</button>
               <button type="button" disabled={busy || availability[cardMenu.record.id] === 'unavailable'} onClick={() => openPostToXLocal(cardMenu.record)}>Post to X</button>
-              <button type="button" disabled={busy} onClick={() => { const record = cardMenu.record; setCardMenu(null); openDetails(record) }}>Gallery Settings</button>
+              <button type="button" disabled={busy} onClick={() => { const record = cardMenu.record; setCardMenu(null); openDetails(record) }}>More settings…</button>
             </>)}
           </div>
           )}
@@ -3679,8 +3770,18 @@ export default function Catalogue({ apiBase }: { apiBase: string }) {
       {galSettingsGallery ? (
         <Sheet key="cloud-gallery-settings" open onClose={() => setGalSettingsSlug(null)} title="Gallery Settings" returnFocus={cardMenuTrigger.current}>
           <div class="m-dark" onClick={interceptSettingsLink}>
+            {galSettingsGallery.images.length ? (
+              <div class="d-rail">
+                <DetailsPreviewStrip
+                  gallery={galSettingsGallery}
+                  galleryUrl={accountGalleryUrl(galSettingsGallery)}
+                  onOpen={(index) => { const g = galSettingsGallery; setGalSettingsSlug(null); void openAccountGallery(g, index) }}
+                />
+              </div>
+            ) : null}
             <OwnerGalleryPanel
               layer="rest"
+              management
               owner={ownerSlug ?? session?.ownerSlug ?? ''}
               slug={galSettingsGallery.slug}
               title={galSettingsGallery.title}
@@ -3693,6 +3794,7 @@ export default function Catalogue({ apiBase }: { apiBase: string }) {
               mediaCount={summaryMediaCount(galSettingsGallery)}
               upgradeHref="mailto:mahesh@thecontrarian.in?subject=Manorama%20upgrade"
               onOpen={() => { const g = galSettingsGallery; setGalSettingsSlug(null); void openAccountGallery(g, 0) }}
+              onReorder={() => { const g = galSettingsGallery; setGalSettingsSlug(null); void openAccountGallery(g, 0, true) }}
               currentPhotoId={() => ''}
               onTitleSaved={(next) => setAccountGalleries((previous) => previous?.map((item) => item.slug === galSettingsGallery.slug ? { ...item, title: next } : item) ?? previous)}
               onCaptionSaved={(next) => setAccountGalleries((previous) => previous?.map((item) => item.slug === galSettingsGallery.slug ? { ...item, caption: next } : item) ?? previous)}
@@ -3725,7 +3827,7 @@ export default function Catalogue({ apiBase }: { apiBase: string }) {
                       flip adds "Streams" it would otherwise shift the control
                       span's index and swap the switch node mid-gesture. */}
                   <ActionRow
-                    label={GALLERY_ROWS.keepCopy.label}
+                    label="Keep a copy on this Mac"
                     icon={GALLERY_ROWS.keepCopy.icon()}
                     value={galSettingsStreamOnly ? 'Streams' : galSettingsSaved ? 'On this Mac' : ''}
                     control={(
@@ -3736,20 +3838,7 @@ export default function Catalogue({ apiBase }: { apiBase: string }) {
                       />
                     )}
                   />
-                  <p class="m-note m-panel-note">Stream only cancels future offline saving for this gallery; a copy already saved stays until removed.</p>
-                  {galSettingsSaved ? (
-                    <ActionRow
-                      label={GALLERY_ROWS.removeSaved.label}
-                      icon={GALLERY_ROWS.removeSaved.icon()}
-                      onClick={() => void removeSavedCopy(galSettingsSaved.galleryId)}
-                    />
-                  ) : (
-                    <ActionRow
-                      label="Save to this Mac"
-                      icon={GALLERY_ROWS.keepCopy.icon()}
-                      onClick={() => void saveToVault(galSettingsGallery)}
-                    />
-                  )}
+                  <p class="m-note m-panel-note">Turning this off deletes copies saved to this Mac's Vault.</p>
                 </ActionGroup>
               )}
             />

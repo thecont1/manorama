@@ -89,6 +89,10 @@ export type OwnerGalleryPanelProps = {
    *  layer's common actions — share, reorder, refresh; 'rest' is
    *  everything else under More Settings; unset renders all rows. */
   layer?: 'quick' | 'rest' | 'all'
+  /** The catalogue's Gallery Settings sheet carries Reorder and Refresh in
+   *  its rest layer like iOS's More settings…; the web's rest panel keeps
+   *  them on the quick layer alone. */
+  management?: boolean
 }
 
 type EditField = 'name' | 'caption' | 'address'
@@ -152,6 +156,7 @@ export default function OwnerGalleryPanel({
   onRefreshed,
   onRemoved,
   layer = 'all',
+  management = false,
 }: OwnerGalleryPanelProps) {
   // Same-origin on the web; absolute + bearer on shells that carry their
   // own session. The bearer rides every call because the cross-origin
@@ -418,26 +423,30 @@ export default function OwnerGalleryPanel({
         </ActionGroup>
       ) : null}
       {shareDisabled && shareNote && layer !== 'rest' ? <p class="m-note" role="alert">{shareNote}</p> : null}
-      {layer !== 'quick' || onReorder ? (
+      {layer !== 'quick' ? (
         <ActionGroup>
-          {layer !== 'quick' && editing === 'name' ? editBlock('Name', (
+          {editing === 'name' ? editBlock('Name', (
             <input class="m-input" type="text" aria-label="Name" value={draft} maxLength={120} data-owner-edit-field onInput={onDraft} onKeyDown={onFieldKey} />
-          )) : layer !== 'quick' ? (
+          )) : (
             <ActionRow label={GALLERY_ROWS.name.label} icon={GALLERY_ROWS.name.icon()} value={liveTitle} onClick={() => startEdit('name')} disabled={locked} />
-          ) : null}
+          )}
           {/* A present caption reads in full on the head — the row only
               carries the empty state, so nothing ellipsizes. */}
-          {layer !== 'quick' && editing === 'caption' ? editBlock('Caption', (
+          {editing === 'caption' ? editBlock('Caption', (
             <textarea class="m-input" rows={3} aria-label="Caption" value={draft} maxLength={500} data-owner-edit-field onInput={onDraft} onKeyDown={onFieldKey} />
-          )) : layer !== 'quick' ? (
+          )) : (
             <ActionRow label={GALLERY_ROWS.caption.label} icon={GALLERY_ROWS.caption.icon()} value={liveCaption ? undefined : 'None'} onClick={() => startEdit('caption')} disabled={locked} />
-          ) : null}
-          {layer !== 'quick' && editing === 'address' ? editBlock('Address', (
+          )}
+          {editing === 'address' ? editBlock('Address', (
             <input class="m-input" type="text" aria-label="Address" value={draft} maxLength={120} data-owner-edit-field onInput={onDraft} onKeyDown={onFieldKey} />
-          )) : layer !== 'quick' ? (
+          )) : (
             <ActionRow label={GALLERY_ROWS.address.label} icon={GALLERY_ROWS.address.icon()} value={`${owner}/${slug}`} onClick={() => startEdit('address')} disabled={locked} />
-          ) : null}
-          {layer !== 'rest' && onReorder ? (
+          )}
+        </ActionGroup>
+      ) : null}
+      {layer !== 'rest' || management ? (
+        <ActionGroup>
+          {onReorder ? (
             <ActionRow
               label={GALLERY_ROWS.reorder.label}
               icon={GALLERY_ROWS.reorder.icon()}
@@ -446,10 +455,6 @@ export default function OwnerGalleryPanel({
               disabled={locked}
             />
           ) : null}
-        </ActionGroup>
-      ) : null}
-      {layer !== 'rest' ? (
-        <ActionGroup>
           <ActionRow
             label={readState === 'busy' ? (readElapsed > 0 ? `Refreshing… ${readElapsed}s` : 'Refreshing…') : GALLERY_ROWS.refresh.label}
             icon={GALLERY_ROWS.refresh.icon()}
@@ -458,10 +463,10 @@ export default function OwnerGalleryPanel({
           />
         </ActionGroup>
       ) : null}
-      {readState === 'busy' && readElapsed >= 20 && layer !== 'rest' ? (
+      {readState === 'busy' && readElapsed >= 20 && (layer !== 'rest' || management) ? (
         <p class="m-note" role="status">Still scanning — very large galleries can take a few minutes.</p>
       ) : null}
-      {readNote && layer !== 'rest' ? <p class="m-error" role="alert">{readNote}</p> : null}
+      {readNote && (layer !== 'rest' || management) ? <p class="m-error" role="alert">{readNote}</p> : null}
       {layer !== 'quick' ? deviceGroup : null}
       {layer !== 'quick' ? (
       <ActionGroup>

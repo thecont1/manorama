@@ -226,13 +226,13 @@ describe('local gallery settings panel (desktop)', () => {
     expect(html).not.toContain('Reorder')
   })
 
-  test('Open folder renders and emits when the container wires it', async () => {
+  test('View source renders and emits when the container wires it', async () => {
     let reveals = 0
     const { container } = mount({ onRevealFolder: () => { reveals += 1 } })
     expect([...container.querySelectorAll('.m-actionrow-label')].map((el) => el.textContent)).toEqual([
-      'Open gallery', 'Name', 'Open folder', 'Remove from Library',
+      'Open gallery', 'View source', 'Name', 'Remove from Library',
     ])
-    const folder = row(container, 'Open folder') as HTMLButtonElement
+    const folder = row(container, 'View source') as HTMLButtonElement
     expect(folder).not.toBeNull()
     expect(folder.disabled).toBe(false)
     folder.click()
@@ -241,14 +241,14 @@ describe('local gallery settings panel (desktop)', () => {
 
     // Unwired, the row is absent — the local counterpart of View source.
     const { container: plain } = mount()
-    expect(row(plain, 'Open folder')).toBeUndefined()
+    expect(row(plain, 'View source')).toBeUndefined()
   })
 
   test('when the source is unavailable, Open is disabled and the state shows', async () => {
     const { container, calls } = mount({ availability: 'unavailable', onRevealFolder: () => {} })
     const openRow = row(container, 'Open gallery') as HTMLButtonElement
     expect(openRow.disabled).toBe(true)
-    for (const label of ['Name', 'Open folder', 'Remove from Library']) {
+    for (const label of ['Name', 'View source', 'Remove from Library']) {
       expect((row(container, label) as HTMLButtonElement).disabled).toBe(false)
     }
 
@@ -310,7 +310,7 @@ describe('local gallery settings panel (desktop)', () => {
     expect(calls.rename).toHaveLength(1)
     expect(byText(container, 'Saving…')).not.toBeNull()
     expect(container.querySelector('[aria-label="Close"]')).toBeNull()
-    for (const label of ['Open gallery', 'Name', 'Open folder', 'Remove from Library']) {
+    for (const label of ['Open gallery', 'View source', 'Name', 'Remove from Library']) {
       expect((row(container, label) as HTMLButtonElement).disabled).toBe(true)
     }
 
@@ -321,7 +321,7 @@ describe('local gallery settings panel (desktop)', () => {
     expect(container.querySelector('input[aria-label="Name"]')?.getAttribute('value')).toBe('vernazza')
     expect(container.querySelector('[role="alert"]')?.textContent).toBe('The disk is busy')
     expect(byText(container, 'Save')).not.toBeNull()
-    for (const label of ['Open gallery', 'Name', 'Open folder', 'Remove from Library']) {
+    for (const label of ['Open gallery', 'View source', 'Name', 'Remove from Library']) {
       expect((row(container, label) as HTMLButtonElement).disabled).toBe(false)
     }
   })
@@ -360,7 +360,7 @@ describe('local gallery settings panel (desktop)', () => {
     expect(sheetButton(container, 'Remove from Library')).toBeUndefined()
     expect((sheetButton(container, 'Cancel') as HTMLButtonElement | undefined)?.disabled).toBe(true)
     expect(container.querySelector('[aria-label="Close"]')).toBeNull()
-    for (const label of ['Open gallery', 'Name', 'Open folder', 'Remove from Library']) {
+    for (const label of ['Open gallery', 'View source', 'Name', 'Remove from Library']) {
       expect((row(container, label) as HTMLButtonElement).disabled).toBe(true)
     }
 
