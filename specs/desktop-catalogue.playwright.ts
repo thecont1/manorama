@@ -330,9 +330,14 @@ test('window-1280x840: details surface and share sheet over real photographs, bo
     for (const banned of ['public', 'provider', 'vault', 'offline']) {
       await expect(details).not.toContainText(banned)
     }
-    await expect(details.locator('.m-actionrow')).toHaveCount(4)
+    await expect(details.locator('.m-actionrow')).toHaveCount(8)
     const labels = await details.locator('.m-actionrow-label').allTextContents()
-    expect(labels.map(label => label.trim())).toEqual(['Open gallery', 'View source', 'Name', 'Remove from Library'])
+    expect(labels.map(label => label.trim())).toEqual([
+      'Open gallery', 'View source',
+      'Name', 'Caption', 'Address',
+      'Reorder photographs', 'Refresh gallery contents',
+      'Remove from Library',
+    ])
 
     mkdirSync(evidence, { recursive: true })
     await page.screenshot({ path: resolve(evidence, `${engine}-window-1280x840-${theme}-details.png`), animations: 'disabled', timeout: 15_000 })

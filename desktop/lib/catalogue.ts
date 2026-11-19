@@ -50,6 +50,9 @@ export type LocalGalleryRecord = {
    *  gallery's `position` column. Device-local like the pin: the sync
    *  projection has no slot for it. */
   position?: number | null
+  /** A line about the gallery — the cloud manifest's caption, kept
+   *  device-local until a publish flow reads it. */
+  caption?: string
   addedAt: string
   lastSeenAt: string
 }
@@ -114,6 +117,7 @@ const parseRecord = (value: unknown): LocalGalleryRecord | null => {
     ...(typeof record.hiddenAt === 'string' && record.hiddenAt ? { hiddenAt: record.hiddenAt } : {}),
     ...(typeof record.dimsScannedAt === 'string' && record.dimsScannedAt ? { dimsScannedAt: record.dimsScannedAt } : {}),
     ...(typeof record.position === 'number' && Number.isFinite(record.position) ? { position: record.position } : {}),
+    ...(typeof record.caption === 'string' && record.caption ? { caption: record.caption } : {}),
     addedAt: typeof record.addedAt === 'string' ? record.addedAt : '',
     lastSeenAt: typeof record.lastSeenAt === 'string' ? record.lastSeenAt : '',
   }

@@ -737,7 +737,7 @@ describe('desktop catalogue workbench', () => {
     }
   })
 
-  test('details mounts from a card with exactly the local actions and no banned surfaces', async () => {
+  test('details mounts from a card with the cloud sheet’s full row set and no banned surfaces', async () => {
     const container = await mount(true)
     await openCardDetails(container)
     await settle()
@@ -747,9 +747,12 @@ describe('desktop catalogue workbench', () => {
     expect(details?.querySelector('.m-owner-panel-title')?.textContent).toBe(TITLE)
     expect(details?.querySelector('.m-owner-panel-head')?.textContent).toContain('2 photographs · Folder on this Mac')
     expect([...details!.querySelectorAll('.m-actionrow-label')].map((el) => el.textContent)).toEqual([
-      'Open gallery', 'View source', 'Name', 'Remove from Library',
+      'Open gallery', 'View source',
+      'Name', 'Caption', 'Address',
+      'Reorder photographs', 'Refresh gallery contents',
+      'Remove from Library',
     ])
-    for (const label of ['Publish', 'Publish this gallery', 'Copy link', 'Reorder photos', 'Reorder photographs', 'Refresh gallery', 'Refresh gallery contents', 'Post to X', 'More Settings']) {
+    for (const label of ['Publish', 'Publish this gallery', 'Copy link', 'Reorder photos', 'Refresh gallery', 'Post to X', 'More Settings']) {
       expect(row(container, label)).toBeUndefined()
     }
 
@@ -765,6 +768,49 @@ describe('desktop catalogue workbench', () => {
     expect(html).not.toContain('Google Drive')
     expect(html).not.toContain('Vault')
     expect(html).not.toContain('Offline')
+  })
+
+  test('the details sheet carries the thumbnail rail like the cloud sheet, and a cell opens the viewer', async () => {
+    const container = await mount(true)
+    await openCardDetails(container)
+    await settle()
+
+    const rail = container.querySelector<HTMLElement>('.m-sheet .d-rail')
+    expect(rail).not.toBeNull()
+    const items = [...rail!.querySelectorAll<HTMLElement>('.admin-gallery-strip-item')]
+    expect(items).toHaveLength(2)
+    // The preview renders the originals over the asset scheme — the same
+    // srcs the viewer will use — and no hidden badges, since hidden items
+    // are not in the viewer's manifest.
+    for (const img of rail!.querySelectorAll<HTMLImageElement>('img')) {
+      expect(img.src).toMatch(/^asset:\/\//)
+    }
+    expect(rail!.querySelector('.admin-strip-badge')).toBeNull()
+    expect(items[0]!.querySelector('a')?.getAttribute('aria-label')).toBe('italy, amore mio, image 1 of 2')
+
+    items[1]!.querySelector('a')!.click()
+    await settle()
+    expect(container.querySelector('[data-screen="local-details"]')).toBeNull()
+    expect(container.querySelector('.viewer-stage')).not.toBeNull()
+  })
+
+  test('the details sheet’s management rows reorder and rescan like the cloud sheet’s', async () => {
+    const container = await mount(true)
+    await openCardDetails(container)
+    await settle()
+
+    // Refresh first — it works in place, so the sheet is still open to
+    // carry Reorder after it.
+    ;(row(container, 'Refresh gallery contents') as HTMLButtonElement).click()
+    await settle()
+    const rescan = invokeCalls.find((call) => call.command === 'plugin:fs|read_dir' && call.args?.path === ROOT_PATH)
+    expect(rescan).not.toBeUndefined()
+    expect(container.querySelector('[data-screen="local-details"]')).not.toBeNull()
+
+    ;(row(container, 'Reorder photographs') as HTMLButtonElement).click()
+    await settle()
+    expect(container.querySelector('[data-screen="local-details"]')).toBeNull()
+    expect(container.querySelector('.viewer-picker-mode')?.textContent).toBe('Reorder Photos')
   })
 
   test('a deep-linked details id opens details at launch and Back clears the URL', async () => {

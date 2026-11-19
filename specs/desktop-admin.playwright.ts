@@ -277,11 +277,17 @@ test('desktop admin details: Library → Details → share sheet, both themes, c
       for (const banned of ['public', 'provider', 'vault', 'offline']) {
         await expect(details).not.toContainText(banned)
       }
-      // Exactly the four action rows, in the contract's order, and no more —
-      // management actions live in the card menu, not the settings sheet.
-      await expect(details.locator('.m-actionrow')).toHaveCount(4)
+      // The cloud sheet's full row set, in its order — management rows
+      // mirror the card menu's verbs, and the only absent slice is the
+      // device group a gallery of local files cannot use.
+      await expect(details.locator('.m-actionrow')).toHaveCount(8)
       const labels = await details.locator('.m-actionrow-label').allTextContents()
-      expect(labels.map(label => label.trim())).toEqual(['Open gallery', 'View source', 'Name', 'Remove from Library'])
+      expect(labels.map(label => label.trim())).toEqual([
+        'Open gallery', 'View source',
+        'Name', 'Caption', 'Address',
+        'Reorder photographs', 'Refresh gallery contents',
+        'Remove from Library',
+      ])
 
       await mkdir(evidence, { recursive: true })
       await page.screenshot({ path: resolve(evidence, `window-${theme}-details.png`), animations: 'disabled', timeout: 10_000 })

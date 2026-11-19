@@ -158,7 +158,7 @@ describe('the gallery-settings row contract', () => {
     expect(root.querySelector('.m-actiongroup-label')?.textContent).toBe('On this Mac')
   })
 
-  test('the desktop local panel keeps only the final management rows', () => {
+  test('the desktop local panel mirrors the macOS sheet minus the device group', () => {
     const root = mount(
       <LocalGalleryDetails
         record={localRecord}
@@ -167,10 +167,25 @@ describe('the gallery-settings row contract', () => {
         onRename={async () => {}}
         onRemove={noop}
         onRevealFolder={noop}
+        onCaption={noop}
+        onPublish={noop}
+        onReorder={noop}
+        onRefresh={noop}
       />,
     )
+    // Same groups in the cloud sheet's order — the only absent slice is
+    // the device group, which a gallery of local files cannot use.
     expectCanonical(root, [
-      'Open gallery', 'View source', 'Name', 'Remove from Library',
+      'Open gallery', 'View source',
+      'Name', 'Caption', 'Address',
+      'Reorder photographs', 'Refresh gallery contents',
+      'Remove from Library',
+    ])
+    expect(groupLabels(root)).toEqual([
+      ['Open gallery', 'View source'],
+      ['Name', 'Caption', 'Address'],
+      ['Reorder photographs', 'Refresh gallery contents'],
+      ['Remove from Library'],
     ])
   })
 
