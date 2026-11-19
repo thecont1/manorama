@@ -1412,11 +1412,11 @@ describe('signed-in account area', () => {
     expect(container.querySelectorAll('.native-gallery-list > li')).toHaveLength(5)
     // The plan line at the foot is the warning now — every gallery still lists.
     // A downgraded account can hold more permanents than the free cap; the
-    // sentence names the real count and the over-cap share instead of
-    // folding retained galleries into the temporary allowance.
+    // allowance helper clamps the permanent count to the cap and folds the
+    // over-cap share into the temporary number.
     const foot = container.querySelector('.native-lib-foot')
-    expect(foot?.textContent).toContain('5 Cloud galleries (2 over the Free limit)')
-    expect(foot?.textContent).toContain('0 of 96 Temporary galleries')
+    expect(foot?.textContent).toContain('3 of 3 Cloud galleries')
+    expect(foot?.textContent).toContain('2 of 96 Temporary galleries')
     expect(foot?.textContent).toContain('Go Visionary')
     expect(container.querySelectorAll('.lib-th.is-active')).toHaveLength(0)
     expect(container.querySelector('main .native-account-delete')).toBeNull()

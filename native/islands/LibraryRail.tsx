@@ -56,6 +56,7 @@ const RailCell = ({
   onLoaded,
   onOpen,
   compact = false,
+  clipped = false,
 }: {
   compact?: boolean
   galleryId: string
@@ -66,6 +67,9 @@ const RailCell = ({
   /** The row height — every image in a strip is the same height. */
   height?: number
   visible: boolean
+  /** Preview cells mounted past the clip paint nothing — keep them out of
+   *  the Tab order so keyboard traversal never lands on an invisible thumb. */
+  clipped?: boolean
   loader: LibraryMediaLoader
   onLoaded?(index: number, dims: { width: number; height: number }): void
   onOpen(index: number): void
@@ -133,6 +137,7 @@ const RailCell = ({
       class={compact ? 'lib-th native-library-cover' : 'lib-th'}
       data-rail-cell
       data-at={index}
+      tabIndex={clipped ? -1 : undefined}
       style={cellStyle}
       aria-label={image.alt || `Photograph ${index + 1}`}
       onClick={() => onOpen(index)}
@@ -239,7 +244,11 @@ export const LibraryRail = ({ galleryId, images, loader, title, onOpen, preview 
       // a real measurement arrives.
       const viewport = rail.clientWidth || window.innerWidth
       const left = preview ? 0 : rail.scrollLeft
-      const start = preview ? 0 : Math.max(0, firstOffsetAt(layout.offsets, left - viewport))
+      // A cell straddling the overscan boundary starts before it but still
+      // paints inside it — keep it mounted or the strip shows a gap.
+      const first = firstOffsetAt(layout.offsets, left - viewport)
+      const straddler = first > 0 && layout.offsets[first - 1]! + (layout.widths[first - 1] ?? 0) > left - viewport
+      const start = preview ? 0 : Math.max(0, straddler ? first - 1 : first)
       // A preview mounts only what the frame can show — one viewport of strip,
       // no overscan. The scrollable rail reads a viewport further ahead.
       let end = firstOffsetAt(layout.offsets, preview ? viewport : left + viewport * 2)
@@ -385,8 +394,14 @@ export const LibraryRail = ({ galleryId, images, loader, title, onOpen, preview 
               width={loaded.has(image.id) ? layout.widths[index] : 0}
               height={rowHeight}
               visible={visible.has(index)}
+              clipped={preview && !visible.has(index)}
               loader={loader}
-              onLoaded={(at, dims) => setLoaded((previous) => previous.has(images[at]!.id) ? previous : new Map(previous).set(images[at]!.id, dims))}
+              onLoaded={(at, dims) => setLoaded((previous) => {
+                const stored = previous.get(images[at]!.id)
+                return stored && stored.width === dims.width && stored.height === dims.height
+                  ? previous
+                  : new Map(previous).set(images[at]!.id, dims)
+              })}
               onOpen={openAt}
             />
           )

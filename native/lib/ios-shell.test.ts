@@ -84,11 +84,13 @@ describe('iOS shell chrome contract', () => {
   })
 
   test('focus posts travel through the manorama message handler', () => {
+    document.documentElement.dataset.iosGlass = '1'
     iosPost({ type: 'focus', control: 'position' })
     expect(posted).toEqual([{ type: 'focus', control: 'position' }])
   })
 
   test('posts carry the document generation the observer minted', () => {
+    document.documentElement.dataset.iosGlass = '1'
     w().__manoramaChromeGen = 'dtest123'
     iosPost({ type: 'focus', control: 'position' })
     expect(posted).toEqual([{ type: 'focus', control: 'position', gen: 'dtest123' }])

@@ -307,7 +307,7 @@ const videoMimeTypeOf = (response: OfflineFetchResponse, item: VideoItem): strin
 const srcIdentityOf = (item: GalleryMediaItem | undefined): string => {
   if (!item) return ''
   if (!isVideoItem(item) && item.media?.kind === 'encrypted' && typeof item.contentVersion === 'string') return `enc:${item.contentVersion}`
-  if (isVideoItem(item)) return `video:${item.src}|poster:${item.poster.src}`
+  if (isVideoItem(item)) return `video:${item.src}|poster:${item.poster.src}|v:${item.contentVersion ?? ''}`
   return item.src
 }
 
@@ -323,6 +323,7 @@ export class EncryptedOfflineGalleryStore implements OfflineGalleryStore {
   /** Live decrypted object URLs, by gallery. A confirmed purge revokes them so
    *  "erased" never leaves a readable copy held by an open lease. */
   private readonly liveUrls = new Map<string, Set<string>>()
+  private readonly fillOwners = new Map<string, object>()
 
   constructor(options: {
     vault: OfflineVault
@@ -410,25 +411,33 @@ export class EncryptedOfflineGalleryStore implements OfflineGalleryStore {
     // hands that record out through onInvalidated so a transient failure
     // can restore it instead of leaving a healthy copy commit-less.
     const stashed: { current: { metadata: OfflineMetadata; since: VaultEpoch } | null } = { current: null }
+    // Ownership: the newest fill to start owns the gallery — only its
+    // failure may roll back, and only while it still owns it. The purge
+    // epoch alone cannot tell an old fill's restore from a new fill's
+    // in-flight state before that fill has written anything. The token
+    // registers inside the fill (after its own id resolution) so the
+    // synchronous epoch capture below keeps happening at call time.
+    const owner: { token: object; galleryId?: string } = { token: {} }
     try {
-      const result = await this.cacheFill(rawSelection, gallery, openSession, signal, onProgress, onItemReady, (metadata, since) => { stashed.current = { metadata, since } })
+      const result = await this.cacheFill(rawSelection, gallery, openSession, signal, onProgress, onItemReady, (metadata, since) => { stashed.current = { metadata, since } }, owner)
       stashed.current = null
       return result
     } catch (error) {
       // The replacement was never published — restore the record the fill's
       // invalidation step stashed so the kept copy stays honest at its last
       // version. The stashed epoch is stale after a purge or a newer fill,
-      // so an authoritative removal can never be quietly resurrected.
-      const galleryId = await offlineGalleryId(requireSelection(rawSelection)).catch(() => null)
-      if (galleryId && stashed.current) {
+      // so an authoritative removal can never be quietly resurrected; a
+      // newer fill's uncommitted state is safe because it owns the vault.
+      if (owner.galleryId && stashed.current && this.fillOwners.get(owner.galleryId) === owner.token) {
         const priorBytes = encoder.encode(JSON.stringify(stashed.current.metadata))
         try {
-          await this.vault.write(galleryId, METADATA_ENTRY_ID, priorBytes, { since: stashed.current.since })
+          await this.vault.write(owner.galleryId, METADATA_ENTRY_ID, priorBytes, { since: stashed.current.since })
         } catch { /* a purge or newer fill owns this vault now */ }
         finally { priorBytes.fill(0) }
       }
       throw error
     } finally {
+      if (owner.galleryId && this.fillOwners.get(owner.galleryId) === owner.token) this.fillOwners.delete(owner.galleryId)
       if (!sharedSession && sessionPromise) (await sessionPromise).dispose()
     }
   }
@@ -473,8 +482,15 @@ export class EncryptedOfflineGalleryStore implements OfflineGalleryStore {
   }
 
   /** Every entry a commit is about to advertise must still be in the vault —
-   *  a write's LRU pass can evict an earlier entry of the same fill. */
-  private async entriesPresent(galleryId: string, images: readonly CachedImage[]): Promise<boolean> {
+   *  a write's LRU pass can evict an earlier entry of the same fill. The
+   *  post-commit check also probes the commit record itself: an evicted
+   *  METADATA_ENTRY_ID would report a saved gallery open() cannot find. */
+  private async entriesPresent(galleryId: string, images: readonly CachedImage[], committed = false): Promise<boolean> {
+    if (committed) {
+      const metadata = await this.vault.read(galleryId, METADATA_ENTRY_ID, { touch: false })
+      if (!metadata) return false
+      metadata.fill(0)
+    }
     for (const image of images) {
       for (const entryId of image.videoEntryId ? [image.entryId, image.videoEntryId] : [image.entryId]) {
         const bytes = await this.vault.read(galleryId, entryId, { touch: false })
@@ -485,7 +501,7 @@ export class EncryptedOfflineGalleryStore implements OfflineGalleryStore {
     return true
   }
 
-  private async cacheFill(rawSelection: GallerySelection, gallery: NativeGalleryResponse, openSession: () => Promise<EncryptedClientSession>, signal?: AbortSignal, onProgress?: (progress: OfflineCacheProgress) => void, onItemReady?: (item: OfflineCacheItemReady) => void, onInvalidated?: (prior: OfflineMetadata, since: VaultEpoch) => void): Promise<OfflineCacheResult> {
+  private async cacheFill(rawSelection: GallerySelection, gallery: NativeGalleryResponse, openSession: () => Promise<EncryptedClientSession>, signal?: AbortSignal, onProgress?: (progress: OfflineCacheProgress) => void, onItemReady?: (item: OfflineCacheItemReady) => void, onInvalidated?: (prior: OfflineMetadata, since: VaultEpoch) => void, owner?: { token: object; galleryId?: string }): Promise<OfflineCacheResult> {
     // Captured synchronously at call time, before the gallery ID resolves: a
     // purge bumps the vault's mutation epoch inside its serialized boundary,
     // and every write below hands back the epoch this fill started under. A
@@ -503,6 +519,13 @@ export class EncryptedOfflineGalleryStore implements OfflineGalleryStore {
       !gallery.manifest.images.some((image) => !isVideoItem(image) && image.media?.kind === 'encrypted')
     if (legacyEncrypted) return { status: 'skipped-encrypted', images: 0 }
     const galleryId = await offlineGalleryId(selection)
+    // The newest fill to reach this point owns the gallery — an older
+    // fill's rollback checks this registration before restoring the
+    // commit record it stashed.
+    if (owner) {
+      owner.galleryId = galleryId
+      this.fillOwners.set(galleryId, owner.token)
+    }
     // Read the prior record before invalidating it: the stored manifest's
     // src is the only validator for reused bytes (a replaced photo arrives
     // with a new source URL under the same image ID), and its committed
@@ -549,7 +572,8 @@ export class EncryptedOfflineGalleryStore implements OfflineGalleryStore {
           cacheFillRegistry.publish({ galleryId, item })
           onItemReady?.(item)
         }
-        onProgress?.({ completed: items.length, total: items.length })
+        // No progress emit here: nothing downloaded, so a foreground meter
+        // would flash a fake "N of N" — the result itself reports complete.
         const metadataBytes = encoder.encode(JSON.stringify({
           version: METADATA_VERSION,
           owner: selection.owner,
@@ -567,8 +591,9 @@ export class EncryptedOfflineGalleryStore implements OfflineGalleryStore {
         }
         // The commit write's own eviction pass could drop an entry the touch
         // check just confirmed — re-probe once more before declaring
-        // complete. touch is a presence probe, not a byte read.
-        const missingAfter = await this.vault.touch(galleryId, priorImages.flatMap((image) => image.videoEntryId ? [image.entryId, image.videoEntryId] : [image.entryId]))
+        // complete, commit record included. touch is a presence probe, not
+        // a byte read.
+        const missingAfter = await this.vault.touch(galleryId, [...priorImages.flatMap((image) => image.videoEntryId ? [image.entryId, image.videoEntryId] : [image.entryId]), METADATA_ENTRY_ID])
         if (missingAfter.length > 0) {
           await this.vault.clearGallery(galleryId)
           return { status: 'over-cap', images: 0 }
@@ -620,6 +645,13 @@ export class EncryptedOfflineGalleryStore implements OfflineGalleryStore {
         if (!posterResponse.ok) throw new Error(`Offline image request failed (${posterResponse.status})`)
         const posterMime = responseMimeType(posterResponse, image, 'jpeg')
         const posterBytes = new Uint8Array(await posterResponse.arrayBuffer())
+        // The MP4's bound is enforced by the bounded read — fetch it before
+        // writing the poster so an over-cap clip discards staged bytes
+        // instead of leaving a poster write and its evictions behind.
+        const videoResponse = await this.fetchImage(image.src, { signal })
+        if (!videoResponse.ok) throw new Error(`Offline video request failed (${videoResponse.status})`)
+        const videoMime = videoMimeTypeOf(videoResponse, image)
+        const videoBytes = await this.readBoundedBody(videoResponse, signal)
         try {
           throwIfAborted(signal)
           if (posterBytes.length === 0) throw new Error('Offline image response was empty')
@@ -628,10 +660,9 @@ export class EncryptedOfflineGalleryStore implements OfflineGalleryStore {
         } finally {
           posterBytes.fill(0)
         }
-        const videoResponse = await this.fetchImage(image.src, { signal })
-        if (!videoResponse.ok) throw new Error(`Offline video request failed (${videoResponse.status})`)
-        const videoMime = videoMimeTypeOf(videoResponse, image)
-        const videoBytes = await this.readBoundedBody(videoResponse, signal)
+        // The poster is committed — publish it now so Library cells light
+        // up while the MP4 write still runs.
+        publish({ id: image.id, entryId, mimeType: posterMime, index })
         try {
           throwIfAborted(signal)
           if (videoBytes.length === 0) throw new Error('Offline video response was empty')
@@ -640,7 +671,6 @@ export class EncryptedOfflineGalleryStore implements OfflineGalleryStore {
           videoBytes.fill(0)
         }
         cachedImages.push({ id: image.id, entryId, mimeType: posterMime, videoEntryId: videoEntry, videoMimeType: videoMime })
-        publish({ id: image.id, entryId, mimeType: posterMime, index })
         publish({ id: image.id, entryId: videoEntry, mimeType: videoMime, index })
         onProgress?.({ completed: cachedImages.length, total: items.length })
         continue
@@ -700,8 +730,9 @@ export class EncryptedOfflineGalleryStore implements OfflineGalleryStore {
       metadataBytes.fill(0)
     }
     // The commit write itself runs the same LRU — it may have evicted an
-    // entry just verified. Check once more before declaring the fill done.
-    if (!(await this.entriesPresent(galleryId, cachedImages))) {
+    // entry just verified, or evicted an older record to make room for its
+    // replacement. Check once more before declaring the fill done.
+    if (!(await this.entriesPresent(galleryId, cachedImages, true))) {
       await this.vault.clearGallery(galleryId)
       return { status: 'over-cap', images: 0 }
     }
@@ -952,9 +983,17 @@ const prepareOnline = async (options: OpenOptions, gallery: NativeGalleryRespons
     ? await openSession(options.selection, gallery.manifest.sourceUrl)
     : undefined
   const encryptedResolver = encryptedSession ? new EncryptedMediaResolver(encryptedSession) : undefined
+  // A fill that actually downloaded owes the caller's meter an idle event
+  // once it settles — success or failure — so "Saving N of M" never hangs
+  // after the write path ends. `total: 0` is the contract's idle state.
+  let sawProgress = false
+  const onProgress = options.onProgress
+    ? (progress: OfflineCacheProgress) => { sawProgress = true; options.onProgress?.(progress) }
+    : undefined
   const cacheFill = options.cachePolicy === 'stream'
     ? undefined
-    : options.store.cache(options.selection, gallery, options.signal, options.onProgress, options.onItemReady, encryptedSession)
+    : options.store.cache(options.selection, gallery, options.signal, onProgress, options.onItemReady, encryptedSession)
+      .finally(() => { if (sawProgress) options.onProgress?.({ completed: 0, total: 0 }) })
   return { ...gallery, source: 'online', cacheFill, encryptedResolver, dispose: () => encryptedResolver?.dispose() }
 }
 

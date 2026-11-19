@@ -208,13 +208,30 @@ final class NativeBridge {
               // array emit down with it.
               let singleData = try? JSONSerialization.data(withJSONObject: urlString, options: [.fragmentsAllowed]),
               let singleJson = String(data: singleData, encoding: .utf8) else { return }
+        // The URL joins the read-once buffer before the emit so a document
+        // replacement mid-flight still finds it; a confirmed delivery
+        // removes it. __manoramaShellEmit && (...) reports undefined —
+        // not an error — so the script answers a Bool instead.
+        if !currentDeepLinks.contains(urlString) {
+            currentDeepLinks.append(urlString)
+        }
         let script = """
-        window.__manoramaShellEmit && (
+        window.__manoramaShellEmit ? (
           window.__manoramaShellEmit("deep-link://new-url", \(arrayJson)),
-          window.__manoramaShellEmit("manorama://deep-link", \(singleJson))
-        );
+          window.__manoramaShellEmit("manorama://deep-link", \(singleJson)),
+          true
+        ) : false;
         """
-        webView.evaluateJavaScript(script)
+        webView.evaluateJavaScript(script) { [weak self] result, error in
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                if error == nil, result as? Bool == true {
+                    self.currentDeepLinks.removeAll { $0 == urlString }
+                } else {
+                    Trace.log("deep-link delivery unconfirmed — buffered for get_current (\(error?.localizedDescription ?? "no listener"))")
+                }
+            }
+        }
     }
 
     // MARK: - The channel

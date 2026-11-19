@@ -57,6 +57,11 @@ export type ViewerChromeHandle = {
   focusStage(): void
 }
 
+/** A focus restore owed to native chrome across a Viewer remount — the
+ *  same-gallery Global View pick re-seeds the island and kills its refs,
+ *  so the pending invoker lives at module scope instead. */
+let pendingNativeFocus: ViewerChromeControl | null = null
+
 type Props = {
   slug: string
   galleryTitle?: string
@@ -2244,15 +2249,20 @@ export default function Viewer({ slug, galleryTitle, images: sourceImages, encry
   // semantic origin is still the position control — record that so the
   // restore effect below lands on the right capsule.
   useEffect(() => {
-    if (nativePickerOpen && onChromeFocus) nativeInvokerRef.current ??= 'position'
+    if (nativePickerOpen && onChromeFocus) {
+      nativeInvokerRef.current ??= 'position'
+      pendingNativeFocus ??= 'position'
+    }
   }, [nativePickerOpen, onChromeFocus])
 
   useEffect(() => {
     if (gridOpen || modalOpen || infoOpen || shortcutsOpen || nativePickerOpen) return
     const nativeControl = nativeInvokerRef.current
+      ?? pendingNativeFocus
       ?? (onChromeFocus && previousFocusRef.current === positionPillRef.current && previousFocusRef.current ? 'position' : null)
     if (nativeControl && onChromeFocus) {
       nativeInvokerRef.current = null
+      pendingNativeFocus = null
       previousFocusRef.current = null
       showChrome()
       requestAnimationFrame(() => onChromeFocus(nativeControl))
@@ -2359,7 +2369,7 @@ export default function Viewer({ slug, galleryTitle, images: sourceImages, encry
       const stage = stageRef.current
       const active = document.activeElement as HTMLElement | null
       const focusables = stage
-        ? [...stage.querySelectorAll<HTMLElement>('button, input, a[href], [tabindex]:not([tabindex="-1"])')].filter((el) => !el.hasAttribute('disabled'))
+        ? [...stage.querySelectorAll<HTMLElement>('button, input, a[href], [tabindex]:not([tabindex="-1"])')].filter((el) => !el.hasAttribute('disabled') && !el.closest('[inert]'))
         : []
       const index = active ? focusables.indexOf(active) : -1
       const insideStage = Boolean(stage && active && stage.contains(active) && active !== stage)
@@ -2929,6 +2939,7 @@ export default function Viewer({ slug, galleryTitle, images: sourceImages, encry
         if (control === 'library') { onReturnToGalleries?.(); return }
         if (!document.body.classList.contains('gallery-entered')) return
         nativeInvokerRef.current = control
+        pendingNativeFocus = control
         if (control === 'position') openGrid()
         else if (control === 'settings') openSettings()
         else openImageProvenance()

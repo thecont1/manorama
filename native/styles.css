@@ -653,9 +653,9 @@ html.light body.manorama-native :is(.native-welcome, .native-list-shell, .native
   -webkit-overflow-scrolling: touch;
 }
 .lib-rail::-webkit-scrollbar { display: none; }
-/* The details surface's strip is a preview, not a scroller — hidden
-   overflow keeps user and programmatic scroll alike off it. */
-.lib-rail--preview { overflow: hidden; }
+/* The details surface's strip is a preview, not a scroller — clip (not
+   hidden) keeps programmatic scroll from nudging cells under the mask. */
+.lib-rail--preview { overflow: clip; }
 .lib-rail-spacer { flex: none; }
 .lib-rail--dragging { cursor: grabbing; }
 .lib-rail--dragging .lib-th { pointer-events: none; }

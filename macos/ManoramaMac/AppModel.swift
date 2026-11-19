@@ -178,6 +178,9 @@ final class AppModel {
                 self?.position = (0, 0)
                 self?.viewerChromeVisible = false
                 self?.galleryEntered = false
+                // A focus target from the closed gallery must not wait
+                // around to land on controls in the next one.
+                self?.chromeFocusTarget = nil
             }
         }
         coordinator.onChrome = { [weak self] visible in

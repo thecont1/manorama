@@ -374,6 +374,9 @@ struct GlassChromeOverlay: View {
     @FocusState private var focusedControl: ViewerChromeControl?
     @AccessibilityFocusState private var accessibleControl: ViewerChromeControl?
     @Namespace private var clusterNamespace
+    /// A focus request that arrived while chrome was hidden — applied once
+    /// when the chrome returns, then consumed.
+    @State private var pendingFocus = false
 
     /// Native interaction in flight — a held finger, keyboard focus or
     /// VoiceOver focus — keeps the page's hidden chrome alive through
@@ -397,9 +400,9 @@ struct GlassChromeOverlay: View {
                         controlsColumn
                             .frame(maxWidth: .infinity, maxHeight: .infinity,
                                    alignment: model.verticalBarEdge == .leading ? .leading : .trailing)
-                            .padding(.leading, model.verticalBarEdge == .leading ? columnSeat(in: geo.size.width) : 0)
-                            .padding(.trailing, model.verticalBarEdge == .trailing ? columnSeat(in: geo.size.width) : 0)
-                            .offset(y: columnOffsetY(in: geo.size.height))
+                            .padding(.leading, model.verticalBarEdge == .leading ? columnSeat(in: geo.size) : 0)
+                            .padding(.trailing, model.verticalBarEdge == .trailing ? columnSeat(in: geo.size) : 0)
+                            .offset(y: columnOffsetY(in: geo.size))
                     }
                 } else {
                     if model.chromeVisible && !model.pickerSuppress {
@@ -430,15 +433,26 @@ struct GlassChromeOverlay: View {
             if !model.chromeVisible {
                 focusedControl = nil
                 accessibleControl = nil
+            } else if pendingFocus {
+                // A focus request queued while chrome was hidden lands now —
+                // consumed so a later hide/show does not replay it.
+                focusedControl = model.focusTarget
+                accessibleControl = model.focusTarget
+                pendingFocus = false
             }
         }
         .onChange(of: model.focusRevision) {
             // The page asked native focus to land on a control — VoiceOver
-            // and the key loop must arrive on the same capsule.
+            // and the key loop must arrive on the same capsule. While chrome
+            // is hidden the request stays pending for the visibility change
+            // above; applied at once when chrome is already up.
             DispatchQueue.main.async {
-                guard model.chromeVisible else { return }
-                focusedControl = model.focusTarget
-                accessibleControl = model.focusTarget
+                if model.chromeVisible {
+                    focusedControl = model.focusTarget
+                    accessibleControl = model.focusTarget
+                } else {
+                    pendingFocus = true
+                }
             }
         }
     }
@@ -460,10 +474,9 @@ struct GlassChromeOverlay: View {
     }
 
     /// Centre of the widest unreserved interval along one axis, or nil when
-    /// the axis is fully covered. Intervals that can hold `needed` padded
-    /// points win over wider-but-too-narrow runs; when nothing fits, the
-    /// widest unreserved run is still better than landing inside a region
-    /// the system owns.
+    /// no run can hold `needed` padded points. A too-narrow run would spill
+    /// the cluster into the regions on both flanks, so nil hands the caller
+    /// back to its unreserved default instead of pretending a run fits.
     private func widestRun(extent: CGFloat, spans: [(start: CGFloat, end: CGFloat)], needed: CGFloat) -> CGFloat? {
         guard extent > 0, !spans.isEmpty else { return nil }
         var cuts: [CGFloat] = [0, extent]
@@ -473,16 +486,13 @@ struct GlassChromeOverlay: View {
         }
         cuts.sort()
         var bestFit: (start: CGFloat, width: CGFloat) = (0, 0)
-        var bestAny: (start: CGFloat, width: CGFloat) = (0, 0)
         for i in 0..<(cuts.count - 1) {
             let gap = cuts[i + 1] - cuts[i]
             let mid = cuts[i] + gap / 2
             if spans.contains(where: { mid >= $0.start && mid <= $0.end }) { continue }
-            if gap > bestAny.width { bestAny = (cuts[i], gap) }
             if gap >= needed, gap > bestFit.width { bestFit = (cuts[i], gap) }
         }
-        let chosen = bestFit.width > 0 ? bestFit : bestAny
-        return chosen.width > 0 ? chosen.start + chosen.width / 2 : nil
+        return bestFit.width > 0 ? bestFit.start + bestFit.width / 2 : nil
     }
 
     /// Centre of the widest run of screen not covered by a reserved region,
@@ -504,14 +514,26 @@ struct GlassChromeOverlay: View {
         return centre - width / 2
     }
 
+    /// The column's band before this layout's seat and y-offset move it.
+    /// The probe reports the *placed* frame, and filtering regions by that
+    /// frame would feed placement back into its own inputs — a stationary
+    /// Duo window with a leading system region could then never settle.
+    /// Only the measured size is reused; the unplaced origin is the
+    /// frame's own contract: edge-aligned and centred in a full-size box.
+    private func unplacedColumnBand(in size: CGSize) -> CGRect? {
+        guard let placed = model.clusterFrame else { return nil }
+        let x: CGFloat = model.verticalBarEdge == .leading ? 0 : size.width - placed.width
+        return CGRect(x: x, y: (size.height - placed.height) / 2, width: placed.width, height: placed.height)
+    }
+
     /// Padding between the column and the screen's leading/trailing edge,
     /// clearing a region hugging that edge — the Duo's vertical system bar.
     /// The region must cross the column's own measured vertical band: a
     /// horizontal division spans the full width but never meets the column,
     /// and must not push it sideways. Mirrors leadingSeat on the
     /// horizontal layout, for whichever edge the trait names.
-    private func columnSeat(in width: CGFloat) -> CGFloat {
-        let band = model.clusterFrame
+    private func columnSeat(in size: CGSize) -> CGFloat {
+        let band = unplacedColumnBand(in: size)
         if model.verticalBarEdge == .leading {
             let edge = model.reservedRegions
                 .filter { $0.minX <= 1 && (band == nil || ($0.minY < band!.maxY && $0.maxY > band!.minY)) }
@@ -519,13 +541,13 @@ struct GlassChromeOverlay: View {
                 .max() ?? 0
             return edge > 0 ? edge + 16 : 16
         }
-        guard width > 0 else { return 16 }
+        guard size.width > 0 else { return 16 }
         let edge = model.reservedRegions
-            .filter { $0.maxX >= width - 1 && (band == nil || ($0.minY < band!.maxY && $0.maxY > band!.minY)) }
+            .filter { $0.maxX >= size.width - 1 && (band == nil || ($0.minY < band!.maxY && $0.maxY > band!.minY)) }
             .map(\.minX)
             .min()
         guard let edge else { return 16 }
-        return width - edge + 16
+        return size.width - edge + 16
     }
 
     /// Vertical centring of the column inside the widest run of screen not
@@ -533,14 +555,14 @@ struct GlassChromeOverlay: View {
     /// transpose of clusterOffset onto the y-axis, filtered to regions that
     /// cross the column's own measured horizontal band. The column's padded
     /// height must fit the run it takes.
-    private func columnOffsetY(in height: CGFloat) -> CGFloat {
-        let band = model.clusterFrame
+    private func columnOffsetY(in size: CGSize) -> CGFloat {
+        let band = unplacedColumnBand(in: size)
         let spans = model.reservedRegions
             .filter { band == nil || ($0.minX < band!.maxX && $0.maxX > band!.minX) }
             .map { (start: $0.minY, end: $0.maxY) }
-        guard let centre = widestRun(extent: height, spans: spans,
+        guard let centre = widestRun(extent: size.height, spans: spans,
                                    needed: (band?.height ?? 0) + capsuleHitExpansion * 2) else { return 0 }
-        return centre - height / 2
+        return centre - size.height / 2
     }
 
     /// Feeds the capsule's touch into the shared @GestureState — true while

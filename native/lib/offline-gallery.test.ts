@@ -648,18 +648,23 @@ describe('openGalleryNetworkFirst', () => {
     const { store } = makeHarness()
     await store.cache(selection, gallery)
 
+    // The fetch stays in flight until the vault lease is in hand — if the
+    // open awaited the network first, this test would hang here.
+    let releaseFetch!: () => void
+    const gate = new Promise<void>((resolve) => { releaseFetch = resolve })
     const opened = await openGalleryNetworkFirst({
       selection,
       store,
       cachePolicy: 'vault',
       preferVault: true,
-      fetchOnline: async () => gallery,
+      fetchOnline: async () => { await gate; return gallery },
     })
     expect(opened.source).toBe('offline')
     expect(opened.committedManifest?.images.map((item) => item.id)).toEqual(['stable-one', 'stable-two'])
     // Every src is a local object URL — no remote address survives the lease.
     expect(opened.manifest.images.every((item) => item.src.startsWith('blob:'))).toBe(true)
 
+    releaseFetch()
     const fresh = await opened.revalidate
     expect(fresh?.source).toBe('online')
     expect(fresh?.cacheFill).toBeDefined()

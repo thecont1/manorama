@@ -212,13 +212,11 @@ struct ContentView: View {
         .onExitCommand {
             focusedControl = nil
             accessibleControl = nil
-            // The pointer's own activity still holds the chrome — handing
-            // focus to the stage now would let the idle timer hide it
-            // mid-hover. Only with no native interaction left does the
-            // stage take focus back and idle hiding resume.
-            if !libraryHovered && !clusterHovered && !clusterNearby {
-                model.focusViewerStage()
-            }
+            // Escape always hands focus back to the stage — the hover
+            // flags govern the chrome's idle hold, not focus ownership,
+            // so a lingering hover must not strand keyboard focus on a
+            // control that no longer has it.
+            model.focusViewerStage()
         }
 
         return Group {

@@ -291,6 +291,10 @@ const DetailsPreviewStrip = ({ gallery, galleryUrl, onOpen }: {
 }) => {
   const frameRef = useRef<HTMLDivElement>(null)
   const [count, setCount] = useState(() => Math.min(gallery.images.length, PREVIEW_FALLBACK_CELLS))
+  // Stored dims are the placeholder's shape — a decoded frame that owns a
+  // different ratio shrinks the strip's coverage, so it re-seats the
+  // mounted prefix. Ratios that agree keep the existing count.
+  const [decodedRatios, setDecodedRatios] = useState<Record<string, readonly [number, number]>>({})
   const title = gallery.title || gallery.slug
   useEffect(() => {
     const frame = frameRef.current
@@ -302,7 +306,8 @@ const DetailsPreviewStrip = ({ gallery, galleryUrl, onOpen }: {
       let used = 0
       let next = 0
       for (const image of gallery.images) {
-        used += (height * Math.max(1, image.width)) / Math.max(1, image.height)
+        const ratio = decodedRatios[image.id]
+        used += (height * Math.max(1, ratio?.[0] ?? image.width)) / Math.max(1, ratio?.[1] ?? image.height)
         next += 1
         if (used >= width) break
       }
@@ -315,7 +320,7 @@ const DetailsPreviewStrip = ({ gallery, galleryUrl, onOpen }: {
     const observer = typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(update)
     observer?.observe(frame)
     return () => observer?.disconnect()
-  }, [gallery.id])
+  }, [gallery.id, decodedRatios])
   return (
     <div class="admin-gallery-strip-frame" ref={frameRef} aria-label={`${title} images`}>
       <ul class="admin-gallery-strip" aria-label={`${title} photographs`}>
@@ -342,7 +347,14 @@ const DetailsPreviewStrip = ({ gallery, galleryUrl, onOpen }: {
                   const img = event.currentTarget as HTMLImageElement
                   // Stored dims are the placeholder's shape — the decoded
                   // frame owns the real ratio once it lands.
-                  if (img.naturalWidth && img.naturalHeight) img.style.aspectRatio = `${img.naturalWidth} / ${img.naturalHeight}`
+                  if (img.naturalWidth && img.naturalHeight) {
+                    img.style.aspectRatio = `${img.naturalWidth} / ${img.naturalHeight}`
+                    if (img.naturalWidth * image.height !== image.width * img.naturalHeight) {
+                      setDecodedRatios((previous) => previous[image.id]?.[0] === img.naturalWidth && previous[image.id]?.[1] === img.naturalHeight
+                        ? previous
+                        : { ...previous, [image.id]: [img.naturalWidth, img.naturalHeight] })
+                    }
+                  }
                   img.classList.add('is-loaded')
                 }}
                 onError={stripImgRetry}
@@ -536,6 +548,7 @@ export default function Catalogue({ apiBase }: { apiBase: string }) {
    *  purging so a superseded fetch can never start a cache behind a
    *  stream-only policy. */
   const vaultFillRef = useRef(new Map<string, AbortController>())
+  const pendingPurgesRef = useRef(new Map<string, Promise<OfflineGallerySummary[] | undefined>>())
   const vaultOpenAbortRef = useRef<AbortController | null>(null)
   const localGridRef = useRef<HTMLUListElement | null>(null)
   const accountGridRef = useRef<HTMLUListElement | null>(null)
@@ -800,6 +813,10 @@ export default function Catalogue({ apiBase }: { apiBase: string }) {
   const detailsIdRef = useRef<string | null>(detailsId)
   const shareStepRef = useRef<ShareStep>('choose')
   const shareUploadingRef = useRef(false)
+  // The publish transition's own Back must not reset the share flow it
+  // opens: closing details and opening share are one gesture, but the
+  // popstate arrives after both.
+  const shareResetSkipRef = useRef(false)
   useEffect(() => {
     detailsIdRef.current = detailsId
   }, [detailsId])
@@ -820,6 +837,10 @@ export default function Catalogue({ apiBase }: { apiBase: string }) {
         return
       }
       setDetailsId(detail)
+      if (shareResetSkipRef.current) {
+        shareResetSkipRef.current = false
+        return
+      }
       // Any navigation dismisses the share sheet and forgets its flow; a
       // dismissal mid-connect settles the pending flow exactly like the
       // sheet's own close.
@@ -2093,13 +2114,15 @@ export default function Catalogue({ apiBase }: { apiBase: string }) {
     if (!catalogue) return
     const caption = value.trim()
     if (caption === (record.caption ?? '')) return
-    const next = {
-      ...catalogue,
-      galleries: catalogue.galleries.map(gallery => gallery.id === record.id ? { ...gallery, caption: caption || undefined } : gallery),
-    }
     // Persist first, exactly like rename — a failed private-store write
     // keeps the old caption on screen instead of pretending the save stuck.
-    await writeCatalogueFile(serializeLocalCatalogue(next))
+    // The mutate lands on the latest catalogue inside the write queue, so
+    // a concurrent edit cannot be overwritten by this save.
+    const next = await persistCatalogue((latest) => ({
+      ...latest,
+      galleries: latest.galleries.map(gallery => gallery.id === record.id ? { ...gallery, caption: caption || undefined } : gallery),
+    }))
+    if (!next) throw new Error('The caption could not be saved')
     setCatalogue(next)
     void runSync(next, session)
   }
@@ -2337,7 +2360,7 @@ export default function Catalogue({ apiBase }: { apiBase: string }) {
         fetchOnline: (signal) => fetchAccountGallery(base, owner, gallery.slug, session.token, fetch, signal),
         store: desktopOfflineStore,
         cachePolicy: galleryLoadOverride,
-        onProgress: (progress) => setNotice(`Saving ${progress.completed} of ${progress.total} photos to your encrypted vault…`),
+        onProgress: (progress) => { if (progress.total > 0) setNotice(`Saving ${progress.completed} of ${progress.total} photos to your encrypted vault…`) },
         signal: abort.signal,
         openEncryptedSession: openDesktopEncryptedSession,
       })
@@ -2349,6 +2372,12 @@ export default function Catalogue({ apiBase }: { apiBase: string }) {
       openLeaseRef.current = result
       const fill = result.cacheFill
       if (fill) {
+        // The open-driven fill rides the open's abort signal rather than
+        // its own — registering that controller lets the Keep-off path
+        // cancel it like any other vault fill before the purge runs.
+        const fillKey = `${owner}/${gallery.slug}`
+        vaultFillRef.current.set(fillKey, abort)
+        void fill.finally(() => { if (vaultFillRef.current.get(fillKey) === abort) vaultFillRef.current.delete(fillKey) })
         void fill.then((fillResult) => {
           if (abort.signal.aborted) return
           if (fillResult?.status === 'over-cap') setNotice('This gallery is larger than the encrypted vault can hold — viewing stays online.')
@@ -2446,6 +2475,7 @@ export default function Catalogue({ apiBase }: { apiBase: string }) {
     for (const url of savedThumbsRef.current.values()) URL.revokeObjectURL(url)
     savedThumbsRef.current = thumbs
     setSavedThumbs(thumbs)
+    return summaries
   }
 
   /** The saved-copy record for a card, when a complete vault entry exists —
@@ -2512,12 +2542,25 @@ export default function Catalogue({ apiBase }: { apiBase: string }) {
   /** Crypto-erasure on demand: the record and ciphertext go, and the key is
    *  destroyed — a removed copy cannot be resurrected from leftover bytes. */
   const removeSavedCopy = async (galleryId: string) => {
+    // A Keep toggle landing mid-purge must judge saved state from what the
+    // purge leaves, not the render's snapshot — the pending list is
+    // registered so the toggle can await it.
+    const pending = (async () => {
+      try {
+        await desktopOfflineStore.purgeGallery(galleryId)
+        const fresh = await refreshSavedGalleries()
+        setNotice('Saved copy removed from this Mac')
+        return fresh
+      } catch {
+        setNotice('The saved copy could not be removed')
+        return undefined
+      }
+    })()
+    pendingPurgesRef.current.set(galleryId, pending)
     try {
-      await desktopOfflineStore.purgeGallery(galleryId)
-      await refreshSavedGalleries()
-      setNotice('Saved copy removed from this Mac')
-    } catch {
-      setNotice('The saved copy could not be removed')
+      await pending
+    } finally {
+      if (pendingPurgesRef.current.get(galleryId) === pending) pendingPurgesRef.current.delete(galleryId)
     }
   }
 
@@ -2560,10 +2603,17 @@ export default function Catalogue({ apiBase }: { apiBase: string }) {
         await desktopOfflineStore.purgeGallery(gallery.id).catch(() => {})
         await refreshSavedGalleries()
       }
-    } else if (!savedGalleryFor(gallery)) {
+    } else {
+      // A Keep-off purge for this gallery may still be in flight — judge
+      // from the saved list it leaves behind, not the render's snapshot.
+      const pending = gallery.id ? pendingPurgesRef.current.get(gallery.id) : undefined
+      const fresh = pending ? await pending.catch(() => undefined) : undefined
+      const stillSaved = fresh
+        ? fresh.some((saved) => saved.status === 'cached' && saved.owner === owner && saved.slug === gallery.slug)
+        : Boolean(savedGalleryFor(gallery))
       // Keep is a save choice, not only a future-opens one — the fill
       // starts now, with progress riding the same notices as Save to Mac.
-      void saveToVault(gallery)
+      if (!stillSaved) void saveToVault(gallery)
     }
   }
 
@@ -3714,7 +3764,7 @@ export default function Catalogue({ apiBase }: { apiBase: string }) {
               onRename={(title) => rename(detailsRecord, title)}
               onCaption={(caption) => updateCaption(detailsRecord, caption)}
               publishedUrl={publishedUrlFor(detailsRecord)}
-              onPublish={() => { closeDetails(); openShareForGallery(detailsRecord.id) }}
+              onPublish={() => { if (window.history.state?.manoramaDetails) shareResetSkipRef.current = true; closeDetails(); openShareForGallery(detailsRecord.id) }}
               onReorder={() => { closeDetails(); openViewer(detailsRecord.id, 0, true) }}
               onRefresh={() => rescan(detailsRecord)}
               onRemove={() => remove(detailsRecord)}

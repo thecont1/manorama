@@ -637,6 +637,7 @@ export default function GalleryList({ apiBase, owner, slug, deepLinkSelection, o
         preferVault: true,
         onProgress: (progress) => {
           if (!active) return
+          if (progress.total === 0) { setVaultProgress(null); return }
           setVaultProgress(progress)
           setVaultNote(`Saving ${progress.completed} of ${progress.total} photos to your encrypted vault…`)
         },
@@ -1633,6 +1634,17 @@ export default function GalleryList({ apiBase, owner, slug, deepLinkSelection, o
       ? 'Gallery removed. Your cloud files were not changed.'
       : 'Gallery removed, but its key could not be removed from this device — sign out to clear remaining keys.')
   }
+  const openSelection = (owner: string, slug: string) => {
+    setFrameKick({ index: 0, nonce: 0 })
+    enterGallery({ owner, slug })
+  }
+
+  /** A rail tap opens at the tapped photograph, not at the first. */
+  const openSelectionAt = (owner: string, slug: string, index: number) => {
+    setFrameKick({ index, nonce: 0 })
+    enterGallery({ owner, slug })
+  }
+
   const detailsView = detailsSummary && ownerSlug ? (
     <GalleryDetails
       apiBase={base}
@@ -1665,7 +1677,7 @@ export default function GalleryList({ apiBase, owner, slug, deepLinkSelection, o
       deviceStatus={(
         <LibraryDeviceStatus
           galleryId={detailsGalleryId ?? ''}
-          imageCount={detailsSummary.imageCount}
+          imageCount={(() => { const published = summaryMediaCount(detailsSummary); return published.stills + published.videos })()}
           streamOnly={detailsStreamOnly}
           summary={detailsGalleryId ? vaultGalleries.get(detailsGalleryId) : undefined}
         />
@@ -1862,17 +1874,6 @@ export default function GalleryList({ apiBase, owner, slug, deepLinkSelection, o
       onOpenExternal={openExternal}
       onPrint={printSupported() ? () => window.print() : undefined}
     />
-  }
-
-  const openSelection = (owner: string, slug: string) => {
-    setFrameKick({ index: 0, nonce: 0 })
-    enterGallery({ owner, slug })
-  }
-
-  /** A rail tap opens at the tapped photograph, not at the first. */
-  const openSelectionAt = (owner: string, slug: string, index: number) => {
-    setFrameKick({ index, nonce: 0 })
-    enterGallery({ owner, slug })
   }
 
   const signOut = async () => {
@@ -2274,7 +2275,7 @@ export default function GalleryList({ apiBase, owner, slug, deepLinkSelection, o
           {gallery.retention === 'pipeline' ? ` · Temporary gallery${gallery.expiresAt ? ` · expires in ${expiryCountdownText(gallery.expiresAt, now)}` : ''}` : ''}
           <LibraryDeviceStatus
             galleryId={galleryId}
-            imageCount={gallery.imageCount}
+            imageCount={mediaCount.stills + mediaCount.videos}
             streamOnly={streamOnlyGallery}
             summary={vaultSummary}
             savedAnnounced={savedCopyComplete(vaultSummary, gallery)}
@@ -2524,13 +2525,8 @@ export default function GalleryList({ apiBase, owner, slug, deepLinkSelection, o
               <span class="native-lib-foot-copy">
                 <span class="native-lib-foot-line">
                   You are a manorama {isPro ? 'Visionary' : 'Free User'} hosting{' '}
-                  {/* A downgrade never evicts retained galleries, so the count
-                      can outrun the cap — those stay Cloud galleries, not the
-                      temporary ones the merged allowance folds them into. */}
-                  {retainedAccountGalleries.length > galleryLimit
-                    ? <><span class="num">{retainedAccountGalleries.length}</span> Cloud galleries (<span class="num">{retainedAccountGalleries.length - galleryLimit}</span> over the {isPro ? 'Visionary' : 'Free'} limit)</>
-                    : <><span class="num">{allowance.permanent}</span> of <span class="num">{galleryLimit}</span> Cloud galleries</>}
-                  {isPro ? null : <> and <span class="num">{temporaryAccountGalleries.length}</span> of <span class="num">{FREE_PIPELINE_LIMIT}</span> Temporary galleries</>}.
+                  <><span class="num">{allowance.permanent}</span> of <span class="num">{galleryLimit}</span> Cloud galleries</>
+                  {isPro ? null : <> and <span class="num">{allowance.temporary}</span> of <span class="num">{FREE_PIPELINE_LIMIT}</span> Temporary galleries</>}.
                 </span>
                 <span class="native-lib-foot-line native-lib-foot-meta">
                   {vaultUsageBytes !== undefined ? `${formatBytes(vaultUsageBytes)} in vault · ` : null}

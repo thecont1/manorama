@@ -41,6 +41,7 @@ export const hasIosGlass = (): boolean =>
  *  tagging bundle posts with it lets the shell drop a stale document's
  *  late messages after a navigation reset. */
 export const iosPost = (message: { type: 'focus'; control: ViewerChromeControl }) => {
+  if (!hasIosGlass()) return
   const win = window as unknown as {
     __manoramaChromeGen?: string
     webkit?: { messageHandlers?: { manorama?: { postMessage(payload: unknown): void } } }
@@ -67,7 +68,7 @@ export const installIosShellBridge = () => {
 /** The mounted Viewer's handle — same shape the desktop publisher exposes. */
 export const publishIosChrome = (handle: { current: ViewerChromeHandle | null }) => {
   const w = shellWindow()
-  if (!w) return
+  if (!w || !hasIosGlass()) return
   w.__manoramaChrome = {
     activate: (control) => handle.current?.activate(control),
     setActive: (active) => handle.current?.setActive(active),
