@@ -651,13 +651,12 @@ describe('signed-in account area', () => {
     const thumbs = [...rail!.querySelectorAll<HTMLButtonElement>('.lib-th')]
     expect(thumbs.map((thumb) => thumb.querySelector('img')?.getAttribute('src')))
       .toEqual(['https://cdn.example/first.jpg', 'https://cdn.example/second.jpg'])
-    // One article per gallery: rail, title row, metadata, caption. The card
-    // carries no address — the sub line ends on the device word.
+    // One article per gallery: rail, title row, metadata, caption. The sub
+    // line is count plus device state — source and hidden live in Details.
     const card = rail!.closest('.lib-card') as HTMLElement
     const order = [...card.children].map((child) => child.className.split(' ')[0])
     expect(order).toEqual(['lib-rail', 'lib-card-head', 'lib-card-sub', 'native-gallery-caption'])
-    expect(card.querySelector('.lib-card-sub')?.textContent).toContain('12 photographs')
-    expect(card.querySelector('.lib-card-sub')?.textContent).toContain('gallery')
+    expect(card.querySelector('.lib-card-sub')?.textContent?.trim()).toBe('12 photographs · Streams')
     expect(card.querySelector('.native-gallery-caption')?.textContent).toBe('A winter album')
     expect(card.querySelector('.native-gallery-link')).toBeNull()
 
@@ -1300,6 +1299,10 @@ describe('signed-in account area', () => {
     const foot = container.querySelector('.native-lib-foot')
     expect(foot?.textContent).toContain('Free User')
     expect(foot?.textContent).toContain('1 of 3 Cloud galleries')
+    // The summary is the door — it opens the same Settings the gear does.
+    ;(foot?.querySelector('.native-lib-foot-open') as HTMLButtonElement).click()
+    await settle()
+    expect(container.querySelector('[aria-label="Back to the library"]')).not.toBeNull()
   })
 
   test('names pipeline galleries without a shortened internal label', async () => {
@@ -1360,7 +1363,7 @@ describe('signed-in account area', () => {
 
     const card = container.querySelector('[data-cached-gallery="saved-album"]')
     expect(card).not.toBeNull()
-    expect(card?.textContent).toContain('Offline copy complete')
+    expect(card?.textContent).toContain('Saved on this device')
     expect(card?.textContent).toContain('account list pending')
     expect(calls.some((call) => call.url.includes('cdn.example') || call.url.includes('/api/dropbox/file'))).toBe(false)
 

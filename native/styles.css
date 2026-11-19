@@ -824,6 +824,32 @@ html.light body.manorama-native :is(.native-welcome, .native-list-shell, .native
 /* `hidden` on the foot loses to its own display:flex — Settings needs the
    attribute to actually hide it while the pane is up. */
 .native-lib-foot[hidden] { display: none; }
+/* The summary is the door to Settings, where the plan detail lives: the
+   whole line is the target, the chevron says there is more behind it. */
+.native-lib-foot-open {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex: 1 1 auto;
+  min-width: 0;
+  min-height: 44px;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  line-height: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.native-lib-foot-copy { display: block; min-width: 0; }
+.native-lib-foot-open .native-lib-foot-line { display: block; }
+.native-lib-foot-open .m-actionrow-chevron { flex: none; width: 16px; height: 16px; color: rgba(var(--ink), .35); }
+.native-lib-foot-open:hover .native-lib-foot-line:first-child { text-decoration: underline; }
+.native-lib-foot-open:focus-visible { outline: 2px solid rgb(var(--ink)); outline-offset: 2px; }
+.native-lib-foot > .m-btn--quiet { flex: none; }
 
 .native-library-layout {
   position: fixed;

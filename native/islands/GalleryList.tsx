@@ -45,7 +45,7 @@ import {
 } from '../lib/offline-gallery'
 import { computeCachedGallery, OnDeviceLocalCompute, readImageFeatures } from '../lib/local-compute'
 import { thumbnailEntryId } from '../lib/thumbs'
-import { mimeTypeForItem, sourceLabelFor, LibraryMediaLoader } from '../lib/library-media'
+import { mimeTypeForItem, LibraryMediaLoader } from '../lib/library-media'
 import { cacheFillRegistry } from '../lib/cache-fill'
 import { copyText, type GallerySharePayload } from '../../app/lib/gallery-share'
 import type { EncryptedClientSession } from '../../app/lib/encrypted-resolver'
@@ -1868,6 +1868,7 @@ export default function GalleryList({ apiBase, owner, slug, deepLinkSelection, o
     const streamOnlyGallery = ownerSlug
       ? (galleryPolicies?.[galleryPolicyKey(ownerSlug, gallery.slug)] ?? DEFAULT_VAULT_LOAD_POLICY) === 'stream'
       : false
+    const mediaCount = summaryMediaCount(gallery)
     const useRail = narrowLibrary || (gallery.pinnedAt && !gallery.hiddenAt)
     const GalleryPreview = useRail ? LibraryRail : LibraryCover
     return (
@@ -1897,8 +1898,7 @@ export default function GalleryList({ apiBase, owner, slug, deepLinkSelection, o
           >···</button>
         </div>
         <p class="lib-card-sub">
-          {formatMediaCount(summaryMediaCount(gallery))}
-          {' · '}{sourceLabelFor(gallery.sourceUrl)}
+          {formatMediaCount({ stills: mediaCount.stills, videos: mediaCount.videos })}
           {gallery.retention === 'pipeline' ? ` · Temporary gallery${gallery.expiresAt ? ` · expires in ${expiryCountdownText(gallery.expiresAt, now)}` : ''}` : ''}
           <LibraryDeviceStatus
             galleryId={galleryId}
@@ -1939,7 +1939,7 @@ export default function GalleryList({ apiBase, owner, slug, deepLinkSelection, o
           <button type="button" class="lib-card-title" onClick={() => openSelectionAt(gallery.owner, gallery.slug, 0)}>{gallery.title}</button>
           <button type="button" class="lib-card-menu" aria-label={`${gallery.title} saved-copy actions`} aria-haspopup="dialog" onClick={() => setCachedMenuGallery(gallery)}>···</button>
         </div>
-        <p class="lib-card-sub">{formatMediaCount({ stills: gallery.frames.length - gallery.frames.filter((frame) => frame.video).length, videos: gallery.frames.filter((frame) => frame.video).length })} · Offline copy complete · Saved on this device{accountListFailed ? ' · account list unavailable' : accountGalleries ? ' · not in the online account list' : ' · account list pending'}</p>
+        <p class="lib-card-sub">{formatMediaCount({ stills: gallery.frames.length - gallery.frames.filter((frame) => frame.video).length, videos: gallery.frames.filter((frame) => frame.video).length })} · Saved on this device{accountListFailed ? ' · account list unavailable' : accountGalleries ? ' · not in the online account list' : ' · account list pending'}</p>
       </article>
     )
   }
@@ -2130,18 +2130,25 @@ export default function GalleryList({ apiBase, owner, slug, deepLinkSelection, o
         {libraryFinding ? <p class="native-library-finding">{libraryFinding}</p> : null}
         {signedIn && tierKnown && accountGalleries ? (
           <footer class={quiet ? 'native-lib-foot lib-quiet' : 'native-lib-foot'} hidden={nav.screen.kind === 'settings' || undefined}>
-            <p class="native-lib-foot-line">
-              You are a manorama {isPro ? 'Visionary' : 'Free User'} hosting{' '}
-              <span class="num">{allowance.permanent}</span> of <span class="num">{galleryLimit}</span> Cloud galleries
-              {isPro ? null : <> and <span class="num">{allowance.temporary}</span> of <span class="num">{FREE_PIPELINE_LIMIT}</span> Temporary galleries</>}.{' '}
-              {!isPro && retainedAccountGalleries.length >= galleryLimit ? (
-                <button type="button" class="m-btn m-btn--quiet" onClick={() => dispatchNav({ type: 'open-visionary', from: 'library' })}>Go Visionary</button>
-              ) : null}
-            </p>
-            <p class="native-lib-foot-line native-lib-foot-meta">
-              {vaultUsageBytes !== undefined ? `${formatBytes(vaultUsageBytes)} in vault · ` : null}
-              {keptOnDevice} {keptOnDevice === 1 ? 'gallery' : 'galleries'} on {nativeDeviceLabel()}
-            </p>
+            <button type="button" class="native-lib-foot-open" onClick={() => dispatchNav({ type: 'open-settings' })}>
+              <span class="native-lib-foot-copy">
+                <span class="native-lib-foot-line">
+                  You are a manorama {isPro ? 'Visionary' : 'Free User'} hosting{' '}
+                  <span class="num">{allowance.permanent}</span> of <span class="num">{galleryLimit}</span> Cloud galleries
+                  {isPro ? null : <> and <span class="num">{allowance.temporary}</span> of <span class="num">{FREE_PIPELINE_LIMIT}</span> Temporary galleries</>}.
+                </span>
+                <span class="native-lib-foot-line native-lib-foot-meta">
+                  {vaultUsageBytes !== undefined ? `${formatBytes(vaultUsageBytes)} in vault · ` : null}
+                  {keptOnDevice} {keptOnDevice === 1 ? 'gallery' : 'galleries'} on {nativeDeviceLabel()}
+                </span>
+              </span>
+              <svg class="m-actionrow-chevron" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true">
+                <path d="M9 6l6 6-6 6" />
+              </svg>
+            </button>
+            {!isPro && retainedAccountGalleries.length >= galleryLimit ? (
+              <button type="button" class="m-btn m-btn--quiet" onClick={() => dispatchNav({ type: 'open-visionary', from: 'library' })}>Go Visionary</button>
+            ) : null}
           </footer>
         ) : null}
         </div>
