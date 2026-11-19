@@ -1,9 +1,9 @@
-import type { GalleryImage, GalleryManifest, GalleryMediaItem, ImageVariant } from '../../app/lib/imagesource'
+import type { GalleryImage, GalleryManifest, GalleryMediaItem, ImageVariant, VideoItem } from '../../app/lib/imagesource'
 import { isVideoItem } from '../../app/lib/imagesource'
 import type { GallerySettings } from '../../app/lib/gallery-settings'
 import { NativeGalleryHttpError, type NativeGalleryResponse } from './api'
 import type { VaultLoadPolicy } from './vault-settings'
-import { thumbnailEntryId } from './thumbs'
+import { thumbnailEntryId, videoEntryId } from './thumbs'
 import { localComputeEntryId } from './local-compute'
 import type { EncryptedVault } from './vault'
 import { productionVault } from './vault'
@@ -22,7 +22,6 @@ const decoder = new TextDecoder()
 export type GallerySelection = { owner: string; slug: string; galleryId?: string; sourceUrl?: string }
 export type OfflineCacheResult =
   | { status: 'complete'; images: number }
-  | { status: 'skipped-video'; images: 0 }
   | { status: 'skipped-encrypted'; images: 0 }
   | { status: 'over-cap'; images: number }
 
@@ -39,6 +38,11 @@ export type OfflineCacheInspection =
 
 export type OfflineGalleryLease = NativeGalleryResponse & {
   source: 'offline'
+  /** The committed manifest verbatim — provider refs intact, before the
+   *  lease rewrote every src to a decrypted object URL. A revalidator diffs
+   *  it against the fresh network manifest to tell a real change from a
+   *  same-bytes re-open. */
+  committedManifest: GalleryManifest
   dispose(): void
 }
 
@@ -105,7 +109,11 @@ export interface OfflineObjectUrlProvider {
 }
 
 type OfflineVault = Pick<EncryptedVault, 'read' | 'readMany' | 'write' | 'remove' | 'clearGallery' | 'clear' | 'epoch' | 'listGalleryIds' | 'touch'>
-type CachedImage = { id: string; entryId: string; mimeType: string }
+/** One record per manifest item, index-aligned with `manifest.images` —
+ *  `gridGallery` zips them positionally. `entryId` always holds the still
+ *  bytes (the image itself, or a video's poster); `videoEntryId` appears
+ *  only on video items and holds the MP4. */
+type CachedImage = { id: string; entryId: string; mimeType: string; videoEntryId?: string; videoMimeType?: string }
 type OfflineMetadata = {
   version: typeof METADATA_VERSION
   owner: string
@@ -172,12 +180,14 @@ const isRecord = (value: unknown): value is Record<string, unknown> =>
 const isStringRecord = (value: unknown): value is Record<string, string> =>
   isRecord(value) && Object.values(value).every((entry) => typeof entry === 'string')
 
-const isStillItem = (value: unknown): value is GalleryImage => {
-  if (!isRecord(value) || (value.type !== undefined && value.type !== 'image')) return false
-  const variantsValid = value.variants === undefined || (Array.isArray(value.variants) && value.variants.every((variant) =>
+const variantsValid = (value: Record<string, unknown>): boolean =>
+  value.variants === undefined || (Array.isArray(value.variants) && value.variants.every((variant) =>
     isRecord(variant) && Number.isFinite(variant.width) && Number(variant.width) > 0 &&
     typeof variant.src === 'string' && typeof variant.format === 'string'))
-  return variantsValid && typeof value.id === 'string' && value.id.length > 0 &&
+
+const isStillItem = (value: unknown): value is GalleryImage => {
+  if (!isRecord(value) || (value.type !== undefined && value.type !== 'image')) return false
+  return variantsValid(value) && typeof value.id === 'string' && value.id.length > 0 &&
     typeof value.filename === 'string' && typeof value.src === 'string' &&
     Number.isFinite(value.width) && Number(value.width) > 0 &&
     Number.isFinite(value.height) && Number(value.height) > 0 &&
@@ -185,10 +195,25 @@ const isStillItem = (value: unknown): value is GalleryImage => {
     typeof value.placeholder === 'string'
 }
 
+const isVideoManifestItem = (value: unknown): value is VideoItem => {
+  if (!isRecord(value) || value.type !== 'video') return false
+  const poster = value.poster
+  return variantsValid(value) && typeof value.id === 'string' && value.id.length > 0 &&
+    typeof value.filename === 'string' && typeof value.src === 'string' &&
+    value.mimeType === 'video/mp4' &&
+    Number.isFinite(value.width) && Number(value.width) > 0 &&
+    Number.isFinite(value.height) && Number(value.height) > 0 &&
+    typeof value.alt === 'string' && value.c2pa === false &&
+    typeof value.placeholder === 'string' &&
+    isRecord(poster) && typeof poster.src === 'string' &&
+    Number.isFinite(poster.width) && Number(poster.width) > 0 &&
+    Number.isFinite(poster.height) && Number(poster.height) > 0
+}
+
 const isManifest = (value: unknown): value is GalleryManifest => {
   if (!isRecord(value) || typeof value.slug !== 'string' || typeof value.title !== 'string' ||
     typeof value.caption !== 'string' || typeof value.date !== 'string' || !Array.isArray(value.images) ||
-    value.images.length === 0 || !value.images.every(isStillItem)) return false
+    value.images.length === 0 || !value.images.every((item) => isStillItem(item) || isVideoManifestItem(item))) return false
   const ids = value.images.map((item) => item.id)
   return new Set(ids).size === ids.length
 }
@@ -215,8 +240,13 @@ const isMetadataRecord = (value: unknown): value is OfflineMetadata => {
   return value.images.every((candidate, index) => {
     if (!isRecord(candidate)) return false
     const manifestImage = manifest.images[index]
-    return candidate.id === manifestImage?.id && candidate.entryId === thumbnailEntryId(manifestImage.id) &&
-      typeof candidate.mimeType === 'string' && candidate.mimeType.length > 0
+    if (candidate.id !== manifestImage?.id || candidate.entryId !== thumbnailEntryId(manifestImage.id) ||
+      typeof candidate.mimeType !== 'string' || candidate.mimeType.length === 0) return false
+    if (isVideoItem(manifestImage)) {
+      return candidate.videoEntryId === videoEntryId(manifestImage.id) &&
+        typeof candidate.videoMimeType === 'string' && candidate.videoMimeType.length > 0
+    }
+    return candidate.videoEntryId === undefined && candidate.videoMimeType === undefined
   })
 }
 
@@ -242,12 +272,33 @@ const mimeFromFilename = (filename: string): string | undefined => {
   return mimeFromFormat(extension)
 }
 
-const responseMimeType = (response: OfflineFetchResponse, image: GalleryImage, format?: string): string => {
+const responseMimeType = (response: OfflineFetchResponse, image: Pick<GalleryMediaItem, 'filename'>, format?: string): string => {
   const header = response.headers.get('content-type')?.split(';', 1)[0]?.trim().toLowerCase()
   if (header && !header.startsWith('image/') && header !== 'application/octet-stream') {
     throw new Error(`Offline image response was not an image (${header})`)
   }
   return header?.startsWith('image/') ? header : mimeFromFormat(format) ?? mimeFromFilename(image.filename) ?? 'application/octet-stream'
+}
+
+/** The video fetch's counterpart: the manifest already declares MP4, so an
+ *  honest header is confirmed and anything else falls back to it. */
+const videoMimeTypeOf = (response: OfflineFetchResponse, item: VideoItem): string => {
+  const header = response.headers.get('content-type')?.split(';', 1)[0]?.trim().toLowerCase()
+  if (header && !header.startsWith('video/') && header !== 'application/octet-stream') {
+    throw new Error(`Offline video response was not a video (${header})`)
+  }
+  return header?.startsWith('video/') ? header : item.mimeType
+}
+
+/** What a fill compares against the committed manifest before reusing
+ *  vaulted bytes: `contentVersion` for encrypted refs, the byte sources
+ *  otherwise — a video only counts as unchanged when both its MP4 and its
+ *  poster match. */
+const srcIdentityOf = (item: GalleryMediaItem | undefined): string => {
+  if (!item) return ''
+  if (!isVideoItem(item) && item.media?.kind === 'encrypted' && typeof item.contentVersion === 'string') return `enc:${item.contentVersion}`
+  if (isVideoItem(item)) return `video:${item.src}|poster:${item.poster.src}`
+  return item.src
 }
 
 const throwIfAborted = (signal?: AbortSignal): void => {
@@ -375,21 +426,21 @@ export class EncryptedOfflineGalleryStore implements OfflineGalleryStore {
     // with a new source URL under the same image ID), and its committed
     // MIME survives reuse instead of being re-derived from the filename.
     const prior = await this.readMetadataById(galleryId)
-    const priorById = new Map<string, { src: string; mimeType: string; contentVersion?: string }>()
+    const priorCachedById = new Map<string, CachedImage>()
+    const priorManifestById = new Map<string, GalleryMediaItem>()
     if (prior.status === 'ready') {
       prior.value.images.forEach((priorImage, index) => {
-        const src = prior.value.manifest.images[index]?.src
+        priorCachedById.set(priorImage.id, priorImage)
         const priorManifestImage = prior.value.manifest.images[index]
-        priorById.set(priorImage.id, { src: src ?? '', mimeType: priorImage.mimeType, contentVersion: priorManifestImage && 'contentVersion' in priorManifestImage ? priorManifestImage.contentVersion : undefined })
+        if (priorManifestImage) priorManifestById.set(priorManifestImage.id, priorManifestImage)
       })
     }
     // Invalidate the commit record first. A failed refresh may leave encrypted
     // bytes behind, but they can never be mistaken for a complete gallery.
     await this.vault.remove(galleryId, METADATA_ENTRY_ID)
-    if (gallery.manifest.images.some(isVideoItem)) return { status: 'skipped-video', images: 0 }
-    const stillImages = gallery.manifest.images.filter((image): image is GalleryImage => !isVideoItem(image))
-    if (stillImages.length === 0) throw new Error('An empty gallery cannot be cached offline')
-    if (new Set(stillImages.map((image) => image.id)).size !== stillImages.length) {
+    const items = gallery.manifest.images
+    if (items.length === 0) throw new Error('An empty gallery cannot be cached offline')
+    if (new Set(items.map((image) => image.id)).size !== items.length) {
       throw new Error('Offline caching requires unique stable image IDs')
     }
 
@@ -399,23 +450,21 @@ export class EncryptedOfflineGalleryStore implements OfflineGalleryStore {
     // just to learn the bytes are already there. Any drift (a new, removed,
     // reordered or re-uploaded photo) falls through to the per-image pass.
     const priorImages = prior.status === 'ready' ? prior.value.images : []
-    const unchanged = priorImages.length === stillImages.length && stillImages.every((image, index) => {
+    const unchanged = priorImages.length === items.length && items.every((image, index) => {
       const cached = priorImages[index]
       if (!cached || cached.id !== image.id) return false
       const priorManifestImage = prior.status === 'ready' ? prior.value.manifest.images[index] : undefined
-      return image.media?.kind === 'encrypted'
-        ? typeof image.contentVersion === 'string' && image.contentVersion === (priorManifestImage && 'contentVersion' in priorManifestImage ? priorManifestImage.contentVersion : undefined)
-        : priorManifestImage?.src === image.src
+      return srcIdentityOf(priorManifestImage) === srcIdentityOf(image)
     })
     if (unchanged) {
-      const missing = await this.vault.touch(galleryId, priorImages.map((image) => image.entryId))
+      const missing = await this.vault.touch(galleryId, priorImages.flatMap((image) => image.videoEntryId ? [image.entryId, image.videoEntryId] : [image.entryId]))
       if (missing.length === 0) {
         for (const [index, image] of priorImages.entries()) {
           const item: OfflineCacheItemReady = { id: image.id, entryId: image.entryId, mimeType: image.mimeType, index }
           cacheFillRegistry.publish({ galleryId, item })
           onItemReady?.(item)
         }
-        onProgress?.({ completed: stillImages.length, total: stillImages.length })
+        onProgress?.({ completed: items.length, total: items.length })
         const metadataBytes = encoder.encode(JSON.stringify({
           version: METADATA_VERSION,
           owner: selection.owner,
@@ -431,35 +480,77 @@ export class EncryptedOfflineGalleryStore implements OfflineGalleryStore {
         } finally {
           metadataBytes.fill(0)
         }
-        return { status: 'complete', images: stillImages.length }
+        return { status: 'complete', images: items.length }
       }
     }
 
     const cachedImages: CachedImage[] = []
-    onProgress?.({ completed: 0, total: stillImages.length })
-    for (const [index, image] of stillImages.entries()) {
+    const publish = (item: OfflineCacheItemReady) => {
+      // The registry feeds waiting Library cells unconditionally; the
+      // per-call callback stays the optional seam for whoever started the
+      // fill.
+      cacheFillRegistry.publish({ galleryId, item })
+      onItemReady?.(item)
+    }
+    onProgress?.({ completed: 0, total: items.length })
+    for (const [index, image] of items.entries()) {
       throwIfAborted(signal)
       const entryId = thumbnailEntryId(image.id)
+      const videoEntry = isVideoItem(image) ? videoEntryId(image.id) : undefined
       // A fill runs on every online open: bytes already in the vault are
       // reused instead of re-downloaded — but only while the provider source
       // is unchanged, and the touched read keeps them ahead of the entries
       // this same fill writes (an evicting LRU could otherwise delete them
       // mid-fill). The metadata commit still refreshes manifest/settings.
-      const priorImage = priorById.get(image.id)
-      const existing = await this.vault.read(galleryId, entryId, { touch: true })
-      if (existing) {
-        existing.fill(0)
-        const unchanged = image.media?.kind === 'encrypted'
-          ? typeof image.contentVersion === 'string' && priorImage?.contentVersion === image.contentVersion
-          : priorImage?.src === image.src
-        if (unchanged && priorImage) {
-          cachedImages.push({ id: image.id, entryId, mimeType: priorImage.mimeType })
-          const item: OfflineCacheItemReady = { id: image.id, entryId, mimeType: priorImage.mimeType, index }
-          cacheFillRegistry.publish({ galleryId, item })
-          onItemReady?.(item)
-          onProgress?.({ completed: cachedImages.length, total: stillImages.length })
-          continue
+      const stillExisting = await this.vault.read(galleryId, entryId, { touch: true })
+      const videoExisting = videoEntry ? await this.vault.read(galleryId, videoEntry, { touch: true }) : undefined
+      if (stillExisting) stillExisting.fill(0)
+      if (videoExisting) videoExisting.fill(0)
+      const priorCached = priorCachedById.get(image.id)
+      const reuseEntry = stillExisting !== undefined
+        && (videoEntry === undefined || videoExisting !== undefined)
+        && priorCached !== undefined
+        && (videoEntry === undefined || priorCached.videoEntryId === videoEntry)
+        && srcIdentityOf(priorManifestById.get(image.id)) === srcIdentityOf(image)
+      if (reuseEntry && priorCached) {
+        cachedImages.push({ id: image.id, entryId, mimeType: priorCached.mimeType, videoEntryId: videoEntry, videoMimeType: priorCached.videoMimeType })
+        publish({ id: image.id, entryId, mimeType: priorCached.mimeType, index })
+        onProgress?.({ completed: cachedImages.length, total: items.length })
+        continue
+      }
+      if (isVideoItem(image)) {
+        const videoEntry = videoEntryId(image.id)
+        // The poster lands first so Library cells light up while the MP4 is
+        // still downloading. The still keeps the thumb:* addressing every
+        // cell, rail and grid already uses.
+        const posterResponse = await this.fetchImage(image.poster.src, { signal })
+        if (!posterResponse.ok) throw new Error(`Offline image request failed (${posterResponse.status})`)
+        const posterMime = responseMimeType(posterResponse, image, 'jpeg')
+        const posterBytes = new Uint8Array(await posterResponse.arrayBuffer())
+        try {
+          throwIfAborted(signal)
+          if (posterBytes.length === 0) throw new Error('Offline image response was empty')
+          await this.vault.write(galleryId, entryId, posterBytes, guard)
+          await this.vault.remove(galleryId, localComputeEntryId(image.id))
+        } finally {
+          posterBytes.fill(0)
         }
+        const videoResponse = await this.fetchImage(image.src, { signal })
+        if (!videoResponse.ok) throw new Error(`Offline video request failed (${videoResponse.status})`)
+        const videoMime = videoMimeTypeOf(videoResponse, image)
+        const videoBytes = new Uint8Array(await videoResponse.arrayBuffer())
+        try {
+          throwIfAborted(signal)
+          if (videoBytes.length === 0) throw new Error('Offline video response was empty')
+          await this.vault.write(galleryId, videoEntry, videoBytes, guard)
+        } finally {
+          videoBytes.fill(0)
+        }
+        cachedImages.push({ id: image.id, entryId, mimeType: posterMime, videoEntryId: videoEntry, videoMimeType: videoMime })
+        publish({ id: image.id, entryId, mimeType: posterMime, index })
+        publish({ id: image.id, entryId: videoEntry, mimeType: videoMime, index })
+        onProgress?.({ completed: cachedImages.length, total: items.length })
+        continue
       }
       let bytes: Uint8Array
       let mimeType: string
@@ -482,13 +573,8 @@ export class EncryptedOfflineGalleryStore implements OfflineGalleryStore {
         // let a version/image-ID-only feature record survive that replacement.
         await this.vault.remove(galleryId, localComputeEntryId(image.id))
         cachedImages.push({ id: image.id, entryId, mimeType })
-        const item: OfflineCacheItemReady = { id: image.id, entryId, mimeType, index }
-        // The registry feeds waiting Library cells unconditionally; the
-        // per-call callback stays the optional seam for whoever started the
-        // fill.
-        cacheFillRegistry.publish({ galleryId, item })
-        onItemReady?.(item)
-        onProgress?.({ completed: cachedImages.length, total: stillImages.length })
+        publish({ id: image.id, entryId, mimeType, index })
+        onProgress?.({ completed: cachedImages.length, total: items.length })
       } finally {
         bytes.fill(0)
       }
@@ -501,9 +587,12 @@ export class EncryptedOfflineGalleryStore implements OfflineGalleryStore {
     // metadata commit below advertises a complete gallery.
     let lost = false
     for (const image of cachedImages) {
-      const bytes = await this.vault.read(galleryId, image.entryId, { touch: false })
-      if (!bytes) { lost = true; break }
-      bytes.fill(0)
+      for (const entryId of image.videoEntryId ? [image.entryId, image.videoEntryId] : [image.entryId]) {
+        const bytes = await this.vault.read(galleryId, entryId, { touch: false })
+        if (!bytes) { lost = true; break }
+        bytes.fill(0)
+      }
+      if (lost) break
     }
     if (lost) {
       // Purge the partial fill: orphaned ciphertext still counts against the
@@ -536,12 +625,15 @@ export class EncryptedOfflineGalleryStore implements OfflineGalleryStore {
     const metadata = await this.readMetadata(selection, galleryId, false)
     if (metadata.status !== 'ready') return { status: metadata.status, images: 0 }
     for (const image of metadata.value.images) {
-      const bytes = await this.vault.read(galleryId, image.entryId, { touch: false })
-      if (!bytes) {
-        await this.vault.remove(galleryId, METADATA_ENTRY_ID)
-        return { status: 'incomplete', images: 0 }
+      const entryIds = image.videoEntryId ? [image.entryId, image.videoEntryId] : [image.entryId]
+      for (const entryId of entryIds) {
+        const bytes = await this.vault.read(galleryId, entryId, { touch: false })
+        if (!bytes) {
+          await this.vault.remove(galleryId, METADATA_ENTRY_ID)
+          return { status: 'incomplete', images: 0 }
+        }
+        bytes.fill(0)
       }
-      bytes.fill(0)
     }
     return { status: 'complete', images: metadata.value.images.length }
   }
@@ -561,17 +653,22 @@ export class EncryptedOfflineGalleryStore implements OfflineGalleryStore {
 
     const urls: string[] = []
     const localById = new Map<string, string>()
+    const videoById = new Map<string, string>()
     try {
       // One serialized slot, batched decrypts: a whole gallery's ciphertext
-      // comes back in parallel windows instead of one entry at a time.
-      const results = await this.vault.readMany(galleryId, metadata.value.images.map((image) => image.entryId))
+      // comes back in parallel windows instead of one entry at a time. A
+      // video item contributes both its still entry and its MP4 entry.
+      const entryIds = metadata.value.images.flatMap((image) => image.videoEntryId ? [image.entryId, image.videoEntryId] : [image.entryId])
+      const results = await this.vault.readMany(galleryId, entryIds)
       if (results.some((bytes) => !bytes)) {
         for (const bytes of results) bytes?.fill(0)
         await this.vault.remove(galleryId, METADATA_ENTRY_ID)
         throw new Error('Offline gallery cache is incomplete')
       }
-      for (const [index, image] of metadata.value.images.entries()) {
-        const bytes = results[index]!
+      let cursor = 0
+      for (const image of metadata.value.images) {
+        const bytes = results[cursor++]!
+        const videoBytes = image.videoEntryId ? results[cursor++] : undefined
         try {
           const url = this.objectUrls.create(bytes, image.mimeType)
           urls.push(url)
@@ -580,25 +677,41 @@ export class EncryptedOfflineGalleryStore implements OfflineGalleryStore {
         } finally {
           bytes.fill(0)
         }
+        if (videoBytes) {
+          try {
+            const url = this.objectUrls.create(videoBytes, image.videoMimeType ?? 'video/mp4')
+            urls.push(url)
+            this.trackUrl(galleryId, url)
+            videoById.set(image.id, url)
+          } finally {
+            videoBytes.fill(0)
+          }
+        }
       }
 
       const manifest: GalleryManifest = {
         ...metadata.value.manifest,
         images: metadata.value.manifest.images.map((image) => {
-          const src = localById.get(image.id)
-          if (!src) throw new Error('Offline gallery cache is incomplete')
+          const stillSrc = localById.get(image.id)
+          if (!stillSrc) throw new Error('Offline gallery cache is incomplete')
           // Provider media refs must not survive into the lease: any resolver
           // that sees one materializes it over the network, which a saved
           // copy promised not to need. The stored manifest keeps its refs
           // verbatim — fills compare unchangedness against it.
           const { media: _media, ...rest } = image as GalleryMediaItem & { media?: unknown }
+          const variants = image.variants?.map((variant) => {
+            const { media: _variantMedia, ...vrest } = variant
+            return { ...vrest, src: stillSrc }
+          })
+          if (isVideoItem(image)) {
+            const videoSrc = videoById.get(image.id)
+            if (!videoSrc) throw new Error('Offline gallery cache is incomplete')
+            return { ...rest, src: videoSrc, poster: { ...image.poster, src: stillSrc }, variants }
+          }
           return {
             ...rest,
-            src,
-            variants: image.variants?.map((variant) => {
-              const { media: _variantMedia, ...vrest } = variant
-              return { ...vrest, src }
-            }),
+            src: stillSrc,
+            variants,
           }
         }),
       }
@@ -606,6 +719,7 @@ export class EncryptedOfflineGalleryStore implements OfflineGalleryStore {
       return {
         source: 'offline',
         manifest,
+        committedManifest: metadata.value.manifest,
         settings: metadata.value.settings,
         dispose: () => {
           if (disposed) return
@@ -697,6 +811,14 @@ export type NetworkFirstGallery = NativeGalleryResponse & {
   dispose?: () => void
   cacheFill?: Promise<OfflineCacheResult>
   encryptedResolver?: EncryptedMediaResolver
+  /** Present only on a vault-first open: the committed manifest verbatim.
+   *  Compare against `revalidate`'s fresh manifest to detect real drift. */
+  committedManifest?: GalleryManifest
+  /** Present only on a vault-first open: the network revalidation that was
+   *  still in flight when the vault copy won. Resolves to the fresh online
+   *  gallery, or null when the network could not answer — the vault copy
+   *  already won, so a failed revalidation changes nothing. */
+  revalidate?: Promise<NetworkFirstGallery | null>
 }
 
 export class OfflineGalleryUnavailableError extends Error {
@@ -708,32 +830,71 @@ export class OfflineGalleryUnavailableError extends Error {
 
 const CACHE_INVALIDATING_HTTP_STATUSES = new Set([401, 403, 404, 410])
 
-/** Online bytes win. A successful response returns before its cache fill settles. */
-export const openGalleryNetworkFirst = async (options: {
+type OpenOptions = {
   selection: GallerySelection
   fetchOnline(signal?: AbortSignal): Promise<NativeGalleryResponse>
   store: OfflineGalleryStore
   /** Defaults to the secure on-device vault. Stream mode never starts a new
    * cache fill, but existing complete vault copies remain available offline. */
   cachePolicy?: VaultLoadPolicy
+  /** A kept copy opens from the device: instant and offline-proof. The
+   *  network still revalidates behind it — the returned `revalidate`
+   *  promise carries the fresh online gallery (or null when the network
+   *  could not answer), and the caller swaps it in only when the manifest
+   *  actually drifted. Only honoured under a 'vault' policy. */
+  preferVault?: boolean
   onProgress?: (progress: OfflineCacheProgress) => void
   onItemReady?: (item: OfflineCacheItemReady) => void
   signal?: AbortSignal
   /** Device shells inject their own key custody — the default reads the
    *  native SecureStorage store. */
   openEncryptedSession?: (selection: GallerySelection, compareWith?: string) => Promise<EncryptedClientSession>
-}): Promise<NetworkFirstGallery> => {
+}
+
+/** The fresh online answer: bytes resolve through the provider (or the
+ *  encrypted session) and the vault refills behind the open unless the
+ *  policy says stream. */
+const prepareOnline = async (options: OpenOptions, gallery: NativeGalleryResponse): Promise<NetworkFirstGallery> => {
+  const openSession = options.openEncryptedSession ?? openNativeEncryptedSession
+  const encryptedSession = gallery.manifest.images.some((image) => !isVideoItem(image) && image.media?.kind === 'encrypted')
+    ? await openSession(options.selection, gallery.manifest.sourceUrl)
+    : undefined
+  const encryptedResolver = encryptedSession ? new EncryptedMediaResolver(encryptedSession) : undefined
+  const cacheFill = options.cachePolicy === 'stream'
+    ? undefined
+    : options.store.cache(options.selection, gallery, options.signal, options.onProgress, options.onItemReady, encryptedSession)
+  return { ...gallery, source: 'online', cacheFill, encryptedResolver, dispose: () => encryptedResolver?.dispose() }
+}
+
+/** True when the fresh manifest is the committed one — same image order,
+ *  same ids, same byte identity (src for provider media, contentVersion for
+ *  encrypted refs). Anything else is drift worth a swap. */
+export const offlineManifestMatches = (committed: GalleryManifest, fresh: GalleryManifest): boolean =>
+  committed.images.length === fresh.images.length &&
+  committed.images.every((image, index) => {
+    const next = fresh.images[index]
+    if (!next || next.id !== image.id) return false
+    const versionOf = (item: GalleryMediaItem) =>
+      'contentVersion' in item && typeof item.contentVersion === 'string' ? item.contentVersion : item.src
+    return versionOf(image) === versionOf(next)
+  })
+
+/** Online bytes win. A successful response returns before its cache fill
+ *  settles — unless `preferVault` finds a complete copy, which opens from
+ *  the device first and lets the network answer trail behind. */
+export const openGalleryNetworkFirst = async (options: OpenOptions): Promise<NetworkFirstGallery> => {
+  if (options.preferVault && options.cachePolicy === 'vault') {
+    const cached = await options.store.open(options.selection).catch(() => undefined)
+    if (cached) {
+      const revalidate = options.fetchOnline(options.signal)
+        .then((gallery) => prepareOnline(options, gallery))
+        .catch(() => null)
+      return { ...cached, revalidate }
+    }
+  }
   try {
     const gallery = await options.fetchOnline(options.signal)
-    const openSession = options.openEncryptedSession ?? openNativeEncryptedSession
-    const encryptedSession = gallery.manifest.images.some((image) => !isVideoItem(image) && image.media?.kind === 'encrypted')
-      ? await openSession(options.selection, gallery.manifest.sourceUrl)
-      : undefined
-    const encryptedResolver = encryptedSession ? new EncryptedMediaResolver(encryptedSession) : undefined
-    const cacheFill = options.cachePolicy === 'stream'
-      ? undefined
-      : options.store.cache(options.selection, gallery, options.signal, options.onProgress, options.onItemReady, encryptedSession)
-    return { ...gallery, source: 'online', cacheFill, encryptedResolver, dispose: () => encryptedResolver?.dispose() }
+    return await prepareOnline(options, gallery)
   } catch (networkError) {
     throwIfAborted(options.signal)
     // A locked encrypted gallery keeps its type through the fallback so the

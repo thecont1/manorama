@@ -47,7 +47,7 @@ describe('network-first encrypted galleries', () => {
 
   test('a locked gallery still opens its vaulted copy', async () => {
     mock.module('./gallery-key-store', () => ({ nativeGalleryKeyStore: () => ({ get: async () => null, put: async () => {}, list: async () => [], purgeAll: async () => {} }) }))
-    const lease = { manifest, settings: defaultGallerySettings(manifest), source: 'offline' as const, dispose: () => {} }
+    const lease = { manifest, committedManifest: manifest, settings: defaultGallerySettings(manifest), source: 'offline' as const, dispose: () => {} }
     const store: OfflineGalleryStore = {
       cache: async () => ({ status: 'complete', images: 1 }),
       inspect: async () => ({ status: 'missing', images: 0 }), open: async () => lease, invalidate: async () => {},
