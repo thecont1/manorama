@@ -4,6 +4,7 @@
 #
 #   bash scripts/capture-screens.sh --device iphone
 #   bash scripts/capture-screens.sh --device ipad
+#   bash scripts/capture-screens.sh --device duo      # inner panel, landscape
 #
 # Produces, into the submission screens folder:
 #
@@ -65,9 +66,14 @@ done
 # carry suffixes ("iPhone 13 Pro Max r265", "iPhone 13 Pro Max capture"), and
 # anchoring on the paren quietly matched nothing and took the script down.
 case "$DEVICE" in
-  iphone) TYPE_RE='iPhone 13 Pro Max' ; DEFAULT_OUT="$REPO/demo-captures/ios" ;;
-  ipad)   TYPE_RE='iPad Pro 13-inch'  ; DEFAULT_OUT="$REPO/demo-captures/ipad" ;;
-  *) echo "--device must be iphone or ipad" >&2; exit 2 ;;
+  # EXPECTED_DIMS is the dimension guard applied to every shot; iphone varies
+  # with whichever simulator answered, so it stays unguarded.
+  iphone) TYPE_RE='iPhone 13 Pro Max' ; DEFAULT_OUT="$REPO/demo-captures/ios" ; EXPECTED_DIMS="" ;;
+  ipad)   TYPE_RE='iPad Pro 13-inch'  ; DEFAULT_OUT="$REPO/demo-captures/ipad" ; EXPECTED_DIMS="2752x2064" ;;
+  # 'Duo' rather than 'iPhone Duo': the sims on this machine are named
+  # ("Devin Duo"), and the name is what simctl prints, not the device type.
+  duo)    TYPE_RE='Duo'               ; DEFAULT_OUT="$REPO/demo-captures/duo" ; EXPECTED_DIMS="2853x2007" ;;
+  *) echo "--device must be iphone, ipad or duo" >&2; exit 2 ;;
 esac
 OUT="${OUT:-$DEFAULT_OUT}"
 
@@ -117,11 +123,31 @@ else
 fi
 xcrun simctl bootstatus "$UDID" -b >/dev/null 2>&1 || xcrun simctl boot "$UDID" >/dev/null 2>&1 || true
 xcrun simctl bootstatus "$UDID" -b >/dev/null 2>&1 || true
-if [[ "$DEVICE" == "ipad" ]]; then
+if [[ "$DEVICE" == "ipad" || "$DEVICE" == "duo" ]]; then
   # iPadOS 26/27 ignores UIRequiresFullScreen for resizable apps. Xcode 27.1's
   # supported device controller rotates the actual simulator, so the captures
   # are genuine landscape pixels rather than a transformed portrait image.
+  # Duo's landscape is also what puts the fold's system bar vertical — the
+  # posture the placement evidence is for.
   xcrun devicectl device orientation set --device "$UDID" landscapeLeft >/dev/null 2>&1 || true
+fi
+if [[ "$DEVICE" == "duo" && -z "$DISPLAY" ]]; then
+  # The foldable exposes cover, inner and virtual displays to simctl. Shoot
+  # from the largest class-0 framebuffer — the inner flexible panel.
+  DISPLAY="$(xcrun simctl io "$UDID" enumerate 2>/dev/null | python3 -c '
+import re, sys
+best, uuid, cls0 = ("", 0), "", ""
+for line in sys.stdin:
+    m = re.search(r"UUID: (\S+)", line)
+    if m: uuid = m.group(1)
+    if "Display class: 0" in line: cls0 = uuid
+    m = re.search(r"Default width: (\d+)", line)
+    if m: w = int(m.group(1))
+    m = re.search(r"Default height: (\d+)", line)
+    if m and uuid == cls0 and w * int(m.group(1)) > best[1]:
+        best = (uuid, w * int(m.group(1)))
+print(best[0])')"
+  log "duo inner display $DISPLAY"
 fi
 
 # --- the two builds -----------------------------------------------------------
@@ -220,8 +246,8 @@ shoot() { # <name> <countdown seconds>
   xcrun simctl io "$UDID" screenshot ${DISPLAY:+--display="$DISPLAY"} "$OUT/$1" >/dev/null 2>&1
   local dimensions
   dimensions="$(sips -g pixelWidth -g pixelHeight "$OUT/$1" 2>/dev/null | awk '/pixelWidth/{w=$2}/pixelHeight/{h=$2}END{print w"x"h}')"
-  if [[ "$DEVICE" == "ipad" && "$dimensions" != "2752x2064" ]]; then
-    echo "iPad capture is $dimensions, expected actual landscape 2752x2064; refusing invalid evidence" >&2
+  if [[ -n "$EXPECTED_DIMS" && "$dimensions" != "$EXPECTED_DIMS" ]]; then
+    echo "$DEVICE capture is $dimensions, expected $EXPECTED_DIMS; refusing invalid evidence" >&2
     exit 1
   fi
   printf '  %-30s %s\n' "$1" "$dimensions"
@@ -242,12 +268,12 @@ for _ in $(seq 1 10); do
   xcrun simctl io "$UDID" screenshot ${DISPLAY:+--display="$DISPLAY"} "$OUT/01-opening-screen.png" >/dev/null 2>&1
   bytes="$(stat -f %z "$OUT/01-opening-screen.png" 2>/dev/null || echo 0)"
   dimensions="$(sips -g pixelWidth -g pixelHeight "$OUT/01-opening-screen.png" 2>/dev/null | awk '/pixelWidth/{w=$2}/pixelHeight/{h=$2}END{print w"x"h}')"
-  [[ "$bytes" -gt 204800 && ( "$DEVICE" != "ipad" || "$dimensions" == "2752x2064" ) ]] && break
-  [[ "$DEVICE" == "ipad" ]] && xcrun devicectl device orientation set --device "$UDID" landscapeLeft >/dev/null 2>&1 || true
+  [[ "$bytes" -gt 204800 && ( -z "$EXPECTED_DIMS" || "$dimensions" == "$EXPECTED_DIMS" ) ]] && break
+  [[ "$DEVICE" != "iphone" ]] && xcrun devicectl device orientation set --device "$UDID" landscapeLeft >/dev/null 2>&1 || true
 done
 printf '  %-30s %s\n' 01-opening-screen.png "$dimensions"
 [[ "$bytes" -gt 204800 ]] || { echo "01-opening-screen.png still showed a pre-door frame after retries" >&2; exit 1; }
-[[ "$DEVICE" != "ipad" || "$dimensions" == "2752x2064" ]] || { echo "iPad capture is $dimensions, expected actual landscape 2752x2064; refusing invalid evidence" >&2; exit 1; }
+[[ -z "$EXPECTED_DIMS" || "$dimensions" == "$EXPECTED_DIMS" ]] || { echo "$DEVICE capture is $dimensions, expected $EXPECTED_DIMS; refusing invalid evidence" >&2; exit 1; }
 
 log "02 curtain, 03 first image, 04 controls"
 xcrun simctl install "$UDID" "$(prep_app "$HARNESS_APP")" >/dev/null 2>&1
