@@ -301,6 +301,14 @@ const PREBOOT = async (which: number) => {
   var log = function () { console.log.apply(console, ['[capture]'].concat([].slice.call(arguments))) }
   var seeded = ${payload}
   var local = ${local}
+  // The plan line and the sponsored slot render only once billing answers —
+  // a simulator has no RevenueCat to configure, so the account states stand
+  // in a Free billing state. An explicit ?tier= in the URL was injected
+  // earlier and still wins.
+  if (!window.__demoBilling) {
+    window.__demoBilling = { tier: 'free', isPro: false, customerInfo: { entitlements: { active: {} } } }
+    log('billing seeded: free')
+  }
   // The harness URL carries the public gallery, which the gallery states need
   // and this one must not have: left in place the island would open \`italy\`
   // instead of the owner's own list. Rewritten before the island reads it.
@@ -492,6 +500,13 @@ const DRIVER = (which: number) => `
       click(document.querySelector('.m-chrome-skip'))
       await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)))
       const chrome = document.querySelector('[data-chrome-bottom]')
+      // The chrome's 3s idle clock can lapse between the ready report and the
+      // screenshot; the same pointer/focus activity a user gives the row is
+      // what pauses it, so keep giving it until this launch is terminated.
+      setInterval(() => {
+        chrome?.dispatchEvent(new PointerEvent('pointerenter'))
+        chrome?.dispatchEvent(new FocusEvent('focus', { bubbles: false }))
+      }, 2000)
       await report(document.body.classList.contains('gallery-entered') && Boolean(curtain.hidden) && Boolean(chrome?.classList.contains('is-visible')))
       return
     }

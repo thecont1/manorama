@@ -78,14 +78,21 @@ PLAIN_APP=/tmp/capture-plain-build/Build/Products/Debug-iphonesimulator/App.app
 log() { printf '\033[1m%s\033[0m\n' "$*"; }
 
 cleanup() {
-  # Restore the committed config and stop the harness, whatever happened.
+  # Restore the committed config, stop the harness, and remove this run's
+  # staged app copies, whatever happened.
   if [[ -n "$KEEP_CONFIG_BACKUP" && -f "$KEEP_CONFIG_BACKUP" ]]; then
     cp "$KEEP_CONFIG_BACKUP" "$CONFIG"
     log "restored capacitor.config.ts"
   fi
   if [[ -n "$SERVER_PID" ]]; then kill "$SERVER_PID" 2>/dev/null || true; fi
+  rm -rf "/tmp/manorama-capture-app.$$".*
 }
 trap cleanup EXIT INT TERM
+
+# Runs that died before the trap could fire leave their staged apps behind —
+# sweep them. Two live runs cannot collide here: the fixed harness port means
+# a second invocation dies at its own server bind before it stages anything.
+rm -rf /tmp/manorama-capture-app.* 2>/dev/null || true
 
 # --- the device ---------------------------------------------------------------
 
@@ -162,7 +169,10 @@ prep_app() {
   # name it is declaring on the same line.
   local src="$1"
   local dest
-  dest="$(mktemp -d /tmp/manorama-capture-app.XXXXXX)"
+  # Tagged with this run's pid so the EXIT trap below can take it away: a
+  # staged copy is ~145MB and is made for every install, which filled /tmp to
+  # the point the unit mirror could not rsync when nothing cleaned them up.
+  dest="$(mktemp -d "/tmp/manorama-capture-app.$$.XXXXXX")"
   cp -R "$src" "$dest/App.app"
   local plist="$dest/App.app/Info.plist"
   /usr/libexec/PlistBuddy -c "Add :NSAppTransportSecurity dict" "$plist" 2>/dev/null || true
@@ -221,7 +231,23 @@ log "01 opening screen"
 xcrun simctl terminate "$UDID" in.thecontrarian.manorama >/dev/null 2>&1 || true
 xcrun simctl install "$UDID" "$(prep_app "$PLAIN_APP")" >/dev/null 2>&1
 xcrun simctl launch "$UDID" in.thecontrarian.manorama >/dev/null 2>&1
-shoot 01-opening-screen.png 5
+# A cold simulator takes longer than 5s to paint the bundled door, and a
+# launch-splash frame is nearly as bad a lie as a black one: measured points
+# are ~79KB black, ~127KB splash-with-logo, ~250-340KB real door, so the gate
+# sits at 200KB. iPad adds the same landscape guard `shoot` enforces
+# everywhere else, re-asserting the devicectl rotation when the panel still
+# reports portrait.
+for _ in $(seq 1 10); do
+  sleep 3
+  xcrun simctl io "$UDID" screenshot ${DISPLAY:+--display="$DISPLAY"} "$OUT/01-opening-screen.png" >/dev/null 2>&1
+  bytes="$(stat -f %z "$OUT/01-opening-screen.png" 2>/dev/null || echo 0)"
+  dimensions="$(sips -g pixelWidth -g pixelHeight "$OUT/01-opening-screen.png" 2>/dev/null | awk '/pixelWidth/{w=$2}/pixelHeight/{h=$2}END{print w"x"h}')"
+  [[ "$bytes" -gt 204800 && ( "$DEVICE" != "ipad" || "$dimensions" == "2752x2064" ) ]] && break
+  [[ "$DEVICE" == "ipad" ]] && xcrun devicectl device orientation set --device "$UDID" landscapeLeft >/dev/null 2>&1 || true
+done
+printf '  %-30s %s\n' 01-opening-screen.png "$dimensions"
+[[ "$bytes" -gt 204800 ]] || { echo "01-opening-screen.png still showed a pre-door frame after retries" >&2; exit 1; }
+[[ "$DEVICE" != "ipad" || "$dimensions" == "2752x2064" ]] || { echo "iPad capture is $dimensions, expected actual landscape 2752x2064; refusing invalid evidence" >&2; exit 1; }
 
 log "02 curtain, 03 first image, 04 controls"
 xcrun simctl install "$UDID" "$(prep_app "$HARNESS_APP")" >/dev/null 2>&1
