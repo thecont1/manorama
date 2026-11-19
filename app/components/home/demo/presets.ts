@@ -22,6 +22,9 @@ export type DemoPreset = {
   orientation?: typeof IPAD_ORIENTATION
   notch?: { width: number; height: number }
   island?: { width: number; height: number; top: number }
+  /** The partial-open posture Device Hub renders: a shallow pinch where the
+   *  silhouette dips toward the hinge, plus the OLED crease down the seam. */
+  fold?: { dip: number }
   baseHeight: number
   baseOverhang: number
 }
@@ -85,6 +88,7 @@ export const DEMO_PRESETS: DemoPreset[] = [
     screenRadius: 60,
     chromeTop: 24,
     viewerInset: { top: 0, right: 0, bottom: 0, left: 0 },
+    fold: { dip: 14 },
     baseHeight: 0,
     baseOverhang: 0,
   },

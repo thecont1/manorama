@@ -76,11 +76,12 @@ describe('device frames', () => {
     near(fit.height, frame.height * 1.25)
   })
 
-  test('the Foldable is a flat inner display with no synthetic hinge', () => {
+  test('the Foldable shows its partial-open posture at the hinge', () => {
     const duo = demoPresetById('duo')
     const html = String(DeviceFrame({ preset: duo, deviceRef: () => {}, viewerRef: () => {}, children: null }))
-    expect(html).not.toContain('data-demo-hinge')
-    expect(html).not.toContain('home-demo-duo-hinge')
+    expect(duo.fold?.dip).toBeGreaterThan(0)
+    expect(html).toContain('home-demo-duo-crease')
+    expect(html).toContain('clip-path:path(')
     near(duo.bezel / deviceFrameSize(duo).width, 0.04)
     near(duo.screenRadius / duo.screen.height, 0.09, 0.01)
   })
