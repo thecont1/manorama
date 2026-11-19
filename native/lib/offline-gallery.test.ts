@@ -730,9 +730,10 @@ describe('openGalleryNetworkFirst', () => {
   })
 
   test('offlineManifestMatches detects presentation drift under identical bytes', () => {
+    const firstStill = manifest.images[0] as GalleryImage
     const edit = (patch: Partial<GalleryImage>): GalleryManifest => ({
       ...manifest,
-      images: [{ ...manifest.images[0]!, ...patch }, manifest.images[1]!],
+      images: [{ ...firstStill, ...patch }, manifest.images[1]!],
     })
     // Item-level text fields count as drift — a kept copy must not present
     // a stale caption or EXIF until the next byte change.
