@@ -47,12 +47,14 @@ SKIP_BUILD=0
 KEEP_CONFIG_BACKUP=""
 SERVER_PID=""
 REQUESTED_UDID=""
+DISPLAY=""
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --device) DEVICE="$2"; shift 2 ;;
     --out) OUT="$2"; shift 2 ;;
     --udid) REQUESTED_UDID="$2"; shift 2 ;;
+    --display) DISPLAY="$2"; shift 2 ;;
     --skip-build) SKIP_BUILD=1; shift ;;
     -h|--help) sed -n '2,30p' "${BASH_SOURCE[0]}"; exit 0 ;;
     *) echo "unknown argument: $1" >&2; exit 2 ;;
@@ -202,7 +204,10 @@ mkdir -p "$OUT"
 
 shoot() { # <name> <countdown seconds>
   sleep "$2"
-  xcrun simctl io "$UDID" screenshot "$OUT/$1" >/dev/null 2>&1
+  # Foldables expose several panels; without --display simctl picks one that
+  # may be the sleeping cover, which reads as an identical black frame in
+  # every state. `simctl io <udid> enumerate` lists the candidates.
+  xcrun simctl io "$UDID" screenshot ${DISPLAY:+--display="$DISPLAY"} "$OUT/$1" >/dev/null 2>&1
   local dimensions
   dimensions="$(sips -g pixelWidth -g pixelHeight "$OUT/$1" 2>/dev/null | awk '/pixelWidth/{w=$2}/pixelHeight/{h=$2}END{print w"x"h}')"
   if [[ "$DEVICE" == "ipad" && "$dimensions" != "2752x2064" ]]; then
