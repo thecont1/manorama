@@ -23,7 +23,7 @@ import { Sheet } from '../../app/components/ui/Sheet'
 import { ActionGroup, ActionRow } from '../../app/components/ui/ActionRow'
 import { BundledSource } from '../../app/lib/imagesource'
 import type { AdFrame } from '../../app/lib/adframe'
-import { adoptGallery, createGalleryFromQuickAdd, createGalleryFromSource, deleteAccount, fetchAccountGalleries, fetchAccountIdentities, fetchAccountOwnerSlug, fetchDeviceGalleries, fetchDevices, fetchGallery, forgetDevice, normalizeApiBase, probeAccountGallery, refreshGallery, refreshGalleryWithManifest, registerDevice, renameOwnerSlug, scanSourceUrl, unlinkAccountIdentity, type AccountIdentity } from '../lib/api'
+import { adoptGallery, createGalleryFromQuickAdd, createGalleryFromSource, deleteAccount, fetchAccountGalleries, fetchAccountIdentities, fetchAccountOwnerSlug, fetchAccountTier, fetchDeviceGalleries, fetchDevices, fetchGallery, forgetDevice, normalizeApiBase, probeAccountGallery, refreshGallery, refreshGalleryWithManifest, registerDevice, renameOwnerSlug, scanSourceUrl, unlinkAccountIdentity, type AccountIdentity } from '../lib/api'
 import { nativeDeviceId, nativeDeviceKindFor } from '../lib/device-identity'
 import { hasIosGlass, installIosShellBridge, iosPost, publishIosChrome } from '../lib/ios-shell'
 import { isEncryptedSourceUrl, manifestIsEncryptedSource, galleryHashForSource } from '../../packages/core/encrypted-source'
@@ -53,7 +53,7 @@ import type { PostToXPhoto } from '../lib/post-to-x'
 import type { PostPhotoBytes } from '../lib/post-export'
 import { LibraryCover, LibraryRail } from './LibraryRail'
 import { libraryLayout } from '../../packages/core/library-layout'
-import { FREE_PIPELINE_LIMIT } from '../../packages/core/account'
+import { FREE_PIPELINE_LIMIT, retainedAllowanceCounts, retainedGalleryLimit, type AccountTier } from '../../packages/core/account'
 import { deviceImageDpr } from '../../packages/core/image-staging'
 import { productionVault } from '../lib/vault'
 import { adFrameFor, fetchAdVisibility, HOUSE_AD_FRAME, type AdPolicyInput, type AdVisibility } from '../lib/ads'
@@ -323,6 +323,10 @@ export default function GalleryList({ apiBase, owner, slug, deepLinkSelection, o
   const [slugNote, setSlugNote] = useState<string | null>(null)
   const [accountGalleries, setAccountGalleries] = useState<GallerySummary[] | null>(null)
   const [accountListFailed, setAccountListFailed] = useState(false)
+  // The account-record tier. Web purchases and support grants live only
+  // here — RevenueCat never hears about them, so a store read alone would
+  // call a paying owner a Free User. `null` is unanswered, not free.
+  const [accountTier, setAccountTier] = useState<AccountTier | null>(null)
   const [deviceGalleries, setDeviceGalleries] = useState<DeviceGallery[] | null>(null)
   // This phone's own local catalogue — the records the Local section shows
   // before the synced mirror feed even answers. Paths never leave the device.
@@ -364,6 +368,14 @@ export default function GalleryList({ apiBase, owner, slug, deepLinkSelection, o
   const [removeCachedGallery, setRemoveCachedGallery] = useState<OfflineGridGallery | null>(null)
   const [galleryIds, setGalleryIds] = useState<Record<string, string>>({})
 
+  // The entitlement surfaces read two sources: the account record, which is
+  // the truth for web purchases and grants, and the store, which covers the
+  // window between an in-app purchase and its webhook landing. Either one
+  // answering pro makes the account pro.
+  const isPro = accountTier === 'pro' || billingState?.isPro === true
+  const effectiveTier: AccountTier = isPro ? 'pro' : 'free'
+  const tierKnown = accountTier !== null || billingState?.tier !== undefined
+
   // One loader per mounted Library — its queue and budgets are the whole
   // surface's media ceiling, shared by every rail.
   const libraryLoader = useMemo(() => new LibraryMediaLoader({
@@ -376,8 +388,8 @@ export default function GalleryList({ apiBase, owner, slug, deepLinkSelection, o
   const vaultSettingsController = useMemo(() => createVaultSettingsController({
     vault: productionVault,
     store: offlineStore,
-    tier: () => billingState?.tier,
-  }), [offlineStore, billingState?.tier])
+    tier: () => effectiveTier,
+  }), [offlineStore, effectiveTier])
   useEffect(() => () => {
     libraryLoader.release()
     cacheFillRegistry.reset()
@@ -651,7 +663,10 @@ export default function GalleryList({ apiBase, owner, slug, deepLinkSelection, o
       setOwnerSlug(slug)
       setOwnerSlugDraft(slug ?? '')
       setSignedIn(Boolean(token))
-      if (!token) return
+      if (!token) {
+        setAccountTier(null)
+        return
+      }
       // Register this phone before reading the list, so the response already
       // carries its own pill. Only a device token can register, so a web
       // sign-in never records a device.
@@ -660,15 +675,17 @@ export default function GalleryList({ apiBase, owner, slug, deepLinkSelection, o
       setDeviceId(ownId)
       await registerDevice(base, ownId, nativeDeviceKindFor()).catch(() => null)
       if (!active) return
-      const [account, device, identities, deviceList] = await Promise.allSettled([
+      const [account, device, identities, deviceList, accountInfo] = await Promise.allSettled([
         fetchAccountGalleries(base, controller.signal),
         fetchDeviceGalleries(base, controller.signal),
         fetchAccountIdentities(base, controller.signal),
         fetchDevices(base, controller.signal),
+        fetchAccountTier(base, controller.signal),
       ])
       if (!active) return
       setAccountGalleries(account.status === 'fulfilled' ? account.value : null)
       setAccountListFailed(account.status === 'rejected')
+      setAccountTier(accountInfo.status === 'fulfilled' ? accountInfo.value ?? null : null)
       setDeviceGalleries(device.status === 'fulfilled' ? device.value : null)
       setDeviceListFailed(device.status === 'rejected')
       setDevices(deviceList.status === 'fulfilled' ? deviceList.value : [])
@@ -697,7 +714,7 @@ export default function GalleryList({ apiBase, owner, slug, deepLinkSelection, o
   useEffect(() => {
     if (!accountGalleries?.length) return
     const due = accountGalleries.filter((gallery) =>
-      gallery.sourceUrl && gallery.retention === 'retained' && sourceCheckDue(gallery.lastSourceCheckAt))
+      gallery.sourceUrl && gallery.retention !== 'pipeline' && sourceCheckDue(gallery.lastSourceCheckAt))
     if (!due.length) return
     let live = true
     const probeEncrypted = async (gallery: GallerySummary): Promise<boolean> => {
@@ -816,11 +833,11 @@ export default function GalleryList({ apiBase, owner, slug, deepLinkSelection, o
   useEffect(() => {
     if (!manifest) return
     let active = true
-    void adFrameFor({ tier: billingState?.isPro ? 'pro' : 'free', visible: visibility?.show, seedKey: selection.slug }).then((frame) => {
+    void adFrameFor({ tier: isPro ? 'pro' : 'free', visible: visibility?.show, seedKey: selection.slug }).then((frame) => {
       if (active) setPlate(frame)
     })
     return () => { active = false }
-  }, [manifest, billingState?.isPro, visibility?.show])
+  }, [manifest, isPro, visibility?.show])
 
   // The account slot asks once per entitlement state, so ordinary re-renders
   // can never rotate the creative while the page is open. Unresolved
@@ -837,13 +854,13 @@ export default function GalleryList({ apiBase, owner, slug, deepLinkSelection, o
   // suppression moves this value.
   const platesVisible = visibility?.show ?? true
   useEffect(() => {
-    if (galleryOpen || !billingState?.tier) {
+    if (galleryOpen || !tierKnown) {
       setAccountAd(null)
       return
     }
     let active = true
     void accountAdLoader({
-      tier: billingState.isPro ? 'pro' : 'free',
+      tier: isPro ? 'pro' : 'free',
       visible: platesVisible,
       seedKey: 'library',
     }).then((frame) => {
@@ -855,7 +872,7 @@ export default function GalleryList({ apiBase, owner, slug, deepLinkSelection, o
       // an overlay outliving its slot would cover a gallery.
       void accountAdAdapter.retire()
     }
-  }, [galleryOpen, billingState?.tier, billingState?.isPro, platesVisible])
+  }, [galleryOpen, tierKnown, isPro, platesVisible])
 
   useEffect(() => {
     // Account controls use the same safe regions as the viewer; they need
@@ -1435,7 +1452,7 @@ export default function GalleryList({ apiBase, owner, slug, deepLinkSelection, o
             store={offlineStore}
             onlineGallery={{ selection, manifest }}
             downloadNote={vaultNote}
-            tier={globalViewEnabled === true ? billingState?.tier : 'free'}
+            tier={globalViewEnabled === true ? effectiveTier : 'free'}
             current={selection}
             active={{ selection, index: positionRef.current?.index ?? activePhotoIndex }}
             onOpenFrame={openGlobalFrame}
@@ -1684,12 +1701,15 @@ export default function GalleryList({ apiBase, owner, slug, deepLinkSelection, o
       }
     }
   }
-  const retainedAccountGalleries = accountGalleries?.filter((gallery) => gallery.retention === 'retained') ?? []
+  // Missing retention is retained — the server's retentionOf and
+  // countRetainedGalleries agree that only an explicit 'pipeline' is
+  // temporary.
+  const retainedAccountGalleries = accountGalleries?.filter((gallery) => gallery.retention !== 'pipeline') ?? []
   const temporaryAccountGalleries = accountGalleries?.filter((gallery) => gallery.retention === 'pipeline') ?? []
   // Subscription limits control retention/editing, never whether an owner can see a gallery.
   const visibleAccountGalleries = accountGalleries?.filter((gallery) => !gallery.hiddenAt) ?? []
   const hiddenAccountGalleries = accountGalleries?.filter((gallery) => gallery.hiddenAt) ?? []
-  const accountLayout = libraryLayout(visibleAccountGalleries, billingState?.tier ?? 'free')
+  const accountLayout = libraryLayout(visibleAccountGalleries, effectiveTier)
   const accountBySlug = new Map(visibleAccountGalleries.map((gallery) => [gallery.slug, gallery]))
   const menuGallery = openMenuSlug ? accountGalleries?.find((gallery) => gallery.slug === openMenuSlug) : undefined
   // This phone's own records render from the catalogue, so their synced
@@ -1699,7 +1719,11 @@ export default function GalleryList({ apiBase, owner, slug, deepLinkSelection, o
   const standaloneDeviceGalleries = deviceGalleries?.filter((gallery) =>
     !localIds.has(gallery.id) &&
     (!gallery.publicGallerySlug || !accountGalleries?.some((published) => published.slug === gallery.publicGallerySlug))) ?? []
-  const galleryLimit = billingState?.isPro ? 99 : 3
+  const galleryLimit = retainedGalleryLimit(effectiveTier)
+  // A downgrade never evicts retained galleries, so the count can exceed the
+  // tier's cap — the allowance sentence clamps permanent to the cap and
+  // reads the overflow as temporary rather than "7 of 3".
+  const allowance = retainedAllowanceCounts(effectiveTier, retainedAccountGalleries.length, temporaryAccountGalleries.length)
   const accountName = ownerName ?? ownerSlug ?? 'friend'
   const galleryRegion = foldLayout?.controlRegions[0]
   const libraryControlRegion = foldLayout?.controlRegions[1]
@@ -1883,7 +1907,7 @@ export default function GalleryList({ apiBase, owner, slug, deepLinkSelection, o
   // Render gate: an unresolved entitlement drops the slot in the same paint
   // that learns the tier, so no stale creative can outlive a change. The
   // master switch suppresses it outright.
-  const accountAdFrame = billingState?.tier && visibility?.show !== false ? accountAd : null
+  const accountAdFrame = tierKnown && visibility?.show !== false ? accountAd : null
   // The plate is reserved whenever the placement is allowed, not only once a
   // frame arrives: the live rectangle is positioned from this element's own
   // rect, so it has to exist before the fill is asked for. Until a rented
@@ -1906,7 +1930,7 @@ export default function GalleryList({ apiBase, owner, slug, deepLinkSelection, o
     ? `${selection.slug} is saving to ${nativeDeviceLabel()}, ${vaultProgress.completed} of ${vaultProgress.total}.`
     : ''
 
-  const accountAdAside = billingState?.tier && visibility?.show !== false ? (
+  const accountAdAside = tierKnown && visibility?.show !== false ? (
     <aside
       class={`native-account-ad${accountAdFrame?.provider === 'admob-banner' ? ' native-account-ad--live' : ''}`}
       data-account-ad
@@ -1963,8 +1987,8 @@ export default function GalleryList({ apiBase, owner, slug, deepLinkSelection, o
       identityNote={identityNote ?? linkConflict ?? slugNote}
       onUnlinkIdentity={(provider) => { void unlinkIdentity(provider) }}
       onLinkIdentity={(provider) => { void linkIdentity(provider) }}
-      tier={billingState?.tier}
-      retainedCount={retainedAccountGalleries.length}
+      tier={effectiveTier}
+      retainedCount={allowance.permanent}
       galleryLimit={galleryLimit}
       controller={vaultSettingsController}
       globalViewEnabled={globalViewEnabled}
@@ -2065,13 +2089,13 @@ export default function GalleryList({ apiBase, owner, slug, deepLinkSelection, o
         </button>
         </div>
         {libraryFinding ? <p class="native-library-finding">{libraryFinding}</p> : null}
-        {signedIn && billingState?.tier && accountGalleries ? (
+        {signedIn && tierKnown && accountGalleries ? (
           <footer class={quiet ? 'native-lib-foot lib-quiet' : 'native-lib-foot'} hidden={nav.screen.kind === 'settings' || undefined}>
             <p class="native-lib-foot-line">
-              You are a manorama {billingState.isPro ? 'Visionary' : 'Free User'} hosting{' '}
-              <span class="num">{retainedAccountGalleries.length}</span> of <span class="num">{galleryLimit}</span> Cloud galleries
-              {billingState.isPro ? null : <> and <span class="num">{temporaryAccountGalleries.length}</span> of <span class="num">{FREE_PIPELINE_LIMIT}</span> Temporary galleries</>}.{' '}
-              {!billingState.isPro && retainedAccountGalleries.length >= galleryLimit ? (
+              You are a manorama {isPro ? 'Visionary' : 'Free User'} hosting{' '}
+              <span class="num">{allowance.permanent}</span> of <span class="num">{galleryLimit}</span> Cloud galleries
+              {isPro ? null : <> and <span class="num">{allowance.temporary}</span> of <span class="num">{FREE_PIPELINE_LIMIT}</span> Temporary galleries</>}.{' '}
+              {!isPro && retainedAccountGalleries.length >= galleryLimit ? (
                 <button type="button" class="m-btn m-btn--quiet" onClick={() => dispatchNav({ type: 'open-visionary', from: 'library' })}>Go Visionary</button>
               ) : null}
             </p>
@@ -2139,7 +2163,7 @@ export default function GalleryList({ apiBase, owner, slug, deepLinkSelection, o
             ) : null}
           </div>
         ) : null}
-        {billingState?.isPro && (ownLocalGalleries.length + standaloneDeviceGalleries.length) > 0 ? (
+        {isPro && (ownLocalGalleries.length + standaloneDeviceGalleries.length) > 0 ? (
           /* This phone's own records open the shared viewer over the copied
              originals; mirror rows are title, count and the device pill.
              Visionary only, like the feature itself (invariant 12). */
@@ -2205,14 +2229,14 @@ export default function GalleryList({ apiBase, owner, slug, deepLinkSelection, o
         folder row named for the tier it needs — gated here on the client and
         again at /api/device-galleries (invariant 12). */}
     <Sheet open={addChooserOpen} onClose={() => { if (!localAddBusy) setAddChooserOpen(false) }} title="Add a gallery">
-      <ActionGroup note={billingState?.isPro
+      <ActionGroup note={isPro
         ? `Local folders stay on ${nativeDeviceLabel()}. Cloud links join your account galleries.`
         : 'Local galleries are only for Visionary members. Cloud links join your account galleries.'}>
         <ActionRow
           label={`A folder on ${nativeDeviceLabel()}`}
-          value={billingState?.isPro ? undefined : 'Visionary'}
+          value={isPro ? undefined : 'Visionary'}
           onClick={() => { void addLocalFolder() }}
-          disabled={!billingState?.isPro || localAddBusy}
+          disabled={!isPro || localAddBusy}
         />
         <ActionRow
           label="A shared cloud link"
@@ -2367,7 +2391,7 @@ export default function GalleryList({ apiBase, owner, slug, deepLinkSelection, o
     {globalViewOpen ? (
       <GlobalView
         store={offlineStore}
-        tier={billingState?.tier}
+        tier={effectiveTier}
         current={manifest ? selection : null}
         onOpenFrame={openGlobalFrame}
         onClose={() => setGlobalViewOpen(false)}

@@ -154,6 +154,21 @@ export const countRetainedGalleries = (
   galleries: readonly { retention?: GalleryRetention }[],
 ): number => galleries.filter((gallery) => gallery.retention !== 'pipeline').length
 
+/** How the allowance sentence presents a possibly over-cap set. A downgrade
+ *  never evicts retained galleries (tierTransitionImpact keeps them), so an
+ *  account can hold more permanents than its tier allows — the permanent
+ *  number clamps to the cap and the overflow reads as temporary, matching
+ *  how the slots were always meant to fill: permanent first, the rest
+ *  temporary. */
+export const retainedAllowanceCounts = (
+  tier: AccountTier,
+  retainedCount: number,
+  temporaryCount: number,
+): { permanent: number; temporary: number } => {
+  const permanent = Math.min(retainedCount, retainedGalleryLimit(tier))
+  return { permanent, temporary: temporaryCount + Math.max(0, retainedCount - permanent) }
+}
+
 export type TierTransitionKind = 'upgrade' | 'downgrade' | 'no-change'
 
 export type TierTransitionImpact = {

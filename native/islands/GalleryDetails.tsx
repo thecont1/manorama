@@ -141,7 +141,7 @@ export default function GalleryDetails({
         sourceLabel={sourceLabelFor(gallery.sourceUrl)}
         temporary={gallery.retention === 'pipeline'}
         expiresAt={gallery.expiresAt}
-        editable={gallery.retention === 'retained'}
+        editable={gallery.retention !== 'pipeline'}
         busy={busy !== null}
         note={note}
         streamOnly={streamOnly}

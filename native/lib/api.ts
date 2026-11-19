@@ -1,6 +1,7 @@
 import type { GalleryManifest, GalleryMediaItem, ImageVariant, VideoCaptionTrack } from '../../app/lib/imagesource'
 import type { GallerySettings } from '../../app/lib/gallery-settings'
 import type { GallerySummary } from '../../app/lib/gallery-repository'
+import type { AccountTier } from '../../packages/core/account'
 import type { DeviceGallery } from '../../packages/core/device-gallery'
 import type { Device, DeviceKind } from '../../packages/core/devices'
 import { getSessionToken } from './session'
@@ -475,4 +476,19 @@ export const fetchAccountOwnerSlug = async (apiBase: string): Promise<string | u
   const payload = await response.json().catch(() => ({})) as { ownerSlug?: unknown }
   const slug = response.ok && typeof payload.ownerSlug === 'string' ? payload.ownerSlug.trim() : ''
   return slug || undefined
+}
+
+/** The account-record tier — web purchases and support grants live in D1
+ *  and never mint a RevenueCat entitlement, so the store alone cannot speak
+ *  for them. The server omits the field when its account lookup fails, and
+ *  undefined means the same here: unanswered, not free — the caller keeps
+ *  its other tier source rather than demoting the session. */
+export const fetchAccountTier = async (apiBase: string, signal?: AbortSignal): Promise<AccountTier | undefined> => {
+  const response = await fetch(`${normalizeApiBase(apiBase)}/api/account`, {
+    headers: await bearerHeaders(),
+    signal,
+  })
+  const payload = await response.json().catch(() => ({})) as { tier?: unknown; error?: string }
+  if (!response.ok) throw new NativeGalleryHttpError(response.status, payload.error || `Account request failed (${response.status})`)
+  return payload.tier === 'pro' || payload.tier === 'free' ? payload.tier : undefined
 }

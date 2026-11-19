@@ -442,6 +442,7 @@ describe('signed-in account area', () => {
 
   type ApiStubs = {
     galleries?: Response | Promise<Response>
+    account?: Response
     deviceGalleries?: Response
     devices?: Response | (() => Response)
     scan?: Response | (() => Response)
@@ -467,6 +468,12 @@ describe('signed-in account area', () => {
         if (response) return response
       }
       if (url.includes('/api/device-galleries')) return stubs.deviceGalleries ?? json({ galleries: [] })
+      // The account record answers the server-side tier — only when the
+      // test stubs it; otherwise the call falls through to the fallback so
+      // slug-recovery stubs keep answering it.
+      if (stubs.account && new URL(url).pathname === '/api/account' && (!init?.method || init.method === 'GET')) {
+        return stubs.account
+      }
       // Registering this phone is a PUT; answer it without consuming the list
       // stub, which the GET below still needs.
       if (init?.method === 'PUT' && url.includes('/api/devices/')) {
@@ -1179,11 +1186,65 @@ describe('signed-in account area', () => {
     await settle()
     expect(container.querySelectorAll('.native-gallery-list > li')).toHaveLength(5)
     // The plan line at the foot is the warning now — every gallery still lists.
+    // A downgraded account can hold more permanents than the free cap; the
+    // sentence clamps permanent to the cap and reads the overflow as
+    // temporary rather than printing "5 of 3".
     const foot = container.querySelector('.native-lib-foot')
-    expect(foot?.textContent).toContain('5 of 3 Cloud galleries')
+    expect(foot?.textContent).toContain('3 of 3 Cloud galleries')
+    expect(foot?.textContent).toContain('2 of 96 Temporary galleries')
     expect(foot?.textContent).toContain('Go Visionary')
     expect(container.querySelectorAll('.lib-th.is-active')).toHaveLength(0)
     expect(container.querySelector('main .native-account-delete')).toBeNull()
+  })
+
+  test('the account record overrides a store Free — a web Visionary is not a Free User', async () => {
+    installLocalStorage()
+    signInStorage()
+    stubFetch({
+      galleries: json({ galleries: [accountSummary()] }),
+      account: json({ ownerSlug: 'quiet-owner', tier: 'pro' }),
+    })
+    const { container } = mountAccount({ billing: entitlement('free') })
+    await settle()
+
+    const foot = container.querySelector('.native-lib-foot')
+    expect(foot?.textContent).toContain('Visionary')
+    expect(foot?.textContent).not.toContain('Free User')
+    // A pro foot carries no temporary clause.
+    expect(foot?.textContent).not.toContain('Temporary galleries')
+    // The folder row in the add chooser is gated on the same effective tier.
+    ;([...container.querySelectorAll('button')].find((button) => button.textContent === 'Add Gallery') as HTMLButtonElement).click()
+    await settle()
+    const folderRow = [...container.querySelectorAll('button')].find((button) => button.textContent?.includes('A folder on')) as HTMLButtonElement
+    expect(folderRow.disabled).toBe(false)
+    expect(folderRow.textContent).not.toContain('Visionary')
+  })
+
+  test('an unanswered account record leaves the store entitlement in charge', async () => {
+    installLocalStorage()
+    signInStorage()
+    stubFetch({ galleries: json({ galleries: [accountSummary()] }) })
+    const { container } = mountAccount({ billing: entitlement('pro') })
+    await settle()
+
+    const foot = container.querySelector('.native-lib-foot')
+    expect(foot?.textContent).toContain('Visionary')
+    expect(calls.some((call) => new URL(call.url).pathname === '/api/account')).toBe(true)
+  })
+
+  test('a server Free with no store entitlement still reads as a Free User', async () => {
+    installLocalStorage()
+    signInStorage()
+    stubFetch({
+      galleries: json({ galleries: [accountSummary()] }),
+      account: json({ ownerSlug: 'quiet-owner', tier: 'free' }),
+    })
+    const { container } = mountAccount()
+    await settle()
+
+    const foot = container.querySelector('.native-lib-foot')
+    expect(foot?.textContent).toContain('Free User')
+    expect(foot?.textContent).toContain('1 of 3 Cloud galleries')
   })
 
   test('names pipeline galleries without a shortened internal label', async () => {
@@ -1395,9 +1456,8 @@ describe('signed-in account area', () => {
     confirm.click()
     await settle()
 
-    const deletion = calls.find((call) => call.url === 'https://manorama.xyz/api/account')
+    const deletion = calls.find((call) => call.url === 'https://manorama.xyz/api/account' && call.init?.method === 'DELETE')
     expect(deletion).toBeDefined()
-    expect(deletion?.init?.method).toBe('DELETE')
     expect(JSON.parse(String(deletion?.init?.body))).toEqual({ confirm: 'quiet-owner' })
     expect((deletion?.init?.headers as Record<string, string>).Authorization).toBe('Bearer session-token-1')
 
@@ -1425,7 +1485,7 @@ describe('signed-in account area', () => {
     cancel.click()
     await settle()
 
-    expect(calls.some((call) => call.url === 'https://manorama.xyz/api/account')).toBe(false)
+    expect(calls.some((call) => call.url === 'https://manorama.xyz/api/account' && call.init?.method === 'DELETE')).toBe(false)
     expect(container.innerHTML).not.toContain('Delete permanently')
     expect(storage.has(TOKEN_KEY)).toBe(true)
   })

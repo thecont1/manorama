@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, test } from 'bun:test'
-import { createGalleryFromManifest, createGalleryFromQuickAdd, createGalleryFromSource, fetchAccountGalleries, fetchDeviceGalleries, fetchGallery, NativeGalleryHttpError, refreshGalleryWithManifest, unlinkAccountIdentity } from './api'
+import { createGalleryFromManifest, createGalleryFromQuickAdd, createGalleryFromSource, fetchAccountGalleries, fetchAccountTier, fetchDeviceGalleries, fetchGallery, NativeGalleryHttpError, refreshGalleryWithManifest, unlinkAccountIdentity } from './api'
 
 const originalFetch = globalThis.fetch
 const localStorageDescriptor = Object.getOwnPropertyDescriptor(globalThis, 'localStorage')
@@ -338,6 +338,39 @@ describe('unlinkAccountIdentity', () => {
 
     await expect(unlinking).rejects.toBeInstanceOf(NativeGalleryHttpError)
     await expect(unlinking).rejects.toMatchObject({ status: 400, message: 'That sign-in method could not be removed' })
+  })
+})
+
+describe('fetchAccountTier', () => {
+  test('requests the account record with the stored bearer token and returns the tier', async () => {
+    const storage = installLocalStorage()
+    storage.set(TOKEN_KEY, 'session-token-1')
+    const calls = fetchSpy(() => json({ ownerSlug: 'mahesh', tier: 'pro' }))
+
+    const tier = await fetchAccountTier('https://manorama.xyz/')
+
+    expect(calls).toHaveLength(1)
+    expect(calls[0].url).toBe('https://manorama.xyz/api/account')
+    expect((calls[0].init?.headers as Record<string, string>).Authorization).toBe('Bearer session-token-1')
+    expect(tier).toBe('pro')
+  })
+
+  test('returns undefined when the record carries no recognizable tier — unanswered, not free', async () => {
+    installLocalStorage()
+    fetchSpy(() => json({ ownerSlug: 'mahesh' }))
+    expect(await fetchAccountTier('https://manorama.xyz')).toBeUndefined()
+
+    fetchSpy(() => json({ tier: 'enterprise' }))
+    expect(await fetchAccountTier('https://manorama.xyz')).toBeUndefined()
+  })
+
+  test('maps a non-OK response to NativeGalleryHttpError', async () => {
+    installLocalStorage()
+    fetchSpy(() => json({ error: 'Authentication required' }, 401))
+
+    const request = fetchAccountTier('https://manorama.xyz')
+    await expect(request).rejects.toBeInstanceOf(NativeGalleryHttpError)
+    await expect(request).rejects.toMatchObject({ status: 401, message: 'Authentication required' })
   })
 })
 
