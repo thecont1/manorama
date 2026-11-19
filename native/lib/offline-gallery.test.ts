@@ -1,5 +1,6 @@
 import { describe, expect, test } from 'bun:test'
 import type { GalleryImage, GalleryManifest, VideoItem } from '../../app/lib/imagesource'
+import { isVideoItem } from '../../app/lib/imagesource'
 import { defaultGallerySettings } from '../../app/lib/gallery-settings'
 import { NativeGalleryHttpError, type NativeGalleryResponse } from './api'
 import {
@@ -7,6 +8,7 @@ import {
   OfflineGalleryUnavailableError,
   __private__,
   offlineGalleryId,
+  offlineManifestMatches,
   offlineSourceFor,
   openGalleryNetworkFirst,
   type OfflineCacheItemReady,
@@ -14,7 +16,7 @@ import {
   type OfflineObjectUrlProvider,
 } from './offline-gallery'
 import { cacheFillRegistry } from './cache-fill'
-import { thumbnailEntryId } from './thumbs'
+import { thumbnailEntryId, videoEntryId } from './thumbs'
 import { localComputeEntryId } from './local-compute'
 import type { VaultKeyProvider, VaultStorageProvider } from './vault'
 import { EncryptedVault, VAULT_INDEX_PATH, webCryptoProvider } from './vault'
@@ -452,7 +454,7 @@ describe('EncryptedOfflineGalleryStore', () => {
     expect(complete.urls.inputs.every((bytes) => bytes.every((byte) => byte === 0))).toBe(true)
   })
 
-  test('skips mixed/video galleries rather than caching a poster as the wrong media type', async () => {
+  test('caches a mixed gallery — the poster and the MP4 both land in the vault', async () => {
     const video: VideoItem = {
       type: 'video',
       id: 'video-one',
@@ -471,11 +473,43 @@ describe('EncryptedOfflineGalleryStore', () => {
       manifest: { ...manifest, images: [...manifest.images, video] },
       settings: defaultGallerySettings({ ...manifest, images: [...manifest.images, video] }),
     }
-    const { store, requested } = makeHarness()
+    const posterBytes = new TextEncoder().encode('poster bytes')
+    const mp4Bytes = new TextEncoder().encode('mp4 bytes')
+    const { store, vault, storage, requested } = makeHarness(new Map([
+      ['https://provider.test/original-one.jpg', { bytes: firstBytes, type: 'image/jpeg' }],
+      ['https://provider.test/original-two.png', { bytes: secondBytes, type: 'image/png' }],
+      ['https://provider.test/poster.jpg', { bytes: posterBytes, type: 'image/jpeg' }],
+      ['https://provider.test/video.mp4', { bytes: mp4Bytes, type: 'video/mp4' }],
+    ]))
 
-    expect(await store.cache(selection, mixed)).toEqual({ status: 'skipped-video', images: 0 })
-    expect(requested).toEqual([])
-    expect(await store.inspect(selection)).toEqual({ status: 'missing', images: 0 })
+    // Three media items: two photos, then the video's poster + MP4 entries.
+    expect(await store.cache(selection, mixed)).toEqual({ status: 'complete', images: 3 })
+    expect(requested).toContain('https://provider.test/poster.jpg')
+    expect(requested).toContain('https://provider.test/video.mp4')
+    expect(await store.inspect(selection)).toEqual({ status: 'complete', images: 3 })
+
+    // The video pair lands under its own entry ids, encrypted at rest —
+    // the same no-plaintext-bytes contract the stills test pins.
+    const galleryId = await offlineGalleryId(selection)
+    expect(await vault.read(galleryId, thumbnailEntryId('video-one'))).toEqual(posterBytes)
+    expect(await vault.read(galleryId, videoEntryId('video-one'))).toEqual(mp4Bytes)
+    expect(storageContains(storage, posterBytes)).toBe(false)
+    expect(storageContains(storage, mp4Bytes)).toBe(false)
+    const index = JSON.parse(new TextDecoder().decode((await storage.read(VAULT_INDEX_PATH))!)) as { entries: Record<string, unknown> }
+    expect(Object.keys(index.entries)).toContain(`${galleryId}\u0000${videoEntryId('video-one')}`)
+
+    const opened = await store.open(selection)
+    expect(opened?.manifest.images.length).toBe(3)
+    const videoOut = opened?.manifest.images[2]
+    expect(videoOut && isVideoItem(videoOut)).toBe(true)
+    if (videoOut && isVideoItem(videoOut)) {
+      // The MP4 and its poster are local object URLs — nothing remote
+      // survives into the lease.
+      expect(videoOut.src).toMatch(/^blob:/)
+      expect(videoOut.poster.src).toMatch(/^blob:/)
+      expect(videoOut.variants?.every((variant) => variant.src.startsWith('blob:'))).toBe(true)
+    }
+    opened?.dispose()
   })
 
   test('a legacy encrypted manifest never starts a fill and never orphans a stored copy', async () => {
@@ -608,6 +642,118 @@ describe('openGalleryNetworkFirst', () => {
     expect(opened.source).toBe('online')
     expect(opened.cacheFill).toBeUndefined()
     expect(cacheCalls).toBe(0)
+  })
+
+  test('preferVault opens a complete copy from the device and revalidates behind it', async () => {
+    const { store } = makeHarness()
+    await store.cache(selection, gallery)
+
+    // The fetch stays in flight until the vault lease is in hand — if the
+    // open awaited the network first, this test would hang here.
+    let releaseFetch!: () => void
+    const gate = new Promise<void>((resolve) => { releaseFetch = resolve })
+    const opened = await openGalleryNetworkFirst({
+      selection,
+      store,
+      cachePolicy: 'vault',
+      preferVault: true,
+      fetchOnline: async () => { await gate; return gallery },
+    })
+    expect(opened.source).toBe('offline')
+    expect(opened.committedManifest?.images.map((item) => item.id)).toEqual(['stable-one', 'stable-two'])
+    // Every src is a local object URL — no remote address survives the lease.
+    expect(opened.manifest.images.every((item) => item.src.startsWith('blob:'))).toBe(true)
+
+    releaseFetch()
+    const fresh = await opened.revalidate
+    expect(fresh?.source).toBe('online')
+    expect(fresh?.cacheFill).toBeDefined()
+    await fresh?.cacheFill
+  })
+
+  test('preferVault falls through to network-first when no copy exists', async () => {
+    const { store } = makeHarness()
+    const opened = await openGalleryNetworkFirst({
+      selection,
+      store,
+      cachePolicy: 'vault',
+      preferVault: true,
+      fetchOnline: async () => gallery,
+    })
+    expect(opened.source).toBe('online')
+    expect(opened.revalidate).toBeUndefined()
+    await opened.cacheFill
+  })
+
+  test('preferVault is ignored under a stream policy', async () => {
+    const { store } = makeHarness()
+    await store.cache(selection, gallery)
+
+    const opened = await openGalleryNetworkFirst({
+      selection,
+      store,
+      cachePolicy: 'stream',
+      preferVault: true,
+      fetchOnline: async () => gallery,
+    })
+    expect(opened.source).toBe('online')
+    expect(opened.revalidate).toBeUndefined()
+  })
+
+  test('preferVault resolves the vault copy even when the network dies behind it', async () => {
+    const { store } = makeHarness()
+    await store.cache(selection, gallery)
+
+    const opened = await openGalleryNetworkFirst({
+      selection,
+      store,
+      cachePolicy: 'vault',
+      preferVault: true,
+      fetchOnline: async () => { throw new TypeError('offline') },
+    })
+    expect(opened.source).toBe('offline')
+    expect(await opened.revalidate).toBeNull()
+  })
+
+  test('offlineManifestMatches detects byte-identity drift', () => {
+    expect(offlineManifestMatches(manifest, manifest)).toBe(true)
+    // A reorder is drift even with the same set of images.
+    const reordered: GalleryManifest = { ...manifest, images: [manifest.images[1]!, manifest.images[0]!] }
+    expect(offlineManifestMatches(manifest, reordered)).toBe(false)
+    // A replaced byte under the same id is drift.
+    const swapped: GalleryManifest = {
+      ...manifest,
+      images: [
+        { ...manifest.images[0]!, src: 'https://provider.test/original-one-v2.jpg' },
+        manifest.images[1]!,
+      ],
+    }
+    expect(offlineManifestMatches(manifest, swapped)).toBe(false)
+    // A shorter manifest is drift.
+    const trimmed: GalleryManifest = { ...manifest, images: [manifest.images[0]!] }
+    expect(offlineManifestMatches(manifest, trimmed)).toBe(false)
+  })
+
+  test('offlineManifestMatches detects presentation drift under identical bytes', () => {
+    const firstStill = manifest.images[0] as GalleryImage
+    const edit = (patch: Partial<GalleryImage>): GalleryManifest => ({
+      ...manifest,
+      images: [{ ...firstStill, ...patch }, manifest.images[1]!],
+    })
+    // Item-level text fields count as drift — a kept copy must not present
+    // a stale caption or EXIF until the next byte change.
+    expect(offlineManifestMatches(manifest, edit({ caption: 'edited caption' }))).toBe(false)
+    expect(offlineManifestMatches(manifest, edit({ exif: { camera: 'Ricoh GR' } }))).toBe(false)
+    expect(offlineManifestMatches(manifest, edit({ hidden: true }))).toBe(false)
+    // Identical presentation keys pass.
+    expect(offlineManifestMatches(manifest, edit({}))).toBe(true)
+
+    // Settings carried by only one side are drift — an older committed
+    // copy cannot vouch for presentation it never stored.
+    const settings = defaultGallerySettings(manifest)
+    expect(offlineManifestMatches(manifest, manifest, settings, settings)).toBe(true)
+    expect(offlineManifestMatches(manifest, manifest, settings, undefined)).toBe(false)
+    expect(offlineManifestMatches(manifest, manifest, undefined, settings)).toBe(false)
   })
 })
 

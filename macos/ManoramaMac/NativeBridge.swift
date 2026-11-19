@@ -75,7 +75,11 @@ final class NativeBridge {
 
     /// Custom-scheme deep links (`in.thecontrarian.manorama.desktop://...`) received by the app.
     private var currentDeepLinks: [String] = []
-    /// Whether the page has registered a deep-link listener.
+    /// URLs buffered for get_current whose live emit has not yet confirmed —
+    /// the read-once call must skip them so a racing read cannot deliver
+    /// the same link the emit is about to land.
+    private var inFlightDeepLinks: Set<String> = []
+    /// Whether this document has installed its listeners and read the launch URLs.
     private var pageReadyForDeepLinks = false
 
     /// State for `plugin:http|fetch*` (Proton Drive and MEGA native transports).
@@ -186,27 +190,60 @@ final class NativeBridge {
 
     // MARK: - Deep links
 
-    /// Record and forward a custom-scheme URL opened on the application.
+    /// A closed or replaced document has lost its listeners. Keep undelivered
+    /// URLs for the replacement's read-once get_current call.
+    func resetDeepLinkReadiness() {
+        pageReadyForDeepLinks = false
+        // An emit into a dead document can never confirm — release the
+        // in-flight marks so the replacement's get_current can read them.
+        inFlightDeepLinks.removeAll()
+    }
+
+    /// Buffer until the document is listening; a live delivery is never replayed.
     func deliverDeepLink(_ urlString: String) {
         Trace.log("deliverDeepLink ready=\(pageReadyForDeepLinks) host=\(URL(string: urlString)?.host ?? urlString)")
-        if !currentDeepLinks.contains(urlString) {
-            currentDeepLinks.append(urlString)
+        guard pageReadyForDeepLinks, let webView else {
+            if !currentDeepLinks.contains(urlString) {
+                currentDeepLinks.append(urlString)
+            }
+            return
         }
-        guard pageReadyForDeepLinks,
-              let data = try? JSONSerialization.data(withJSONObject: [urlString]),
+        guard let data = try? JSONSerialization.data(withJSONObject: [urlString]),
               let arrayJson = String(data: data, encoding: .utf8),
               // Top-level fragments need the flag — a bare String throws
               // without it, and a thrown single literal used to take the
               // array emit down with it.
               let singleData = try? JSONSerialization.data(withJSONObject: urlString, options: [.fragmentsAllowed]),
               let singleJson = String(data: singleData, encoding: .utf8) else { return }
+        // The URL joins the read-once buffer before the emit so a document
+        // replacement mid-flight still finds it — but marked in-flight, so
+        // a get_current that races the emit does not hand the page the same
+        // URL twice. __manoramaShellEmit && (...) reports undefined — not
+        // an error — so the script answers a Bool, and the completion runs
+        // on the main actor where assumeIsolated keeps the bookkeeping
+        // synchronous.
+        if !currentDeepLinks.contains(urlString) {
+            currentDeepLinks.append(urlString)
+        }
+        inFlightDeepLinks.insert(urlString)
         let script = """
-        window.__manoramaShellEmit && (
+        window.__manoramaShellEmit ? (
           window.__manoramaShellEmit("deep-link://new-url", \(arrayJson)),
-          window.__manoramaShellEmit("manorama://deep-link", \(singleJson))
-        );
+          window.__manoramaShellEmit("manorama://deep-link", \(singleJson)),
+          true
+        ) : false;
         """
-        webView?.evaluateJavaScript(script)
+        webView.evaluateJavaScript(script) { [weak self] result, error in
+            MainActor.assumeIsolated {
+                guard let self else { return }
+                self.inFlightDeepLinks.remove(urlString)
+                if error == nil, result as? Bool == true {
+                    self.currentDeepLinks.removeAll { $0 == urlString }
+                } else {
+                    Trace.log("deep-link delivery unconfirmed — buffered for get_current (\(error?.localizedDescription ?? "no listener"))")
+                }
+            }
+        }
     }
 
     // MARK: - The channel
@@ -301,15 +338,18 @@ final class NativeBridge {
             return try sharePost(args)
 
         case "plugin:deep-link|get_current":
+            // installDesktopAuth awaits both deep-link subscriptions before
+            // this call. Unrelated event listeners do not make a page ready.
             pageReadyForDeepLinks = true
             // Read-once: a handoff that failed (no in-memory verifier, an
             // expired token) must not replay its error on every launch.
-            let buffered = currentDeepLinks
-            currentDeepLinks.removeAll()
+            // In-flight URLs stay buffered — their live emit may still
+            // land, and handing them out here would deliver the link twice.
+            let buffered = currentDeepLinks.filter { !inFlightDeepLinks.contains($0) }
+            currentDeepLinks.removeAll { !inFlightDeepLinks.contains($0) }
             return buffered.isEmpty ? NSNull() : buffered
 
         case "plugin:event|listen":
-            pageReadyForDeepLinks = true
             return args["handler"] as? Int ?? 0
         case "plugin:event|unlisten":
             return nil

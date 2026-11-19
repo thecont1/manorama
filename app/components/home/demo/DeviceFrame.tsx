@@ -1,6 +1,12 @@
 import type { Child } from 'hono/jsx'
 import { deviceFrameSize, deviceViewerSize, type DemoPreset } from './presets'
 
+const foldClipPath = (width: number, height: number, dip: number) => {
+  const cx = width / 2
+  const notch = Math.min(96, width * 0.1)
+  return `path("M0 0H${cx - notch}Q${cx} ${dip} ${cx + notch} 0H${width}V${height}H${cx + notch}Q${cx} ${height - dip} ${cx - notch} ${height}H0Z")`
+}
+
 export default function DeviceFrame({
   preset,
   deviceRef,
@@ -17,6 +23,9 @@ export default function DeviceFrame({
   const bodyWidth = preset.screen.width + preset.bezel * 2
   const bodyHeight = preset.screen.height + (preset.bezelY ?? preset.bezel) * 2
   const glassRadius = Math.max(0, preset.bodyRadius - preset.rim)
+  // The partial-open posture: the silhouette pinches to a shallow V where the
+  // halves angle back toward the hinge, top and bottom alike.
+  const foldClip = preset.fold ? foldClipPath(bodyWidth, bodyHeight, preset.fold.dip) : undefined
 
   return (
     <div
@@ -29,7 +38,7 @@ export default function DeviceFrame({
     >
       <div
         class="home-demo-device-body"
-        style={`left:${preset.baseOverhang}px;top:0;width:${bodyWidth}px;height:${bodyHeight}px;border-radius:${preset.bodyRadius}px`}
+        style={`left:${preset.baseOverhang}px;top:0;width:${bodyWidth}px;height:${bodyHeight}px;border-radius:${preset.bodyRadius}px${foldClip ? `;clip-path:${foldClip}` : ''}`}
       />
       <div
         class="home-demo-device-glass"
@@ -79,6 +88,7 @@ export default function DeviceFrame({
             style={`top:${preset.island.top}px;width:${preset.island.width}px;height:${preset.island.height}px`}
           />
         ) : null}
+        {preset.fold ? <div class="home-demo-duo-crease" /> : null}
       </div>
     </div>
   )

@@ -7,7 +7,8 @@ import { GALLERY_ROWS } from '../../app/components/GalleryDetailsView'
 import type { GalleryAvailability, LocalGalleryRecord } from '../lib/catalogue'
 
 /** The only operations that can be in flight; one at a time. */
-type BusyOp = 'rename' | 'remove'
+type BusyOp = 'edit' | 'refresh' | 'remove'
+type EditField = 'name' | 'caption'
 
 type Props = {
   record: LocalGalleryRecord
@@ -15,9 +16,23 @@ type Props = {
   onOpen: () => void
   onRename: (title: string) => void | Promise<void>
   onRemove: () => void | Promise<void>
-  /** Opens the gallery's folder on this Mac — the local counterpart of an
-   *  account gallery's "View source". */
+  /** "View source" for a local record — reveals the gallery's folder in
+   *  Finder. */
   onRevealFolder?: () => void
+  /** Caption edit — the shared edit sheet's caption field, persisted
+   *  on the record like the name. */
+  onCaption?: (caption: string) => void | Promise<void>
+  /** The public address once this Mac's synced row is published —
+   *  display only; the publish flow owns the slug. */
+  publishedUrl?: string | null
+  /** The Address row's destination — the publish/share flow. */
+  onPublish?: () => void
+  /** Opens the picker's Edit mode on this record — the local
+   *  counterpart of the cloud panel's Reorder row. */
+  onReorder?: () => void
+  /** Rescans the source — the same command the card menu's Refresh
+   *  gallery runs. */
+  onRefresh?: () => void | Promise<void>
 }
 
 /** The source is named by kind — the path itself is local-only and never
@@ -29,14 +44,21 @@ const sourceLabel = (record: LocalGalleryRecord): string =>
 const messageFor = (reason: unknown, fallback: string): string =>
   reason instanceof Error ? reason.message : fallback
 
+/** The public link reads owner/slug like the cloud panel's Address row —
+ *  the origin is always manorama.xyz and adds nothing. */
+const addressLabel = (publishedUrl: string): string =>
+  publishedUrl.replace(/^https?:\/\/[^/]+\//, '')
+
 /** A local gallery's settings — the same Sheet panel an account gallery's
- *  settings hosts (`m-owner-panel` + ActionGroup rows), so the three-dots
- *  menu reads identically whichever card it came from. Purely
- *  presentational: it states capabilities and emits intent; the catalogue
- *  container owns the rename/remove commands and the persistence
- *  that comes with them. The record's root path, mount point, and file
- *  list never appear here — they are local-only by contract and stay out
- *  of the surface. */
+ *  settings hosts (`m-owner-panel` + ActionGroup rows), carrying the same
+ *  groups in the same order so the three-dots menu reads identically
+ *  whichever card it came from. Purely presentational: it states
+ *  capabilities and emits intent; the catalogue container owns the
+ *  rename/caption/remove/rescan commands and the persistence that comes
+ *  with them. The record's root path, mount point, and file list never
+ *  appear here — they are local-only by contract and stay out of the
+ *  surface. There is no on-device group: a local gallery's files already
+ *  live on this Mac. */
 export default function LocalGalleryDetails({
   record,
   availability,
@@ -44,9 +66,14 @@ export default function LocalGalleryDetails({
   onRename,
   onRemove,
   onRevealFolder,
+  onCaption,
+  publishedUrl,
+  onPublish,
+  onReorder,
+  onRefresh,
 }: Props) {
   const unavailable = availability === 'unavailable'
-  const [editing, setEditing] = useState(false)
+  const [editing, setEditing] = useState<EditField | null>(null)
   const [draft, setDraft] = useState('')
   const [busy, setBusy] = useState<BusyOp | null>(null)
   const [note, setNote] = useState<string | null>(null)
@@ -54,23 +81,39 @@ export default function LocalGalleryDetails({
   const [confirmingRemove, setConfirmingRemove] = useState(false)
   const locked = busy !== null
 
-  const startRename = () => {
-    setDraft(record.title)
+  const startEdit = (field: EditField) => {
+    setDraft(field === 'name' ? record.title : (record.caption ?? ''))
     setEditNote(null)
-    setEditing(true)
+    setEditing(field)
   }
 
-  const rename = async (title: string) => {
-    if (locked) return
-    setBusy('rename')
+  const saveEdit = async (value: string) => {
+    if (locked || !editing) return
+    const field = editing
+    setBusy('edit')
     setEditNote(null)
     try {
-      await onRename(title)
-      setEditing(false)
-      setNote('Name saved')
+      if (field === 'name') await onRename(value)
+      else await onCaption?.(value)
+      setEditing(null)
+      setNote(field === 'name' ? 'Name saved' : 'Caption saved')
     } catch (reason) {
       // The sheet stays open so the draft survives; the reason shows inside it.
-      setEditNote(messageFor(reason, 'That name could not be saved'))
+      setEditNote(messageFor(reason, field === 'name' ? 'That name could not be saved' : 'That caption could not be saved'))
+    } finally {
+      setBusy(null)
+    }
+  }
+
+  const refresh = async () => {
+    if (locked) return
+    setBusy('refresh')
+    setNote(null)
+    try {
+      await onRefresh?.()
+      setNote('Refreshed')
+    } catch (reason) {
+      setNote(messageFor(reason, 'The gallery could not be refreshed'))
     } finally {
       setBusy(null)
     }
@@ -93,15 +136,17 @@ export default function LocalGalleryDetails({
 
   return (
     <div class="m-owner-panel" data-screen="local-details">
-      {/* The same head an account gallery's settings panel shows: title once,
-          then concise source metadata. The availability line is local-only —
-          a detached source has no web analogue, so it stays its own line
-          rather than pretending parity. */}
+      {/* The same head an account gallery's settings panel shows: title
+          once, then concise source metadata, then the caption in full.
+          The availability line is local-only — a detached source has no
+          web analogue, so it stays its own line rather than pretending
+          parity. */}
       <header class="m-owner-panel-head">
         <div class="m-owner-panel-title">{record.title}</div>
         <p class="m-owner-panel-meta">
           {record.itemCount} {record.itemCount === 1 ? 'photograph' : 'photographs'} · {sourceLabel(record)}
         </p>
+        {record.caption ? <p class="m-owner-panel-cap">{record.caption}</p> : null}
         {unavailable ? (
           <p class="m-note" role="status" data-availability={availability}>
             Unavailable — reconnect the source, then rescan.
@@ -109,6 +154,9 @@ export default function LocalGalleryDetails({
         ) : null}
       </header>
 
+      {/* The same lead group an account gallery opens with: Open gallery,
+          then View source — for a local record the source is its folder and
+          "viewing" it is a Finder reveal. */}
       <ActionGroup>
         <ActionRow
           label={GALLERY_ROWS.open.label}
@@ -116,26 +164,71 @@ export default function LocalGalleryDetails({
           onClick={onOpen}
           disabled={unavailable || locked}
         />
+        {onRevealFolder ? (
+          <ActionRow
+            label={GALLERY_ROWS.openSource.label}
+            icon={GALLERY_ROWS.openSource.icon()}
+            onClick={onRevealFolder}
+            disabled={locked}
+          />
+        ) : null}
       </ActionGroup>
 
+      {/* The metadata group, in the cloud panel's order. A present caption
+          reads on the head — the row only carries the empty state. The
+          address exists only once the gallery is published; either way the
+          row leads to the publish flow that owns the slug. */}
       <ActionGroup>
         <ActionRow
           label={GALLERY_ROWS.name.label}
           icon={GALLERY_ROWS.name.icon()}
           value={record.title}
-          onClick={startRename}
+          onClick={() => startEdit('name')}
           disabled={locked}
         />
-      </ActionGroup>
-
-      {onRevealFolder ? (
-        <ActionGroup>
+        {onCaption ? (
           <ActionRow
-            label={GALLERY_ROWS.openFolder.label}
-            icon={GALLERY_ROWS.openFolder.icon()}
-            onClick={onRevealFolder}
+            label={GALLERY_ROWS.caption.label}
+            icon={GALLERY_ROWS.caption.icon()}
+            value={record.caption ? undefined : 'None'}
+            onClick={() => startEdit('caption')}
             disabled={locked}
           />
+        ) : null}
+        {onPublish || publishedUrl ? (
+          <ActionRow
+            label={GALLERY_ROWS.address.label}
+            icon={GALLERY_ROWS.address.icon()}
+            value={publishedUrl ? addressLabel(publishedUrl) : 'Not published'}
+            onClick={onPublish}
+            disabled={locked || !onPublish}
+          />
+        ) : null}
+      </ActionGroup>
+
+      {/* The management group the cloud panel's `management` layer
+          carries — reorder opens the picker's Edit mode, refresh rescans
+          the source. Refresh stays enabled on an unavailable source: it is
+          the repair path the head's warning names. */}
+      {onReorder || onRefresh ? (
+        <ActionGroup>
+          {onReorder ? (
+            <ActionRow
+              label={GALLERY_ROWS.reorder.label}
+              icon={GALLERY_ROWS.reorder.icon()}
+              value={record.items.length}
+              onClick={onReorder}
+              disabled={unavailable || locked}
+            />
+          ) : null}
+          {onRefresh ? (
+            <ActionRow
+              label={busy === 'refresh' ? 'Refreshing…' : GALLERY_ROWS.refresh.label}
+              icon={GALLERY_ROWS.refresh.icon()}
+              onClick={() => void refresh()}
+              disabled={locked}
+            />
+          ) : null}
         </ActionGroup>
       ) : null}
 
@@ -153,14 +246,14 @@ export default function LocalGalleryDetails({
       </ActionGroup>
 
       <GalleryEditSheet
-        open={editing}
-        field="name"
+        open={editing !== null}
+        field={editing}
         value={draft}
-        busy={busy === 'rename'}
+        busy={busy === 'edit'}
         note={editNote}
         onValueChange={setDraft}
-        onSubmit={(value) => void rename(value)}
-        onClose={() => { if (!locked) setEditing(false) }}
+        onSubmit={(value) => void saveEdit(value)}
+        onClose={() => { if (!locked) setEditing(null) }}
       />
 
       <Sheet

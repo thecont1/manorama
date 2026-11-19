@@ -1,6 +1,7 @@
 import type { GalleryManifest, GalleryMediaItem, ImageVariant, VideoCaptionTrack } from '../../app/lib/imagesource'
 import type { GallerySettings } from '../../app/lib/gallery-settings'
 import type { GallerySummary } from '../../app/lib/gallery-repository'
+import type { AccountTier } from '../../packages/core/account'
 import type { DeviceGallery } from '../../packages/core/device-gallery'
 import type { Device, DeviceKind } from '../../packages/core/devices'
 import { getSessionToken } from './session'
@@ -453,6 +454,18 @@ export const deleteGallery = async (apiBase: string, slug: string): Promise<void
   const payload = await response.json().catch(() => ({})) as { error?: string }
   if (!response.ok) throw new NativeGalleryHttpError(response.status, payload.error || 'The gallery could not be removed')
 }
+
+/** Conceals a gallery into the collapsed Hidden galleries section — a display
+ *  flag only, retention and expiry are untouched (the Catalogue's contract). */
+export const setGalleryHidden = async (apiBase: string, slug: string, hidden: boolean): Promise<void> => {
+  const response = await fetch(`${normalizeApiBase(apiBase)}/api/galleries/${encodeURIComponent(slug)}/hide`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json', ...(await bearerHeaders()) },
+    body: JSON.stringify({ hidden }),
+  })
+  const payload = await response.json().catch(() => ({})) as { error?: string }
+  if (!response.ok) throw new NativeGalleryHttpError(response.status, payload.error || 'The gallery could not be hidden')
+}
 /** The dashboard's custom-URL edit: PATCHes the owner slug and answers the
  *  slug the server actually stored, lowercased and normalised. */
 export const renameOwnerSlug = async (apiBase: string, ownerSlug: string): Promise<string> => {
@@ -475,4 +488,19 @@ export const fetchAccountOwnerSlug = async (apiBase: string): Promise<string | u
   const payload = await response.json().catch(() => ({})) as { ownerSlug?: unknown }
   const slug = response.ok && typeof payload.ownerSlug === 'string' ? payload.ownerSlug.trim() : ''
   return slug || undefined
+}
+
+/** The account-record tier — web purchases and support grants live in D1
+ *  and never mint a RevenueCat entitlement, so the store alone cannot speak
+ *  for them. The server omits the field when its account lookup fails, and
+ *  undefined means the same here: unanswered, not free — the caller keeps
+ *  its other tier source rather than demoting the session. */
+export const fetchAccountTier = async (apiBase: string, signal?: AbortSignal): Promise<AccountTier | undefined> => {
+  const response = await fetch(`${normalizeApiBase(apiBase)}/api/account`, {
+    headers: await bearerHeaders(),
+    signal,
+  })
+  const payload = await response.json().catch(() => ({})) as { tier?: unknown; error?: string }
+  if (!response.ok) throw new NativeGalleryHttpError(response.status, payload.error || `Account request failed (${response.status})`)
+  return payload.tier === 'pro' || payload.tier === 'free' ? payload.tier : undefined
 }

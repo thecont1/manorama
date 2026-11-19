@@ -3,6 +3,10 @@ import ImageIO
 import SwiftUI
 import WebKit
 
+enum ViewerChromeControl: String, Hashable {
+    case library, position, settings, info
+}
+
 /// The app model — the native shell's whole state.
 ///
 /// The shell does not have a library of its own. The Library is the app's
@@ -32,14 +36,9 @@ final class AppModel {
     /// is down the stage wants only the way back to the Library — the
     /// position cluster joins once the photograph is actually clear.
     private(set) var galleryEntered = false
-    /// The box of the page's open sheet, in window coordinates — the
-    /// morph target for the Settings segment's travelling glass. Nil
-    /// when no sheet is up.
-    private(set) var viewerSheetRect: CGRect?
-    /// Where the native Settings segment sits while the cluster is up —
-    /// the morph's launch frame. Written by the cluster's preference, in
-    /// the same window coordinates as `viewerSheetRect`.
-    var settingsAnchor: CGRect = .zero
+    private(set) var viewerChromeRect: CGRect?
+    private(set) var chromeFocusTarget: ViewerChromeControl?
+    private(set) var chromeFocusRevision = 0
     /// Something the user must be told about.
     var errorMessage: String?
 
@@ -179,6 +178,9 @@ final class AppModel {
                 self?.position = (0, 0)
                 self?.viewerChromeVisible = false
                 self?.galleryEntered = false
+                // A focus target from the closed gallery must not wait
+                // around to land on controls in the next one.
+                self?.chromeFocusTarget = nil
             }
         }
         coordinator.onChrome = { [weak self] visible in
@@ -187,12 +189,12 @@ final class AppModel {
         coordinator.onEntered = { [weak self] raised in
             self?.galleryEntered = raised
         }
-        // The sheet's box is the morph target for the Settings segment's
-        // travelling glass — it launches from the segment's seat, lands
-        // on the reported box, and hands the surface back to the web
-        // sheet's own background as it fades.
-        coordinator.onSheet = { [weak self] open, rect in
-            self?.viewerSheetRect = open ? rect : nil
+        coordinator.onChromeLayout = { [weak self] rect in
+            self?.viewerChromeRect = rect
+        }
+        coordinator.onChromeFocus = { [weak self] control in
+            self?.chromeFocusTarget = control
+            self?.chromeFocusRevision += 1
         }
     }
 
@@ -233,30 +235,20 @@ final class AppModel {
         webViewRef?.evaluateJavaScript("window.__manoramaCloseGallery && window.__manoramaCloseGallery();")
     }
 
-    /// Press one of the viewer's own pills. On Liquid Glass builds the
-    /// web pill is hidden but still mounted — the real handlers, the
-    /// focus bookkeeping and the modal wiring all live there — so the
-    /// native cluster asks the page to fire it rather than re-inventing
-    /// the click.
-    func invokeWebControl(_ selector: String) {
-        // JSONSerialization wants a top-level array/dictionary — a bare
-        // string throws, and `try?` made that a silent early return:
-        // every cluster press used to no-op before the eval ran.
-        guard let data = try? JSONEncoder().encode(selector),
-              let json = String(data: data, encoding: .utf8) else { return }
-        webViewRef?.evaluateJavaScript("var el = document.querySelector(\(json)); if (el) el.click();")
+    func activateControl(_ control: ViewerChromeControl) {
+        guard isGalleryOpen, viewerChromeVisible, let webView = webViewRef else { return }
+        webView.window?.makeFirstResponder(webView)
+        webView.evaluateJavaScript("window.__manoramaShell?.activateControl('\(control.rawValue)');")
     }
 
-    /// The viewer's chrome idles out 3s after the last *page* pointer
-    /// event — hovering the shell's native controls registers none, so
-    /// the pills would unmount beneath the user's finger. While the
-    /// pointer rests on the cluster, dispatch a synthetic move on the
-    /// stage so the page's own fine-move handler restarts its clock;
-    /// the y alternates because the handler only wakes on travel > 4px.
-    func keepViewerChromeAlive() {
-        webViewRef?.evaluateJavaScript(
-            "var s = document.querySelector('.viewer-stage'); if (s) { window.__manoramaKeepAlive = !window.__manoramaKeepAlive; var y = s.clientHeight - 40 + (window.__manoramaKeepAlive ? 8 : -8); s.dispatchEvent(new PointerEvent('pointermove', {bubbles: true, clientX: s.clientWidth / 2, clientY: y})); }"
-        )
+    func setChromeActive(_ active: Bool) {
+        webViewRef?.evaluateJavaScript("window.__manoramaShell?.setChromeActive(\(active));")
+    }
+
+    func focusViewerStage() {
+        guard let webView = webViewRef else { return }
+        webView.window?.makeFirstResponder(webView)
+        webView.evaluateJavaScript("window.__manoramaShell?.focusStage();")
     }
 
     /// The page asked for the next/previous photograph.

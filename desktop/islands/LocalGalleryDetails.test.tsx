@@ -72,11 +72,18 @@ const deferred = () => {
 
 type Props = Parameters<typeof LocalGalleryDetails>[0]
 
+/** The wired mount mirrors the Catalogue container: every capability the
+ *  cloud settings sheet carries is present, so parity is what the suite
+ *  asserts rather than an unwired subset. */
 const mount = (overrides: Partial<Props> = {}) => {
   const calls = {
     open: 0,
     rename: [] as string[],
+    caption: [] as string[],
     remove: 0,
+    publish: 0,
+    reorder: 0,
+    refresh: 0,
   }
   const props: Props = {
     record: overrides.record ?? record(),
@@ -89,6 +96,11 @@ const mount = (overrides: Partial<Props> = {}) => {
       ? async () => { calls.remove += 1; await overrides.onRemove?.() }
       : () => { calls.remove += 1 },
     onRevealFolder: overrides.onRevealFolder,
+    onCaption: async (caption) => { calls.caption.push(caption); await overrides.onCaption?.(caption) },
+    publishedUrl: overrides.publishedUrl,
+    onPublish: () => { calls.publish += 1; overrides.onPublish?.() },
+    onReorder: () => { calls.reorder += 1; overrides.onReorder?.() },
+    onRefresh: async () => { calls.refresh += 1; await overrides.onRefresh?.() },
   }
   const container = dom.document.createElement('div') as unknown as HTMLElement
   dom.document.body.appendChild(container as unknown as Parameters<typeof dom.document.body.appendChild>[0])
@@ -196,12 +208,15 @@ describe('local gallery settings panel (desktop)', () => {
     expect(container.querySelector('.m-owner-panel-meta')?.textContent).toContain('Memory card')
   })
 
-  test('renders exactly the local action verbs and no banned surfaces', async () => {
-    const { container } = mount()
+  test('renders the cloud sheet’s full row set, in its order, and no banned surfaces', async () => {
+    const { container } = mount({ onRevealFolder: () => {} })
     expect([...container.querySelectorAll('.m-actionrow-label')].map((el) => el.textContent)).toEqual([
-      'Open gallery', 'Name', 'Remove from Library',
+      'Open gallery', 'View source',
+      'Name', 'Caption', 'Address',
+      'Reorder photographs', 'Refresh gallery contents',
+      'Remove from Library',
     ])
-    for (const label of ['Copy link', 'Share link', 'Publish', 'Reorder photos', 'Reorder photographs', 'Refresh gallery', 'Refresh gallery contents']) {
+    for (const label of ['Copy link', 'Share link', 'Publish', 'Reorder photos', 'Refresh gallery']) {
       expect(row(container, label)).toBeUndefined()
     }
     // Remove is destructive.
@@ -214,7 +229,8 @@ describe('local gallery settings panel (desktop)', () => {
     expect(html).not.toContain(ROOT_PATH)
     expect(html).not.toContain('/Volumes/')
     expect(html).not.toContain(ITEM_NAME)
-    // No public address, no provider metadata, no vault/offline/copy UI.
+    // No public address while unpublished, no provider metadata, no
+    // vault/offline/copy UI — the files already live on this Mac.
     expect(html).not.toContain('manorama.xyz')
     expect(html).not.toContain('Dropbox')
     expect(html).not.toContain('Google Drive')
@@ -223,16 +239,18 @@ describe('local gallery settings panel (desktop)', () => {
     expect(html).not.toContain('Keep a copy')
     expect(html).not.toContain('Offline')
     expect(html).not.toContain('Vault')
-    expect(html).not.toContain('Reorder')
   })
 
-  test('Open folder renders and emits when the container wires it', async () => {
+  test('View source renders and emits when the container wires it', async () => {
     let reveals = 0
     const { container } = mount({ onRevealFolder: () => { reveals += 1 } })
     expect([...container.querySelectorAll('.m-actionrow-label')].map((el) => el.textContent)).toEqual([
-      'Open gallery', 'Name', 'Open folder', 'Remove from Library',
+      'Open gallery', 'View source',
+      'Name', 'Caption', 'Address',
+      'Reorder photographs', 'Refresh gallery contents',
+      'Remove from Library',
     ])
-    const folder = row(container, 'Open folder') as HTMLButtonElement
+    const folder = row(container, 'View source') as HTMLButtonElement
     expect(folder).not.toBeNull()
     expect(folder.disabled).toBe(false)
     folder.click()
@@ -241,14 +259,18 @@ describe('local gallery settings panel (desktop)', () => {
 
     // Unwired, the row is absent — the local counterpart of View source.
     const { container: plain } = mount()
-    expect(row(plain, 'Open folder')).toBeUndefined()
+    expect(row(plain, 'View source')).toBeUndefined()
   })
 
   test('when the source is unavailable, Open is disabled and the state shows', async () => {
     const { container, calls } = mount({ availability: 'unavailable', onRevealFolder: () => {} })
     const openRow = row(container, 'Open gallery') as HTMLButtonElement
     expect(openRow.disabled).toBe(true)
-    for (const label of ['Name', 'Open folder', 'Remove from Library']) {
+    // Reorder opens the viewer's Edit mode — it locks with Open on an
+    // unavailable source. Refresh stays enabled: it is the rescan the
+    // warning invites.
+    expect((row(container, 'Reorder photographs') as HTMLButtonElement).disabled).toBe(true)
+    for (const label of ['Name', 'Caption', 'Address', 'View source', 'Refresh gallery contents', 'Remove from Library']) {
       expect((row(container, label) as HTMLButtonElement).disabled).toBe(false)
     }
 
@@ -310,7 +332,7 @@ describe('local gallery settings panel (desktop)', () => {
     expect(calls.rename).toHaveLength(1)
     expect(byText(container, 'Saving…')).not.toBeNull()
     expect(container.querySelector('[aria-label="Close"]')).toBeNull()
-    for (const label of ['Open gallery', 'Name', 'Open folder', 'Remove from Library']) {
+    for (const label of ['Open gallery', 'View source', 'Name', 'Caption', 'Address', 'Reorder photographs', 'Refresh gallery contents', 'Remove from Library']) {
       expect((row(container, label) as HTMLButtonElement).disabled).toBe(true)
     }
 
@@ -321,7 +343,7 @@ describe('local gallery settings panel (desktop)', () => {
     expect(container.querySelector('input[aria-label="Name"]')?.getAttribute('value')).toBe('vernazza')
     expect(container.querySelector('[role="alert"]')?.textContent).toBe('The disk is busy')
     expect(byText(container, 'Save')).not.toBeNull()
-    for (const label of ['Open gallery', 'Name', 'Open folder', 'Remove from Library']) {
+    for (const label of ['Open gallery', 'View source', 'Name', 'Caption', 'Address', 'Reorder photographs', 'Refresh gallery contents', 'Remove from Library']) {
       expect((row(container, label) as HTMLButtonElement).disabled).toBe(false)
     }
   })
@@ -360,7 +382,7 @@ describe('local gallery settings panel (desktop)', () => {
     expect(sheetButton(container, 'Remove from Library')).toBeUndefined()
     expect((sheetButton(container, 'Cancel') as HTMLButtonElement | undefined)?.disabled).toBe(true)
     expect(container.querySelector('[aria-label="Close"]')).toBeNull()
-    for (const label of ['Open gallery', 'Name', 'Open folder', 'Remove from Library']) {
+    for (const label of ['Open gallery', 'View source', 'Name', 'Caption', 'Address', 'Reorder photographs', 'Refresh gallery contents', 'Remove from Library']) {
       expect((row(container, label) as HTMLButtonElement).disabled).toBe(true)
     }
 
@@ -387,6 +409,82 @@ describe('local gallery settings panel (desktop)', () => {
     expect(sheetButton(container, 'Remove from Library')).not.toBeUndefined()
   })
 
+  test('a present caption reads on the head; an empty one shows the row’s None state', async () => {
+    const captioned = mount({
+      record: record({ caption: 'Three weeks in the Cinque Terre' }),
+    })
+    expect(captioned.container.querySelector('.m-owner-panel-cap')?.textContent).toBe('Three weeks in the Cinque Terre')
+    const captionRow = row(captioned.container, 'Caption')
+    expect(captionRow?.textContent).not.toContain('None')
+
+    const plain = mount()
+    expect(plain.container.querySelector('.m-owner-panel-cap')).toBeNull()
+    expect(row(plain.container, 'Caption')?.textContent).toContain('None')
+  })
+
+  test('editing the caption opens the shared sheet and submits the text', async () => {
+    const { container, calls } = mount({ record: record({ caption: 'old words' }) })
+    ;(row(container, 'Caption') as HTMLButtonElement).click()
+    await settle()
+
+    const input = container.querySelector<HTMLTextAreaElement>('textarea[aria-label="Caption"]')
+    expect(input).not.toBeNull()
+    expect(input?.value).toBe('old words')
+    expect(container.textContent).toContain('Edit caption')
+
+    setInput(input as unknown as HTMLInputElement, 'new words')
+    await settle()
+    // A textarea keeps Enter for newlines — the shared sheet submits on
+    // Cmd/Ctrl+Enter, same convention as the cloud panel's caption field.
+    input!.dispatchEvent(new dom.KeyboardEvent('keydown', { key: 'Enter', metaKey: true, bubbles: true }) as unknown as KeyboardEvent)
+    await settle()
+
+    expect(calls.caption).toEqual(['new words'])
+    expect(container.textContent).toContain('Caption saved')
+  })
+
+  test('Address reads owner/slug once published and routes to the publish flow either way', async () => {
+    const published = mount({ publishedUrl: 'https://manorama.xyz/home/amalfi-2026' })
+    const addressRow = row(published.container, 'Address')
+    expect(addressRow?.textContent).toContain('home/amalfi-2026')
+    // The origin never renders — the value reads like the cloud panel's.
+    expect(addressRow?.textContent).not.toContain('manorama.xyz')
+    ;(addressRow as HTMLButtonElement).click()
+    await settle()
+    expect(published.calls.publish).toBe(1)
+
+    const unpublished = mount()
+    expect(row(unpublished.container, 'Address')?.textContent).toContain('Not published')
+    ;(row(unpublished.container, 'Address') as HTMLButtonElement).click()
+    await settle()
+    expect(unpublished.calls.publish).toBe(1)
+  })
+
+  test('Reorder photographs emits; Refresh emits, locks while running, and reports failures', async () => {
+    const { container, calls } = mount()
+    ;(row(container, 'Reorder photographs') as HTMLButtonElement).click()
+    await settle()
+    expect(calls.reorder).toBe(1)
+
+    const refreshGate = deferred()
+    const busy = mount({ onRefresh: () => refreshGate.promise })
+    ;(row(busy.container, 'Refresh gallery contents') as HTMLButtonElement).click()
+    await settle()
+    expect(busy.calls.refresh).toBe(1)
+    // The row narrates its own progress like the cloud panel's refresh.
+    expect(row(busy.container, 'Refreshing…')).not.toBeUndefined()
+
+    refreshGate.resolve()
+    await settle()
+    expect(row(busy.container, 'Refresh gallery contents')).not.toBeUndefined()
+    expect(busy.container.textContent).toContain('Refreshed')
+
+    const failed = mount({ onRefresh: () => Promise.reject(new Error('The source could not be read again')) })
+    ;(row(failed.container, 'Refresh gallery contents') as HTMLButtonElement).click()
+    await settle()
+    expect(failed.container.textContent).toContain('The source could not be read again')
+  })
+
 })
 
 describe('the details rail stylesheet contract', () => {
@@ -400,5 +498,15 @@ describe('the details rail stylesheet contract', () => {
     const { readFileSync } = require('node:fs') as typeof import('node:fs')
     const css = readFileSync(new URL('../../app/styles.css', import.meta.url).pathname, 'utf8')
     expect(css).toMatch(/:is\(\.lib-card, \.d-rail\) \.admin-gallery-strip-item > :is\(a, button\) \{[^}]*height: 100%/)
+  })
+
+  test('a settings sheet frosts the library behind it, and only its scrim', () => {
+    const { readFileSync } = require('node:fs') as typeof import('node:fs')
+    const css = readFileSync(new URL('../../app/styles.css', import.meta.url).pathname, 'utf8')
+    // The blur is scoped to sheet hosts carrying an owner panel — card
+    // menus and confirms keep the plain dim veil.
+    expect(css).toMatch(/\.m-sheet-host:has\(\.m-owner-panel\) \.m-scrim:not\(\.m-scrim--ghost\) \{[^}]*backdrop-filter: blur\(/)
+    // Reduced transparency drops the frost like every other material.
+    expect(css).toMatch(/prefers-reduced-transparency: reduce[^}]*\{[^}]*\.m-sheet-host:has\(\.m-owner-panel\)[^}]*backdrop-filter: none/)
   })
 })

@@ -161,6 +161,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             // order nothing at all: a Dock click would land on a window-
             // less app. Restore the Library through the scene's own
             // opener instead.
+            model?.bridge.resetDeepLinkReadiness()
             model?.openLibraryWindow?()
         }
         return true
@@ -202,6 +203,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 window.deminiaturize(nil)
             }
             window.makeKeyAndOrderFront(nil)
+        } else if let model {
+            // Settings may be the only surviving window. Its scene is not
+            // the recipient, and the closed Library's listeners are gone.
+            model.bridge.resetDeepLinkReadiness()
+            model.openLibraryWindow?()
         }
         for urlString in urls where urlString.contains("://") {
             Trace.log("deep-link received: \(URL(string: urlString)?.host ?? urlString)")

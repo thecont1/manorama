@@ -16,6 +16,7 @@ private final class ManoramaBridgeViewController: CAPBridgeViewController {
     var windowScene: UIWindowScene?
     var onLayoutChange: (() -> Void)?
     var onNewDocument: (() -> Void)?
+    var onDocumentSettled: (() -> Void)?
     private var documentLoadObservation: NSKeyValueObservation?
     private var reduceTransparencyObserver: NSObjectProtocol?
     /// iOS 26+ glass chrome: the model the injected observer feeds and the
@@ -28,9 +29,15 @@ private final class ManoramaBridgeViewController: CAPBridgeViewController {
         webView.onReservedRegionsChange = { [weak self] in self?.onLayoutChange?() }
         // A fresh document drops window.__MANORAMA_IOS_LAYOUT__; signal the
         // delegate to forget the last delivery so identical geometry is sent
-        // again instead of being deduplicated away.
+        // again instead of being deduplicated away. isLoading ending without
+        // a committed replacement means the current document survived — the
+        // overlay asks it to replay its state.
         documentLoadObservation = webView.observe(\.isLoading, options: .new) { [weak self] webView, _ in
-            if webView.isLoading { self?.onNewDocument?() }
+            if webView.isLoading {
+                self?.onNewDocument?()
+            } else {
+                self?.onDocumentSettled?()
+            }
         }
 
         if #available(iOS 26.0, *) {
@@ -143,6 +150,16 @@ class SceneDelegate: UIResponder, UIWindowSceneDelegate {
         }
         bridgeViewController.onNewDocument = { [weak self] in
             self?.lastInjectedLayout = nil
+            // A replacement document has no observer and no contract yet —
+            // the overlay must not inherit the last page's chrome state.
+            // The current generation is retired so its late posts die here.
+            (self?.window?.rootViewController as? ManoramaBridgeViewController)?.glassModel?.resetForNewDocument()
+        }
+        bridgeViewController.onDocumentSettled = { [weak self] in
+            // Loading ended. If no new document generation has reported in,
+            // the navigation was cancelled or failed and the old document
+            // is still on screen — ask it to replay its chrome state.
+            (self?.window?.rootViewController as? ManoramaBridgeViewController)?.glassModel?.replaySurvivingDocument()
         }
 
         window = UIWindow(windowScene: windowScene)
@@ -174,8 +191,9 @@ class SceneDelegate: UIResponder, UIWindowSceneDelegate {
         // identical payload means identical regions, so this belongs before
         // the dedup guard rather than after it.
         if #available(iOS 27.1, *) {
-            (window?.rootViewController as? ManoramaBridgeViewController)?.glassModel?.reservedRegions =
-                Self.activeReservedRegionFrames(for: webView)
+            let glassModel = (window?.rootViewController as? ManoramaBridgeViewController)?.glassModel
+            glassModel?.reservedRegions = Self.activeReservedRegionFrames(for: webView)
+            glassModel?.verticalBarEdge = Self.glassBarEdge(for: webView.traitCollection)
         }
         guard javaScript != lastInjectedLayout else { return }
         let previousLayout = lastInjectedLayout
@@ -273,6 +291,17 @@ class SceneDelegate: UIResponder, UIWindowSceneDelegate {
         case .leading: return "leading"
         case .trailing: return "trailing"
         default: return "unspecified"
+        }
+    }
+
+    /// The same trait read for the native owner — the overlay's column
+    /// docks to whichever edge UIKit parked the system bar on.
+    @available(iOS 27.1, *)
+    private static func glassBarEdge(for traits: UITraitCollection) -> GlassBarEdge {
+        switch traits.verticalBarEdge {
+        case .leading: return .leading
+        case .trailing: return .trailing
+        default: return .unspecified
         }
     }
 

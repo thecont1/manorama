@@ -11,40 +11,73 @@ import SwiftUI
 /// Contracts, ported verbatim:
 /// - `data-ios-shell` is stamped for every iOS (G0); `data-ios-glass` and the
 ///   observer script go in only on iOS 26+, where the capsules exist.
-/// - The keep-alive ping is a NON-TOUCH PointerEvent on `.viewer-stage` —
-///   the web idle clock drops pointerType === 'touch'.
-/// - Hide rules in app/styles.css key on data-ios-glass only.
-/// - No GlassEffectContainer: it unions siblings nearer than `spacing`; the
-///   iOS cluster is always-separate capsules 8pt apart.
-/// - Sheet morph is a travelling surface (SheetGlassSurface), never
-///   glassEffectID — native glass cannot sit behind the web panel's text.
+/// - Actions are bounded control IDs — the overlay calls
+///   `window.__manoramaShell?.activateControl('position'|'settings'|'info'|'library')`
+///   and the page fires its own mounted pill. No selector crosses the bridge.
+/// - A held finger, keyboard or VoiceOver focus is reported explicitly:
+///   `setChromeActive(true|false)` keeps the page chrome mounted while a
+///   native interaction is in flight — no synthetic pointer events.
+/// - Escape or an exit command returns focus through `focusStage()`; the
+///   page's own {type:'focus', control} posts land VoiceOver and the key
+///   loop on the same capsule.
+/// - Sheets are entirely web-owned — no native material ever covers web
+///   text during a transition. The travelling SheetGlassSurface is retired.
+/// - The cluster lives in one GlassEffectContainer: a single coherent
+///   silhouette at rest, native press deformation on touch. On touch,
+///   controls must not move away from the finger — the Mac's hover
+///   separation is not ported.
+
+/// Bounded actions the overlay may ask the page to fire — the same enum the
+/// macOS shell and the shared ViewerChromeHandle both speak.
+enum ViewerChromeControl: String, Hashable {
+    case library, position, settings, info
+}
+
+/// Where UIKit parked the system bar on a Duo — fed to the overlay model on
+/// the same layout pass as the reserved regions.
+enum GlassBarEdge {
+    case unspecified, leading, trailing
+}
 
 enum GlassBridgeScript {
     /// Stamped only under #available(iOS 26) — the takeover gate.
     static let marker = "document.documentElement.dataset.iosGlass = '1';"
 
-    /// Same observer the Mac injects: chrome visibility, curtain state, the
-    /// .m-sheet box, plus the position pill's label scraped so the cluster's
-    /// "n of m" needs no bundle-side post.
+    /// Same observer the Mac injects: chrome visibility, curtain state, plus
+    /// the position pill's label scraped so the cluster's "n of m" needs no
+    /// bundle-side post.
+    ///
+    /// Every post carries this document's generation. A committed
+    /// replacement document mints its own — the shell treats the first post
+    /// of a new generation as the document boundary — and a generation the
+    /// shell has already retired is dropped. `__manoramaChromeReplay`
+    /// re-registers a surviving document under a fresh generation and reposts
+    /// everything: the explicit answer when a cancelled navigation leaves
+    /// this page alive after the shell reset. `__manoramaChromeGen` is the
+    /// handle bundle code (`iosPost`) reads to tag its own posts.
     static let observer = """
     (function () {
+      var gen = 'd' + Date.now().toString(36) + Math.random().toString(36).slice(2, 10);
+      window.__manoramaChromeGen = gen;
       var lastVisible = null;
       var lastRaised = null;
-      var lastSheetKey = null;
       var lastPosition = null;
       function post(message) {
+        message.gen = gen;
         try { window.webkit.messageHandlers.manorama.postMessage(message); } catch (e) {}
       }
       function report() {
         // is-visible alone is not enough — an open overlay inerts the
         // chrome's siblings, so a pill can be "visible" yet untouchable.
         // Native capsules must follow inert state or they float tappable
-        // dead ends over the modal. The sheet morph reads sheetRect on its
-        // own channel and is deliberately unaffected by this check.
+        // dead ends over the modal. The iOS picker mounts .native-global-view
+        // (Global View and Post-to-X, marked [data-global-view]), never
+        // .viewer-filmstrip — either surface suppresses the capsules for as
+        // long as it is mounted.
         var chrome = document.querySelector('.m-chrome.is-visible [data-chrome-library]');
         var on = chrome !== null
           && chrome.closest('[inert]') === null
-          && document.querySelector('.viewer-filmstrip') === null;
+          && document.querySelector('.viewer-filmstrip, .native-global-view, [data-global-view]') === null;
         if (on !== lastVisible) {
           lastVisible = on;
           post({ type: 'chrome', visible: on });
@@ -55,18 +88,6 @@ enum GlassBridgeScript {
           lastRaised = raised;
           post({ type: 'entered', raised: raised });
         }
-        var sheet = document.querySelector('.m-sheet');
-        var key = 'closed', rect = null;
-        if (sheet) {
-          var r = sheet.getBoundingClientRect();
-          rect = { x: r.left, y: r.top, w: r.width, h: r.height };
-          key = 'open:' + r.left + ',' + r.top + ',' + r.width + ',' + r.height;
-        }
-        if (key !== lastSheetKey) {
-          lastSheetKey = key;
-          document.documentElement.dataset.iosGlassSheet = sheet ? '1' : '';
-          post({ type: 'sheet', open: sheet !== null, rect: rect });
-        }
         var pos = document.querySelector('[data-chrome-position]');
         var label = pos ? pos.textContent : null;
         if (label !== lastPosition) {
@@ -74,13 +95,18 @@ enum GlassBridgeScript {
           post({ type: 'position', label: label });
         }
       }
+      window.__manoramaChromeReplay = function () {
+        gen = 'r' + Date.now().toString(36) + Math.random().toString(36).slice(2, 10);
+        window.__manoramaChromeGen = gen;
+        lastVisible = null;
+        lastRaised = null;
+        lastPosition = null;
+        report();
+      };
       window.__manoramaChromeObserver = new MutationObserver(report);
       // inert changes availability without touching class; characterData
       // fires on the position pill's "n of m" text alone.
       window.__manoramaChromeObserver.observe(document.documentElement, { subtree: true, childList: true, attributes: true, attributeFilter: ['class', 'inert'], characterData: true });
-      document.addEventListener('transitionend', function (e) {
-        if (e.target && e.target.classList && e.target.classList.contains('m-sheet')) report();
-      });
       document.addEventListener('DOMContentLoaded', report);
       report();
     })();
@@ -88,12 +114,11 @@ enum GlassBridgeScript {
 }
 
 /// Shared state between the injected observer, the overlay's capsules and
-/// the keep-alive timer. All access on the main actor.
+/// the activity contract. All access on the main actor.
 @MainActor
 final class GlassChromeModel: ObservableObject {
     @Published var chromeVisible = false
     @Published var curtainRaised = false
-    @Published var sheetRect: CGRect?
     @Published var positionLabel = "…"
     /// Capsule frames in window coordinates, published by the overlay so the
     /// pass-through container can hand every other touch to the WKWebView.
@@ -107,25 +132,45 @@ final class GlassChromeModel: ObservableObject {
     /// same layout pass that posts __MANORAMA_IOS_LAYOUT__, so a capsule
     /// can never seat inside a region the system owns.
     @Published var reservedRegions: [CGRect] = []
+    /// Where UIKit put the system bar on iOS 27.1+ — the overlay's controls
+    /// become a vertical column on that edge, the same adaptation the web
+    /// chrome makes with .m-chrome--side.
+    @Published var verticalBarEdge: GlassBarEdge = .unspecified
+    /// The document generation currently feeding the model. Posts tagged
+    /// with a different generation either arrive from a committed
+    /// replacement document (adopted — a generation boundary resets state)
+    /// or from a stale survivor (retired — dropped).
+    private(set) var acceptedGeneration: String?
+    /// Generations retired when a navigation started. Bounded — generation
+    /// strings are minted per document and per replay, never reused.
+    private var retiredGenerations: [String] = []
     /// Set the moment the position capsule is tapped — the picker's own
     /// chrome:false report follows a bridge round-trip behind it, so
     /// without this the capsules linger ~300ms over the opening filmstrip.
     @Published var pickerSuppress = false
+    /// The control the page last asked native focus to land on, and the
+    /// revision that request arrived at — the same focus-revision pattern
+    /// AppModel uses on macOS, so a repeated request still re-fires.
+    @Published private(set) var focusTarget: ViewerChromeControl?
+    @Published private(set) var focusRevision = 0
+    /// Measured capsule frames (window coordinates) so reserved-region
+    /// filtering tests the controls' real bands, including Dynamic Type —
+    /// a camera cutout near the top must not shift bottom controls.
+    @Published var libraryFrame: CGRect?
+    @Published var clusterFrame: CGRect?
 
     weak var webView: WKWebView?
-    private var keepAliveTimer: Timer?
-    private var touchActive = false
     /// The pending suppression release — cancelled whenever a new picker
     /// session starts so only the latest timer can clear pickerSuppress.
     private var pickerReleaseWork: DispatchWorkItem?
 
     /// The position capsule opens the picker — hide the capsules now rather
     /// than waiting on the observer's filmstrip report. If the picker never
-    /// opens (invoke missed its pill), the timeout hands the capsules back
+    /// opens (activate missed its pill), the timeout hands the capsules back
     /// instead of leaving them stuck off. A release scheduled by an earlier
     /// session is cancelled first — otherwise its 1.5s deadline could fire
     /// mid-session and bring the capsules back over the open picker.
-    func openPicker(_ selector: String) {
+    func openPicker() {
         pickerReleaseWork?.cancel()
         pickerSuppress = true
         let release = DispatchWorkItem { [weak self] in
@@ -133,74 +178,99 @@ final class GlassChromeModel: ObservableObject {
         }
         pickerReleaseWork = release
         DispatchQueue.main.asyncAfter(deadline: .now() + 1.5, execute: release)
-        invoke(selector)
+        activateControl(.position)
     }
 
-    /// Fire the page's own pill — mounted but hidden under data-ios-glass,
-    /// still owning the focus path, the modal wiring and the handlers.
-    /// JSONEncoder because JSONSerialization rejects a top-level string.
-    func invoke(_ selector: String) {
-        guard let data = try? JSONEncoder().encode(selector),
-              let json = String(data: data, encoding: .utf8) else { return }
-        webView?.evaluateJavaScript("var el = document.querySelector(\(json)); if (el) el.click();", completionHandler: nil)
+    /// The bounded action contract: the page fires its own mounted pill,
+    /// which keeps owning the focus path, the modal wiring and the handlers.
+    func activateControl(_ control: ViewerChromeControl) {
+        webView?.evaluateJavaScript("window.__manoramaShell?.activateControl('\(control.rawValue)');", completionHandler: nil)
     }
 
-    /// A finger resting on a native capsule generates no page pointer
-    /// events — the viewer's chrome idles out 3s after the last one and the
-    /// pills would unmount beneath it. While any capsule is touched, dispatch
-    /// a synthetic non-touch pointermove pair on the stage: the page's
-    /// fine-move handler only wakes on travel > 4px, so each ping sends two
-    /// positions 8px apart — the very first call refreshes the idle clock
-    /// instead of only seeding lastFine. The base y alternates between
-    /// pings so successive pairs never settle on the previous point.
-    /// Level-based, not counted: a DragGesture re-fires onChanged for every
-    /// move, so counting edges would inflate the touch depth. The second
-    /// finger landing on another capsule while the first lifts is accepted
-    /// as ending the ping early — single-touch chrome is the normal case.
-    func setFingerDown(_ down: Bool) {
-        guard down != touchActive else { return }
-        touchActive = down
-        if down {
-            ping()
-            keepAliveTimer = Timer.scheduledTimer(withTimeInterval: 1.1, repeats: true) { [weak self] _ in
-                Task { @MainActor in self?.ping() }
-            }
-        } else {
-            keepAliveTimer?.invalidate()
-            keepAliveTimer = nil
+    /// Held-finger, keyboard and VoiceOver activity on the native chrome is
+    /// explicit state — the page's idle clock keeps the hidden pills mounted
+    /// for exactly the interaction in flight instead of guessing at pointer
+    /// traffic a native capsule never generates.
+    func setChromeActive(_ active: Bool) {
+        webView?.evaluateJavaScript("window.__manoramaShell?.setChromeActive(\(active));", completionHandler: nil)
+    }
+
+    /// Escape on a native capsule hands focus back to the viewer stage.
+    func focusStage() {
+        webView?.evaluateJavaScript("window.__manoramaShell?.focusStage();", completionHandler: nil)
+    }
+
+    /// Clears every piece of reported state. Called on the generation
+    /// boundary — the first post of a new document — and on reset.
+    private func clearDocumentState() {
+        chromeVisible = false
+        curtainRaised = false
+        pickerSuppress = false
+        pickerReleaseWork?.cancel()
+        pickerReleaseWork = nil
+        focusTarget = nil
+        positionLabel = "…"
+        hitRects = []
+        libraryFrame = nil
+        clusterFrame = nil
+    }
+
+    /// A navigation began: the current document may be replaced. Its
+    /// generation is retired so posts already in flight cannot be mistaken
+    /// for the next document's, and the reported state is dropped — a
+    /// committed replacement must never inherit chrome, picker suppression
+    /// or focus target. If the navigation is cancelled instead, the
+    /// surviving document is asked to replay (see replaySurvivingDocument).
+    func resetForNewDocument() {
+        if let gen = acceptedGeneration {
+            retiredGenerations.append(gen)
+            if retiredGenerations.count > 16 { retiredGenerations.removeFirst() }
+            acceptedGeneration = nil
         }
+        clearDocumentState()
     }
 
-    private func ping() {
-        webView?.evaluateJavaScript(
-            "var s = document.querySelector('.viewer-stage'); if (s) { window.__manoramaKeepAlive = !window.__manoramaKeepAlive; var y = s.clientHeight - 40 + (window.__manoramaKeepAlive ? 8 : -8); var x = s.clientWidth / 2; s.dispatchEvent(new PointerEvent('pointermove', {bubbles: true, clientX: x, clientY: y - 8})); s.dispatchEvent(new PointerEvent('pointermove', {bubbles: true, clientX: x, clientY: y})); }",
-            completionHandler: nil
-        )
+    /// A navigation ended without a new document generation reporting —
+    /// the load was cancelled or failed, so the old document (and its
+    /// observer) is still on screen but the model was reset. Ask it to
+    /// re-register under a fresh generation and repost its state. A
+    /// committed document has already posted its own generation, so the
+    /// request is a no-op there.
+    func replaySurvivingDocument() {
+        guard acceptedGeneration == nil else { return }
+        webView?.evaluateJavaScript("window.__manoramaChromeReplay?.();", completionHandler: nil)
     }
 
     func handle(_ body: [String: Any]) {
+        // Generation boundary first: a post from a retired generation is
+        // stale; the first post of a new generation is the document's own
+        // claim — reset, adopt, then apply it.
+        if let gen = body["gen"] as? String {
+            if retiredGenerations.contains(gen) { return }
+            if gen != acceptedGeneration {
+                clearDocumentState()
+                acceptedGeneration = gen
+            }
+        }
         switch body["type"] as? String {
         case "chrome":
-            let visible = body["visible"] as? Bool ?? false
-            if visible { pickerSuppress = false }
-            chromeVisible = visible
-            // Backstop: when chrome reports hidden, a resting-finger ping
-            // has nothing left to protect — clear it so a missed gesture
-            // end can never leave the timer running.
-            if !visible { setFingerDown(false) }
+            chromeVisible = body["visible"] as? Bool ?? false
+            if chromeVisible {
+                pickerSuppress = false
+                pickerReleaseWork?.cancel()
+                pickerReleaseWork = nil
+            }
         case "entered":
             curtainRaised = body["raised"] as? Bool ?? false
-        case "sheet":
-            if let r = body["rect"] as? [String: Any],
-               let x = r["x"] as? Double, let y = r["y"] as? Double,
-               let w = r["w"] as? Double, let h = r["h"] as? Double {
-                sheetRect = CGRect(x: x, y: y, width: w, height: h)
-            } else {
-                sheetRect = nil
-            }
         case "position":
             if let label = body["label"] as? String, !label.isEmpty {
-                positionLabel = label
+                positionLabel = String(label.prefix(64))
+            }
+        case "focus":
+            if let name = body["control"] as? String,
+               let control = ViewerChromeControl(rawValue: name) {
+                focusTarget = control
+                focusRevision += 1
             }
         default:
             break
@@ -209,8 +279,9 @@ final class GlassChromeModel: ObservableObject {
 }
 
 /// WKScriptMessageHandler for the injected observer. main-frame only, and
-/// only for documents the bridge itself loaded — a remote frame can never
-/// reach this handler's model.
+/// only when the posting frame's origin is the committed document's own
+/// (capacitor://localhost) — a remote or subframe document can never reach
+/// this handler's model. Generation handling lives in the model.
 final class GlassScriptHandler: NSObject, WKScriptMessageHandler {
     let model: GlassChromeModel
 
@@ -223,9 +294,27 @@ final class GlassScriptHandler: NSObject, WKScriptMessageHandler {
         guard message.name == "manorama",
               message.frameInfo.isMainFrame,
               let body = message.body as? [String: Any] else { return }
+        // The posting frame must be the committed document itself — the
+        // app's own page. Capacitor's delegation handler already refuses
+        // remote main-frame commits (no allowNavigation hosts are
+        // configured), so the committed URL is the app's own origin; a post
+        // whose frame origin is anything else did not come from it.
+        if let url = message.webView?.url {
+            let origin = message.frameInfo.securityOrigin
+            guard origin.protocol.lowercased() == url.scheme?.lowercased(),
+                  origin.host.lowercased() == (url.host ?? "").lowercased() else { return }
+        }
         Task { @MainActor in model.handle(body) }
     }
 }
+
+/// Forgiveness added around each capsule's own actionable rect — a graze on
+/// a capsule's edge still lands. Strictly under half the 8pt inter-control
+/// spacing: an expanded pair that met in the middle would swallow a swipe
+/// starting in the gap (the UIKit point test decides capture before any
+/// SwiftUI element can decline it), so the middle of a gap stays a real
+/// passthrough lane.
+private let capsuleHitExpansion: CGFloat = 2
 
 /// The overlay is mounted in a plain UIView container covering the webView.
 /// Its hit test answers true only where a capsule actually is — every other
@@ -236,9 +325,13 @@ final class GlassPassthroughView: UIView {
     var onSafeAreaInsets: ((UIEdgeInsets) -> Void)?
 
     override func point(inside point: CGPoint, with event: UIEvent?) -> Bool {
-        // Capsule frames are published in window coordinates.
+        // Each capsule publishes its own frame in window coordinates —
+        // never the cluster's bounding box, which would make the gaps
+        // between controls (and the photograph around them) dead space.
         let windowPoint = convert(point, to: nil)
-        return hitRectsProvider().contains { $0.insetBy(dx: -8, dy: -8).contains(windowPoint) }
+        return hitRectsProvider().contains {
+            $0.insetBy(dx: -capsuleHitExpansion, dy: -capsuleHitExpansion).contains(windowPoint)
+        }
     }
 
     override func safeAreaInsetsDidChange() {
@@ -258,60 +351,121 @@ private struct GlassHitRectsKey: PreferenceKey {
     static func reduce(value: inout [CGRect], nextValue: () -> [CGRect]) { value += nextValue() }
 }
 
+/// The measured window-space frame of one control surface — reserved-region
+/// filtering tests intersection against the control's real band, so only a
+/// region that actually crosses the control's vertical span may move it.
+private struct GlassLibraryFrameKey: PreferenceKey {
+    static var defaultValue: CGRect? { nil }
+    static func reduce(value: inout CGRect?, nextValue: () -> CGRect?) { value = nextValue() ?? value }
+}
+private struct GlassClusterFrameKey: PreferenceKey {
+    static var defaultValue: CGRect? { nil }
+    static func reduce(value: inout CGRect?, nextValue: () -> CGRect?) { value = nextValue() ?? value }
+}
+
 @available(iOS 26.0, *)
 struct GlassChromeOverlay: View {
     @ObservedObject var model: GlassChromeModel
     @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    /// Each capsule's frame in window coordinates — a sheet's glass morph
-    /// launches from the capsule that was pressed, so the travel reads as
-    /// that control growing into the panel. Launching every sheet from the
-    /// Settings seat made the Info morph appear as a stray flash of glass.
-    @State private var capsuleSeats: [String: CGRect] = [:]
-    @State private var sheetSeat: CGRect = .zero
     /// Tracks a finger resting on a capsule. @GestureState resets itself on
     /// release AND on cancellation — a plain onChanged/onEnded pair leaves
-    /// the keep-alive running when the system interrupts the touch.
+    /// the activity state set when the system interrupts the touch.
     @GestureState private var fingerDown = false
+    @FocusState private var focusedControl: ViewerChromeControl?
+    @AccessibilityFocusState private var accessibleControl: ViewerChromeControl?
+    @Namespace private var clusterNamespace
+    /// A focus request that arrived while chrome was hidden — applied once
+    /// when the chrome returns, then consumed.
+    @State private var pendingFocus = false
+
+    /// Native interaction in flight — a held finger, keyboard focus or
+    /// VoiceOver focus — keeps the page's hidden chrome alive through
+    /// __manoramaShell.setChromeActive. On touch there is no hover phase:
+    /// the finger IS the interaction, so this is the whole set.
+    private var nativeActive: Bool {
+        fingerDown || focusedControl != nil || accessibleControl != nil
+    }
+
+    /// The Duo system-bar adaptation: the controls become one column on the
+    /// edge UIKit chose, the same shape the web chrome takes as .m-chrome--side.
+    private var verticalMode: Bool {
+        model.verticalBarEdge == .leading || model.verticalBarEdge == .trailing
+    }
 
     var body: some View {
         GeometryReader { geo in
             ZStack(alignment: .topLeading) {
-                if model.chromeVisible && !model.pickerSuppress {
-                    libraryCapsule
-                        .padding(.leading, leadingSeat)
-                        .padding(.top, model.safeInsets.top + 8)
-                }
-                if model.chromeVisible && model.curtainRaised && !model.pickerSuppress {
-                    controlsCluster
-                        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
-                        .padding(.bottom, model.safeInsets.bottom + 16)
-                        .offset(x: clusterOffset(in: geo.size.width))
-                }
-                if let sheet = model.sheetRect {
-                    SheetGlassSurface(start: sheetSeat, end: sheet, reduceMotion: reduceMotion, reduceTransparency: reduceTransparency)
+                if verticalMode {
+                    if model.chromeVisible && !model.pickerSuppress {
+                        controlsColumn
+                            .frame(maxWidth: .infinity, maxHeight: .infinity,
+                                   alignment: model.verticalBarEdge == .leading ? .leading : .trailing)
+                            .padding(.leading, model.verticalBarEdge == .leading ? columnSeat(in: geo.size) : 0)
+                            .padding(.trailing, model.verticalBarEdge == .trailing ? columnSeat(in: geo.size) : 0)
+                            .offset(y: columnOffsetY(in: geo.size))
+                    }
+                } else {
+                    if model.chromeVisible && !model.pickerSuppress {
+                        libraryCapsule
+                            .padding(.leading, leadingSeat)
+                            .padding(.top, model.safeInsets.top + 8)
+                    }
+                    if model.chromeVisible && model.curtainRaised && !model.pickerSuppress {
+                        controlsCluster
+                            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
+                            .padding(.bottom, model.safeInsets.bottom + 16)
+                            .offset(x: clusterOffset(in: geo.size.width))
+                    }
                 }
             }
         }
-        // The sheet rect is posted viewport-relative — viewport 0 is the
+        // The posted rects are viewport-relative — viewport 0 is the
         // webview's top, which sits under the status bar. Ignoring the safe
         // area on the reader keeps posted CSS rects and position space
         // identical; the capsules compensate with the explicit inset above.
         .ignoresSafeArea()
         .onPreferenceChange(GlassHitRectsKey.self) { model.hitRects = $0 }
-        .onChange(of: fingerDown) { _, down in model.setFingerDown(down) }
-        .onDisappear { model.setFingerDown(false) }
+        .onPreferenceChange(GlassLibraryFrameKey.self) { model.libraryFrame = $0 }
+        .onPreferenceChange(GlassClusterFrameKey.self) { model.clusterFrame = $0 }
+        .onChange(of: nativeActive) { model.setChromeActive(nativeActive) }
+        .onDisappear { model.setChromeActive(false) }
+        .onChange(of: model.chromeVisible) {
+            if !model.chromeVisible {
+                focusedControl = nil
+                accessibleControl = nil
+            } else if pendingFocus {
+                // A focus request queued while chrome was hidden lands now —
+                // consumed so a later hide/show does not replay it.
+                focusedControl = model.focusTarget
+                accessibleControl = model.focusTarget
+                pendingFocus = false
+            }
+        }
+        .onChange(of: model.focusRevision) {
+            // The page asked native focus to land on a control — VoiceOver
+            // and the key loop must arrive on the same capsule. While chrome
+            // is hidden the request stays pending for the visibility change
+            // above; applied at once when chrome is already up.
+            DispatchQueue.main.async {
+                if model.chromeVisible {
+                    focusedControl = model.focusTarget
+                    accessibleControl = model.focusTarget
+                } else {
+                    pendingFocus = true
+                }
+            }
+        }
     }
 
     /// Leading padding that clears a reserved region hugging the left edge —
     /// the Duo's vertical system bar when it lands leading. Safe-area insets
     /// do not describe that bar, so the seat is measured from regions. The
-    /// region must also cross the capsule's own vertical band: a horizontal
-    /// division spans the full width (minX ≈ 0) but never meets the top
+    /// region must cross the capsule's own measured vertical band: a
+    /// horizontal division spans the full width but never meets the top
     /// seat, and must not push the capsule sideways.
     private var leadingSeat: CGFloat {
-        let bandTop = model.safeInsets.top + 8
-        let bandBottom = bandTop + 44 // the capsule's minHeight
+        let bandTop = model.libraryFrame?.minY ?? model.safeInsets.top + 8
+        let bandBottom = model.libraryFrame?.maxY ?? bandTop + 44
         let barEdge = model.reservedRegions
             .filter { $0.minX <= 1 && $0.minY < bandBottom && $0.maxY > bandTop }
             .map(\.maxX)
@@ -319,28 +473,96 @@ struct GlassChromeOverlay: View {
         return barEdge > 0 ? barEdge + 16 : 16
     }
 
-    /// Centre of the widest run of screen not covered by a reserved region,
-    /// as an offset from the container's own centre. On an unfolded Duo the
-    /// hinge's division region splits the width in two; the cluster takes
-    /// the wider half — the segment without the system bar. Zero keeps the
-    /// default centring when nothing is reserved.
-    private func clusterOffset(in width: CGFloat) -> CGFloat {
-        let regions = model.reservedRegions
-        guard !regions.isEmpty, width > 0 else { return 0 }
-        var cuts: [CGFloat] = [0, width]
-        for region in regions {
-            cuts.append(min(max(region.minX, 0), width))
-            cuts.append(min(max(region.maxX, 0), width))
+    /// Centre of the widest unreserved interval along one axis, or nil when
+    /// no run can hold `needed` padded points. A too-narrow run would spill
+    /// the cluster into the regions on both flanks, so nil hands the caller
+    /// back to its unreserved default instead of pretending a run fits.
+    private func widestRun(extent: CGFloat, spans: [(start: CGFloat, end: CGFloat)], needed: CGFloat) -> CGFloat? {
+        guard extent > 0, !spans.isEmpty else { return nil }
+        var cuts: [CGFloat] = [0, extent]
+        for span in spans {
+            cuts.append(min(max(span.start, 0), extent))
+            cuts.append(min(max(span.end, 0), extent))
         }
         cuts.sort()
-        var best: (start: CGFloat, width: CGFloat) = (0, 0)
+        var bestFit: (start: CGFloat, width: CGFloat) = (0, 0)
         for i in 0..<(cuts.count - 1) {
             let gap = cuts[i + 1] - cuts[i]
             let mid = cuts[i] + gap / 2
-            let covered = regions.contains { mid >= $0.minX && mid <= $0.maxX }
-            if gap > best.width, !covered { best = (cuts[i], gap) }
+            if spans.contains(where: { mid >= $0.start && mid <= $0.end }) { continue }
+            if gap >= needed, gap > bestFit.width { bestFit = (cuts[i], gap) }
         }
-        return best.width > 0 ? best.start + best.width / 2 - width / 2 : 0
+        return bestFit.width > 0 ? bestFit.start + bestFit.width / 2 : nil
+    }
+
+    /// Centre of the widest run of screen not covered by a reserved region,
+    /// as an offset from the container's own centre. On an unfolded Duo the
+    /// hinge's division region splits the width in two; the cluster takes
+    /// the wider half — the segment without the system bar. Only regions
+    /// that cross the cluster's own measured band count: a camera cutout
+    /// near the top must not shift bottom controls. The cluster must fit
+    /// with its hit padding on both sides — a narrow segment or large
+    /// Dynamic Type cannot push it into a reserved edge. Zero keeps the
+    /// default centring when nothing relevant is reserved.
+    private func clusterOffset(in width: CGFloat) -> CGFloat {
+        let band = model.clusterFrame
+        let spans = model.reservedRegions
+            .filter { band == nil || ($0.minY < band!.maxY && $0.maxY > band!.minY) }
+            .map { (start: $0.minX, end: $0.maxX) }
+        guard let centre = widestRun(extent: width, spans: spans,
+                                   needed: (band?.width ?? 0) + capsuleHitExpansion * 2) else { return 0 }
+        return centre - width / 2
+    }
+
+    /// The column's band before this layout's seat and y-offset move it.
+    /// The probe reports the *placed* frame, and filtering regions by that
+    /// frame would feed placement back into its own inputs — a stationary
+    /// Duo window with a leading system region could then never settle.
+    /// Only the measured size is reused; the unplaced origin is the
+    /// frame's own contract: edge-aligned and centred in a full-size box.
+    private func unplacedColumnBand(in size: CGSize) -> CGRect? {
+        guard let placed = model.clusterFrame else { return nil }
+        let x: CGFloat = model.verticalBarEdge == .leading ? 0 : size.width - placed.width
+        return CGRect(x: x, y: (size.height - placed.height) / 2, width: placed.width, height: placed.height)
+    }
+
+    /// Padding between the column and the screen's leading/trailing edge,
+    /// clearing a region hugging that edge — the Duo's vertical system bar.
+    /// The region must cross the column's own measured vertical band: a
+    /// horizontal division spans the full width but never meets the column,
+    /// and must not push it sideways. Mirrors leadingSeat on the
+    /// horizontal layout, for whichever edge the trait names.
+    private func columnSeat(in size: CGSize) -> CGFloat {
+        let band = unplacedColumnBand(in: size)
+        if model.verticalBarEdge == .leading {
+            let edge = model.reservedRegions
+                .filter { $0.minX <= 1 && (band == nil || ($0.minY < band!.maxY && $0.maxY > band!.minY)) }
+                .map(\.maxX)
+                .max() ?? 0
+            return edge > 0 ? edge + 16 : 16
+        }
+        guard size.width > 0 else { return 16 }
+        let edge = model.reservedRegions
+            .filter { $0.maxX >= size.width - 1 && (band == nil || ($0.minY < band!.maxY && $0.maxY > band!.minY)) }
+            .map(\.minX)
+            .min()
+        guard let edge else { return 16 }
+        return size.width - edge + 16
+    }
+
+    /// Vertical centring of the column inside the widest run of screen not
+    /// covered by a reserved region, as an offset from centre — the
+    /// transpose of clusterOffset onto the y-axis, filtered to regions that
+    /// cross the column's own measured horizontal band. The column's padded
+    /// height must fit the run it takes.
+    private func columnOffsetY(in size: CGSize) -> CGFloat {
+        let band = unplacedColumnBand(in: size)
+        let spans = model.reservedRegions
+            .filter { band == nil || ($0.minX < band!.maxX && $0.maxX > band!.minX) }
+            .map { (start: $0.minY, end: $0.maxY) }
+        guard let centre = widestRun(extent: size.height, spans: spans,
+                                   needed: (band?.height ?? 0) + capsuleHitExpansion * 2) else { return 0 }
+        return centre - size.height / 2
     }
 
     /// Feeds the capsule's touch into the shared @GestureState — true while
@@ -350,94 +572,165 @@ struct GlassChromeOverlay: View {
             .updating($fingerDown) { _, state, _ in state = true }
     }
 
-    private var libraryCapsule: some View {
+    /// One capsule: the button style owns the material (regular glass in the
+    /// normal path, a solid sibling under Reduce Transparency at identical
+    /// geometry), the system derives foreground from the backdrop, and the
+    /// action is a bounded control ID. Focus and VoiceOver focus land on
+    /// the same capsule the page named; an exit command returns the stage.
+    private func chromeButton(_ control: ViewerChromeControl, label: String, @ViewBuilder content: () -> some View) -> some View {
         let button = Button {
-            model.invoke("[data-chrome-library]")
+            focusedControl = nil
+            accessibleControl = nil
+            if control == .position { model.openPicker() } else { model.activateControl(control) }
         } label: {
-            Label("Library", systemImage: "chevron.left")
-                .frame(minHeight: 44)
-                .padding(.horizontal, 12)
-                .font(.system(size: 15, weight: .semibold))
+            content().frame(minWidth: 44, minHeight: 44)
         }
-        // .clear keeps the glyphs at whatever colour we set — .glass styled
-        // them adaptively, .plain leaves .primary, which renders dark over
-        // the dark letterbox.
-        .foregroundStyle(Color(red: 0.95, green: 0.94, blue: 0.91))
+        .accessibilityLabel(label)
+        .focused($focusedControl, equals: control)
+        .accessibilityFocused($accessibleControl, equals: control)
+        // Hardware Escape (keyboards) and the VoiceOver escape gesture both
+        // hand focus back to the stage — the page owns where "back" lands.
+        .onKeyPress(.escape) {
+            focusedControl = nil
+            accessibleControl = nil
+            model.focusStage()
+            return .handled
+        }
+        .accessibilityAction(.escape) {
+            focusedControl = nil
+            accessibleControl = nil
+            model.focusStage()
+        }
         .simultaneousGesture(touchProbe)
 
-        return Group {
+        let styled = Group {
             if reduceTransparency {
+                // Solid sibling at identical geometry — the same label
+                // padding, no extra insets, so the fallback never moves the
+                // controls it replaces.
                 button
                     .buttonStyle(.plain)
-                    .padding(.horizontal, 16)
-                    .padding(.vertical, 10)
-                    .background(Capsule().fill(Color(white: 0.06, opacity: 0.92)))
                     .foregroundStyle(Color(red: 0.95, green: 0.94, blue: 0.91))
+                    .background(Capsule().fill(Color(white: 0.06, opacity: 0.94)))
             } else {
-                // .clear over a dim underlay — .regular is the adaptive
-                // milky variant and reads as frost over the dark letterbox.
-                // The dim goes on the button's own background so it hugs
-                // the capsule: a ZStack sibling would expand to fill the
-                // overlay's proposal and swallow every touch.
                 button
-                    .buttonStyle(.plain)
-                    .background(Capsule().fill(Color.black.opacity(0.28)))
-                    .glassEffect(.clear.interactive(), in: .capsule)
+                    .buttonStyle(.glass)
+                    .buttonBorderShape(.capsule)
             }
         }
-        .background(rectProbe)
+        // Stable material identity inside the container — the union morphs
+        // the group, never the individual targets, away from a touch.
+        return styled
+            .glassEffectID(control, in: clusterNamespace)
+            // Each actionable capsule publishes its own rect — the
+            // passthrough hit test never sees the cluster's bounding box.
+            .background(rectProbe)
     }
 
-    /// Always-separate capsules 8pt apart — no GlassEffectContainer, which
-    /// would union siblings nearer than its spacing. Every press fires the
-    /// page's own hidden pill. The label, not the style, sets the 44pt
-    /// minimum so Dynamic Type can grow the capsule.
+    private var libraryCapsule: some View {
+        chromeButton(.library, label: "Library") {
+            Label("Library", systemImage: "chevron.left")
+                .font(.subheadline.weight(.semibold))
+                .padding(.horizontal, 12)
+        }
+        .background(libraryFrameProbe)
+    }
+
+    /// One coherent control group: the GlassEffectContainer unions the
+    /// capsules into a single silhouette at rest (HStack spacing sits under
+    /// the container's union threshold), while .buttonStyle(.glass) keeps
+    /// each press deforming natively. Targets stay distinct — every label
+    /// carries its own 44×44 frame and its own bounded control ID.
     private var controlsCluster: some View {
-        HStack(spacing: 8) {
-            clusterButton(key: "position", label: Text(model.positionLabel).monospacedDigit(),
-                          action: "[data-chrome-position]", opensPicker: true,
-                          accessibilityLabel: "Go to a photograph")
-            clusterButton(key: "settings", label: Image(systemName: "slider.horizontal.3"),
-                          action: "[data-chrome-bottom] [aria-label='Gallery Settings']",
-                          accessibilityLabel: "Gallery Settings")
-            clusterButton(key: "info", label: Image(systemName: "info"),
-                          action: "[data-chrome-bottom] [aria-label='Info']",
-                          accessibilityLabel: "Info")
-        }
-        .foregroundStyle(Color(red: 0.95, green: 0.94, blue: 0.91))
-        .background(rectProbe)
-    }
-
-    private func clusterButton(key: String, label: some View, action: String, opensPicker: Bool = false, accessibilityLabel: String) -> some View {
-        let button = Button {
-            sheetSeat = capsuleSeats[key] ?? .zero
-            if opensPicker { model.openPicker(action) } else { model.invoke(action) }
-        } label: {
-            label
-                .font(.system(size: 15, weight: .semibold))
-                .padding(.horizontal, 14)
-                .frame(minHeight: 44)
-        }
-        .buttonStyle(.plain)
-        .accessibilityLabel(accessibilityLabel)
-        .simultaneousGesture(touchProbe)
-
-        return Group {
+        Group {
             if reduceTransparency {
-                button
-                    .padding(.horizontal, 4)
-                    .background(Capsule().fill(Color(white: 0.06, opacity: 0.92)))
+                clusterButtons
             } else {
-                // Clear glass + a dim underlay so the refracted photo stays
-                // legible — the camera-app pattern for floating controls.
-                button
-                    .background(Capsule().fill(Color.black.opacity(0.28)))
-                    .glassEffect(.clear.interactive(), in: .capsule)
+                GlassEffectContainer(spacing: 16) { clusterButtons }
             }
         }
-        // Seat the sheet morph at THIS capsule's frame, known before the
-        // tap — the action still falls back to .zero when no frame landed.
-        .background(seatProbe(key))
+        .background(clusterFrameProbe)
+    }
+
+    /// The Duo vertical-bar adaptation: one column docked to the edge the
+    /// system chose, Back at the navigation end — the same shape the web
+    /// chrome takes as .m-chrome--side. The trailing controls still wait
+    /// for the curtain to lift, as the bottom cluster does.
+    private var controlsColumn: some View {
+        Group {
+            if reduceTransparency {
+                columnButtons
+            } else {
+                GlassEffectContainer(spacing: 16) { columnButtons }
+            }
+        }
+        .background(clusterFrameProbe)
+    }
+
+    private var columnButtons: some View {
+        VStack(spacing: 8) {
+            chromeButton(.library, label: "Library") {
+                Image(systemName: "chevron.left")
+                    .font(.body.weight(.semibold))
+            }
+            if model.curtainRaised {
+                chromeButton(.position, label: "Go to a photograph") {
+                    let parts = verticalPositionLabel
+                    VStack(spacing: 0) {
+                        Text(parts.lead)
+                            .font(.subheadline.weight(.semibold))
+                            .monospacedDigit()
+                        if let rest = parts.rest {
+                            Text(rest)
+                                .font(.caption2)
+                                .monospacedDigit()
+                        }
+                    }
+                    .padding(.horizontal, 6)
+                }
+                .accessibilityValue(model.positionLabel)
+                chromeButton(.settings, label: "Gallery Settings") {
+                    Image(systemName: "slider.horizontal.3")
+                        .font(.body.weight(.semibold))
+                }
+                chromeButton(.info, label: "Info") {
+                    Image(systemName: "info")
+                        .font(.body.weight(.semibold))
+                }
+            }
+        }
+    }
+
+    /// The position capsule reads "12 of 30" horizontally; the column lays
+    /// it out the way the web's side pill does — "12" over "of 30".
+    private var verticalPositionLabel: (lead: String, rest: String?) {
+        guard let range = model.positionLabel.range(of: " of ") else {
+            return (model.positionLabel, nil)
+        }
+        return (String(model.positionLabel[..<range.lowerBound]),
+                String(model.positionLabel[range.lowerBound...]).trimmingCharacters(in: .whitespaces))
+    }
+
+    private var clusterButtons: some View {
+        HStack(spacing: 8) {
+            chromeButton(.position, label: "Go to a photograph") {
+                Text(model.positionLabel)
+                    .font(.subheadline.weight(.semibold))
+                    .monospacedDigit()
+                    .padding(.horizontal, 12)
+            }
+            .accessibilityValue(model.positionLabel)
+            chromeButton(.settings, label: "Gallery Settings") {
+                Image(systemName: "slider.horizontal.3")
+                    .font(.body.weight(.semibold))
+                    .padding(.horizontal, 14)
+            }
+            chromeButton(.info, label: "Info") {
+                Image(systemName: "info")
+                    .font(.body.weight(.semibold))
+                    .padding(.horizontal, 14)
+            }
+        }
     }
 
     /// Publishes a view's own frame (window space) to the pass-through.
@@ -448,68 +741,19 @@ struct GlassChromeOverlay: View {
         .allowsHitTesting(false)
     }
 
-    /// A capsule's seat — where its sheet morph's glass launches from. The
-    /// watch is the whole frame, not just the size: a safe-area shift or a
-    /// cluster re-layout can move a capsule without resizing it, and the
-    /// morph must still launch from where it actually sits.
-    private func seatProbe(_ key: String) -> some View {
+    /// Measured control frames for reserved-region filtering — window space,
+    /// same coordinate system the regions arrive in.
+    private var libraryFrameProbe: some View {
         GeometryReader { geometry in
-            Color.clear
-                .onAppear { capsuleSeats[key] = geometry.frame(in: .global) }
-                .onChange(of: geometry.frame(in: .global)) { _, frame in capsuleSeats[key] = frame }
+            Color.clear.preference(key: GlassLibraryFrameKey.self, value: geometry.frame(in: .global))
         }
         .allowsHitTesting(false)
     }
-}
-
-/// The travelling glass that carries a cluster capsule into a sheet — the
-/// iOS port of the Mac's SheetGlassSurface. Native glass always renders
-/// above the webview, so it launches from the pressed capsule's seat and
-/// lands on the sheet's reported box. The fade must run WITH the travel:
-/// the web sheet slides itself up at the same time, so a surface that
-/// lands first and only then starts fading reads as a foreign panel
-/// flashing on top of the sheet. Dissolving during the flight hands the
-/// surface off exactly as the web panel covers it.
-@available(iOS 26.0, *)
-private struct SheetGlassSurface: View {
-    let start: CGRect
-    let end: CGRect
-    let reduceMotion: Bool
-    let reduceTransparency: Bool
-
-    @State private var arrived = false
-    @State private var held: CGRect = .zero
-    @State private var opacity: Double = 1
-
-    var body: some View {
-        let frame = (arrived || start == .zero) ? held : start
-        Group {
-            if reduceTransparency {
-                RoundedRectangle(cornerRadius: 18)
-                    .fill(Color(white: 0.06, opacity: 0.94))
-            } else {
-                RoundedRectangle(cornerRadius: 18)
-                    .fill(.clear)
-                    .glassEffect(.regular, in: .rect(cornerRadius: 18))
-            }
-        }
-        .frame(width: frame.width, height: frame.height)
-        .position(x: frame.midX, y: frame.midY)
-        .opacity(opacity)
-        .onAppear {
-            held = end
-            withAnimation(reduceMotion ? nil : .spring(response: 0.38, dampingFraction: 0.82)) {
-                arrived = true
-                opacity = 0
-            }
-        }
-        .onChange(of: end) { _, newEnd in
-            withAnimation(reduceMotion ? nil : .spring(response: 0.38, dampingFraction: 0.82)) {
-                held = newEnd
-            }
+    private var clusterFrameProbe: some View {
+        GeometryReader { geometry in
+            Color.clear.preference(key: GlassClusterFrameKey.self, value: geometry.frame(in: .global))
         }
         .allowsHitTesting(false)
-        .accessibilityHidden(true)
     }
 }
 

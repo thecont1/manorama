@@ -133,7 +133,7 @@ for (const engine of ['chromium', 'webkit'] as const) {
       const trigger = page.getByRole('button', { name: 'Cloud Album actions', exact: true })
       await trigger.click()
       const menu = page.getByRole('dialog', { name: 'Cloud Album', exact: true })
-      for (const name of ['Copy link', 'Reorder photos', 'Refresh gallery', 'Post to X', 'Gallery Settings']) {
+      for (const name of ['Copy link', 'Reorder photos', 'Refresh gallery', 'Post to X', 'More settings…']) {
         await expect(menu.getByRole('button', { name, exact: true })).toBeEnabled()
       }
       await expect(menu.getByRole('button', { name: 'Share link', exact: true })).toHaveCount(0)
@@ -145,7 +145,7 @@ for (const engine of ['chromium', 'webkit'] as const) {
       await expect(trigger).toBeFocused()
       await page.keyboard.press('Enter')
       await expect(menu.getByRole('heading')).toBeFocused()
-      await menu.getByRole('button', { name: 'Gallery Settings', exact: true }).focus()
+      await menu.getByRole('button', { name: 'More settings…', exact: true }).focus()
       await page.keyboard.press('Enter')
       const settings = page.getByRole('dialog', { name: 'Gallery Settings', exact: true })
       await expect(settings).toBeVisible()
@@ -239,10 +239,15 @@ for (const engine of ['chromium', 'webkit'] as const) {
       await expect(trigger).toBeFocused()
       await page.keyboard.press('Enter')
       await expect(menu.getByRole('heading')).toBeFocused()
-      await menu.getByRole('button', { name: 'Gallery Settings', exact: true }).focus()
+      await menu.getByRole('button', { name: 'More settings…', exact: true }).focus()
       await page.keyboard.press('Enter')
       const settings = page.getByRole('dialog', { name: 'Gallery Settings', exact: true })
-      await expect(settings.locator('.m-actionrow-label')).toHaveText(['Open gallery', 'Name', 'Open folder', 'Remove from Library'])
+      await expect(settings.locator('.m-actionrow-label')).toHaveText([
+        'Open gallery', 'View source',
+        'Name', 'Caption', 'Address',
+        'Reorder photographs', 'Refresh gallery contents',
+        'Remove from Library',
+      ])
       await expect(settings.getByRole('heading', { name: 'Gallery Settings', exact: true })).toBeFocused()
       await expect(page.getByRole('dialog')).toHaveCount(1)
       await expect(settings).toHaveCSS('opacity', '1')

@@ -36,7 +36,9 @@ const FIELD_META: Record<GalleryEditField, {
 export function GalleryEditSheet({ open, field, value, busy, note, onValueChange, onSubmit, onClose }: Props) {
   if (!field) return null
   const meta = FIELD_META[field]
-  const submit = () => { if (!busy && value.trim()) onSubmit(value.trim()) }
+  // A caption is the one field where empty is a real answer — clearing
+  // submits '' so the container can drop the stored line.
+  const submit = () => { if (!busy && (field === 'caption' || value.trim())) onSubmit(value.trim()) }
   return (
     <Sheet
       open={open}
@@ -50,7 +52,7 @@ export function GalleryEditSheet({ open, field, value, busy, note, onValueChange
           block
           type="submit"
           form="m-edit-gallery-form"
-          disabled={busy || !value.trim()}
+          disabled={busy || (field !== 'caption' && !value.trim())}
         >
           {busy ? 'Saving…' : 'Save'}
         </Button>

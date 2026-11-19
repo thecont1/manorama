@@ -173,6 +173,11 @@ export type OnDeviceThumbnailCacheOptions = {
 
 export const thumbnailEntryId = (providerImageId: string): string => `thumb:${providerImageId}`
 
+/** The video file's own vault entry, sibling to its poster's thumb entry —
+ *  a kept gallery holds both so an offline open plays the MP4 without the
+ *  network the save was meant to remove. */
+export const videoEntryId = (providerImageId: string): string => `video:${providerImageId}`
+
 const validateDecodedSource = (source: DecodedThumbnailSource): void => {
   positiveInteger(source.width, 'decoded width')
   positiveInteger(source.height, 'decoded height')

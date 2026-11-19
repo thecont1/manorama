@@ -35,13 +35,16 @@ const settle = async () => {
 }
 
 beforeAll(() => {
-  prev = { window: globals.window, document: globals.document, raf: globals.requestAnimationFrame, caf: globals.cancelAnimationFrame, io: globals.IntersectionObserver, getPlatform: Capacitor.getPlatform }
+  prev = { window: globals.window, document: globals.document, svg: globals.SVGElement, raf: globals.requestAnimationFrame, caf: globals.cancelAnimationFrame, io: globals.IntersectionObserver, getPlatform: Capacitor.getPlatform }
   // Wording assertions run under happy-dom, where Capacitor reports 'web' —
   // pin 'ios' so device labels resolve to "this iPhone".
   ;(Capacitor as unknown as Record<string, unknown>).getPlatform = () => 'ios'
   dom = new Window({ width: 375, height: 812, url: 'http://localhost/' })
   globals.window = dom
   globals.document = dom.document
+  // hono's attribute layer checks `el instanceof SVGElement` once any file
+  // has drawn an icon — the class must exist on globalThis for our renders.
+  globals.SVGElement = dom.SVGElement
   globals.requestAnimationFrame = ((cb: FrameRequestCallback) => {
     nextFrameId += 1
     frames.push({ id: nextFrameId, callback: cb })
@@ -53,6 +56,10 @@ beforeAll(() => {
 afterAll(() => {
   globals.window = prev.window
   globals.document = prev.document
+  // Absent before means absent after — assigning undefined back leaves the
+  // key present and the next file's `instanceof SVGElement` dies on it.
+  if (prev.svg === undefined) delete globals.SVGElement
+  else globals.SVGElement = prev.svg
   globals.requestAnimationFrame = prev.raf
   globals.cancelAnimationFrame = prev.caf
   globals.IntersectionObserver = prev.io
@@ -105,6 +112,7 @@ const mount = async (options: {
   onOpen?: (index: number) => void
   loader?: RecordedLoader['loader']
   placeholder?: string
+  preview?: boolean
   viewport?: { width: number; height: number; scrollLeft?: number }
 } = {}) => {
   const recorded = recordedLoader()
@@ -120,6 +128,7 @@ const mount = async (options: {
       loader={(options.loader ?? recorded.loader) as never}
       title="Kashmir"
       onOpen={options.onOpen ?? ((index) => opened.push(index))}
+      preview={options.preview}
     />,
     container as unknown as HTMLElement,
   )
@@ -183,9 +192,10 @@ describe('LibraryRail', () => {
       Object.defineProperties(image, { naturalWidth: { value: 180 }, naturalHeight: { value: 120 } })
       image.dispatchEvent(new dom.Event('load') as unknown as Event)
       await settle()
-      expect(image.style.maxWidth).toBe('60px')
-      expect(image.style.maxHeight).toBe('40px')
-      expect(container.querySelector<HTMLElement>('.native-library-cover')!.style.aspectRatio).toBe('180 / 120')
+      const cover = container.querySelector<HTMLElement>('.native-library-cover')!
+      expect(cover.style.maxWidth).toBe('60px')
+      expect(cover.style.maxHeight).toBe('40px')
+      expect(cover.style.aspectRatio).toBe('180 / 120')
       container.querySelector<HTMLButtonElement>('.native-library-cover')!.click()
       await settle()
       expect(opened).toEqual([0])
@@ -215,11 +225,85 @@ describe('LibraryRail', () => {
     expect(container.querySelectorAll('.lib-th').length).toBeLessThan(30)
   })
 
+  test('the details preview mounts only the cells the frame can hold, and never pans', async () => {
+    const { container, recorded } = await mount({ count: 40, preview: true, viewport: { width: 300, height: 200 } })
+    const rail = container.querySelector('.lib-rail') as unknown as HTMLElement
+    expect(rail.classList.contains('lib-rail--preview')).toBe(true)
+    expect(rail.getAttribute('data-rail-preview')).not.toBeNull()
+    // Nothing decoded yet — the window starts at 0 and reaches only the
+    // lookahead the collapse-cap grants cells still waiting on bytes, not
+    // the viewport-plus-one the scrollable rail mounts.
+    expect(Number(rail.dataset.windowStart)).toBe(0)
+    expect(Number(rail.dataset.windowEnd)).toBeLessThan(12)
+    expect(container.querySelectorAll('.lib-th').length).toBeLessThan(12)
+    expect(recorded.cells.length).toBeLessThan(12)
+
+    // A mouse drag — the only gesture the pointer handlers serve — moves
+    // nothing on a rail that cannot scroll.
+    rail.dispatchEvent(withX(pointer('pointerdown'), 100))
+    rail.dispatchEvent(withX(pointer('pointermove'), 10))
+    rail.dispatchEvent(withX(pointer('pointerup'), 10))
+    await settle()
+    expect(rail.scrollLeft).toBe(0)
+    expect(rail.classList.contains('lib-rail--dragging')).toBe(false)
+  })
+
   test('a remote placeholder is never loaded as a CSS background', async () => {
     const placeholder = 'https://evil.test/tracker'
     const { container } = await mount({ count: 1, placeholder })
     const cell = container.querySelector<HTMLButtonElement>('.lib-th')!
     expect(cell.style.backgroundImage).toBe('')
+  })
+
+  test('a self-contained placeholder paints the cell until bytes land', async () => {
+    const placeholder = "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 1200 800'%3E%3Crect width='100%25' height='100%25' fill='%23111212'/%3E%3C/svg%3E"
+    const { container } = await mount({ count: 3, placeholder })
+    const cells = [...container.querySelectorAll<HTMLButtonElement>('.lib-th')]
+    // The stored placeholder belongs to photo-0 alone — the other cells keep
+    // their empty background.
+    expect(cells[0]!.style.getPropertyValue('--ph')).toContain('data:image/svg+xml')
+    expect(cells[1]!.style.getPropertyValue('--ph')).toBe('')
+    expect(cells[2]!.style.getPropertyValue('--ph')).toBe('')
+  })
+
+  test('unloaded cells collapse to the cluster edge; a decode expands and reflows', async () => {
+    const { container } = await mount({ count: 3, viewport: { width: 300, height: 200 } })
+    const cells = () => [...container.querySelectorAll<HTMLButtonElement>('.lib-th')]
+    // Nothing decoded: the strip is an empty cluster and every cell waits at
+    // its edge, like the desktop strip's zero-width unloaded items.
+    expect(cells().map((cell) => cell.style.width)).toEqual(['0px', '0px', '0px'])
+    expect(cells().map((cell) => cell.style.left)).toEqual(['0px', '0px', '0px'])
+    const first = cells()[0]!.querySelector('img')!
+    Object.defineProperties(first, { naturalWidth: { value: 1200 }, naturalHeight: { value: 800 } })
+    first.dispatchEvent(new dom.Event('load') as unknown as Event)
+    await settle()
+    // The decoded cell takes its aspect-true slot; the rest shift right by
+    // exactly its width — the contiguous cluster the desktop shows.
+    expect(cells()[0]!.style.width).toBe('300px')
+    expect(cells()[1]!.style.left).toBe('300px')
+    expect(cells()[2]!.style.left).toBe('300px')
+    expect(cells()[2]!.style.width).toBe('0px')
+  })
+
+  test('a failed first batch resolves at manifest size so a later image can decode', async () => {
+    const { container } = await mount({ count: 20, viewport: { width: 300, height: 200 } })
+    const rail = container.querySelector('.lib-rail') as unknown as HTMLElement
+    // Every mounted thumb fails — the cells resolve at manifest size, so the
+    // strip's width and the window can move past the dead cluster.
+    for (const img of container.querySelectorAll('img')) img.dispatchEvent(new dom.Event('error') as unknown as Event)
+    await settle()
+    rail.scrollLeft = 1400
+    rail.dispatchEvent(new dom.Event('scroll') as unknown as Event)
+    await settle()
+    const at = [...container.querySelectorAll<HTMLButtonElement>('.lib-th')].map((cell) => Number(cell.dataset.at))
+    expect(Math.max(...at)).toBeGreaterThan(7)
+    // A later cell's successful decode still owns its honest bitmap size.
+    const last = [...container.querySelectorAll<HTMLElement>('.lib-th img')].at(-1)!
+    Object.defineProperties(last, { naturalWidth: { value: 1600 }, naturalHeight: { value: 800 } })
+    last.dispatchEvent(new dom.Event('load') as unknown as Event)
+    await settle()
+    const decoded = last.closest('.lib-th') as HTMLElement
+    expect(decoded.style.width).toBe('400px')
   })
 
   test('a thumb click opens its own index; rail background opens the first', async () => {

@@ -3,6 +3,7 @@ import {
   AUTH_PROVIDERS,
   canRetainAnotherGallery,
   countRetainedGalleries,
+  retainedAllowanceCounts,
   FREE_PIPELINE_CAP_MESSAGE,
   FREE_PIPELINE_LIMIT,
   FREE_RETAINED_LIMIT,
@@ -165,6 +166,19 @@ describe('retained-gallery caps', () => {
     expect(countRetainedGalleries([])).toBe(0)
     expect(countRetainedGalleries([{}, { retention: 'retained' }, { retention: 'pipeline' }])).toBe(2)
     expect(countRetainedGalleries([{ retention: 'pipeline' }, { retention: 'pipeline' }])).toBe(0)
+  })
+
+  test('retainedAllowanceCounts clamps permanent to the cap and reads overflow as temporary', () => {
+    // The normal case: everything under the cap reads straight through.
+    expect(retainedAllowanceCounts('free', 2, 5)).toEqual({ permanent: 2, temporary: 5 })
+    expect(retainedAllowanceCounts('pro', 40, 0)).toEqual({ permanent: 40, temporary: 0 })
+    // A pro-to-free downgrade keeps every retained row (the transition is
+    // non-destructive), so the free account can hold more permanents than
+    // its cap — display clamps permanent to the cap and folds the overflow
+    // into temporary rather than printing "7 of 3".
+    expect(retainedAllowanceCounts('free', 7, 2)).toEqual({ permanent: 3, temporary: 6 })
+    expect(retainedAllowanceCounts('free', 3, 0)).toEqual({ permanent: 3, temporary: 0 })
+    expect(retainedAllowanceCounts('pro', 150, 4)).toEqual({ permanent: 99, temporary: 55 })
   })
 })
 

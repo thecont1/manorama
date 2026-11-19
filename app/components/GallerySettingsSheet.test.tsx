@@ -80,7 +80,13 @@ beforeAll(() => {
 })
 
 afterAll(() => {
-  for (const key of REPLACED_GLOBALS) globals[key] = prev[key]
+  // Keys absent before must leave again — assigning undefined back keeps the
+  // property present, and a later file's `x instanceof HTMLElement` dies on
+  // "right hand side of instanceof is not an object" instead of resolving.
+  for (const key of REPLACED_GLOBALS) {
+    if (prev[key] === undefined) delete globals[key]
+    else globals[key] = prev[key]
+  }
 })
 
 afterEach(() => {

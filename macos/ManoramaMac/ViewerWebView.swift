@@ -25,10 +25,8 @@ final class ViewerCoordinator: NSObject, WKScriptMessageHandler, WKNavigationDel
     /// for it even though the Library capsule rides the curtain's own
     /// chrome while the veil is down.
     var onEntered: ((Bool) -> Void)?
-    /// Called when a sheet mounts or its box settles — the native glass
-    /// that backs the sheet morphs into that rectangle, so the shell needs
-    /// it in the webview's own coordinate space (which fills the window).
-    var onSheet: ((Bool, CGRect?) -> Void)?
+    var onChromeLayout: ((CGRect?) -> Void)?
+    var onChromeFocus: ((ViewerChromeControl) -> Void)?
     /// The native shell's runtime API — the commands the app's own bundle
     /// asks of the machine.
     var bridge: NativeBridge?
@@ -122,16 +120,19 @@ final class ViewerCoordinator: NSObject, WKScriptMessageHandler, WKNavigationDel
             // The curtain lifted — the cluster may show now (the capsule
             // rode the curtain's own chrome the whole time).
             onEntered?(body["raised"] as? Bool ?? false)
-        case "sheet":
-            // A `.m-sheet` appeared, moved, or left. The shell draws the
-            // sheet's own glass underneath it, so it needs the live box.
+        case "chrome-layout":
             var rect: CGRect?
             if let r = body["rect"] as? [String: Any],
                let x = r["x"] as? CGFloat, let y = r["y"] as? CGFloat,
-               let w = r["w"] as? CGFloat, let h = r["h"] as? CGFloat {
+               let w = r["w"] as? CGFloat, let h = r["h"] as? CGFloat,
+               x.isFinite, y.isFinite, w.isFinite, h.isFinite, w > 0, h > 0 {
                 rect = CGRect(x: x, y: y, width: w, height: h)
             }
-            onSheet?(body["open"] as? Bool ?? false, rect)
+            onChromeLayout?(rect)
+        case "focus":
+            if let value = body["control"] as? String, let control = ViewerChromeControl(rawValue: value) {
+                onChromeFocus?(control)
+            }
         default:
             break
         }
@@ -211,11 +212,12 @@ final class ViewerCoordinator: NSObject, WKScriptMessageHandler, WKNavigationDel
         openExternal(url)
     }
 
-    /// A committed navigation is what flips the message gate: the document
-    /// that just arrived decides whether the bridge may answer. This runs
-    /// at both didCommit and didFinish because either edge is a fine time to
-    /// notice the document changed — and a cancelled navigation flips nothing.
+    // A failed provisional navigation leaves the previous document and its listeners alive.
     func webView(_ webView: WKWebView, didCommit navigation: WKNavigation!) {
+        pageReady = false
+        bridge?.resetDeepLinkReadiness()
+        onChrome?(false)
+        onChromeLayout?(nil)
         trustedDocument = Self.isViewerURL(webView.url)
     }
 
@@ -278,63 +280,58 @@ struct ViewerWebView: NSViewRepresentable {
                     (function () {
                       var lastVisible = null;
                       var lastRaised = null;
-                      var lastSheetKey = null;
+                      var lastLayout = null;
+                      var observedBar = null;
+                      var pendingFrame = false;
+                      function scheduleReport() {
+                        if (pendingFrame) return;
+                        pendingFrame = true;
+                        requestAnimationFrame(function () { pendingFrame = false; report(); });
+                      }
+                      var resizeObserver = new ResizeObserver(scheduleReport);
                       function post(message) {
                         try { window.webkit.messageHandlers.manorama.postMessage(message); } catch (e) {}
                       }
                       function report() {
-                        // The photo picker's modal covers the stage — the
-                        // shell's chrome has nothing to drive there, so it
-                        // counts as chrome-hidden until the picker closes.
-                        var on = document.querySelector('.m-chrome.is-visible [data-chrome-library]') !== null
+                        var library = document.querySelector('.m-chrome.is-visible [data-chrome-library]');
+                        var on = library !== null && !library.closest('[inert]')
                           && document.querySelector('.viewer-filmstrip') === null;
                         if (on !== lastVisible) {
                           lastVisible = on;
                           post({ type: 'chrome', visible: on });
                         }
-                        // The opening curtain veils a fresh gallery: until
-                        // it lifts the stage wants only the way back to
-                        // the Library — the position, settings and info
-                        // cluster has nothing on screen to drive yet. The
-                        // veil dissolves on a class change, so the hidden
-                        // attribute itself needs no observer entry.
+                        // The Library exit remains available before the curtain lifts.
                         var curtain = document.querySelector('[data-curtain]');
                         var raised = !curtain || curtain.hidden === true;
                         if (raised !== lastRaised) {
                           lastRaised = raised;
                           post({ type: 'entered', raised: raised });
                         }
-                        // A mounted sheet's box is the shell's morph
-                        // target. The key carries the rect so the settle
-                        // after the sheet's enter animation is posted too.
-                        var sheet = document.querySelector('.m-sheet');
-                        var key = 'closed', rect = null;
-                        if (sheet) {
-                          var r = sheet.getBoundingClientRect();
-                          rect = { x: r.left, y: r.top, w: r.width, h: r.height };
-                          key = 'open:' + r.left + ',' + r.top + ',' + r.width + ',' + r.height;
+                        var bar = document.querySelector('[data-chrome-bottom]');
+                        if (bar !== observedBar) {
+                          resizeObserver.disconnect();
+                          observedBar = bar;
+                          if (bar) resizeObserver.observe(bar);
                         }
-                        if (key !== lastSheetKey) {
-                          lastSheetKey = key;
-                          document.documentElement.dataset.macosGlassSheet = sheet ? '1' : '';
-                          post({ type: 'sheet', open: sheet !== null, rect: rect });
+                        var rect = null;
+                        if (on && raised && bar && !bar.closest('[inert]')) {
+                          var r = bar.getBoundingClientRect();
+                          rect = { x: r.left, y: r.top, w: r.width, h: r.height };
+                        }
+                        var key = JSON.stringify(rect);
+                        if (key !== lastLayout) {
+                          lastLayout = key;
+                          post({ type: 'chrome-layout', rect: rect });
                         }
                       }
                       // Kept on window: an unretained observer can be
                       // collected mid-session and the hide half of the
                       // signal never reaches the shell.
-                      window.__manoramaChromeObserver = new MutationObserver(report);
-                      window.__manoramaChromeObserver.observe(document.documentElement, { subtree: true, childList: true, attributes: true, attributeFilter: ['class'] });
-                      // The sheet enters on a transform transition — the
-                      // mutations only see mid-flight boxes, and nothing
-                      // mutates when the animation settles. Re-report on
-                      // the sheet's own transitionend so the shell's morph
-                      // target is the box the panel actually lands on.
-                      // Document-level because the sheet is recreated per
-                      // open; report() dedupes, so per-property ends are free.
-                      document.addEventListener('transitionend', function (e) {
-                        if (e.target && e.target.classList && e.target.classList.contains('m-sheet')) report();
-                      });
+                      window.__manoramaChromeObserver = new MutationObserver(scheduleReport);
+                      window.__manoramaChromeObserver.observe(document.documentElement, { subtree: true, childList: true, attributes: true, attributeFilter: ['class', 'style', 'inert', 'hidden'] });
+                      window.addEventListener('resize', scheduleReport);
+                      window.visualViewport?.addEventListener('resize', scheduleReport);
+                      document.addEventListener('transitionend', scheduleReport);
                       document.addEventListener('DOMContentLoaded', report);
                       report();
                     })();

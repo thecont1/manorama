@@ -19,6 +19,8 @@
  * pretending to have worked.
  */
 
+import type { ViewerChromeControl, ViewerChromeHandle } from '../app/islands/Viewer'
+
 export type InvokeReply = {
   id: number
   ok: boolean
@@ -31,6 +33,7 @@ type ShellMessage =
   | { type: 'position'; index: number; total: number }
   | { type: 'gallery'; open: boolean; title?: string }
   | { type: 'escape' }
+  | { type: 'focus'; control: ViewerChromeControl }
 
 declare global {
   interface Window {
@@ -48,7 +51,11 @@ declare global {
     __manoramaShell?: {
       invoke: (cmd: string, args?: unknown, options?: { headers?: Record<string, string> }) => Promise<unknown>
       goTo: (index: number) => void
+      activateControl: (control: ViewerChromeControl) => void
+      setChromeActive: (active: boolean) => void
+      focusStage: () => void
     }
+    __manoramaChrome?: ViewerChromeHandle
     /** Settles an in-flight `invoke` promise from the native side. */
     __manoramaShellSettle?: (reply: InvokeReply) => void
     /** Delivers a backend event (`manorama://deep-link`, `deep-link://new-url`) to registered Tauri listeners. */
@@ -304,6 +311,9 @@ export const installShellBridge = (win: Window = window): void => {
       }).__manoramaGoTo
       handle?.(index)
     },
+    activateControl: (control) => win.__manoramaChrome?.activate(control),
+    setChromeActive: (active) => win.__manoramaChrome?.setActive(active),
+    focusStage: () => win.__manoramaChrome?.focusStage(),
   }
   win.__manoramaShellSettle = settle
   win.__manoramaShellEmit = emitEvent

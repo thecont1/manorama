@@ -263,7 +263,7 @@ const openCardMenuAction = async (container: HTMLElement, label: string) => {
 }
 
 /** Gallery Settings is the final panel, one step from the card menu. */
-const openCardDetails = (container: HTMLElement) => openCardMenuAction(container, 'Gallery Settings')
+const openCardDetails = (container: HTMLElement) => openCardMenuAction(container, 'More settings…')
 
 beforeAll(() => {
   dom = new Window({ width: 1280, height: 840, url: 'http://localhost/' })
@@ -527,7 +527,7 @@ describe('desktop catalogue workbench', () => {
         'Reorder photos',
         'Refresh gallery',
         'Post to X',
-        'Gallery Settings',
+        'More settings…',
       ])
       for (const item of ['Reorder photographs', 'View source', 'Refresh gallery contents', 'Remove gallery', 'Open']) {
         expect(menuItem(container, item)).toBeUndefined()
@@ -737,7 +737,7 @@ describe('desktop catalogue workbench', () => {
     }
   })
 
-  test('details mounts from a card with exactly the local actions and no banned surfaces', async () => {
+  test('details mounts from a card with the cloud sheet’s full row set and no banned surfaces', async () => {
     const container = await mount(true)
     await openCardDetails(container)
     await settle()
@@ -747,9 +747,12 @@ describe('desktop catalogue workbench', () => {
     expect(details?.querySelector('.m-owner-panel-title')?.textContent).toBe(TITLE)
     expect(details?.querySelector('.m-owner-panel-head')?.textContent).toContain('2 photographs · Folder on this Mac')
     expect([...details!.querySelectorAll('.m-actionrow-label')].map((el) => el.textContent)).toEqual([
-      'Open gallery', 'Name', 'Open folder', 'Remove from Library',
+      'Open gallery', 'View source',
+      'Name', 'Caption', 'Address',
+      'Reorder photographs', 'Refresh gallery contents',
+      'Remove from Library',
     ])
-    for (const label of ['Publish', 'Publish this gallery', 'Copy link', 'Reorder photos', 'Reorder photographs', 'Refresh gallery', 'Refresh gallery contents', 'Post to X', 'More Settings']) {
+    for (const label of ['Publish', 'Publish this gallery', 'Copy link', 'Reorder photos', 'Refresh gallery', 'Post to X', 'More Settings']) {
       expect(row(container, label)).toBeUndefined()
     }
 
@@ -765,6 +768,49 @@ describe('desktop catalogue workbench', () => {
     expect(html).not.toContain('Google Drive')
     expect(html).not.toContain('Vault')
     expect(html).not.toContain('Offline')
+  })
+
+  test('the details sheet carries the thumbnail rail like the cloud sheet, and a cell opens the viewer', async () => {
+    const container = await mount(true)
+    await openCardDetails(container)
+    await settle()
+
+    const rail = container.querySelector<HTMLElement>('.m-sheet .d-rail')
+    expect(rail).not.toBeNull()
+    const items = [...rail!.querySelectorAll<HTMLElement>('.admin-gallery-strip-item')]
+    expect(items).toHaveLength(2)
+    // The preview renders the originals over the asset scheme — the same
+    // srcs the viewer will use — and no hidden badges, since hidden items
+    // are not in the viewer's manifest.
+    for (const img of rail!.querySelectorAll<HTMLImageElement>('img')) {
+      expect(img.src).toMatch(/^asset:\/\//)
+    }
+    expect(rail!.querySelector('.admin-strip-badge')).toBeNull()
+    expect(items[0]!.querySelector('a')?.getAttribute('aria-label')).toBe('italy, amore mio, image 1 of 2')
+
+    items[1]!.querySelector('a')!.click()
+    await settle()
+    expect(container.querySelector('[data-screen="local-details"]')).toBeNull()
+    expect(container.querySelector('.viewer-stage')).not.toBeNull()
+  })
+
+  test('the details sheet’s management rows reorder and rescan like the cloud sheet’s', async () => {
+    const container = await mount(true)
+    await openCardDetails(container)
+    await settle()
+
+    // Refresh first — it works in place, so the sheet is still open to
+    // carry Reorder after it.
+    ;(row(container, 'Refresh gallery contents') as HTMLButtonElement).click()
+    await settle()
+    const rescan = invokeCalls.find((call) => call.command === 'plugin:fs|read_dir' && call.args?.path === ROOT_PATH)
+    expect(rescan).not.toBeUndefined()
+    expect(container.querySelector('[data-screen="local-details"]')).not.toBeNull()
+
+    ;(row(container, 'Reorder photographs') as HTMLButtonElement).click()
+    await settle()
+    expect(container.querySelector('[data-screen="local-details"]')).toBeNull()
+    expect(container.querySelector('.viewer-picker-mode')?.textContent).toBe('Reorder Photos')
   })
 
   test('a deep-linked details id opens details at launch and Back clears the URL', async () => {
@@ -1594,12 +1640,12 @@ describe('desktop catalogue workbench', () => {
     pinnedAt: null,
     id: 'gallery-0000-0000-0000-000000000009',
   }
-  const withGallery = (calls: { url: string; method?: string; body?: string }[]) => {
+  const withGallery = (calls: { url: string; method?: string; body?: string }[], gallery: unknown = accountGallery) => {
     const defaultFetch = globals.fetch
     globals.fetch = (async (url: string, init?: { method?: string; body?: string }) => {
       const path = String(url)
       calls.push({ url: path, method: init?.method, body: init?.body })
-      if (path.endsWith('/api/galleries')) return new Response(JSON.stringify({ galleries: [accountGallery] }), { status: 200 })
+      if (path.endsWith('/api/galleries')) return new Response(JSON.stringify({ galleries: [gallery] }), { status: 200 })
       if (path.endsWith('/api/device-galleries')) return new Response(JSON.stringify({ galleries: [] }), { status: 200 })
       if (path.endsWith('/api/account')) return new Response(JSON.stringify({ ownerSlug: 'thecontrarian' }), { status: 200 })
       if (path.endsWith('/pin') || path.endsWith('/refresh')) return new Response(JSON.stringify({}), { status: 200 })
@@ -1626,11 +1672,12 @@ describe('desktop catalogue workbench', () => {
       // Settings panel's last row, behind its own inline confirm.
       container.querySelector<HTMLButtonElement>('[aria-label="kashmir, in winter actions"]')!.click()
       await settle()
-      menuItem(container, 'Gallery Settings')!.click()
+      menuItem(container, 'More settings…')!.click()
       await settle()
-      // Gallery Settings is final: the rest layer is mounted immediately,
-      // without repeating the actions already offered by the card menu.
-      for (const label of ['More Settings', 'Copy link', 'Reorder photos', 'Reorder photographs', 'Refresh gallery', 'Refresh gallery contents', 'Post to X']) {
+      // Gallery Settings is final: the rest layer is mounted immediately.
+      // It carries Reorder and Refresh in the shared row vocabulary; what it
+      // never repeats are the card menu's own quick labels.
+      for (const label of ['More Settings', 'Copy link', 'Reorder photos', 'Refresh gallery', 'Post to X']) {
         expect(row(container, label)).toBeUndefined()
       }
       const removeRow = [...container.querySelectorAll<HTMLElement>('.m-actionrow')]
@@ -1676,21 +1723,82 @@ describe('desktop catalogue workbench', () => {
 
       container.querySelector<HTMLButtonElement>('[aria-label="kashmir, in winter actions"]')!.click()
       await settle()
-      menuItem(container, 'Gallery Settings')!.click()
+      menuItem(container, 'More settings…')!.click()
       await settle()
       // The final rest layer mounts directly, not a second quick-action menu.
       const panel = container.querySelector('.m-owner-panel')
       expect(panel).not.toBeNull()
       expect([...panel!.querySelectorAll('.m-actionrow-label')].map((el) => el.textContent)).toEqual([
-        'Open gallery', 'View source', 'Name', 'Caption', 'Address',
-        'Keep a copy', 'Save to this Mac', 'Remove from Library',
+        'Open gallery', 'View source', 'Name', 'Caption', 'Address', 'Reorder photographs',
+        'Refresh gallery contents', 'Keep a copy on this Mac', 'Remove from Library',
       ])
-      for (const label of ['More Settings', 'Copy link', 'Reorder photos', 'Reorder photographs', 'Refresh gallery', 'Refresh gallery contents', 'Post to X']) {
+      for (const label of ['More Settings', 'Copy link', 'Reorder photos', 'Refresh gallery', 'Post to X']) {
         expect(row(container, label)).toBeUndefined()
       }
     } finally {
       restore()
       Object.defineProperty(globals, 'navigator', { configurable: true, writable: true, value: previousNavigator })
+    }
+  })
+
+  test('turning Keep a copy on starts the vault fill immediately', async () => {
+    const calls: { url: string; method?: string; body?: string }[] = []
+    const restore = withGallery(calls)
+    try {
+      const container = await mount(true)
+      container.querySelector<HTMLButtonElement>('[aria-label="kashmir, in winter actions"]')!.click()
+      await settle()
+      menuItem(container, 'More settings…')!.click()
+      await settle()
+      const keep = container.querySelector<HTMLButtonElement>('.m-owner-panel [role="switch"]')!
+      expect(keep.getAttribute('aria-checked')).toBe('false')
+      keep.click()
+      await settle()
+      expect(keep.getAttribute('aria-checked')).toBe('true')
+      // Keep is a save choice on the Mac too — the fill's manifest fetch
+      // leaves the moment the switch lands, not the next time it opens.
+      expect(calls.some((call) => call.url.endsWith('/api/gallery/thecontrarian/kashmir'))).toBe(true)
+    } finally {
+      restore()
+    }
+  })
+
+  test('Gallery Settings shows a fill-only preview strip, never a scroller', async () => {
+    const calls: { url: string; method?: string; body?: string }[] = []
+    const gallery = {
+      ...accountGallery,
+      imageCount: 12,
+      images: Array.from({ length: 12 }, (_, index) => ({
+        id: `img-${index}`,
+        filename: `photo-${index}.jpg`,
+        src: `https://media.example/photo-${index}.jpg`,
+        width: index % 3 === 0 ? 3000 : 4000,
+        height: 3000,
+        alt: '',
+        hidden: false,
+      })),
+    }
+    const restore = withGallery(calls, gallery)
+    try {
+      const container = await mount(true)
+      container.querySelector<HTMLButtonElement>('[aria-label="kashmir, in winter actions"]')!.click()
+      await settle()
+      menuItem(container, 'More settings…')!.click()
+      await settle()
+      const rail = container.querySelector('.m-sheet .d-rail')!
+      expect(rail).not.toBeNull()
+      const frame = rail.querySelector<HTMLElement>('.admin-gallery-strip-frame')!
+      expect(frame).not.toBeNull()
+      const items = [...rail.querySelectorAll('.admin-gallery-strip-item')]
+      // The frame cannot be measured under happy-dom, so the fallback mounts
+      // its bounded window — the point is that it is never the whole gallery.
+      expect(items.length).toBe(8)
+      expect(items.length).toBeLessThan(gallery.images.length)
+      // Each thumbnail still opens the gallery at its own index.
+      expect(items[3]!.querySelector('a')!.getAttribute('aria-label')).toBe('kashmir, in winter, image 4 of 12')
+      expect(items[3]!.querySelector('a')!.getAttribute('href')).toBe('https://manorama.xyz/thecontrarian/kashmir')
+    } finally {
+      restore()
     }
   })
 
@@ -1750,7 +1858,7 @@ describe('desktop catalogue workbench', () => {
         'Reorder photos',
         'Refresh gallery',
         'Post to X',
-        'Gallery Settings',
+        'More settings…',
       ])
     } finally {
       globals.fetch = defaultFetch
@@ -1770,11 +1878,11 @@ describe('desktop catalogue workbench', () => {
     expect(container.querySelector(`[data-gallery-card="${GALLERY_ID}"]`)).not.toBeNull()
   })
 
-  test('Open folder inside local settings asks the bridge to reveal the granted root', async () => {
+  test('View source inside local settings asks the bridge to reveal the granted root', async () => {
     const container = await mount(true)
     await openCardDetails(container)
     const folderRow = [...container.querySelectorAll<HTMLElement>('.m-actionrow')]
-      .find((el) => el.textContent?.includes('Open folder')) as HTMLElement
+      .find((el) => el.textContent?.includes('View source')) as HTMLElement
     expect(folderRow).toBeTruthy()
     folderRow.click()
     await settle()

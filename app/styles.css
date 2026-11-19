@@ -433,6 +433,20 @@ a.m-actionrow, button.m-actionrow { cursor: pointer; }
 }
 .m-sheet.m-sheet--popover.m-sheet--entering { transform: translateY(10px); opacity: 0; }
 .m-scrim--ghost, .m-scrim--ghost.m-scrim--open { opacity: 0; background: transparent; backdrop-filter: none; -webkit-backdrop-filter: none; }
+/* A settings sheet is a focus surface — like the iOS presentation it
+   mirrors, the Library behind it defocuses as well as dims. Scoped to
+   hosts carrying an owner panel so menus, confirms and popovers keep the
+   plain dim veil; reduced transparency drops the frost like every other. */
+.m-sheet-host:has(.m-owner-panel) .m-scrim:not(.m-scrim--ghost) {
+  backdrop-filter: blur(16px) saturate(1.15);
+  -webkit-backdrop-filter: blur(16px) saturate(1.15);
+}
+@media (prefers-reduced-transparency: reduce), (prefers-contrast: more) {
+  .m-sheet-host:has(.m-owner-panel) .m-scrim:not(.m-scrim--ghost) {
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
+  }
+}
 /* Action groups inside a sheet read as raised cards on the sheet surface. */
 .m-sheet .m-actiongroup { background: var(--m-raised); }
 .m-sheet-actions { padding-top: 14px; }
@@ -2182,6 +2196,11 @@ body:has(.viewer-stage.has-arrow-bar) .m-chrome--bottom { bottom: calc(env(safe-
 .d-head > * { min-width: 0; }
 .d-rail { margin: 0 calc(var(--m-pad) * -1); }
 .d-rail .lib-rail { margin-inline: 0; }
+/* The details rail's strip is a preview, not a scroller — it keeps the
+   sheet's own width, clips the cells it cannot show, and hands vertical
+   travel back to the sheet beneath it. */
+.d-rail .admin-gallery-strip-frame { width: 100%; margin-left: 0; overflow: hidden; cursor: default; touch-action: pan-y; overscroll-behavior-x: auto; }
+.d-rail .admin-gallery-strip-item { cursor: pointer; }
 .d-name { margin-top: 12px; font-size: 19px; font-weight: 650; letter-spacing: -.01em; overflow-wrap: anywhere; }
 .d-sub { margin-top: 2px; font-size: var(--m-fs-small); color: var(--m-secondary); }
 .d-cap { margin-top: 6px; font-size: 15px; color: var(--m-secondary); }

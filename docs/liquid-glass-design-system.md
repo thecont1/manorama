@@ -13,7 +13,7 @@ of an `<img>`.
 
 | Tier | Where | What |
 | --- | --- | --- |
-| **N — native glass** | macOS 26+ (shipped); iOS/iPadOS 26+ overlay | `.glassEffect(.regular.interactive())` sibling capsules, `SheetGlassSurface` morph, Reduce-Transparency solid sibling, `minHeight: 44` (Dynamic Type) |
+| **N — native glass** | macOS 26+ (shipped); iOS/iPadOS 26+ overlay | `.buttonStyle(.glass)` capsules inside `GlassEffectContainer` with `.glassEffectID` identities — one merged silhouette at rest, native press deformation on touch. macOS expands under pointer proximity, keyboard and VoiceOver focus; iOS reports held-finger/focus explicitly (no hover separation on touch). Reduce-Transparency solid sibling at identical geometry; 44×44 minimum targets |
 | **A — web bend** *(pending — no producer sets `data-android-glass` yet)* | Android Chromium WebView only | SVG `feDisplacementMap` through `backdrop-filter`, refracting the backdrop under chrome pills and stage arrows; the displacement never touches foreground paint, so glyphs stay crisp. Activation requires feature detection, a single-segment check and a same-session no-bend baseline |
 | **B — web frost** | in-document surfaces, all shells, all OS versions | backdrop-filter blur+saturate, specular rim, edge line, `--glass-*` fills |
 | **0 — solid** | reduced transparency / increased contrast / no backdrop-filter | CSS fallback for web; a Swift branch for native — RT is not a media query there |
@@ -55,6 +55,52 @@ are frozen.
 What runs where: web chrome elements mount on every OS; on <26 they are
 repainted Tier B under the frost gate; on 26+ they stay mounted (they own the
 handlers the shell fires) but are hidden while native capsules render.
+
+## The native/web chrome contract (macOS and iOS)
+
+Every transition has exactly one owner. Sheets are entirely web-owned: no
+native material ever sits on top of the web panel during the handoff — the
+earlier travelling `SheetGlassSurface` is retired on both platforms.
+
+The contract is small and bounded:
+
+- **`__manoramaShell.activateControl(id)`** — the shell names a control
+  (`library | position | settings | info`); the page fires its own mounted
+  pill. No selector string crosses the bridge. On iOS the surface is
+  installed by `native/lib/ios-shell.ts` when the `data-ios-glass` stamp is
+  present; on macOS by `desktop-shell/bridge.ts`.
+- **`__manoramaShell.setChromeActive(bool)`** — native interaction (pointer
+  proximity and focus on macOS; held finger, keyboard and VoiceOver focus on
+  iOS) is reported as explicit activity state, so the page's idle clock
+  keeps the hidden pills mounted. Replaces the synthetic-pointermove
+  keep-alive.
+- **`__manoramaShell.focusStage()` / `{type:'focus'}`** — focus ownership
+  handed off in both directions: Escape on a native control returns the
+  stage; the page reports which control was focused so VoiceOver and the
+  key loop land on the same capsule.
+- **`{type:'chrome-layout'}`** — **macOS only.** The web bar's rect
+  (finite-validated) seats the native cluster over the chrome's real box,
+  and `inert` state closes it while a sheet owns the stage. iOS never uses
+  it: the overlay seats from safe-area insets and `reservedRegions` fed by
+  `SceneDelegate`, and each capsule publishes its own hit rect.
+- **Picker state** — the injected observer suppresses native capsules while
+  a picker surface is mounted (`.viewer-filmstrip` in the Viewer, or
+  `.native-global-view` — the host-mounted Global View). On iOS the host
+  passes `nativePickerOpen` to the mounted Viewer, which treats the external
+  picker as its own modal: dismissal runs the same native focus-restore
+  path (`{type:'focus'}`) as the in-tree filmstrip.
+- **Validation** — macOS: main-frame + trusted-document +
+  `manorama://localhost` origin before any body is parsed; `didCommit`
+  resets ready/chrome state so a new document generation never inherits the
+  last one's listeners. iOS: posts are main-frame only and their origin must
+  match the committed document's own. Every observer post carries the
+  document generation minted at injection — the first post of a new
+  generation is the document boundary (state is reset, then the generation
+  is adopted); a generation retired when a navigation starts is dropped.
+  When loading ends without a new generation reporting, the surviving
+  document is asked to replay: `__manoramaChromeReplay` mints a fresh
+  generation and reposts, so a cancelled navigation cannot strand the chrome
+  state. The position label is bounded before it reaches the model.
 
 ## Tokens
 
@@ -125,9 +171,12 @@ floating single controls), `.glass-regular` (pills, toolbars, popovers),
 
 Two details the phases added that the tier table above does not show:
 - **Duo seating is native-side too.** `SceneDelegate` publishes the active
-  `reservedRegions` to the overlay model on the same pass that posts
-  `__MANORAMA_IOS_LAYOUT__`; capsules clear a leading system bar and the
-  bottom cluster centres in the widest unreserved run of screen.
+  `reservedRegions` and `verticalBarEdge` to the overlay model on the same
+  pass that posts `__MANORAMA_IOS_LAYOUT__`; capsules clear a leading system
+  bar and the bottom cluster centres in the widest unreserved run that fits
+  its padded bounds. When `verticalBarEdge` names an edge, the controls
+  become a vertical column docked to it — the same adaptation the web
+  chrome makes as `.m-chrome--side`.
 - **Vertical-bar pills keep `.92`.** Under the frost gate
   `.m-chrome--side .m-chrome-pill` retains its near-opaque fill — a Tier-B
   blur inside the system bar's thin strip is invisible, and the arm outlives

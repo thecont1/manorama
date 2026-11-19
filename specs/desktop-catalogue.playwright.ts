@@ -76,11 +76,11 @@ const openCatalogue = async (page: Page) => {
   // app's own CSS.
   await expect
     .poll(() => page.evaluate(() => {
-      const bar = document.querySelector('.m-topbar')
+      const bar = document.querySelector('.desktop-titlebar')
       const rail = document.querySelector('.admin-gallery-strip-frame')
       return `${bar ? getComputedStyle(bar).height : 'none'}/${rail ? getComputedStyle(rail).overflowX : 'none'}`
     }), { timeout: 15_000 })
-    .toBe('52px/auto')
+    .toBe('28px/auto')
   // The rail's geometry is only meaningful once the originals have decoded.
   await expect
     .poll(async () => page.locator('.desktop-catalogue img.is-loaded').count(), { timeout: 30_000, intervals: [250, 500] })
@@ -119,7 +119,7 @@ const measureRail = (page: Page) =>
 
 const paneContrast = (page: Page) =>
   page.evaluate(() => {
-    const panel = document.querySelector('.admin-drawer-panel') as HTMLElement
+    const panel = document.querySelector('[data-screen="settings"]') as HTMLElement
     const rgb = (value: string) => value.match(/[\d.]+/g)!.map(Number)
     const luminance = (channels: number[]) =>
       channels.slice(0, 3)
@@ -130,7 +130,7 @@ const paneContrast = (page: Page) =>
         .reduce((total, channel, index) => total + channel * [0.2126, 0.7152, 0.0722][index], 0)
     const background = rgb(getComputedStyle(panel).backgroundColor)
     const bg = luminance(background)
-    return [...panel.querySelectorAll<HTMLElement>('.admin-greeting-url, .admin-drawer-action, .site-footer-link, .site-footer-copy, .desktop-device-line')].map((node) => {
+    return [...panel.querySelectorAll<HTMLElement>('.m-actionrow-label, .m-actionrow-value, label, .m-note, .m-error, .m-settings-address')].map((node) => {
       const color = rgb(getComputedStyle(node).color)
       const alpha = color[3] ?? 1
       const fg = luminance(color.slice(0, 3).map((channel, index) => channel * alpha + background[index] * (1 - alpha)))
@@ -158,51 +158,52 @@ for (const size of sizes) {
     // Scope and sync ride the quiet status line; the plan and the Mac's own
     // facts live in the account pane, not a persistent introduction.
     const sub = page.locator('.admin-library-sub')
-    await expect(sub).toContainText(`${built.galleries.length} galleries`)
-    await expect(sub).toContainText('photographs')
-    await expect(sub).toContainText('Catalogue synced.')
+    await expect(sub).toContainText('Visionary')
+    await expect(sub).toContainText('Cloud galleries')
+    await expect(sub).toContainText(`${built.galleries.length} Local galleries on this device`)
     // The launch really did call the account's seam, and the fixture answered.
     expect(api.calls()).toBeGreaterThan(0)
-    // Both sources are on the page: the folder of originals and the card.
-    await expect(page.locator('.lib-card')).toHaveCount(built.galleries.length)
+    // Both sources are on the page: the pinned folder rides the "Pinned
+    // galleries" strip; the card sits compact under "Local galleries".
+    await expect(page.locator('.lib-card')).toHaveCount(1)
+    await expect(page.locator('.lib-compact-card')).toHaveCount(1)
     // Sources are named by kind, never by path — the roots are local-only by
     // contract and stay off the surface.
-    await expect(page.locator('.lib-card').nth(0).locator('.lib-card-sub')).toContainText('Folder on this Mac')
-    await expect(page.locator('.lib-card').nth(1).locator('.lib-card-sub')).toContainText('Memory card')
+    await expect(page.locator('.lib-card').nth(0).locator('.lib-card-sub')).toContainText('This Mac')
+    await expect(page.locator('.lib-compact-card').nth(0).locator('.lib-card-sub')).toContainText('Memory card')
     await expect(page.locator('body')).not.toContainText('/Volumes/NO NAME/DCIM')
     await expect(page.locator('body')).not.toContainText(SOURCE)
     // Each card carries exactly one ··· menu — the old workbench card actions
     // (View/Rescan/Share/Remove) stay off it.
     for (let index = 0; index < built.galleries.length; index++) {
-      const card = page.locator('.lib-card').nth(index)
+      const card = page.locator('.lib-card, .lib-compact-card').nth(index)
       await expect(card.locator('.lib-card-menu')).toHaveCount(1)
     }
     for (const old of ['View', 'Rescan', 'Share', 'Remove']) {
-      await expect(page.locator('.lib-card button', { hasText: old })).toHaveCount(0)
+      await expect(page.locator('.lib-card button, .lib-compact-card button', { hasText: old })).toHaveCount(0)
     }
 
-    // ── The compact owner shell, like the web Library ─────────────────────
-    // Shared mark in the bar, Library and Add on one row, cards directly
-    // under the quiet status line.
-    const bar = page.locator('.m-topbar')
+    // ── The rail-led owner shell, like the web Library ────────────────────
+    // Drag titlebar on top, shared mark and Library heading in the rail,
+    // Add on the same action row, cards under the quiet status line.
+    const bar = page.locator('.desktop-titlebar')
     const heading = page.getByRole('heading', { name: 'Library', exact: true })
     await expect(bar).toBeVisible()
-    await expect(bar.locator('img.m-topbar-logo')).toBeVisible()
+    await expect(page.locator('.admin-brand-mark')).toBeVisible()
     await expect(heading).toBeVisible()
     await expect(page.getByRole('button', { name: 'Add Gallery', exact: true })).toBeVisible()
     const barBox = (await bar.boundingBox())!
     const headingBox = (await heading.boundingBox())!
     expect(headingBox.y).toBeGreaterThanOrEqual(barBox.y + barBox.height - 1)
 
-    // One labelled control opens the account pane — the gear in the top bar's
-    // end slot — and the pane is shut until it is asked for.
-    const tab = page.getByRole('button', { name: 'Settings', exact: true })
-    const pane = page.getByRole('dialog', { name: 'Account', exact: true })
-    await expect(pane).toBeHidden()
+    // One labelled control opens the settings screen — the gear in the
+    // heading's action row — and the screen is shut until it is asked for.
+    const tab = page.locator('.admin-heading-actions').getByRole('button', { name: 'Settings', exact: true })
+    const pane = page.locator('[data-screen="settings"]')
+    const galleryList = page.locator('.gallery-list')
+    await expect(pane).toHaveCount(0)
     await expect(tab).toHaveAttribute('aria-expanded', 'false')
     const tabBox = (await tab.boundingBox())!
-    expect(tabBox.x).toBeGreaterThan(size.width / 2)
-    expect(tabBox.y).toBeLessThan(52)
     expect(tabBox.width).toBeGreaterThanOrEqual(44)
 
     // ── One gapless, aspect-true rail of clickable originals ───────────────
@@ -233,29 +234,23 @@ for (const size of sizes) {
     for (const theme of ['dark', 'light'] as const) {
       await tab.click()
       await expect(pane).toBeVisible()
+      await expect(galleryList).toBeHidden()
       await expect(tab).toHaveAttribute('aria-expanded', 'true')
-      await expect(page.getByRole('button', { name: 'Close account menu' })).toBeFocused()
-      if (theme === 'light') await pane.getByRole('button', { name: 'Switch to light mode', exact: true }).click()
+      if (theme === 'light') await pane.getByRole('radio', { name: 'Light', exact: true }).click()
       await expect(page.locator('html')).toHaveClass(theme === 'light' ? /light/ : /^(?!.*light)/)
-      // The pane's copy settles before it is measured or photographed.
+      // The screen's copy settles before it is measured or photographed.
       await page.waitForTimeout(250)
 
-      expect(await pane.evaluate((element) => Math.abs(element.getBoundingClientRect().x))).toBeLessThan(1)
       expect(await pane.evaluate((element) => element.scrollWidth <= element.clientWidth + 1)).toBe(true)
       for (const sample of await paneContrast(page)) {
         expect(sample.ratio, `${theme} ${sample.text}`).toBeGreaterThanOrEqual(4.5)
       }
 
-      // Tab is a loop inside the pane, not a walk into the galleries behind it.
-      await page.getByRole('button', { name: 'Sign out', exact: true }).focus()
-      await page.keyboard.press('Tab')
-      await expect(page.getByRole('button', { name: 'Close account menu' })).toBeFocused()
-
       mkdirSync(evidence, { recursive: true })
       await page.screenshot({ path: resolve(evidence, `${engine}-${size.name}-${theme}-pane.png`), animations: 'disabled', timeout: 15_000 })
-      await page.keyboard.press('Escape')
-      await expect(pane).toBeHidden()
-      await expect(tab).toBeFocused()
+      await pane.getByRole('button', { name: 'Back to the library' }).click()
+      await expect(pane).toHaveCount(0)
+      await expect(galleryList).toBeVisible()
       await page.screenshot({ path: resolve(evidence, `${engine}-${size.name}-${theme}-catalogue.png`), animations: 'disabled', timeout: 15_000 })
 
       // The stage is a neutral near-black by contract: opening a photograph in
@@ -299,24 +294,24 @@ test('window-1280x840: details surface and share sheet over real photographs, bo
 
   const record = built.galleries[0]
   const details = page.locator('[data-screen="local-details"]')
-  const tab = page.getByRole('button', { name: 'Settings', exact: true })
-  const pane = page.getByRole('dialog', { name: 'Account', exact: true })
+  const tab = page.locator('.admin-heading-actions').getByRole('button', { name: 'Settings', exact: true })
+  const pane = page.locator('[data-screen="settings"]')
 
   for (const theme of ['dark', 'light'] as const) {
     const isLight = await page.evaluate(() => document.documentElement.classList.contains('light'))
     if ((theme === 'light') !== isLight) {
       await tab.click()
       await expect(pane).toBeVisible()
-      await pane.getByRole('button', { name: theme === 'light' ? 'Switch to light mode' : 'Switch to dark mode', exact: true }).click()
+      await pane.getByRole('radio', { name: theme === 'light' ? 'Light' : 'Dark', exact: true }).click()
       await expect(page.locator('html')).toHaveClass(theme === 'light' ? /light/ : /^(?!.*light)/)
-      await page.keyboard.press('Escape')
-      await expect(pane).toBeHidden()
+      await pane.getByRole('button', { name: 'Back to the library' }).click()
+      await expect(pane).toHaveCount(0)
     }
 
     // Library → Gallery settings through the card's ··· menu.
     const card = page.locator('.lib-card').first()
     await card.locator('.lib-card-menu').click()
-    await page.getByRole('dialog').getByRole('button', { name: 'Gallery settings' }).click()
+    await page.getByRole('dialog').getByRole('button', { name: 'More settings…' }).click()
     await expect(details).toBeVisible()
     // The sheet states the gallery's own facts once: the panel head
     // carries the title and the count/source line — never both.
@@ -330,9 +325,14 @@ test('window-1280x840: details surface and share sheet over real photographs, bo
     for (const banned of ['public', 'provider', 'vault', 'offline']) {
       await expect(details).not.toContainText(banned)
     }
-    await expect(details.locator('.m-actionrow')).toHaveCount(4)
+    await expect(details.locator('.m-actionrow')).toHaveCount(8)
     const labels = await details.locator('.m-actionrow-label').allTextContents()
-    expect(labels.map(label => label.trim())).toEqual(['Open gallery', 'Name', 'Open folder', 'Remove from Library'])
+    expect(labels.map(label => label.trim())).toEqual([
+      'Open gallery', 'View source',
+      'Name', 'Caption', 'Address',
+      'Reorder photographs', 'Refresh gallery contents',
+      'Remove from Library',
+    ])
 
     mkdirSync(evidence, { recursive: true })
     await page.screenshot({ path: resolve(evidence, `${engine}-window-1280x840-${theme}-details.png`), animations: 'disabled', timeout: 15_000 })

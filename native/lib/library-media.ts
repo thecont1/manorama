@@ -45,6 +45,19 @@ export const previewSrcFor = (item: {
   poster?: { src: string }
 }): string => item.variants?.[0]?.src ?? item.poster?.src ?? item.src
 
+/** The rail's rendition upgrade: providers whose proxy carries a size
+ *  parameter are asked for the bigger preview the taller rail needs —
+ *  the same URL-rewrite trick the OG card already runs on Drive and
+ *  Dropbox. Checksum-bound (iCloud) and vault-held (MEGA/Ente/Proton)
+ *  renditions keep what the scan recorded. */
+export const railPreviewSrcFor = (item: Parameters<typeof previewSrcFor>[0]): string => {
+  const src = previewSrcFor(item)
+  if (src.startsWith('/api/gphotos/image')) return src.replace(/([?&])r=h\d+/, '$1r=h768')
+  if (src.startsWith('/api/drive/thumbnail')) return src.replace(/([?&])size=w256/, '$1size=w2048')
+  if (src.startsWith('/api/local/file')) return src.replace(/([?&])w=\d+/, '$1w=768')
+  return src
+}
+
 /** The provider word moved to packages/core (the gallery route labels the
  *  owner panel with it too); re-exported so existing imports hold. */
 export { sourceLabelFor } from '../../packages/core/source-label'

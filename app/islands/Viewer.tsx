@@ -50,6 +50,18 @@ export type ViewerDemoHandle = {
   showChrome(): void
 }
 
+export type ViewerChromeControl = 'library' | 'position' | 'settings' | 'info'
+export type ViewerChromeHandle = {
+  activate(control: ViewerChromeControl): void
+  setActive(active: boolean): void
+  focusStage(): void
+}
+
+/** A focus restore owed to native chrome across a Viewer remount — the
+ *  same-gallery Global View pick re-seeds the island and kills its refs,
+ *  so the pending invoker lives at module scope instead. */
+let pendingNativeFocus: ViewerChromeControl | null = null
+
 type Props = {
   slug: string
   galleryTitle?: string
@@ -65,6 +77,11 @@ type Props = {
   /** Native shells route the existing position pill to their vault-backed
    *  global thumbnail picker. Web and desktop keep the local filmstrip. */
   onOpenGlobalView?: (index: number) => void
+  /** The host's picker surface is mounted outside this tree (native Global
+   *  View). The viewer treats it as its own modal: chrome activity, the
+   *  activate() gate and the native focus-restore path behave exactly as
+   *  they do for the in-tree filmstrip. */
+  nativePickerOpen?: boolean
   /** Native-only actions remain in the controls panel, never on the stage. */
   onReturnToGalleries?: () => void
   /** Browser fullscreen is web-only; native and desktop shells suppress it. */
@@ -86,6 +103,8 @@ type Props = {
    *  Viewer to move, so the strip keeps its measurements and the
    *  commanded photograph sticks. */
   navigationRef?: { current: { goTo(index: number): void } | null }
+  chromeRef?: { current: ViewerChromeHandle | null }
+  onChromeFocus?: (control: ViewerChromeControl) => void
   /** An inert, self-running showcase uses the real stage without owning the
    *  host page's history, storage, keyboard, or global pointer listeners. */
   embedded?: boolean
@@ -307,7 +326,7 @@ const writeViewPrefs = (slug: string, patch: Partial<ViewPrefs>) => {
  *  preserve their aspect ratio, fit height-first in strip mode, width-first in
  *  vertical mode (portraits contain both axes instead, so they cannot run
  *  past the fold), and within both axes in single mode without upscaling. */
-export default function Viewer({ slug, galleryTitle, images: sourceImages, encryptedResolver = null, galleryId, settings: initialSettings, plate = null, onOpenGlobalView, onReturnToGalleries, allowFullscreen = true, initialIndex = 0, navigationRef, embedded = false, demoRef, demoDisplayScaleRef, suspended = false, onPositionChange, onOpenDetails, viewerRole, galleryOwner, onAddToLibrary, addToLibraryBusy, addToLibraryLabel, signInHref, libraryHref, apiBase = '', authToken, ownerGallery, initialEdit = false, editStore, foldLayout = null, demoVerticalBarEdge, demoVerticalStyle, foldRenderer, keyStore, shareHref, onEditSaved, onGalleryRenamed, onGalleryRefreshed, onGalleryRemoved }: Props) {
+export default function Viewer({ slug, galleryTitle, images: sourceImages, encryptedResolver = null, galleryId, settings: initialSettings, plate = null, onOpenGlobalView, nativePickerOpen = false, onReturnToGalleries, allowFullscreen = true, initialIndex = 0, navigationRef, chromeRef, onChromeFocus, embedded = false, demoRef, demoDisplayScaleRef, suspended = false, onPositionChange, onOpenDetails, viewerRole, galleryOwner, onAddToLibrary, addToLibraryBusy, addToLibraryLabel, signInHref, libraryHref, apiBase = '', authToken, ownerGallery, initialEdit = false, editStore, foldLayout = null, demoVerticalBarEdge, demoVerticalStyle, foldRenderer, keyStore, shareHref, onEditSaved, onGalleryRenamed, onGalleryRefreshed, onGalleryRemoved }: Props) {
   const [settings, setSettings] = useState<GallerySettings>(initialSettings)
   const viewPrefs = useMemo(() => (embedded || typeof localStorage === 'undefined' ? {} : readViewPrefs(slug)), [slug, embedded])
   const [mode, setMode] = useState<Mode>(viewPrefs.mode ?? initialSettings.defaultMode)
@@ -496,12 +515,14 @@ export default function Viewer({ slug, galleryTitle, images: sourceImages, encry
   const gridCloseTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const nextArrowRef = useRef<HTMLButtonElement | null>(null)
   const previousFocusRef = useRef<HTMLElement | null>(null)
+  const nativeInvokerRef = useRef<ViewerChromeControl | null>(null)
+  const nativeChromeActiveRef = useRef(false)
   // "A modal is open" for always-on window key handlers: hono/jsx applies
   // the state write synchronously but commits the render later, so both
   // closures and render-synced values lag a setState call. The open/close
   // helpers write this at event time; the render line is the backstop.
   const anyModalOpenRef = useRef(false)
-  anyModalOpenRef.current = modalOpen || infoOpen || gridOpen || shortcutsOpen
+  anyModalOpenRef.current = modalOpen || infoOpen || gridOpen || shortcutsOpen || nativePickerOpen
   // A saved name propagates into the picker's header — the prop is the
   // SSR title, this override is the live one.
   const [titleOverride, setTitleOverride] = useState<string | undefined>(undefined)
@@ -514,9 +535,7 @@ export default function Viewer({ slug, galleryTitle, images: sourceImages, encry
   // path — the owner's API summary, or a shell-provided store (locals).
   const canEdit = ownerInline || Boolean(editStore)
   const [popoverAnchor, setPopoverAnchor] = useState<Record<string, string | undefined>>({})
-  const openSettings = () => {
-    previousFocusRef.current = displayButtonRef.current ?? (document.activeElement as HTMLElement | null)
-    anyModalOpenRef.current = true
+  const updatePopoverAnchor = () => {
     // The card anchors to the bottom nav, not the Settings pill: centred
     // on the nav's own centre line and clamped to 14px viewport margins,
     // it reads as the bar's panel rather than a bubble off one pill. Its
@@ -540,8 +559,24 @@ export default function Viewer({ slug, galleryTitle, images: sourceImages, encry
         maxHeight: `${Math.max(160, viewportHeight - bottom - (safeAreaTopPx() + 64))}px`,
       })
     }
+  }
+  const openSettings = () => {
+    if (onChromeFocus) nativeInvokerRef.current ??= 'settings'
+    previousFocusRef.current = displayButtonRef.current ?? (document.activeElement as HTMLElement | null)
+    anyModalOpenRef.current = true
+    updatePopoverAnchor()
     setModalOpen(true)
   }
+  useEffect(() => {
+    if (!chromeRef || !modalOpen) return
+    updatePopoverAnchor()
+    window.addEventListener('resize', updatePopoverAnchor)
+    window.visualViewport?.addEventListener('resize', updatePopoverAnchor)
+    return () => {
+      window.removeEventListener('resize', updatePopoverAnchor)
+      window.visualViewport?.removeEventListener('resize', updatePopoverAnchor)
+    }
+  }, [chromeRef, modalOpen, showArrows, showArrowsVertical, effectiveMode, stageSize.width, stageSize.height])
   const openImageInfo = () => {
     // Settings → info is a nested open: keep the first invoker so closing
     // the sheet returns focus to what opened the chain, not a panel control.
@@ -551,6 +586,11 @@ export default function Viewer({ slug, galleryTitle, images: sourceImages, encry
   }
   const openGrid = () => {
     if (onOpenGlobalView) {
+      // The host owns this picker — its open commits asynchronously, so
+      // the modal gate is marked now: a settings activation in the gap
+      // must not stack a second surface on top of it. The host's close
+      // flips nativePickerOpen and the render-time recompute clears it.
+      anyModalOpenRef.current = true
       onOpenGlobalView(indexRef.current)
       return
     }
@@ -658,7 +698,7 @@ export default function Viewer({ slug, galleryTitle, images: sourceImages, encry
     clearChromeTimer()
     chromeTimerRef.current = window.setTimeout(() => {
       chromeTimerRef.current = null
-      if (anyModalOpenRef.current || suspendedRef.current) return
+      if (anyModalOpenRef.current || suspendedRef.current || nativeChromeActiveRef.current) return
       setChromeVisible(false)
     }, 3000)
   }
@@ -681,7 +721,10 @@ export default function Viewer({ slug, galleryTitle, images: sourceImages, encry
   const pauseChrome = () => { clearChromeTimer() }
   const requestShowChrome = () => {
     showChrome()
-    requestAnimationFrame(() => displayButtonRef.current?.focus())
+    requestAnimationFrame(() => {
+      if (onChromeFocus) onChromeFocus('settings')
+      else displayButtonRef.current?.focus()
+    })
   }
   const draggingRef = useRef(false)
   const lastPointerRef = useRef({ x: 0, y: 0 })
@@ -1863,6 +1906,7 @@ export default function Viewer({ slug, galleryTitle, images: sourceImages, encry
     ? <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><path d="m14 5-7 7 7 7" /></svg>
     : <><span aria-hidden="true">‹</span> Library</>
   const [curtainLibraryShown, setCurtainLibraryShown] = useState(false)
+  const curtainChromeIdleRef = useRef<(() => void) | null>(null)
   useEffect(() => {
     if (galleryEntered || !hasCurtainLibrary) return
     // Touch has no hover idiom — a tap opens the gallery, so the pill would
@@ -1870,6 +1914,7 @@ export default function Viewer({ slug, galleryTitle, images: sourceImages, encry
     if (coarsePointer()) { setCurtainLibraryShown(true); return }
     let hideTimer: number | undefined
     const focusHeld = () => {
+      if (nativeChromeActiveRef.current) return true
       const active = document.activeElement
       if (!active) return false
       const veil = document.querySelector('[data-veil-chrome]')
@@ -1891,10 +1936,12 @@ export default function Viewer({ slug, galleryTitle, images: sourceImages, encry
       // first, then restart the idle clock only when focus left both surfaces.
       window.setTimeout(() => { if (!focusHeld()) scheduleHide() })
     }
+    curtainChromeIdleRef.current = scheduleHide
     window.addEventListener('pointermove', reveal, { passive: true })
     window.addEventListener('focusin', reveal)
     window.addEventListener('focusout', onFocusOut)
     return () => {
+      curtainChromeIdleRef.current = null
       window.clearTimeout(hideTimer)
       window.removeEventListener('pointermove', reveal)
       window.removeEventListener('focusin', reveal)
@@ -2113,7 +2160,7 @@ export default function Viewer({ slug, galleryTitle, images: sourceImages, encry
       }
       if (isTypingTarget(event.target as HTMLElement | null)) return
       if (event.key === 'Tab') {
-        if (!suspendedRef.current && !anyModalOpenRef.current) chromeActionsRef.current.show()
+        if (!suspendedRef.current && !anyModalOpenRef.current) chromeActionsRef.current.tab(event)
         return
       }
       if (suspendedRef.current || anyModalOpenRef.current || !document.body.classList.contains('gallery-entered')) return
@@ -2197,8 +2244,30 @@ export default function Viewer({ slug, galleryTitle, images: sourceImages, encry
     return () => cancelAnimationFrame(frame)
   }, [gridOpen])
 
+  // The host picker mounts outside this tree, so gridOpen never tracks it.
+  // When it opens without going through activate() (a keyboard 'g'), its
+  // semantic origin is still the position control — record that so the
+  // restore effect below lands on the right capsule.
   useEffect(() => {
-    if (gridOpen || modalOpen || infoOpen || shortcutsOpen) return
+    if (nativePickerOpen && onChromeFocus) {
+      nativeInvokerRef.current ??= 'position'
+      pendingNativeFocus ??= 'position'
+    }
+  }, [nativePickerOpen, onChromeFocus])
+
+  useEffect(() => {
+    if (gridOpen || modalOpen || infoOpen || shortcutsOpen || nativePickerOpen) return
+    const nativeControl = nativeInvokerRef.current
+      ?? pendingNativeFocus
+      ?? (onChromeFocus && previousFocusRef.current === positionPillRef.current && previousFocusRef.current ? 'position' : null)
+    if (nativeControl && onChromeFocus) {
+      nativeInvokerRef.current = null
+      pendingNativeFocus = null
+      previousFocusRef.current = null
+      showChrome()
+      requestAnimationFrame(() => onChromeFocus(nativeControl))
+      return
+    }
     if (previousFocusRef.current) {
       const target = previousFocusRef.current
       previousFocusRef.current = null
@@ -2211,7 +2280,7 @@ export default function Viewer({ slug, galleryTitle, images: sourceImages, encry
       }
       requestAnimationFrame(() => target.focus({ preventScroll: true }))
     }
-  }, [gridOpen, modalOpen, infoOpen, shortcutsOpen])
+  }, [gridOpen, modalOpen, infoOpen, shortcutsOpen, nativePickerOpen])
 
   useEffect(() => {
     if (!gridOpen) return
@@ -2288,12 +2357,38 @@ export default function Viewer({ slug, galleryTitle, images: sourceImages, encry
   const gridActionsRef = useRef({ openGrid, closeModals, requestCloseModals, stepGridSel, commitGridSel })
   gridActionsRef.current = { openGrid, closeModals, requestCloseModals, stepGridSel, commitGridSel }
 
-  const chromeActionsRef = useRef({ show: () => {}, hide: () => {}, toggle: () => {}, pause: () => {} })
+  const tabToChrome = (event: KeyboardEvent) => {
+    if (onChromeFocus && document.body.classList.contains('gallery-entered')) {
+      // The chrome handoff belongs at the end of the stage's own tab
+      // order, not on every Tab: an interior Tab keeps the browser's
+      // traversal so the stage's own controls — the video cluster, the
+      // end card's Rewind — stay keyboard-reachable, and only a forward
+      // Tab past the last focusable exits to the native chrome. Focus
+      // outside the stage (body after a sheet closes) keeps the old
+      // entry handoff; an empty stage has no interior to traverse.
+      const stage = stageRef.current
+      const active = document.activeElement as HTMLElement | null
+      const focusables = stage
+        ? [...stage.querySelectorAll<HTMLElement>('button, input, a[href], [tabindex]:not([tabindex="-1"])')].filter((el) => !el.hasAttribute('disabled') && !el.closest('[inert]'))
+        : []
+      const index = active ? focusables.indexOf(active) : -1
+      const insideStage = Boolean(stage && active && stage.contains(active) && active !== stage)
+      const atEnd = index >= 0 && index === focusables.length - 1
+      if ((!event.shiftKey && (!insideStage || atEnd)) || (event.shiftKey && !insideStage)) {
+        event.preventDefault()
+        requestShowChrome()
+      }
+      return
+    }
+    showChrome()
+  }
+  const chromeActionsRef = useRef({ show: showChrome, hide: hideChrome, toggle: () => {}, pause: pauseChrome, tab: tabToChrome })
   chromeActionsRef.current = {
     show: showChrome,
     hide: hideChrome,
     toggle: () => { if (chromeVisibleRef.current) hideChrome(); else showChrome() },
     pause: pauseChrome,
+    tab: tabToChrome,
   }
 
   // The `i`/`I` key handler subscribes once and reaches these through a ref —
@@ -2772,25 +2867,6 @@ export default function Viewer({ slug, galleryTitle, images: sourceImages, encry
     })
   }, [modalOpen, infoOpen])
 
-  useEffect(() => {
-    if (modalOpen || infoOpen || shortcutsOpen) return
-    if (previousFocusRef.current) {
-      // The overlay stack restores focus to whatever was focused before
-      // the sheet pushed — the rAF lands after that synchronous restore
-      // so the sheet's actual invoker wins.
-      const target = previousFocusRef.current
-      previousFocusRef.current = null
-      // A chrome pill is inert while the bars hide — reveal them long
-      // enough for the focus restore to land, then the 3s window tucks
-      // them away again (hideChrome returns the focus to the stage).
-      if (target.closest?.('[data-chrome-top], [data-chrome-bottom]')) {
-        setChromeVisible(true)
-        scheduleChromeHide()
-      }
-      requestAnimationFrame(() => target.focus({ preventScroll: true }))
-    }
-  }, [modalOpen, infoOpen, shortcutsOpen])
-
   // Content Credential checks run through a serial queue: one check in
   // flight keyed by image id, the newest queued request supersedes a
   // still-waiting one, and results land in per-id state so a settled
@@ -2854,6 +2930,36 @@ export default function Viewer({ slug, galleryTitle, images: sourceImages, encry
     window.open(`${C2PA_VIEWER_URL}?uri=${encodeURIComponent(absolute)}`, '_blank', 'noopener')
   }
   infoActionsRef.current = { provenance: openImageProvenance, external: openCurrentImageInfo }
+
+  useEffect(() => {
+    if (!chromeRef) return
+    chromeRef.current = {
+      activate(control) {
+        if (suspendedRef.current || anyModalOpenRef.current) return
+        if (control === 'library') { onReturnToGalleries?.(); return }
+        if (!document.body.classList.contains('gallery-entered')) return
+        nativeInvokerRef.current = control
+        if (control === 'position') openGrid()
+        else if (control === 'settings') openSettings()
+        else openImageProvenance()
+      },
+      setActive(active) {
+        nativeChromeActiveRef.current = active
+        if (active) clearChromeTimer()
+        else {
+          scheduleChromeHide()
+          curtainChromeIdleRef.current?.()
+        }
+      },
+      focusStage() {
+        nativeChromeActiveRef.current = false
+        if (anyModalOpenRef.current) return
+        stageRef.current?.focus({ preventScroll: true })
+        scheduleChromeHide()
+      },
+    }
+  })
+  useEffect(() => () => { if (chromeRef) chromeRef.current = null }, [chromeRef])
 
   // HEIC originals can't render in a browser, so decode them at full
   // resolution via libheif WASM — lazily, only when a frame enters the

@@ -201,7 +201,6 @@ describe('the dashboard renders retention state', () => {
       onReorder: () => {},
       onRefresh: () => {},
       onStreamOnlyChange: () => {},
-      onPurge: () => {},
       onRemove: () => {},
     }))
     expect(details).toContain('Temporary gallery')
@@ -256,7 +255,6 @@ describe('the dashboard renders retention state', () => {
       onReorder: () => {},
       onRefresh: () => {},
       onStreamOnlyChange: () => {},
-      onPurge: () => {},
       onRemove: () => {},
     }))
     expect(details).toContain('24 photographs · 1 video')

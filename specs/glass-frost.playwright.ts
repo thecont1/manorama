@@ -67,18 +67,17 @@ test.beforeEach(async ({ request, page }) => {
   await request.post(`${BASE}/.dev-seed/reset`);
 });
 
-// Enter the gallery under the iOS shell marker — the attribute goes in the
+// Enter the gallery under a shell marker — the attribute goes in the
 // moment <html> is created (init scripts run before documentElement exists,
 // so an observer catches its insertion — SceneDelegate's document-start
 // timing). The real glass.css joins the cascade as the last sheet, exactly
 // where the native bundle's import puts it. The curtain is dismissed so the
 // chrome mounts. `attrs` stamps extra document attributes the same way —
 // data-reduced-transparency is SceneDelegate's own stamp.
-const enterWithIosShell = async (page: import("@playwright/test").Page, attrs: Record<string, string> = {}) => {
+const enterWithShell = async (page: import("@playwright/test").Page, attrs: Record<string, string>) => {
   await page.addInitScript((extraAttrs) => {
     new MutationObserver((_, observer) => {
       if (!document.documentElement) return;
-      document.documentElement.setAttribute("data-ios-shell", "");
       for (const [name, value] of Object.entries(extraAttrs)) {
         document.documentElement.setAttribute(name, value);
       }
@@ -92,6 +91,12 @@ const enterWithIosShell = async (page: import("@playwright/test").Page, attrs: R
   await curtain.click();
   await expect(curtain).toBeHidden();
 };
+
+const enterWithIosShell = (page: import("@playwright/test").Page, attrs: Record<string, string> = {}) =>
+  enterWithShell(page, { "data-ios-shell": "", ...attrs });
+
+const enterWithMacosShell = (page: import("@playwright/test").Page, attrs: Record<string, string> = {}) =>
+  enterWithShell(page, { "data-macos-shell": "1", ...attrs });
 
 test("viewer chrome frosts under the shell gate", async ({ page }) => {
   await enterWithIosShell(page);
@@ -148,6 +153,114 @@ test("prefers-contrast drops the repainted surfaces to the Tier-0 solid", async 
     background: "rgba(16, 16, 18, 0.94)",
   });
 });
+
+type Rgba = [number, number, number, number];
+const rgba = (css: string): Rgba => {
+  if (/^#[\da-f]{6}$/i.test(css)) {
+    return [parseInt(css.slice(1, 3), 16), parseInt(css.slice(3, 5), 16), parseInt(css.slice(5, 7), 16), 1];
+  }
+  const match = /^rgba?\(([^)]+)\)$/.exec(css);
+  if (!match) throw new Error(`Unsupported computed colour: ${css}`);
+  const [r, g, b, a = 1] = match[1].split(/[,\s]+/).map(Number);
+  return [r, g, b, a];
+};
+const composite = (foreground: Rgba, background: Rgba): Rgba => [
+  foreground[0] * foreground[3] + background[0] * (1 - foreground[3]),
+  foreground[1] * foreground[3] + background[1] * (1 - foreground[3]),
+  foreground[2] * foreground[3] + background[2] * (1 - foreground[3]),
+  1,
+];
+const luminance = (colour: Rgba) => {
+  const linear = colour.slice(0, 3).map((value) => {
+    const s = value / 255;
+    return s <= 0.04045 ? s / 12.92 : ((s + 0.055) / 1.055) ** 2.4;
+  });
+  return linear[0] * 0.2126 + linear[1] * 0.7152 + linear[2] * 0.0722;
+};
+
+// Sample real rendered text and its inherited tokens, not a hypothetical white
+// label. Uniform white is the worst bright backdrop: blur cannot darken it.
+// Ignoring Info's dim scrim is conservative and also covers the ghost popover.
+const assertMacosSheetContrast = async (sheet: import("@playwright/test").Locator, info: boolean) => {
+  const samples = info
+    ? [{ selector: ".m-sheet-title", token: "--m-ink" }, { selector: ".m-info-row dt", token: "--m-secondary" }, { selector: ".m-quiet-copy", token: "" }]
+    : [{ selector: ".m-sheet-label", token: "--m-ink" }, { selector: ".m-actiongroup-label", token: "--m-meta" }, { selector: ".m-sheet-hint", token: "" }];
+  const readings = await sheet.evaluate((panel, selectors) => {
+    const style = getComputedStyle(panel);
+    return {
+      background: style.backgroundColor,
+      text: selectors.map(({ selector, token }) => {
+        const element = panel.querySelector<HTMLElement>(selector);
+        if (!element) throw new Error(`Missing contrast sample ${selector}`);
+        const textStyle = getComputedStyle(element);
+        return { selector, colour: textStyle.color, token: token ? textStyle.getPropertyValue(token).trim() : "" };
+      }),
+    };
+  }, samples);
+  const background = composite(rgba(readings.background), [255, 255, 255, 1]);
+  for (const sample of readings.text) {
+    const ink = rgba(sample.colour);
+    if (sample.token) expect(ink, sample.selector).toEqual(rgba(sample.token));
+    const foreground = composite(ink, background);
+    const ratio = (Math.max(luminance(foreground), luminance(background)) + 0.05)
+      / (Math.min(luminance(foreground), luminance(background)) + 0.05);
+    expect.soft(ratio, `${sample.selector} over white: ${sample.colour} on ${readings.background}`).toBeGreaterThanOrEqual(4.5);
+  }
+};
+
+test("macOS Settings and Info retain readable frost over a bright photograph", async ({ page }) => {
+  await enterWithMacosShell(page);
+  await page.getByRole("button", { name: "Gallery Settings", exact: true }).click();
+  let sheet = page.locator(".gallery-shell .m-sheet");
+  await expect(sheet).toBeVisible();
+  // This must be sampled on the sheet: its nested .m-dark wrapper can
+  // override a token that looked correct when read on .gallery-shell.
+  expect.soft(await sheet.evaluate(paint)).toEqual({
+    backdrop: "blur(24px) saturate(1.4)",
+    background: "rgba(18, 18, 24, 0.9)",
+  });
+  await assertMacosSheetContrast(sheet, false);
+  expect(await page.locator(".m-scrim--ghost").evaluate(paint)).toEqual({
+    backdrop: "none", background: "rgba(0, 0, 0, 0)",
+  });
+  await page.keyboard.press("Escape");
+  await expect(sheet).toBeHidden();
+  await page.keyboard.press("i");
+  sheet = page.locator(".gallery-shell .m-sheet");
+  await expect(sheet).toBeVisible();
+  expect.soft(await sheet.evaluate(paint)).toEqual({
+    backdrop: "blur(24px) saturate(1.4)",
+    background: "rgba(18, 18, 24, 0.9)",
+  });
+  await assertMacosSheetContrast(sheet, true);
+});
+
+for (const accessibility of ["increased contrast", "reduced transparency"] as const) {
+  test(`macOS ${accessibility} replaces viewer frost with the solid fallback`, async ({ page }) => {
+    if (accessibility === "increased contrast") await page.emulateMedia({ contrast: "more" });
+    await enterWithMacosShell(page, accessibility === "reduced transparency" ? { "data-reduced-transparency": "" } : {});
+    const solid = { backdrop: "none", background: "rgba(16, 16, 18, 0.94)" };
+    const pill = page.locator("[data-chrome-bottom] .m-chrome-pill").first();
+    expect(await pill.evaluate(paint)).toEqual(solid);
+    await page.getByRole("button", { name: "Gallery Settings", exact: true }).click();
+    const sheet = page.locator(".gallery-shell .m-sheet");
+    await expect(sheet).toBeVisible();
+    expect(await sheet.evaluate(paint)).toEqual(solid);
+    await assertMacosSheetContrast(sheet, false);
+    expect(await page.locator(".m-scrim--ghost").evaluate(paint)).toEqual({
+      backdrop: "none", background: "rgba(0, 0, 0, 0)",
+    });
+    await page.keyboard.press("Escape");
+    await expect(sheet).toBeHidden();
+    await page.keyboard.press("i");
+    await expect(sheet).toBeVisible();
+    expect(await sheet.evaluate(paint)).toEqual(solid);
+    await assertMacosSheetContrast(sheet, true);
+    expect(await page.locator(".gallery-shell .m-scrim:not(.m-scrim--ghost)").evaluate(paint)).toEqual({
+      backdrop: "none", background: "rgba(0, 0, 0, 0.45)",
+    });
+  });
+}
 
 test("a shell-stamped data-reduced-transparency drops to the same Tier-0 solid", async ({ page }) => {
   // The media query cannot fire for a shell-side accessibility toggle —

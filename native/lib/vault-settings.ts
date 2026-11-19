@@ -9,7 +9,8 @@ export const VAULT_LOAD_POLICY_KEY = 'manorama.vault.load-policy'
  * vault or left as cloud URLs that the viewer loads on demand. */
 export type VaultLoadPolicy = 'vault' | 'stream'
 /** Stream is the honest default: bytes only enter the vault when the owner
- *  expressly asks — the policy toggle here, or "Save to this Mac". */
+ *  expressly asks — the policy toggle here, or a gallery's Keep-a-copy
+ *  switch. */
 export const DEFAULT_VAULT_LOAD_POLICY: VaultLoadPolicy = 'stream'
 /** The Free default and ceiling. Pro may hold any positive cap or unlimited. */
 export const FREE_VAULT_CAP_BYTES = DEFAULT_VAULT_CAP_BYTES

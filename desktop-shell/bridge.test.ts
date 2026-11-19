@@ -1,6 +1,8 @@
 import { afterEach, beforeEach, describe, expect, test } from 'bun:test'
 import { Window as HappyWindow } from 'happy-dom'
-import { installShellBridge } from './bridge'
+import { installShellBridge, shellPost as bridgePost } from './bridge'
+import { publishChrome, shellPost } from '../desktop/lib/shell'
+import type { ViewerChromeControl, ViewerChromeHandle } from '../app/islands/Viewer'
 
 describe('desktop-shell bridge Tauri runtime emulation', () => {
   const globals = globalThis as unknown as Record<string, unknown>
@@ -92,6 +94,77 @@ describe('desktop-shell bridge Tauri runtime emulation', () => {
 
   test('marks the document as the SwiftUI shell so CSS can skip Tauri geometry', () => {
     expect(document.documentElement.classList.contains('macos-shell')).toBe(true)
+  })
+
+  test('native chrome commands are harmless before publication and with a null ref', () => {
+    const channel = window.__manoramaShell!
+    const exercise = () => {
+      for (const control of ['library', 'position', 'settings', 'info'] as const) channel.activateControl(control)
+      channel.setChromeActive(true)
+      channel.setChromeActive(false)
+      channel.focusStage()
+    }
+    expect(exercise).not.toThrow()
+    publishChrome({ current: null })
+    expect(exercise).not.toThrow()
+    expect(posted).toEqual([])
+    expect(document.querySelector('button')).toBeNull()
+  })
+
+  test('native commands resolve the live handle without any hidden DOM buttons', () => {
+    const actions: unknown[][] = []
+    const handle = (name: string): ViewerChromeHandle => ({
+      activate: (control) => { actions.push([name, 'activate', control]) },
+      setActive: (active) => { actions.push([name, 'active', active]) },
+      focusStage: () => { actions.push([name, 'stage']) },
+    })
+    const ref: { current: ViewerChromeHandle | null } = { current: null }
+    publishChrome(ref)
+    const channel = window.__manoramaShell!
+    ref.current = handle('first')
+    for (const control of ['library', 'position', 'settings', 'info'] as const) channel.activateControl(control)
+    channel.setChromeActive(true)
+    channel.setChromeActive(false)
+    channel.focusStage()
+    ref.current = handle('second')
+    channel.activateControl('settings')
+    channel.setChromeActive(true)
+    channel.focusStage()
+    ref.current = null
+    channel.activateControl('info')
+    channel.setChromeActive(false)
+    channel.focusStage()
+    expect(actions).toEqual([
+      ['first', 'activate', 'library'], ['first', 'activate', 'position'],
+      ['first', 'activate', 'settings'], ['first', 'activate', 'info'],
+      ['first', 'active', true], ['first', 'active', false], ['first', 'stage'],
+      ['second', 'activate', 'settings'], ['second', 'active', true], ['second', 'stage'],
+    ])
+    expect(posted).toEqual([])
+    expect(document.body.childElementCount).toBe(0)
+  })
+
+  test('a cached inbound channel sees a republished chrome ref', () => {
+    const actions: string[] = []
+    const channel = window.__manoramaShell!
+    publishChrome({ current: { activate: () => actions.push('old'), setActive() {}, focusStage() {} } })
+    channel.activateControl('settings')
+    publishChrome({ current: { activate: () => actions.push('new'), setActive() {}, focusStage() {} } })
+    channel.activateControl('info')
+    expect(actions).toEqual(['old', 'new'])
+  })
+
+  test('focus requests preserve the control name over the outbound WebKit channel', () => {
+    const controls: ViewerChromeControl[] = ['library', 'position', 'settings', 'info']
+    for (const control of controls) shellPost({ type: 'focus', control })
+    bridgePost({ type: 'focus', control: 'settings' })
+    expect(posted).toEqual([
+      { type: 'focus', control: 'library' },
+      { type: 'focus', control: 'position' },
+      { type: 'focus', control: 'settings' },
+      { type: 'focus', control: 'info' },
+      { type: 'focus', control: 'settings' },
+    ])
   })
 
   test('mousedown on a data-tauri-drag-region element invokes plugin:window|start_dragging', () => {

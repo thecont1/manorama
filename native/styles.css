@@ -247,8 +247,12 @@ body.manorama-native .stage-arrows--system-side > button { width: 44px; height: 
 
 /* Same outline button as the web landing — square, thin, quiet until tapped.
    Scoped off .m-btn: the redesign's pills (Add, Plan) share this card and the
-   element-qualified rule would otherwise win over the component class. */
-.native-list-card button:not(.m-btn) {
+   element-qualified rule would otherwise win over the component class. The
+   collapsible section toggle is excluded too — it carries the page-voice
+   lib-section-title type, not the 13px outline-button face. The exclusion
+   rides :where so it adds no specificity: a plain second :not() would raise
+   this rule above the lib-* resets and border every thumbnail and title. */
+.native-list-card button:not(.m-btn):not(:where(.lib-hidden-toggle)) {
   border: 1px solid rgba(var(--ink), .22);
   border-radius: 0;
   padding: 13px 22px;
@@ -259,7 +263,7 @@ body.manorama-native .stage-arrows--system-side > button { width: 44px; height: 
   cursor: pointer;
 }
 
-.native-list-card button:not(.m-btn):hover {
+.native-list-card button:not(.m-btn):not(:where(.lib-hidden-toggle)):hover {
   border-color: rgba(var(--ink), .78);
   color: rgb(var(--ink));
 }
@@ -268,7 +272,7 @@ body.manorama-native .stage-arrows--system-side > button { width: 44px; height: 
    has published. Quiet labels, honest taps — rows without a public slug
    get no button, so nothing pretends to open what it cannot. */
 .native-account {
-  margin-bottom: 22px;
+  margin-bottom: 40px;
 }
 
 .native-account-note {
@@ -396,10 +400,6 @@ html.light body.manorama-native :is(.native-welcome, .native-list-shell, .native
    the safe-area inset itself, so the shell adds no headroom above it. */
 .native-account-shell { display: block; width: 100%; max-width: none; height: auto; min-height: 100svh; overflow: visible; padding: 0 24px max(20px, var(--native-safe-bottom)) 24px; }
 .native-account-shell .native-list-card { width: 100%; max-width: 1440px; margin-inline: auto; grid-column: auto; overflow: visible; padding-top: 0; }
-.native-gallery-remove-confirm { padding-bottom: 18px; }
-.native-gallery-remove-confirm p { margin: 10px 0 14px; color: rgba(var(--ink), .7); line-height: 1.55; }
-.native-gallery-list .native-gallery-remove-confirm button { width: auto; display: inline-flex; margin-right: 8px; padding: 10px 14px; border: 1px solid rgba(var(--ink), .22); }
-
 /* The list is one column of ruled cards; each li wraps a .lib-card article. */
 .native-gallery-list li {
   display: grid;
@@ -641,7 +641,7 @@ html.light body.manorama-native :is(.native-welcome, .native-list-shell, .native
 .lib-rail {
   display: flex;
   align-items: stretch;
-  height: 148px;
+  height: 222px;
   /* The strip bleeds to the screen edges like the viewer it miniaturises;
      the card's text keeps the shell's 24px inset. */
   margin-inline: -24px;
@@ -653,6 +653,9 @@ html.light body.manorama-native :is(.native-welcome, .native-list-shell, .native
   -webkit-overflow-scrolling: touch;
 }
 .lib-rail::-webkit-scrollbar { display: none; }
+/* The details surface's strip is a preview, not a scroller — clip (not
+   hidden) keeps programmatic scroll from nudging cells under the mask. */
+.lib-rail--preview { overflow: clip; }
 .lib-rail-spacer { flex: none; }
 .lib-rail--dragging { cursor: grabbing; }
 .lib-rail--dragging .lib-th { pointer-events: none; }
@@ -671,6 +674,11 @@ html.light body.manorama-native :is(.native-welcome, .native-list-shell, .native
   border: 0;
   border-radius: 0;
   background: transparent;
+  /* --ph carries the stored data-SVG placeholder; unset it is no paint at
+     all, so remote placeholders can never fetch. */
+  background-image: var(--ph, none);
+  background-size: cover;
+  background-position: center;
   overflow: hidden;
   cursor: pointer;
 }
@@ -684,6 +692,9 @@ html.light body.manorama-native :is(.native-welcome, .native-list-shell, .native
 }
 .lib-th img.on { opacity: 1; }
 .lib-th:focus-visible { outline: 2px solid rgb(var(--ink)); outline-offset: -2px; }
+
+/* The vault indicator — same green affirmation the desktop badge carries. */
+.lib-badge-saved { margin: 4px 0 0; color: rgba(120, 220, 160, .85); font-size: 11px; letter-spacing: .03em; }
 
 /* Title leads the card; the ··· button is the card's only chrome. */
 .lib-card-head {
@@ -806,6 +817,24 @@ html.light body.manorama-native :is(.native-welcome, .native-list-shell, .native
 }
 .native-library-finding b { color: var(--m-ink); font-weight: 600; }
 
+/* The vault thermometer: a thin determinate meter in the data accent
+   under the saving line — the same pink the desktop sync bar uses. */
+.native-vault-meter {
+  display: block;
+  height: 3px;
+  margin-top: 6px;
+  border-radius: 2px;
+  background: rgba(var(--ink), .12);
+  overflow: hidden;
+}
+.native-vault-meter-fill {
+  display: block;
+  height: 100%;
+  border-radius: 2px;
+  background: var(--m-data, #fc0fc0);
+  transition: width .25s ease;
+}
+
 /* The plan line: quiet usage normally, a warning sentence when the next
    gallery would be temporary. */
 .native-lib-foot {
@@ -824,6 +853,32 @@ html.light body.manorama-native :is(.native-welcome, .native-list-shell, .native
 /* `hidden` on the foot loses to its own display:flex — Settings needs the
    attribute to actually hide it while the pane is up. */
 .native-lib-foot[hidden] { display: none; }
+/* The summary is the door to Settings, where the plan detail lives: the
+   whole line is the target, the chevron says there is more behind it. */
+.native-lib-foot-open {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex: 1 1 auto;
+  min-width: 0;
+  min-height: 44px;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  line-height: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.native-lib-foot-copy { display: block; min-width: 0; }
+.native-lib-foot-open .native-lib-foot-line { display: block; }
+.native-lib-foot-open .m-actionrow-chevron { flex: none; width: 16px; height: 16px; color: rgba(var(--ink), .35); }
+.native-lib-foot-open:hover .native-lib-foot-line:first-child { text-decoration: underline; }
+.native-lib-foot-open:focus-visible { outline: 2px solid rgb(var(--ink)); outline-offset: 2px; }
+.native-lib-foot > .m-btn--quiet { flex: none; }
 
 .native-library-layout {
   position: fixed;
@@ -854,18 +909,52 @@ html.light body.manorama-native :is(.native-welcome, .native-list-shell, .native
 .native-lib-foot-line { margin: 0; line-height: 1.25; }
 .native-lib-foot-line + .native-lib-foot-line { margin-top: 2px; }
 .native-library-layout .native-library-sponsor { grid-area: sponsor; padding: 0 20px 20px; }
-.native-library-layout .native-account-ad { display: flex; align-items: flex-start; gap: 12px; margin: 0 0 24px; padding: 0; background: none; border-radius: 0; }
-.native-library-layout .native-account-ad-frame { flex: none; width: auto; height: auto; display: block; overflow: hidden; background: none; }
-.native-library-layout .native-account-ad-frame img { display: block; width: auto; }
-.native-library-layout .native-account-ad-copy { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
-.native-library-layout .native-account-ad-cta { min-height: 44px; display: inline-flex; align-items: center; margin: 0; }
+.native-library-layout .native-account-ad { margin: 20px 0 0; }
 .native-library-footer { flex-direction: column; align-items: flex-start; gap: 0; margin-top: 24px; padding: 0; }
 .native-library-footer button { min-height: 44px; padding: 0; border: 0; background: none; color: inherit; font: inherit; cursor: pointer; }
-/* Inline-level so the line's copy still wraps around it, but a real box:
-   inline would ignore min-height, while inline-flex keeps the 44px touch
-   target and centres the label inside it. */
-.native-library-footer .site-footer-copy button { display: inline-flex; align-items: center; min-height: 44px; }
+/* A 44px touch box inside a sentence inflates its line box — that was the
+   blank-looking gap above "Photographs in galleries…". The settings pane
+   makes the same trade: the inline link stays text-sized like the
+   surrounding copy it is part of. */
+.native-library-footer .site-footer-copy button { min-height: 0; display: inline; }
 .native-lib-foot-meta { font-size: 14px; opacity: .75; }
+
+/* Status notes toast over the surface — a quiet pill docked at the bottom
+   edge like the Mac's .desktop-toast-stack, never an in-flow line that
+   shifts the sections when it lands. Taps pass through; it never covers a
+   control for long because the note clears itself. */
+.native-toast-stack {
+  position: fixed;
+  z-index: 92;
+  left: 50%;
+  bottom: max(20px, calc(env(safe-area-inset-bottom) + 12px));
+  transform: translateX(-50%);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  pointer-events: none;
+}
+/* Inside the stack the pill holds its own place — .admin-toast's fixed
+   centering and slide-up would double-apply otherwise. */
+.native-toast-stack .admin-toast { position: static; transform: none; animation: none; }
+
+/* A card menu floats like an action sheet: inset on every side so all
+   four edges read against the dimmed Library, never docked to the screen.
+   (:has keeps the rule on the three-dot menus alone — sheets carrying
+   forms or confirmations keep the docked treatment.) */
+.m-sheet:has(.lib-menu) {
+  left: 14px;
+  right: 14px;
+  bottom: calc(env(safe-area-inset-bottom, 0px) + 16px);
+  max-width: 560px;
+  margin: 0 auto;
+  border-radius: var(--m-radius-sheet);
+  padding-bottom: 12px;
+}
+/* …and the Library sinks further behind a floating menu than behind a
+   docked sheet, so the card it belongs to stays readable as context. */
+.m-sheet-host:has(.lib-menu) { --m-scrim: rgba(0, 0, 0, .78); }
 .native-library-footer :is(.site-footer-link, .site-footer-copy) { color: var(--m-secondary); line-height: 1.6; }
 .native-library-footer button:hover { text-decoration: underline; }
 .native-library-layout .native-list-card {
@@ -880,17 +969,42 @@ html.light body.manorama-native :is(.native-welcome, .native-list-shell, .native
 }
 .native-library-layout .native-list-card[hidden] { display: none; }
 .native-library-layout .native-account-note { font: inherit; font-size: 13px; letter-spacing: 0; color: var(--m-secondary); }
-.native-library-layout .native-library-section-title {
-  margin: 0 0 16px;
+/* Sections announce in the page's voice, like .lib-section-title in
+   app/styles.css — a heading clearly above the 19px card title and below
+   the 28px screen h1, never a caption. The count wears the title's font;
+   only the ink is quieted. */
+.native-library-layout .lib-section-title {
+  margin: 0 0 14px;
   color: var(--m-ink);
-  font-size: 17px;
-  font-weight: 650;
-  line-height: 1.4;
+  font-size: 24px;
+  font-weight: 700;
+  letter-spacing: -.02em;
+  line-height: 1.3;
 }
-.native-library-section-title > span { color: var(--m-secondary); font-size: 13px; font-weight: 400; }
-.native-library-layout .native-gallery-list { margin: 0 0 28px; }
+.native-library-layout .lib-section-count,
+.native-library-layout .lib-hidden-count { color: rgba(var(--ink), .45); }
+/* Collapsible sections — the same button+chevron contract the Mac's
+   Catalogue uses (.lib-hidden-toggle + SectionChevron, app/styles.css). */
+.native-library-layout .lib-hidden-toggle {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  min-height: 44px;
+  padding: 0;
+  background: none;
+  border: 0;
+  cursor: pointer;
+  text-align: left;
+  font-family: inherit;
+}
+.native-library-layout .lib-hidden-chevron { flex-shrink: 0; display: inline-flex; font-size: 30px; line-height: 1; color: rgba(var(--ink), .5); }
+.native-library-layout .lib-hidden-chevron svg { display: block; }
+/* A section break needs more air than the 28px card gap, or the heading
+   reads as just another card line. */
+.native-library-layout .native-gallery-list { margin: 0 0 40px; }
 .native-library-layout .native-gallery-list > li + li { border: 0; }
-.native-library-layout .lib-rail { margin-inline: 0; height: 148px; }
+.native-library-layout .lib-rail { margin-inline: 0; height: 222px; }
 .native-library-layout .native-library-grid { grid-template-columns: minmax(0, 1fr); gap: 24px 16px; }
 .native-library-layout .native-library-compact-card { padding: 0; min-width: 0; }
 .native-library-layout .native-library-compact-card .lib-card-head { margin-top: 6px; gap: 8px; }
@@ -909,7 +1023,6 @@ html.light body.manorama-native :is(.native-welcome, .native-list-shell, .native
   padding: 0;
   border: 0;
 }
-.native-library-layout .native-library-hidden > summary { min-height: 44px; cursor: pointer; }
 .native-library-layout[data-library-divided] { display: block; padding: 0; }
 .native-library-layout[data-library-divided] .native-library-rail,
 .native-library-layout[data-library-divided] .native-list-card { display: block; box-sizing: border-box; overflow: auto; overscroll-behavior: contain; }
@@ -926,8 +1039,21 @@ body.manorama-native[data-native-fold-divided] .native-library-layout .native-se
 @container native-galleries (min-width: 380px) {
   .native-library-layout .native-library-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
-@container native-galleries (min-width: 700px) {
+/* Three columns only when each keeps the plan's comfortable item width —
+   at 700px the cells sank to ~222px; 760px guarantees ~242px apiece
+   (3×240 + 2×16 gap) and anything narrower takes two roomy columns. */
+@container native-galleries (min-width: 760px) {
   .native-library-layout .native-library-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+}
+/* At phone width the cover grid is a wall of postage stamps — the island
+   swaps every card's cover for its own filmstrip at this same measure
+   (560px content width), so the list reads as one column of scrollable
+   gallery previews, each strip bleeding to the pane edges like the viewer
+   it miniaturises. Later in source than the min-width rules so it decides
+   the 380–560px band too. */
+@container native-galleries (max-width: 560px) {
+  .native-library-layout .native-library-grid { grid-template-columns: minmax(0, 1fr); }
+  .native-library-layout .lib-rail { margin-inline: -20px; height: clamp(240px, 68cqw, 330px); }
 }
 @media (min-width: 760px) {
   .native-library-layout:not([data-library-divided]):not([data-library-settings]) {
