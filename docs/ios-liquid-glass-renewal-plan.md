@@ -1,6 +1,6 @@
 # iOS Liquid Glass renewal — proposed plan
 
-Date: 2026-11-19. Status: proposed, not implemented. Physical interaction validation remains incomplete.
+Date: 2026-11-19. Status: proposed, not implemented for iOS. The macOS-side interaction contract named in §3 has landed on `fix/macos-glass-interaction` (bounded `activateControl`/`setChromeActive`/`focusStage` calls, `chrome-layout` seating, the travelling `SheetGlassSurface` retired). Physical interaction validation remains incomplete.
 
 ## Direction
 
