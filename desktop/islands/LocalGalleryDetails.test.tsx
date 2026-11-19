@@ -401,4 +401,14 @@ describe('the details rail stylesheet contract', () => {
     const css = readFileSync(new URL('../../app/styles.css', import.meta.url).pathname, 'utf8')
     expect(css).toMatch(/:is\(\.lib-card, \.d-rail\) \.admin-gallery-strip-item > :is\(a, button\) \{[^}]*height: 100%/)
   })
+
+  test('a settings sheet frosts the library behind it, and only its scrim', () => {
+    const { readFileSync } = require('node:fs') as typeof import('node:fs')
+    const css = readFileSync(new URL('../../app/styles.css', import.meta.url).pathname, 'utf8')
+    // The blur is scoped to sheet hosts carrying an owner panel — card
+    // menus and confirms keep the plain dim veil.
+    expect(css).toMatch(/\.m-sheet-host:has\(\.m-owner-panel\) \.m-scrim:not\(\.m-scrim--ghost\) \{[^}]*backdrop-filter: blur\(/)
+    // Reduced transparency drops the frost like every other material.
+    expect(css).toMatch(/prefers-reduced-transparency: reduce[^}]*\{[^}]*\.m-sheet-host:has\(\.m-owner-panel\)[^}]*backdrop-filter: none/)
+  })
 })
