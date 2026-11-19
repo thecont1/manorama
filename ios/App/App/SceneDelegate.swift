@@ -143,6 +143,9 @@ class SceneDelegate: UIResponder, UIWindowSceneDelegate {
         }
         bridgeViewController.onNewDocument = { [weak self] in
             self?.lastInjectedLayout = nil
+            // A replacement document has no observer and no contract yet —
+            // the overlay must not inherit the last page's chrome state.
+            (self?.window?.rootViewController as? ManoramaBridgeViewController)?.glassModel?.resetForNewDocument()
         }
 
         window = UIWindow(windowScene: windowScene)

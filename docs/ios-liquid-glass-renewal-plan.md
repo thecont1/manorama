@@ -1,6 +1,6 @@
 # iOS Liquid Glass renewal — proposed plan
 
-Date: 2026-11-19. Status: proposed, not implemented for iOS. The macOS-side interaction contract named in §3 has landed on `fix/macos-glass-interaction` (bounded `activateControl`/`setChromeActive`/`focusStage` calls, `chrome-layout` seating, the travelling `SheetGlassSurface` retired). Physical interaction validation remains incomplete.
+Date: 2026-11-19. Status: partially implemented. The macOS-side interaction contract named in §3 landed earlier on `fix/macos-glass-interaction`; the same branch now ports it to iOS — bounded `activateControl`/`setChromeActive`/`focusStage` calls (installed by `native/lib/ios-shell.ts`, driven by `GlassOverlay.swift`), the `GlassEffectContainer` cluster with `.buttonStyle(.glass)`, the travelling `SheetGlassSurface` retired, and reserved-region filtering against the controls' measured bands. Still open: the Library composition redesign (§1), the fully native presentation slice (§3's display-settings/Info panels), real Duo hardware validation (§4), and physical interaction evidence (§5) — the plan's own gates keep those on their own branches.
 
 ## Direction
 

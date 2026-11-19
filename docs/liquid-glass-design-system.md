@@ -13,7 +13,7 @@ of an `<img>`.
 
 | Tier | Where | What |
 | --- | --- | --- |
-| **N — native glass** | macOS 26+ (shipped); iOS/iPadOS 26+ overlay | macOS: `.buttonStyle(.glass)` capsules inside `GlassEffectContainer` — merged at rest, expanding under pointer proximity, keyboard and VoiceOver focus. iOS: always-separate `.glassEffect` capsules + travelling `SheetGlassSurface` (the older port, pending its own renewal). Reduce-Transparency solid sibling at identical geometry; `minHeight: 44` |
+| **N — native glass** | macOS 26+ (shipped); iOS/iPadOS 26+ overlay | `.buttonStyle(.glass)` capsules inside `GlassEffectContainer` with `.glassEffectID` identities — one merged silhouette at rest, native press deformation on touch. macOS expands under pointer proximity, keyboard and VoiceOver focus; iOS reports held-finger/focus explicitly (no hover separation on touch). Reduce-Transparency solid sibling at identical geometry; 44×44 minimum targets |
 | **A — web bend** *(pending — no producer sets `data-android-glass` yet)* | Android Chromium WebView only | SVG `feDisplacementMap` through `backdrop-filter`, refracting the backdrop under chrome pills and stage arrows; the displacement never touches foreground paint, so glyphs stay crisp. Activation requires feature detection, a single-segment check and a same-session no-bend baseline |
 | **B — web frost** | in-document surfaces, all shells, all OS versions | backdrop-filter blur+saturate, specular rim, edge line, `--glass-*` fills |
 | **0 — solid** | reduced transparency / increased contrast / no backdrop-filter | CSS fallback for web; a Swift branch for native — RT is not a media query there |
@@ -56,22 +56,24 @@ What runs where: web chrome elements mount on every OS; on <26 they are
 repainted Tier B under the frost gate; on 26+ they stay mounted (they own the
 handlers the shell fires) but are hidden while native capsules render.
 
-## The native/web chrome contract (macOS)
+## The native/web chrome contract (macOS and iOS)
 
 Every transition has exactly one owner. Sheets are entirely web-owned: no
 native material ever sits on top of the web panel during the handoff — the
-earlier travelling `SheetGlassSurface` is retired on macOS (it still ships on
-iOS, which is why the iOS renewal plan exists).
+earlier travelling `SheetGlassSurface` is retired on both platforms.
 
 The contract is small and bounded:
 
 - **`__manoramaShell.activateControl(id)`** — the shell names a control
   (`library | position | settings | info`); the page fires its own mounted
-  pill. No selector string crosses the bridge.
-- **`__manoramaShell.setChromeActive(bool)`** — pointer proximity, hover,
-  keyboard and VoiceOver focus on the native chrome are reported as explicit
-  interaction state, so the page's idle clock keeps the hidden pills mounted.
-  Replaces the synthetic-pointermove keep-alive.
+  pill. No selector string crosses the bridge. On iOS the surface is
+  installed by `native/lib/ios-shell.ts` when the `data-ios-glass` stamp is
+  present; on macOS by `desktop-shell/bridge.ts`.
+- **`__manoramaShell.setChromeActive(bool)`** — native interaction (pointer
+  proximity and focus on macOS; held finger, keyboard and VoiceOver focus on
+  iOS) is reported as explicit activity state, so the page's idle clock
+  keeps the hidden pills mounted. Replaces the synthetic-pointermove
+  keep-alive.
 - **`__manoramaShell.focusStage()` / `{type:'focus'}`** — focus ownership
   handed off in both directions: Escape on a native control returns the
   stage; the page reports which control was focused so VoiceOver and the

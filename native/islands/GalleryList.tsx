@@ -12,7 +12,7 @@ import { loadGallerySettings } from '../../app/lib/gallery-settings'
 import type { FoldLayout } from '../../packages/core/fold'
 import type { Theme } from '../../app/lib/owner-theme'
 import GalleryShell from '../../app/components/GalleryShell'
-import Viewer from '../../app/islands/Viewer'
+import Viewer, { type ViewerChromeControl, type ViewerChromeHandle } from '../../app/islands/Viewer'
 import GalleryEditor from './GalleryEditor'
 import GalleryDetails from './GalleryDetails'
 import PostToX from './PostToX'
@@ -25,6 +25,7 @@ import { BundledSource } from '../../app/lib/imagesource'
 import type { AdFrame } from '../../app/lib/adframe'
 import { adoptGallery, createGalleryFromQuickAdd, createGalleryFromSource, deleteAccount, fetchAccountGalleries, fetchAccountIdentities, fetchAccountOwnerSlug, fetchDeviceGalleries, fetchDevices, fetchGallery, forgetDevice, normalizeApiBase, probeAccountGallery, refreshGallery, refreshGalleryWithManifest, registerDevice, renameOwnerSlug, scanSourceUrl, unlinkAccountIdentity, type AccountIdentity } from '../lib/api'
 import { nativeDeviceId, nativeDeviceKindFor } from '../lib/device-identity'
+import { hasIosGlass, installIosShellBridge, iosPost, publishIosChrome } from '../lib/ios-shell'
 import { isEncryptedSourceUrl, manifestIsEncryptedSource, galleryHashForSource } from '../../packages/core/encrypted-source'
 import type { GallerySummary } from '../../app/lib/gallery-repository'
 import type { DeviceGallery } from '../../packages/core/device-gallery'
@@ -382,12 +383,24 @@ export default function GalleryList({ apiBase, owner, slug, deepLinkSelection, o
     cacheFillRegistry.reset()
   }, [libraryLoader])
   const positionRef = useRef<{ imageId: string; index: number } | null>(null)
+  // The iOS 26+ glass overlay drives the mounted Viewer through this handle —
+  // the same contract the macOS shell uses. Without the data-ios-glass stamp
+  // the props and the published handle simply never come into play.
+  const chromeRef = useRef<ViewerChromeHandle | null>(null)
+  const chromeProps = hasIosGlass()
+    ? { chromeRef, onChromeFocus: (control: ViewerChromeControl) => iosPost({ type: 'focus', control }) }
+    : {}
   const navRef = useRef<OwnerNavState>(null as unknown as OwnerNavState)
   navRef.current = nav
   const selectionRef = useRef(selection)
   selectionRef.current = selection
   const leaseRef = useRef<Pick<NetworkFirstGallery, 'dispose' | 'encryptedResolver'> | null>(null)
   const base = useMemo(() => normalizeApiBase(apiBase), [apiBase])
+
+  useEffect(() => {
+    installIosShellBridge()
+    publishIosChrome(chromeRef)
+  }, [])
 
   useEffect(() => {
     let active = true
@@ -1392,6 +1405,7 @@ export default function GalleryList({ apiBase, owner, slug, deepLinkSelection, o
             initialIndex={frameKick.index}
             foldLayout={foldLayout}
             foldRenderer={renderFold}
+            {...chromeProps}
           />
         </GalleryShell>
         {suspendedViewer && nav.screen.kind === 'details' ? detailsView : null}
