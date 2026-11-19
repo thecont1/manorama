@@ -23,7 +23,7 @@ import { Sheet } from '../../app/components/ui/Sheet'
 import { ActionGroup, ActionRow } from '../../app/components/ui/ActionRow'
 import { BundledSource } from '../../app/lib/imagesource'
 import type { AdFrame } from '../../app/lib/adframe'
-import { adoptGallery, createGalleryFromQuickAdd, createGalleryFromSource, deleteAccount, fetchAccountGalleries, fetchAccountIdentities, fetchAccountOwnerSlug, fetchAccountTier, fetchDeviceGalleries, fetchDevices, fetchGallery, forgetDevice, normalizeApiBase, probeAccountGallery, refreshGallery, refreshGalleryWithManifest, registerDevice, renameOwnerSlug, scanSourceUrl, unlinkAccountIdentity, type AccountIdentity } from '../lib/api'
+import { adoptGallery, createGalleryFromQuickAdd, createGalleryFromSource, deleteAccount, fetchAccountGalleries, fetchAccountIdentities, fetchAccountOwnerSlug, fetchAccountTier, fetchDeviceGalleries, fetchDevices, fetchGallery, forgetDevice, normalizeApiBase, probeAccountGallery, refreshGallery, refreshGalleryWithManifest, registerDevice, renameOwnerSlug, scanSourceUrl, setGalleryHidden, unlinkAccountIdentity, type AccountIdentity } from '../lib/api'
 import { nativeDeviceId, nativeDeviceKindFor } from '../lib/device-identity'
 import { hasIosGlass, installIosShellBridge, iosPost, publishIosChrome } from '../lib/ios-shell'
 import { isEncryptedSourceUrl, manifestIsEncryptedSource, galleryHashForSource } from '../../packages/core/encrypted-source'
@@ -31,12 +31,15 @@ import type { GallerySummary } from '../../app/lib/gallery-repository'
 import type { DeviceGallery } from '../../packages/core/device-gallery'
 import type { Device } from '../../packages/core/devices'
 import { DeviceGalleriesGrid, deviceTileCard } from '../../app/components/library/DeviceGalleriesSection'
+import { SectionChevron } from '../../app/components/library/SectionChevron'
 import { syncQuietFade } from '../../app/components/library/quiet'
 import type { BillingState, RevenueCatBilling } from '../lib/billing'
 import {
   OfflineGalleryUnavailableError,
   offlineGalleryId,
   openGalleryNetworkFirst,
+  offlineManifestMatches,
+  openNativeEncryptedSession,
   productionOfflineGalleryStore,
   type NetworkFirstGallery,
   type OfflineGallerySummary,
@@ -54,7 +57,6 @@ import type { PostPhotoBytes } from '../lib/post-export'
 import { LibraryCover, LibraryRail } from './LibraryRail'
 import { libraryLayout } from '../../packages/core/library-layout'
 import { FREE_PIPELINE_LIMIT, retainedAllowanceCounts, retainedGalleryLimit, type AccountTier } from '../../packages/core/account'
-import { deviceImageDpr } from '../../packages/core/image-staging'
 import { productionVault } from '../lib/vault'
 import { adFrameFor, fetchAdVisibility, HOUSE_AD_FRAME, type AdPolicyInput, type AdVisibility } from '../lib/ads'
 import { createAccountAdAdapter } from '../lib/admob-account-adapter'
@@ -109,19 +111,24 @@ const galleryName = (gallery: { title?: string; slug: string }): string =>
   gallery.title || gallery.slug
 
 /** The card's on-device status: "Streamed" when the owner declined a copy,
- *  a live meter while vault writes land, "Saved on this device" once the
- *  count is met. Cache-fill events advance the meter mid-fill so the word
- *  never waits on an account refresh; nothing here starts a download. */
+ *  a live meter while vault writes land. Once the vault record commits, the
+ *  card's green saved badge states the copy instead — the meter only narrates
+ *  states not yet committed. Cache-fill events advance the meter mid-fill so
+ *  the word never waits on an account refresh; nothing here starts a download. */
 export const LibraryDeviceStatus = ({
   galleryId,
   imageCount,
   streamOnly,
   summary,
+  savedAnnounced = false,
 }: {
   galleryId: string
   imageCount: number
   streamOnly: boolean
   summary: OfflineGallerySummary | undefined
+  /** The caller prints the saved badge itself — the grey "On this iPhone"
+   *  word would only repeat it. Partial commits still narrate their fill. */
+  savedAnnounced?: boolean
 }) => {
   const seeded = summary?.status === 'cached' ? summary.images : 0
   const [liveSaved, setLiveSaved] = useState(seeded)
@@ -162,6 +169,7 @@ export const LibraryDeviceStatus = ({
       ><i style={{ width: `${(liveSaved / imageCount) * 100}%` }} /></span>
     </>)
   }
+  if (savedAnnounced) return null
   return <span class="lib-card-device"> · On {nativeDeviceLabel()}</span>
 }
 
@@ -269,6 +277,9 @@ export default function GalleryList({ apiBase, owner, slug, deepLinkSelection, o
   const [galleryPolicies, setGalleryPolicies] = useState<Record<string, GalleryLoadOverride> | null>(null)
   const [vaultNote, setVaultNote] = useState('Preparing offline copy…')
   const [vaultProgress, setVaultProgress] = useState<{ completed: number; total: number } | null>(null)
+  /** A vault fill started by the Keep-copy switch itself — the gallery need
+   *  not be open for the owner to watch it land. */
+  const [vaultSave, setVaultSave] = useState<{ owner: string; slug: string; completed: number; total: number; note: string | null } | null>(null)
   const selectedPolicyKey = galleryPolicyKey(selection.owner, selection.slug)
   const effectiveLoadPolicy = galleryPolicies?.[selectedPolicyKey] ?? DEFAULT_VAULT_LOAD_POLICY
   const streamOnly = effectiveLoadPolicy === 'stream'
@@ -280,6 +291,13 @@ export default function GalleryList({ apiBase, owner, slug, deepLinkSelection, o
   }, [])
   const [globalViewEnabled, setGlobalViewEnabled] = useState<boolean | null>(null)
   const [globalViewSaving, setGlobalViewSaving] = useState(false)
+  // Sections collapse like the Mac's Catalogue: everything open at launch,
+  // Hidden closed. Plain toggles — the Mac's password gate lives in its
+  // library-prefs.json and has no native analogue.
+  const [pinnedOpen, setPinnedOpen] = useState(true)
+  const [cloudOpen, setCloudOpen] = useState(true)
+  const [localOpen, setLocalOpen] = useState(true)
+  const [hiddenOpen, setHiddenOpen] = useState(false)
   const [manifest, setManifest] = useState<GalleryManifest | null>(null)
   const [settings, setSettings] = useState<GallerySettings | null>(null)
   const [plate, setPlate] = useState<Awaited<ReturnType<typeof adFrameFor>>>(null)
@@ -323,7 +341,6 @@ export default function GalleryList({ apiBase, owner, slug, deepLinkSelection, o
   const [sourceUrl, setSourceUrl] = useState('')
   const [galleryActionBusy, setGalleryActionBusy] = useState<string | null>(null)
   const [galleryActionNote, setGalleryActionNote] = useState<string | null>(null)
-  const [removeGallerySlug, setRemoveGallerySlug] = useState<string | null>(null)
   const [sourceName, setSourceName] = useState('')
   const [sourceCaption, setSourceCaption] = useState('')
   const [addOpen, setAddOpen] = useState(false)
@@ -564,10 +581,6 @@ export default function GalleryList({ apiBase, owner, slug, deepLinkSelection, o
       void cacheReady
         .then(async (result) => {
           if (!active) return
-          if (result?.status === 'skipped-video') {
-            setVaultNote('This gallery includes video. Offline saving is not supported for mixed galleries yet; the picker is available online.')
-            return
-          }
           if (result?.status === 'over-cap') {
             setVaultNote('This gallery is larger than your encrypted vault can hold. You can keep viewing online.')
             return
@@ -598,6 +611,7 @@ export default function GalleryList({ apiBase, owner, slug, deepLinkSelection, o
         selection,
         store: offlineStore,
         cachePolicy: effectiveLoadPolicy,
+        preferVault: true,
         onProgress: (progress) => {
           if (!active) return
           setVaultProgress(progress)
@@ -612,6 +626,18 @@ export default function GalleryList({ apiBase, owner, slug, deepLinkSelection, o
             return
           }
           applyGallery(gallery)
+          // A kept copy won the open from the device; the network answer was
+          // still in flight. An unchanged manifest re-commits quietly — a
+          // drifted one swaps in, keeping the frame the owner is on.
+          if (!gallery.revalidate) return
+          void gallery.revalidate.then((fresh) => {
+            if (!active || !fresh) return
+            if (gallery.committedManifest && offlineManifestMatches(gallery.committedManifest, fresh.manifest)) return
+            applyGallery(fresh)
+            const currentId = positionRef.current?.imageId
+            const matched = currentId ? fresh.manifest.images.findIndex((image) => image.id === currentId) : -1
+            setFrameKick((kick) => ({ index: matched >= 0 ? matched : 0, nonce: kick.nonce + 1 }))
+          })
         })
         .catch((reason: unknown) => {
           if (!active || controller.signal.aborted) return
@@ -1198,6 +1224,53 @@ export default function GalleryList({ apiBase, owner, slug, deepLinkSelection, o
    *  behind a newer choice. */
   const galleryPoliciesRef = useRef<Record<string, GalleryLoadOverride>>({})
   const streamOnlyWrites = useRef(new Map<string, Promise<void>>())
+  const vaultSaveAborts = useRef(new Map<string, AbortController>())
+  /** Keep ON means the copy should exist — fetch the manifest and start the
+   *  fill now, with progress the switch row and the Library finding can both
+   *  report. A newer tap replaces the controller, so only one fill per
+   *  gallery ever runs. */
+  const saveGalleryToVault = async (target: Selection, galleryId: string) => {
+    vaultSaveAborts.current.get(target.slug)?.abort()
+    const controller = new AbortController()
+    vaultSaveAborts.current.set(target.slug, controller)
+    const note = (completed: number, total: number) =>
+      total > 0 ? `Saving ${completed} of ${total} photos to your encrypted vault…` : 'Preparing offline copy…'
+    setVaultSave({ owner: target.owner, slug: target.slug, completed: 0, total: 0, note: note(0, 0) })
+    try {
+      const gallery = await fetchGallery(base, target.owner, target.slug, controller.signal)
+      const selection = { owner: target.owner, slug: target.slug, galleryId, sourceUrl: target.sourceUrl }
+      const encryptedSession = gallery.manifest.images.some((image) => !isVideoItem(image) && image.media?.kind === 'encrypted')
+        ? await openNativeEncryptedSession(selection, gallery.manifest.sourceUrl)
+        : undefined
+      const result = await offlineStore.cache(
+        selection,
+        gallery,
+        controller.signal,
+        (progress) => setVaultSave({ owner: target.owner, slug: target.slug, completed: progress.completed, total: progress.total, note: note(progress.completed, progress.total) }),
+        undefined,
+        encryptedSession,
+      )
+      if (result.status === 'complete') {
+        // Re-list the vault so the saved badge, the Keep row's Saved value
+        // and the footer count all pick the copy up.
+        setAccountRevision((revision) => revision + 1)
+        setGalleryActionNote(`Saved on ${nativeDeviceLabel()} — encrypted, viewable only in manorama.`)
+      } else if (result.status === 'skipped-encrypted') {
+        setGalleryActionNote('This gallery cannot be saved on this device — its encrypted form predates the vault.')
+      } else if (result.status === 'over-cap') {
+        setGalleryActionNote('This gallery is larger than the encrypted vault can hold — raise the limit in Settings.')
+      }
+    } catch (error) {
+      if (!controller.signal.aborted) {
+        setGalleryActionNote(error instanceof Error ? error.message : 'That gallery could not be saved on this device')
+      }
+    } finally {
+      if (vaultSaveAborts.current.get(target.slug) === controller) {
+        vaultSaveAborts.current.delete(target.slug)
+        setVaultSave((current) => (current?.slug === target.slug ? null : current))
+      }
+    }
+  }
   const changeGalleryStreamOnly = async (enabled: boolean, target: Selection = selection) => {
     const key = galleryPolicyKey(target.owner, target.slug)
     const before = galleryPoliciesRef.current[key]
@@ -1224,6 +1297,37 @@ export default function GalleryList({ apiBase, owner, slug, deepLinkSelection, o
       })
     streamOnlyWrites.current.set(key, queued)
     await queued
+    // Stream is a deletion choice, not just a future-downloads one: the
+    // copy the vault was keeping goes with the policy, as the switch's
+    // supporting text states. Skipped when a newer choice already moved
+    // the key back to vault.
+    if (enabled) {
+      vaultSaveAborts.current.get(target.slug)?.abort()
+      setVaultSave((current) => (current?.slug === target.slug ? null : current))
+      const galleryId = target.galleryId ?? galleryIds[target.slug]
+      if (galleryId && galleryPoliciesRef.current[key] === 'stream') {
+        try {
+          await offlineStore.purgeGallery(galleryId)
+          libraryLoader.invalidate(galleryId)
+          setCachedLibraryGalleries((previous) => previous.filter((item) => item.galleryId !== galleryId))
+          setVaultGalleries((previous) => {
+            const next = new Map(previous)
+            next.delete(galleryId)
+            return next
+          })
+          setVaultNote('Saved copy removed from this device')
+        } catch {
+          setVaultNote('The saved copy could not be removed')
+        }
+      }
+    } else if (galleryPoliciesRef.current[key] === 'vault') {
+      // Keep is a save choice, not only a future-opens one — start the fill
+      // now unless a complete copy already sits in the vault.
+      const galleryId = target.galleryId ?? galleryIds[target.slug]
+      if (galleryId && vaultGalleries.get(galleryId)?.status !== 'cached') {
+        void saveGalleryToVault(target, galleryId)
+      }
+    }
   }
 
   const openReorderFor = (
@@ -1363,18 +1467,21 @@ export default function GalleryList({ apiBase, owner, slug, deepLinkSelection, o
     setPostToX(null)
   }
 
-  const purgeSavedCopy = async (gallery: GallerySummary) => {
-    const galleryId = galleryIds[gallery.slug]
-    if (!galleryId) return
-    await offlineStore.purgeGallery(galleryId)
-    libraryLoader.invalidate(galleryId)
-    setVaultGalleries((previous) => {
-      const next = new Map(previous)
-      next.delete(galleryId)
-      return next
-    })
-    setCachedLibraryGalleries((previous) => previous.filter((item) => item.galleryId !== galleryId))
-    setAccountRevision((revision) => revision + 1)
+  /** "View source" opens the provider folder in the in-app browser. An
+   *  encrypted gallery's stored URL is keyless, so the provider link is
+   *  resolved from this device's key custody — the same rule the macOS
+   *  settings sheet applies. */
+  const viewGallerySource = async (gallery: GallerySummary) => {
+    if (gallery.manifestVersion === 2 && gallery.id) {
+      const source = await resolveEncryptedSourceForSelection(gallery.id).catch(() => null)
+      if (!source) {
+        setGalleryActionNote('This device does not hold the key; the source cannot be opened here.')
+        return
+      }
+      openExternal(source)
+      return
+    }
+    if (gallery.sourceUrl) openExternal(gallery.sourceUrl)
   }
 
   const currentGallerySummary = accountGalleries?.find((gallery) => gallery.slug === selection.slug)
@@ -1393,13 +1500,22 @@ export default function GalleryList({ apiBase, owner, slug, deepLinkSelection, o
       owner={ownerSlug}
       gallery={detailsSummary}
       streamOnly={detailsStreamOnly}
-      vaultNote={selection.slug === detailsSummary.slug ? vaultNote : undefined}
-      vaultProgress={selection.slug === detailsSummary.slug ? vaultProgress : null}
+      vaultNote={
+        selection.slug === detailsSummary.slug ? vaultNote
+        : vaultSave?.slug === detailsSummary.slug ? vaultSave.note ?? undefined
+        : undefined
+      }
+      vaultProgress={
+        selection.slug === detailsSummary.slug ? vaultProgress
+        : vaultSave?.slug === detailsSummary.slug && vaultSave.total > 0 ? { completed: vaultSave.completed, total: vaultSave.total }
+        : null
+      }
       hasSavedCopy={detailsGalleryId ? vaultGalleries.get(detailsGalleryId)?.status === 'cached' : false}
       backLabel={detailsFromViewer ? 'Back' : 'Library'}
       backAriaLabel={detailsFromViewer ? `Back to ${galleryName(detailsSummary)}` : undefined}
       rail={(
         <LibraryRail
+          preview
           galleryId={detailsGalleryId ?? ''}
           images={detailsSummary.images}
           loader={libraryLoader}
@@ -1424,12 +1540,12 @@ export default function GalleryList({ apiBase, owner, slug, deepLinkSelection, o
         setFrameKick({ index: 0, nonce: 0 })
         enterGallery({ owner: ownerSlug, slug: detailsSummary.slug })
       }}
-      onShare={() => { void shareGallery(detailsSummary) }}
+      onOpenSource={detailsSummary.sourceUrl ? () => { void viewGallerySource(detailsSummary) } : undefined}
       onReorder={() => openReorderFor({ owner: ownerSlug, slug: detailsSummary.slug, title: galleryName(detailsSummary) }, 'details')}
-      onStreamOnlyChange={(next) => { void changeGalleryStreamOnly(next, { owner: ownerSlug, slug: detailsSummary.slug }) }}
+      onStreamOnlyChange={(next) => { void changeGalleryStreamOnly(next, { owner: ownerSlug, slug: detailsSummary.slug, galleryId: detailsGalleryId, sourceUrl: detailsSummary.sourceUrl ?? undefined }) }}
       onChanged={galleryChanged}
+      onDelete={() => deleteAccountGallery(detailsSummary)}
       onRemoved={returnToGalleries}
-      onPurge={() => purgeSavedCopy(detailsSummary)}
     />
   ) : null
   const shareFallback = sharePayload ? (
@@ -1884,54 +2000,103 @@ export default function GalleryList({ apiBase, owner, slug, deepLinkSelection, o
       setGalleryActionNote(reason instanceof Error ? reason.message : 'That gallery could not be pinned')
     } finally { setGalleryActionBusy(null) }
   }
-  const mutateGallery = async (gallery: GallerySummary, action: 'refresh' | 'delete') => {
+  const mutateGallery = async (gallery: GallerySummary) => {
     if (galleryActionBusy) return
     setGalleryActionBusy(gallery.slug)
-    setGalleryActionNote(action === 'refresh' ? 'Refreshing gallery…' : 'Removing gallery…')
+    setGalleryActionNote('Refreshing gallery…')
     try {
       const token = await getSessionToken()
       if (!token) throw new Error('Sign in to manage this gallery.')
-      if (action === 'refresh' && gallery.manifestVersion === 2 && gallery.id) {
+      if (gallery.manifestVersion === 2 && gallery.id) {
         await refreshEncryptedGallery(base, gallery.slug, gallery.id)
       } else {
-        const response = await fetch(`${base}/api/galleries/${encodeURIComponent(gallery.slug)}${action === 'refresh' ? '/refresh' : ''}`, {
-          method: action === 'refresh' ? 'POST' : 'DELETE', headers: { Authorization: `Bearer ${token}` },
+        const response = await fetch(`${base}/api/galleries/${encodeURIComponent(gallery.slug)}/refresh`, {
+          method: 'POST', headers: { Authorization: `Bearer ${token}` },
         })
         const payload = await response.json().catch(() => ({})) as { error?: string }
         if (!response.ok) throw new Error(payload.error || 'That gallery could not be updated.')
       }
-      // The server row is already gone at this point — a key-removal
-      // failure must not skip the list updates below or masquerade as a
-      // failed delete. Its outcome only changes the closing note.
-      let keyRemoved = true
-      if (action === 'delete' && gallery.id) {
-        try {
-          await removeEncryptedSourceForSelection(gallery.id)
-        } catch {
-          keyRemoved = false
-        }
-      }
       const galleryId = galleryIds[gallery.slug]
       if (galleryId) libraryLoader.invalidate(galleryId)
-      if (action === 'delete') setAccountGalleries((previous) => previous?.filter((item) => item.slug !== gallery.slug) ?? null)
-      setRemoveGallerySlug(null)
       setAccountRevision((revision) => revision + 1)
-      setGalleryActionNote(
-        action === 'refresh'
-          ? 'Gallery refreshed'
-          : keyRemoved
-            ? 'Gallery removed. Your cloud files were not changed.'
-            : 'Gallery removed, but its key could not be removed from this device — sign out to clear remaining keys.',
-      )
+      setGalleryActionNote('Gallery refreshed')
     } catch (reason) {
       setGalleryActionNote(reason instanceof Error ? reason.message : 'That gallery could not be updated.')
     } finally { setGalleryActionBusy(null) }
   }
+
+  // Action notes toast over the surface like the Mac's — a status note, not
+  // a banner; it clears itself so a stale "Hidden…" never lingers.
+  useEffect(() => {
+    if (!galleryActionNote) return
+    const timer = setTimeout(() => setGalleryActionNote(null), 5000)
+    return () => clearTimeout(timer)
+  }, [galleryActionNote])
+
+  /** Conceal/reveal like the Mac: the flag moves the card between its
+   *  section and the collapsed Hidden galleries run — display only, so no
+   *  retention, expiry or pin bookkeeping changes hands. */
+  const toggleGalleryHidden = async (gallery: GallerySummary) => {
+    if (galleryActionBusy) return
+    setGalleryActionBusy(gallery.slug)
+    setGalleryActionNote(gallery.hiddenAt ? 'Unhiding gallery…' : 'Hiding gallery…')
+    try {
+      await setGalleryHidden(base, gallery.slug, !gallery.hiddenAt)
+      setAccountGalleries((previous) => previous?.map((item) => item.slug === gallery.slug
+        ? { ...item, hiddenAt: gallery.hiddenAt ? null : new Date().toISOString() }
+        : item) ?? null)
+      setAccountRevision((revision) => revision + 1)
+      setGalleryActionNote(gallery.hiddenAt
+        ? 'Gallery back in the Library'
+        : 'Hidden — it waits in the Hidden galleries section')
+    } catch (reason) {
+      setGalleryActionNote(reason instanceof Error ? reason.message : 'The gallery could not be hidden')
+    } finally { setGalleryActionBusy(null) }
+  }
+
+  /** The one removal path — the card menu no longer deletes; Gallery
+   *  settings' "Remove from Library" row lands here after its sheet
+   *  confirms, so the server row, the encrypted key, the media loader and
+   *  the account list all move together. */
+  const deleteAccountGallery = async (gallery: GallerySummary) => {
+    const token = await getSessionToken()
+    if (!token) throw new Error('Sign in to manage this gallery.')
+    const response = await fetch(`${base}/api/galleries/${encodeURIComponent(gallery.slug)}`, {
+      method: 'DELETE', headers: { Authorization: `Bearer ${token}` },
+    })
+    const payload = await response.json().catch(() => ({})) as { error?: string }
+    if (!response.ok) throw new Error(payload.error || 'The gallery could not be removed')
+    // The server row is already gone at this point — a key-removal
+    // failure must not skip the list updates below or masquerade as a
+    // failed delete. Its outcome only changes the closing note.
+    let keyRemoved = true
+    if (gallery.id) {
+      try {
+        await removeEncryptedSourceForSelection(gallery.id)
+      } catch {
+        keyRemoved = false
+      }
+    }
+    const galleryId = galleryIds[gallery.slug]
+    if (galleryId) libraryLoader.invalidate(galleryId)
+    setAccountGalleries((previous) => previous?.filter((item) => item.slug !== gallery.slug) ?? null)
+    setAccountRevision((revision) => revision + 1)
+    setGalleryActionNote(keyRemoved
+      ? 'Gallery removed. Your cloud files were not changed.'
+      : 'Gallery removed, but its key could not be removed from this device — sign out to clear remaining keys.')
+  }
   // Saved copies are a device fact, not an account fact: show them even when
   // the owner slug or the account list is unavailable — only a gallery the
-  // account list actually returned drops out of this section.
-  const cachedOnlyGalleries = cachedLibraryGalleries.filter((cached) =>
-    !(cached.owner === ownerSlug && accountGalleries?.some((gallery) => gallery.slug === cached.slug)))
+  // account list actually returned drops out of this section. While the
+  // account list is still in flight a same-owner copy's row may yet land
+  // and claim it with the saved badge, so it stays out of the visible
+  // Library rather than flicker into this section first (the Catalogue's
+  // savedOnlyGalleries contract).
+  const cachedOnlyGalleries = cachedLibraryGalleries.filter((cached) => {
+    if (cached.owner !== ownerSlug) return true
+    if (accountGalleries === null && !accountListFailed) return false
+    return !(accountGalleries ?? []).some((gallery) => gallery.slug === cached.slug)
+  })
   const purgeCachedLibraryGallery = async (gallery: OfflineGridGallery) => {
     if (galleryActionBusy) return
     setGalleryActionBusy(gallery.galleryId)
@@ -1991,6 +2156,7 @@ export default function GalleryList({ apiBase, owner, slug, deepLinkSelection, o
             onClick={() => setOpenMenuSlug(gallery.slug)}
           >···</button>
         </div>
+        {vaultSummary?.status === 'cached' ? <p class="lib-badge-saved">Saved on this device</p> : null}
         <p class="lib-card-sub">
           {formatMediaCount({ stills: mediaCount.stills, videos: mediaCount.videos })}
           {gallery.retention === 'pipeline' ? ` · Temporary gallery${gallery.expiresAt ? ` · expires in ${expiryCountdownText(gallery.expiresAt, now)}` : ''}` : ''}
@@ -1999,14 +2165,10 @@ export default function GalleryList({ apiBase, owner, slug, deepLinkSelection, o
             imageCount={gallery.imageCount}
             streamOnly={streamOnlyGallery}
             summary={vaultSummary}
+            savedAnnounced={vaultSummary?.status === 'cached'}
           />
         </p>
         {caption ? <p class="native-gallery-caption">{caption}</p> : null}
-        {removeGallerySlug === gallery.slug ? <div class="native-gallery-remove-confirm" role="group" aria-label={`Confirm removal of ${galleryName(gallery)}`}>
-          <p>Remove “{galleryName(gallery)}” from manorama? This cannot be undone. Your cloud files and existing device vault copies are not deleted.</p>
-          <button type="button" disabled={galleryActionBusy !== null} onClick={() => void mutateGallery(gallery, 'delete')}>Remove gallery</button>
-          <button type="button" disabled={galleryActionBusy !== null} onClick={() => setRemoveGallerySlug(null)}>Cancel</button>
-        </div> : null}
       </article>
     )
   }
@@ -2048,7 +2210,6 @@ export default function GalleryList({ apiBase, owner, slug, deepLinkSelection, o
   const accountAdCreative = accountAdFrame ?? HOUSE_AD_FRAME
   const accountAdImage = accountAdCreative.image
   const accountAdSize = accountAdDimensions && accountAdDimensions.src === accountAdImage?.src ? accountAdDimensions : accountAdImage
-  const accountAdDpr = deviceImageDpr(typeof window === 'undefined' ? 1 : window.devicePixelRatio)
   // The status line under the title reports vault activity first, then how
   // many galleries live on the device. Kept means what the cards mean: not
   // stream-only, with a committed vault copy holding every image.
@@ -2059,9 +2220,14 @@ export default function GalleryList({ apiBase, owner, slug, deepLinkSelection, o
         return summary?.status === 'cached' && summary.images >= gallery.imageCount
       }).length
     : 0
+  const vaultFillActive = vaultProgress && vaultProgress.total > 0
+    ? vaultProgress
+    : vaultSave
   const libraryFinding = vaultProgress && vaultProgress.total > 0
     ? `${selection.slug} is saving to ${nativeDeviceLabel()}, ${vaultProgress.completed} of ${vaultProgress.total}.`
-    : ''
+    : vaultSave
+      ? vaultSave.note ?? `${vaultSave.slug} is saving to ${nativeDeviceLabel()}…`
+      : ''
 
   const accountAdAside = tierKnown && visibility?.show !== false ? (
     <aside
@@ -2069,10 +2235,13 @@ export default function GalleryList({ apiBase, owner, slug, deepLinkSelection, o
       data-account-ad
       aria-label={`${accountAdCreative.badge}: ${accountAdCreative.advertiser}`}
     >
+      <span class="native-account-ad-badge">{accountAdCreative.badge}</span>
+      {/* House creative is chrome, not a photograph — the honest-pixel cap
+          does not apply; it takes the same media treatment the shared slot
+          gives it everywhere else (caps, never a crop). */}
       <div class="native-account-ad-frame" style={accountAdSize ? { aspectRatio: `${accountAdSize.width} / ${accountAdSize.height}` } : undefined}>
         {accountAdImage ? (
           <img src={accountAdImage.src} width={accountAdImage.width} height={accountAdImage.height} alt=""
-            style={accountAdSize ? { height: `${Math.min(200, accountAdSize.height / accountAdDpr)}px` } : undefined}
             onLoad={(event: Event) => {
             const image = event.currentTarget as HTMLImageElement
             setAccountAdDimensions({ src: accountAdImage.src, width: image.naturalWidth, height: image.naturalHeight })
@@ -2082,7 +2251,6 @@ export default function GalleryList({ apiBase, owner, slug, deepLinkSelection, o
         )}
       </div>
       <div class="native-account-ad-copy">
-        <span class="native-account-ad-badge">{accountAdCreative.badge}</span>
         <strong class="native-account-ad-headline">
           {accountAdCreative.headline ?? accountAdCreative.advertiser}
         </strong>
@@ -2194,7 +2362,6 @@ export default function GalleryList({ apiBase, owner, slug, deepLinkSelection, o
       <aside class="native-library-rail" style={libraryRegionStyle(libraryControlRegion)} aria-label="Library controls">
         <div class="native-library-tools">
         <img class="m-topbar-logo" src="/manorama-merged-logo.png" alt="manorama" width="140" height="47" />
-        {accountAdAside}
         <div class="native-library-heading"><h1>Library</h1></div>
         <div class="native-library-actions">
         <button type="button" class="m-btn m-btn--primary" onClick={() => { setError(null); setAddChooserOpen(true) }}><svg viewBox="0 0 24 24" aria-hidden="true" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 5v14M5 12h14"/></svg>Add Gallery</button>
@@ -2221,7 +2388,24 @@ export default function GalleryList({ apiBase, owner, slug, deepLinkSelection, o
           <SettingsIcon />
         </button>
         </div>
-        {libraryFinding ? <p class="native-library-finding">{libraryFinding}</p> : null}
+        {libraryFinding ? (
+          <p class="native-library-finding">
+            {libraryFinding}
+            <span
+              class="native-vault-meter"
+              role="progressbar"
+              aria-label={`Saving to ${nativeDeviceLabel()}`}
+              aria-valuemin={0}
+              aria-valuemax={vaultFillActive?.total ?? 0}
+              aria-valuenow={vaultFillActive?.completed ?? 0}
+            >
+              <span
+                class="native-vault-meter-fill"
+                style={{ width: vaultFillActive && vaultFillActive.total > 0 ? `${Math.min(100, Math.round((vaultFillActive.completed / vaultFillActive.total) * 100))}%` : '0%' }}
+              />
+            </span>
+          </p>
+        ) : null}
         {signedIn && tierKnown && accountGalleries ? (
           <footer class={quiet ? 'native-lib-foot lib-quiet' : 'native-lib-foot'} hidden={nav.screen.kind === 'settings' || undefined}>
             <button type="button" class="native-lib-foot-open" onClick={() => dispatchNav({ type: 'open-settings' })}>
@@ -2251,6 +2435,7 @@ export default function GalleryList({ apiBase, owner, slug, deepLinkSelection, o
             ) : null}
           </footer>
         ) : null}
+        {accountAdAside}
         </div>
         <div class="native-library-sponsor">
         <footer class="site-footer native-library-footer">
@@ -2267,12 +2452,10 @@ export default function GalleryList({ apiBase, owner, slug, deepLinkSelection, o
             <button type="button" class="app-update-dismiss" aria-label="Dismiss this update notice" onClick={dismissUpdate}>×</button>
           </div>
         ) : null}
-        {galleryActionNote ? <p role="status">{galleryActionNote}</p> : null}
         {authError ? <p role="alert">{authError}</p> : null}
         {/* A link result can arrive on a cold start, before Settings has
             ever mounted — it needs a line on the Library too. */}
         {linkConflict ? <p class="native-account-note" role="alert">{linkConflict}</p> : null}
-        {quickAddBusy ? <p class="native-account-note" role="status">Reading the cloud folder and building your gallery…</p> : null}
         {error && !galleryOpen && !addOpen ? <p class="native-account-note" role="alert">{error}</p> : null}
         {/* A vaulted open decrypts every entry before the first frame — the
             gap reads as a hang unless the surface says it is working. */}
@@ -2288,17 +2471,23 @@ export default function GalleryList({ apiBase, owner, slug, deepLinkSelection, o
               </p>
             ) : null}
             {visibleAccountGalleries.length > 0 ? (<>
-              {accountLayout.strips.length > 0 ? <section aria-label="Pinned galleries">
-                <h2 class="native-library-section-title">Pinned galleries <span>({accountLayout.strips.length})</span></h2>
-                <ul class="native-gallery-list">
+              {accountLayout.strips.length > 0 ? <section aria-labelledby="native-pinned-title">
+                <button type="button" id="native-pinned-title" class="lib-section-title lib-compact-title lib-hidden-toggle" aria-expanded={pinnedOpen ? 'true' : 'false'} onClick={() => setPinnedOpen((open) => !open)}>
+                  <SectionChevron open={pinnedOpen} />
+                  Pinned galleries <span class="lib-hidden-count">({accountLayout.strips.length})</span>
+                </button>
+                {pinnedOpen ? <ul class="native-gallery-list">
                   {accountLayout.strips.map((slug) => <li key={slug}>{accountGalleryRow(accountBySlug.get(slug)!)}</li>)}
-                </ul>
+                </ul> : null}
               </section> : null}
-              {accountLayout.compact.length > 0 ? <section aria-label="Cloud galleries">
-                <h2 class="native-library-section-title">Cloud galleries <span>({accountLayout.compact.length})</span></h2>
-                <ul class="native-gallery-list native-library-grid">
+              {accountLayout.compact.length > 0 ? <section aria-labelledby="native-cloud-title">
+                <button type="button" id="native-cloud-title" class="lib-section-title lib-compact-title lib-hidden-toggle" aria-expanded={cloudOpen ? 'true' : 'false'} onClick={() => setCloudOpen((open) => !open)}>
+                  <SectionChevron open={cloudOpen} />
+                  Cloud galleries <span class="lib-hidden-count">({accountLayout.compact.length})</span>
+                </button>
+                {cloudOpen ? <ul class="native-gallery-list native-library-grid">
                   {accountLayout.compact.map((slug) => <li key={slug}>{accountGalleryRow(accountBySlug.get(slug)!)}</li>)}
-                </ul>
+                </ul> : null}
               </section> : null}
             </>) : accountGalleries && !accountListFailed && temporaryAccountGalleries.length === 0 && !cachedOnlyGalleries.length && !hiddenAccountGalleries.length ? (
               <div class="lib-empty">
@@ -2314,7 +2503,11 @@ export default function GalleryList({ apiBase, owner, slug, deepLinkSelection, o
              originals; mirror rows are title, count and the device pill.
              Visionary only, like the feature itself (invariant 12). */
           <div class="native-account" data-local-galleries>
-            <h2 class="native-library-section-title">Local galleries</h2>
+            <button type="button" class="lib-section-title lib-hidden-toggle" aria-expanded={localOpen ? 'true' : 'false'} onClick={() => setLocalOpen((open) => !open)}>
+              <SectionChevron open={localOpen} />
+              Local galleries <span class="lib-hidden-count">({ownLocalGalleries.length + standaloneDeviceGalleries.length})</span>
+            </button>
+            {localOpen ? <>
             {ownLocalGalleries.length > 0 && localCatalogue ? (
               <ul class="lib-device-grid">
                 {ownLocalGalleries.map((record) => deviceTileCard(
@@ -2349,22 +2542,28 @@ export default function GalleryList({ apiBase, owner, slug, deepLinkSelection, o
                 if (gallery.publicGallerySlug && ownerSlug) enterGallery({ owner: ownerSlug, slug: gallery.publicGallerySlug })
               }}
             />
+            </> : null}
           </div>
         ) : null}
         {cachedOnlyGalleries.length > 0 ? (
           <div class="native-account" data-cached-library>
-            <h2 class="native-library-section-title">Saved on this device <span>({cachedOnlyGalleries.length})</span></h2>
+            <h2 class="lib-section-title">Saved on this device <span class="lib-section-count">({cachedOnlyGalleries.length})</span></h2>
             <ul class="native-gallery-list native-library-grid">
               {cachedOnlyGalleries.map((gallery) => <li key={gallery.galleryId}>{cachedGalleryRow(gallery)}</li>)}
             </ul>
           </div>
         ) : null}
-        {hiddenAccountGalleries.length > 0 ? <details class="native-library-hidden">
-          <summary class="native-library-section-title">Hidden galleries <span>({hiddenAccountGalleries.length})</span></summary>
-          <ul class="native-gallery-list native-library-grid">
-            {hiddenAccountGalleries.map((gallery) => <li key={gallery.slug}>{accountGalleryRow(gallery)}</li>)}
-          </ul>
-        </details> : null}
+        {hiddenAccountGalleries.length > 0 ? (
+          <section aria-labelledby="native-hidden-title">
+            <button type="button" id="native-hidden-title" class="lib-section-title lib-compact-title lib-hidden-toggle" aria-expanded={hiddenOpen ? 'true' : 'false'} onClick={() => setHiddenOpen((open) => !open)}>
+              <SectionChevron open={hiddenOpen} />
+              Hidden galleries <span class="lib-hidden-count">({hiddenAccountGalleries.length})</span>
+            </button>
+            {hiddenOpen ? <ul class="native-gallery-list native-library-grid">
+              {hiddenAccountGalleries.map((gallery) => <li key={gallery.slug}>{accountGalleryRow(gallery)}</li>)}
+            </ul> : null}
+          </section>
+        ) : null}
       </section>
       {settingsView}
     </main>
@@ -2475,13 +2674,9 @@ export default function GalleryList({ apiBase, owner, slug, deepLinkSelection, o
       >
         <div class="lib-menu" role="menu" aria-label={`${galleryName(menuGallery)} actions`}>
           <button type="button" role="menuitem" disabled={galleryActionBusy !== null} onClick={() => void toggleGalleryPin(menuGallery)}>{menuGallery.pinnedAt ? 'Unpin gallery' : 'Pin gallery'}</button>
+          <button type="button" role="menuitem" disabled={galleryActionBusy !== null} onClick={() => { setOpenMenuSlug(null); void toggleGalleryHidden(menuGallery) }}>{menuGallery.hiddenAt ? 'Unhide gallery' : 'Hide this gallery'}</button>
           <button type="button" role="menuitem" onClick={() => { setOpenMenuSlug(null); void shareGallery(menuGallery) }}>Copy link</button>
           <button type="button" role="menuitem" disabled={!ownerSlug} onClick={() => { setOpenMenuSlug(null); void openPostToX(menuGallery) }}>Post to X</button>
-          <button type="button" role="menuitem" disabled={!ownerSlug} onClick={() => {
-            if (!ownerSlug) return
-            setOpenMenuSlug(null)
-            dispatchNav({ type: 'open-details', gallery: { kind: 'published', owner: ownerSlug, slug: menuGallery.slug }, from: 'library' })
-          }}>Gallery details</button>
           <button
             type="button"
             role="menuitem"
@@ -2498,9 +2693,13 @@ export default function GalleryList({ apiBase, owner, slug, deepLinkSelection, o
             role="menuitem"
             disabled={galleryActionBusy !== null || menuGallery.retention === 'pipeline' || !menuGallery.sourceUrl}
             title={menuGallery.retention === 'pipeline' ? 'Temporary galleries cannot be edited on this plan' : undefined}
-            onClick={() => { setOpenMenuSlug(null); void mutateGallery(menuGallery, 'refresh') }}
-          >Refresh gallery contents</button>
-          <button type="button" role="menuitem" class="lib-menu-danger" disabled={galleryActionBusy !== null} onClick={() => { setOpenMenuSlug(null); setRemoveGallerySlug(menuGallery.slug) }}>Remove gallery</button>
+            onClick={() => { setOpenMenuSlug(null); void mutateGallery(menuGallery) }}
+          >Refresh gallery</button>
+          <button type="button" role="menuitem" disabled={!ownerSlug} onClick={() => {
+            if (!ownerSlug) return
+            setOpenMenuSlug(null)
+            dispatchNav({ type: 'open-details', gallery: { kind: 'published', owner: ownerSlug, slug: menuGallery.slug }, from: 'library' })
+          }}>More settings…</button>
         </div>
       </Sheet>
     ) : null}
@@ -2542,6 +2741,15 @@ export default function GalleryList({ apiBase, owner, slug, deepLinkSelection, o
         onOpenFrame={openGlobalFrame}
         onClose={() => setGlobalViewOpen(false)}
       />
+    ) : null}
+    {/* Status notes toast over the surface — a quiet pill docked at the
+        bottom edge like the Mac's, never an in-flow line that shifts the
+        sections when it lands. */}
+    {(galleryActionNote || quickAddBusy) ? (
+      <div class="native-toast-stack">
+        {quickAddBusy ? <div class="admin-toast" role="status">Reading the cloud folder and building your gallery…</div> : null}
+        {galleryActionNote ? <div class="admin-toast" role="status">{galleryActionNote}</div> : null}
+      </div>
     ) : null}
     </>
   )

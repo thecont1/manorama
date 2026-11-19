@@ -41,16 +41,17 @@ type Props = {
   deviceStatus?: Child
   onBack: () => void
   onOpen: () => void
-  onShare: () => void
+  /** Web branch only — native's ··· menu already carries Copy link,
+   *  Reorder and Refresh, so its level-1 keeps the macOS rest-layer rows. */
+  onShare?: () => void
   onEditName: () => void
   onEditCaption: () => void
   onEditAddress?: () => void
-  onReorder: () => void
-  onRefresh: () => void
+  onReorder?: () => void
+  onRefresh?: () => void
   /** Account galleries only: opens the provider source. */
   onOpenSource?: () => void
   onStreamOnlyChange: (next: boolean) => void
-  onPurge: () => void
   onRemove: () => void
 }
 
@@ -93,10 +94,6 @@ export const GALLERY_ROWS = {
     label: 'View source',
     icon: () => icon('M14 4h6v6', 'M20 4l-9.5 9.5', 'M19 13.5V19a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V6a1 1 0 0 1 1-1h5.5'),
   },
-  openFolder: {
-    label: 'Open folder',
-    icon: () => icon('M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z', 'M12 10.5v5M9.8 13.2L12 15.5l2.2-2.3'),
-  },
   keepCopy: {
     label: 'Keep a copy',
     icon: () => (
@@ -104,10 +101,6 @@ export const GALLERY_ROWS = {
         <rect x="7" y="2.5" width="10" height="19" rx="2.5"/><path d="M12 8v6M9.5 11.5L12 14l2.5-2.5"/>
       </svg>
     ),
-  },
-  removeSaved: {
-    label: 'Remove saved copy',
-    icon: () => icon('M5 13v6a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-6', 'M12 3v8m0 0l-3-3m3 3l3-3'),
   },
   remove: { label: 'Remove from Library', icon: () => icon('M4 7h16M9 7V4h6v3M6 7l1 13h10l1-13') },
 } as const
@@ -138,6 +131,7 @@ export function GalleryDetailsView({
   rail,
   deviceStatus,
   onBack,
+  onOpen,
   onShare,
   onEditName,
   onEditCaption,
@@ -146,7 +140,6 @@ export function GalleryDetailsView({
   onRefresh,
   onOpenSource,
   onStreamOnlyChange,
-  onPurge,
   onRemove,
 }: Props) {
   const locked = busy || !editable
@@ -155,7 +148,7 @@ export function GalleryDetailsView({
     : vaultProgress && vaultProgress.completed < vaultProgress.total
       ? `${vaultProgress.completed} of ${vaultProgress.total}`
       : hasSavedCopy
-        ? `On ${deviceLabel}`
+        ? 'Saved'
         : undefined
   return (
     <main class="m-owner m-screen m-screen--fixed" data-screen="details">
@@ -184,57 +177,107 @@ export function GalleryDetailsView({
           {temporary && upgradeHref ? (
             <p class="m-note d-upgrade-note">{PIPELINE_LOCK_MESSAGE} <a href={upgradeHref}>Upgrade</a></p>
           ) : null}
-          <ActionGroup>
-            <ActionRow label={GALLERY_ROWS.name.label} icon={GALLERY_ROWS.name.icon()} value={title} onClick={onEditName} disabled={locked} />
-            {/* A present caption reads in full on the header — only an empty
-                one needs the row to state it. */}
-            <ActionRow label={GALLERY_ROWS.caption.label} icon={GALLERY_ROWS.caption.icon()} value={caption ? undefined : 'None'} onClick={onEditCaption} disabled={locked} />
-            {onEditAddress ? (
-              <ActionRow label={GALLERY_ROWS.address.label} icon={GALLERY_ROWS.address.icon()} value={address} onClick={onEditAddress} disabled={locked} />
-            ) : null}
-            {/* The full address is already on the header — the row states the
-                action, not a second copy of the path. */}
-            <ActionRow
-              label="Copy link"
-              icon={GALLERY_ROWS.share.icon()}
-              onClick={onShare}
-              disabled={busy}
-            />
-          </ActionGroup>
+          {platform === 'native' ? (
+            <>
+              {/* The native level-1 mirrors the macOS Gallery Settings sheet:
+                  open/view-source first, then the metadata group, then the
+                  management pair. Copy link stays in the card's ··· menu one
+                  level up. */}
+              <ActionGroup>
+                <ActionRow label={GALLERY_ROWS.open.label} icon={GALLERY_ROWS.open.icon()} onClick={onOpen} disabled={busy} />
+                {onOpenSource ? (
+                  <ActionRow label={GALLERY_ROWS.openSource.label} icon={GALLERY_ROWS.openSource.icon()} onClick={onOpenSource} disabled={locked} />
+                ) : null}
+              </ActionGroup>
+              <ActionGroup>
+                <ActionRow label={GALLERY_ROWS.name.label} icon={GALLERY_ROWS.name.icon()} value={title} onClick={onEditName} disabled={locked} />
+                <ActionRow label={GALLERY_ROWS.caption.label} icon={GALLERY_ROWS.caption.icon()} value={caption ? undefined : 'None'} onClick={onEditCaption} disabled={locked} />
+                {onEditAddress ? (
+                  <ActionRow label={GALLERY_ROWS.address.label} icon={GALLERY_ROWS.address.icon()} value={address} onClick={onEditAddress} disabled={locked} />
+                ) : null}
+              </ActionGroup>
+              {onReorder || onRefresh ? (
+                <ActionGroup>
+                  {onReorder ? (
+                    <ActionRow label={GALLERY_ROWS.reorder.label} icon={GALLERY_ROWS.reorder.icon()} value={imageCount} onClick={onReorder} disabled={locked} />
+                  ) : null}
+                  {onRefresh ? (
+                    <ActionRow label={GALLERY_ROWS.refresh.label} icon={GALLERY_ROWS.refresh.icon()} onClick={onRefresh} disabled={locked} />
+                  ) : null}
+                </ActionGroup>
+              ) : null}
+            </>
+          ) : (
+            <>
+              <ActionGroup>
+                <ActionRow label={GALLERY_ROWS.name.label} icon={GALLERY_ROWS.name.icon()} value={title} onClick={onEditName} disabled={locked} />
+                {/* A present caption reads in full on the header — only an empty
+                    one needs the row to state it. */}
+                <ActionRow label={GALLERY_ROWS.caption.label} icon={GALLERY_ROWS.caption.icon()} value={caption ? undefined : 'None'} onClick={onEditCaption} disabled={locked} />
+                {onEditAddress ? (
+                  <ActionRow label={GALLERY_ROWS.address.label} icon={GALLERY_ROWS.address.icon()} value={address} onClick={onEditAddress} disabled={locked} />
+                ) : null}
+                {/* The full address is already on the header — the row states the
+                    action, not a second copy of the path. */}
+                {onShare ? (
+                  <ActionRow
+                    label="Copy link"
+                    icon={GALLERY_ROWS.share.icon()}
+                    onClick={onShare}
+                    disabled={busy}
+                  />
+                ) : null}
+              </ActionGroup>
 
-          <ActionGroup>
-            <ActionRow label={GALLERY_ROWS.reorder.label} icon={GALLERY_ROWS.reorder.icon()} value={imageCount} onClick={onReorder} disabled={locked} />
-            <ActionRow label={GALLERY_ROWS.refresh.label} icon={GALLERY_ROWS.refresh.icon()} onClick={onRefresh} disabled={locked} />
-            {onOpenSource ? (
-              <ActionRow label={GALLERY_ROWS.openSource.label} icon={GALLERY_ROWS.openSource.icon()} onClick={onOpenSource} disabled={locked} />
-            ) : null}
-          </ActionGroup>
+              {onReorder || onRefresh || onOpenSource ? (
+                <ActionGroup>
+                  {onReorder ? <ActionRow label={GALLERY_ROWS.reorder.label} icon={GALLERY_ROWS.reorder.icon()} value={imageCount} onClick={onReorder} disabled={locked} /> : null}
+                  {onRefresh ? <ActionRow label={GALLERY_ROWS.refresh.label} icon={GALLERY_ROWS.refresh.icon()} onClick={onRefresh} disabled={locked} /> : null}
+                  {onOpenSource ? (
+                    <ActionRow label={GALLERY_ROWS.openSource.label} icon={GALLERY_ROWS.openSource.icon()} onClick={onOpenSource} disabled={locked} />
+                  ) : null}
+                </ActionGroup>
+              ) : null}
+            </>
+          )}
 
           {platform === 'native' ? (
-            <ActionGroup label={`On ${deviceLabel ?? 'this device'}`}>
+            <ActionGroup>
               {/* The value span must exist from the first render: when the
                   flip adds "Streams" it would otherwise shift the control
                   span's index and swap the switch node mid-gesture. */}
               <ActionRow
-                label="Keep copy on this device"
+                label={`Keep a copy on ${deviceLabel ?? 'this device'}`}
                 icon={GALLERY_ROWS.keepCopy.icon()}
                 value={keepValue ?? ''}
                 control={(
                   <Switch
                     checked={!streamOnly}
                     onChange={(keep) => onStreamOnlyChange(!keep)}
-                    label="Keep copy on this device"
+                    label={`Keep a copy on ${deviceLabel ?? 'this device'}`}
                     describedBy="gallery-keep-note"
                     disabled={busy}
                   />
                 )}
               />
               <p class="m-note m-panel-note" id="gallery-keep-note">
-                Turning this off stops future downloads. It does not delete copies already saved here.
+                Turning this off deletes copies saved to this device's Vault.
               </p>
               {vaultNote ? <p class="m-note m-panel-note" role="status" aria-live="polite">{vaultNote}</p> : null}
-              {hasSavedCopy ? (
-                <ActionRow label={GALLERY_ROWS.removeSaved.label} icon={GALLERY_ROWS.removeSaved.icon()} onClick={onPurge} disabled={busy} />
+              {vaultProgress && vaultProgress.total > 0 ? (
+                <span
+                  class="native-vault-meter"
+                  role="progressbar"
+                  aria-label={`Saving to ${deviceLabel ?? 'this device'}`}
+                  aria-valuemin={0}
+                  aria-valuemax={vaultProgress.total}
+                  aria-valuenow={vaultProgress.completed}
+                >
+                  <span
+                    class="native-vault-meter-fill"
+                    style={{ width: `${Math.min(100, Math.round((vaultProgress.completed / vaultProgress.total) * 100))}%` }}
+                  />
+                </span>
               ) : null}
             </ActionGroup>
           ) : null}

@@ -454,6 +454,18 @@ export const deleteGallery = async (apiBase: string, slug: string): Promise<void
   const payload = await response.json().catch(() => ({})) as { error?: string }
   if (!response.ok) throw new NativeGalleryHttpError(response.status, payload.error || 'The gallery could not be removed')
 }
+
+/** Conceals a gallery into the collapsed Hidden galleries section — a display
+ *  flag only, retention and expiry are untouched (the Catalogue's contract). */
+export const setGalleryHidden = async (apiBase: string, slug: string, hidden: boolean): Promise<void> => {
+  const response = await fetch(`${normalizeApiBase(apiBase)}/api/galleries/${encodeURIComponent(slug)}/hide`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json', ...(await bearerHeaders()) },
+    body: JSON.stringify({ hidden }),
+  })
+  const payload = await response.json().catch(() => ({})) as { error?: string }
+  if (!response.ok) throw new NativeGalleryHttpError(response.status, payload.error || 'The gallery could not be hidden')
+}
 /** The dashboard's custom-URL edit: PATCHes the owner slug and answers the
  *  slug the server actually stored, lowercased and normalised. */
 export const renameOwnerSlug = async (apiBase: string, ownerSlug: string): Promise<string> => {

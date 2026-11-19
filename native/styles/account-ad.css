@@ -29,20 +29,20 @@
   align-items: stretch;
 }
 
-/* The plate is a vertical photograph shown fit to height; until a rented
-   creative supplies art the placeholder keeps the same 2:3 frame. */
+/* The plate is a vertical photograph shown at slot size; until a rented
+   creative supplies art the placeholder keeps the same portrait frame.
+   The creative is chrome, not a gallery photograph — the honest-pixel cap
+   does not bind it, so it takes the shared slot's treatment verbatim
+   (caps, never a crop). */
 .native-account-ad-frame {
-  width: 112px;
-  height: 168px;
-  flex: none;
+  width: min(315px, 70%);
+  margin-inline: auto;
   display: grid;
-  place-items: center;
   overflow: hidden;
   background: rgba(var(--ink), .12);
 }
-/* 'contain', never 'cover': a creative is shown whole at its own ratio,
-   letterboxed by the frame's tint rather than cropped or stretched. */
-.native-account-ad-frame img { width: 100%; height: 100%; object-fit: contain; display: block; }
+.native-account-ad-frame:not(:has(img)) { aspect-ratio: 4 / 5; }
+.native-account-ad-frame img { display: block; width: 100%; height: 100%; object-fit: contain; }
 .native-account-ad-placeholder {
   padding: 10px;
   color: rgba(var(--ink), .45);
@@ -71,6 +71,9 @@
 }
 .native-account-ad-cta {
   margin-top: 8px;
+  min-height: 44px;
+  display: inline-flex;
+  align-items: center;
   color: rgb(var(--ink));
   font-size: 14px;
   line-height: 1.2;

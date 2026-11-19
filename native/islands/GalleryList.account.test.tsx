@@ -167,24 +167,21 @@ describe('account slot entitlement', () => {
     expect(cta?.textContent).toContain('Explore manorama')
   })
 
-  test('ad artwork respects decoded pixels at the device density', async () => {
-    const dpr = dom.devicePixelRatio
-    Object.defineProperty(dom, 'devicePixelRatio', { configurable: true, value: 3 })
-    try {
-      const { container, controls } = mount({ billing: entitlement('free'), loader: async () => houseFrame({ image: { src: '/ads/house-1.jpg', width: 900, height: 1200 } }) })
-      await settle()
-      const image = container.querySelector('.native-account-ad-frame img') as HTMLImageElement
-      Object.defineProperties(image, { naturalWidth: { value: 180 }, naturalHeight: { value: 240 } })
-      image.dispatchEvent(new dom.Event('load') as unknown as Event)
-      await settle()
-      const frame = container.querySelector('.native-account-ad-frame') as HTMLElement
-      expect(image.style.height).toBe('80px')
-      expect(frame.style.aspectRatio).toBe('180 / 240')
-      controls.setSurface(false)
-      await settle()
-    } finally {
-      Object.defineProperty(dom, 'devicePixelRatio', { configurable: true, value: dpr })
-    }
+  test('ad artwork keeps its own ratio at the shared slot size', async () => {
+    // House creative is chrome, not a photograph — no pixel-honesty clamp;
+    // the slot takes the shared treatment: the frame carries the decoded
+    // ratio and the image fills it whole.
+    const { container, controls } = mount({ billing: entitlement('free'), loader: async () => houseFrame({ image: { src: '/ads/house-1.jpg', width: 900, height: 1200 } }) })
+    await settle()
+    const image = container.querySelector('.native-account-ad-frame img') as HTMLImageElement
+    Object.defineProperties(image, { naturalWidth: { value: 180 }, naturalHeight: { value: 240 } })
+    image.dispatchEvent(new dom.Event('load') as unknown as Event)
+    await settle()
+    const frame = container.querySelector('.native-account-ad-frame') as HTMLElement
+    expect(image.style.height).toBe('')
+    expect(frame.style.aspectRatio).toBe('180 / 240')
+    controls.setSurface(false)
+    await settle()
   })
 
   test('pro renders the slot under its own tier — the loader sees pro', async () => {
@@ -441,7 +438,7 @@ describe('signed-in account area', () => {
     new Response(JSON.stringify(body), { status, headers: { 'content-type': 'application/json' } })
 
   type ApiStubs = {
-    galleries?: Response | Promise<Response>
+    galleries?: Response | Promise<Response> | (() => Response)
     account?: Response
     deviceGalleries?: Response
     devices?: Response | (() => Response)
@@ -482,7 +479,7 @@ describe('signed-in account area', () => {
       }
       if (init?.method === 'DELETE' && url.includes('/api/devices/')) return json({ ok: true })
       if (url.includes('/api/devices')) return typeof stubs.devices === 'function' ? stubs.devices() : stubs.devices ?? json({ devices: [] })
-      if (url.includes('/api/galleries')) return (await stubs.galleries)?.clone() ?? json({ galleries: [] })
+      if (url.includes('/api/galleries')) return (typeof stubs.galleries === 'function' ? stubs.galleries() : (await stubs.galleries)?.clone()) ?? json({ galleries: [] })
       if (url.includes('/api/ads/visibility')) return stubs.visibility ?? json({ show: true, day: '2026-10-01' })
       // The suppression list is session-gated: an unanswered list leaves the
       // switch unrendered, which is the state every other test runs in.
@@ -1227,13 +1224,22 @@ describe('signed-in account area', () => {
     ] }) })
     const { container } = mountAccount()
     await settle()
-    expect(container.querySelector('[aria-label="Pinned galleries"] [data-lib-card="pinned"] .lib-rail')).not.toBeNull()
+    expect(container.querySelector('[aria-labelledby="native-pinned-title"] [data-lib-card="pinned"] .lib-rail')).not.toBeNull()
     expect(container.querySelectorAll('[data-lib-card="pinned"] .lib-th')).toHaveLength(2)
     expect(container.querySelector('[data-lib-card="pinned"]')?.textContent).toContain('Temporary gallery')
-    expect(container.querySelectorAll('[aria-label="Cloud galleries"] .native-library-cover')).toHaveLength(1)
+    expect(container.querySelectorAll('[aria-labelledby="native-cloud-title"] .native-library-cover')).toHaveLength(1)
     expect(container.querySelector('[data-lib-card="compact"] img')?.getAttribute('src')).toBe('https://cdn.example/first.jpg')
-    expect(container.querySelector('details:not([open]) [data-lib-card="hidden-gallery"]')).not.toBeNull()
-    expect(container.querySelector('[aria-label="Cloud galleries"] [data-lib-card="hidden-gallery"]')).toBeNull()
+    // Hidden galleries wait behind the collapsed toggle, like the Mac —
+    // no card in the tree until the section opens.
+    const hiddenToggle = container.querySelector('#native-hidden-title') as HTMLButtonElement
+    expect(hiddenToggle.getAttribute('aria-expanded')).toBe('false')
+    expect(container.querySelector('[data-lib-card="hidden-gallery"]')).toBeNull()
+    hiddenToggle.click()
+    await settle()
+    expect(hiddenToggle.getAttribute('aria-expanded')).toBe('true')
+    expect(container.querySelector('[data-lib-card="hidden-gallery"]')).not.toBeNull()
+    hiddenToggle.click()
+    await settle()
     ;(container.querySelector('[data-lib-card="pinned"] .lib-card-menu') as HTMLButtonElement).click()
     await settle()
     ;([...container.querySelectorAll<HTMLButtonElement>('[role="menuitem"]')].find((button) => button.textContent === 'Unpin gallery'))!.click()
@@ -1255,17 +1261,21 @@ describe('signed-in account area', () => {
     ;(container.querySelector('[aria-label="Kashmir actions"]') as HTMLButtonElement).click()
     await settle()
     const items = [...container.querySelectorAll('[role="menuitem"]')] as HTMLButtonElement[]
+    // Removal lives one level in, inside More settings… — the card menu
+    // itself never offers a destructive item.
     expect(items.map((item) => item.textContent)).toEqual([
-      'Pin gallery', 'Copy link', 'Post to X', 'Gallery details', 'Reorder photographs', 'Refresh gallery contents', 'Remove gallery',
+      'Pin gallery', 'Hide this gallery', 'Copy link', 'Post to X', 'Reorder photographs', 'Refresh gallery', 'More settings…',
     ])
-    ;(items.find((item) => item.textContent === 'Remove gallery'))!.click()
+    ;(items.find((item) => item.textContent === 'More settings…'))!.click()
     await settle()
-    expect(container.textContent).toContain('This cannot be undone')
+    const removeRow = [...container.querySelectorAll('.m-actionrow')].find((row) => row.textContent?.includes('Remove from Library')) as HTMLButtonElement
+    removeRow.click()
+    await settle()
+    expect(container.textContent).toContain('This removes the gallery from manorama')
     expect(calls.some((call) => call.init?.method === 'DELETE')).toBe(false)
     const cancel = [...container.querySelectorAll('button')].find((button) => button.textContent === 'Cancel') as HTMLButtonElement
     cancel.click()
     await settle()
-    expect(container.querySelector('.native-gallery-remove-confirm')).toBeNull()
   })
 
   test('confirmed gallery delete and refresh use owner-authenticated API routes', async () => {
@@ -1282,22 +1292,79 @@ describe('signed-in account area', () => {
       [...container.querySelectorAll('[role="menuitem"]')].find((item) => item.textContent === label) as HTMLButtonElement
     openMenu()
     await settle()
-    menuItem('Refresh gallery contents').click()
+    menuItem('Refresh gallery').click()
     await settle()
     const refresh = calls.find((call) => call.url.endsWith('/api/galleries/kashmir/refresh'))
     expect(refresh?.init?.method).toBe('POST')
     expect((refresh?.init?.headers as Record<string, string>).Authorization).toBe('Bearer session-token-1')
     openMenu()
     await settle()
-    menuItem('Remove gallery').click()
+    menuItem('More settings…').click()
     await settle()
-    const confirm = [...container.querySelectorAll('button')].find((button) => button.textContent === 'Remove gallery') as HTMLButtonElement
+    ;([...container.querySelectorAll('.m-actionrow')].find((row) => row.textContent?.includes('Remove from Library')) as HTMLButtonElement).click()
+    await settle()
+    const confirm = [...container.querySelectorAll('.m-sheet button')].find((button) => button.textContent === 'Remove gallery') as HTMLButtonElement
     confirm.click()
     await settle()
     const deletion = calls.find((call) => call.url.endsWith('/api/galleries/kashmir') && call.init?.method === 'DELETE')
     expect(deletion).toBeDefined()
     expect((deletion?.init?.headers as Record<string, string>).Authorization).toBe('Bearer session-token-1')
     expect(calls.some((call) => call.url.startsWith('https://dropbox.com'))).toBe(false)
+  })
+
+  test('the card menu hides and unhides a gallery through the account hide route', async () => {
+    installLocalStorage()
+    signInStorage()
+    let hiddenAt: string | null = null
+    stubFetch({
+      galleries: () => json({ galleries: [accountSummary(hiddenAt ? { hiddenAt } : {})] }),
+      mutation: (url, init) => {
+        if (url.endsWith('/api/galleries/kashmir/hide') && init?.method === 'PATCH') {
+          hiddenAt = JSON.parse(String(init.body)).hidden ? '2026-10-03T00:00:00.000Z' : null
+          return json({ ok: true })
+        }
+        return undefined
+      },
+    })
+    const { container } = mountAccount()
+    await settle()
+    const openMenu = () => {
+      (container.querySelector('[aria-label="Kashmir actions"]') as HTMLButtonElement).click()
+    }
+    const menuItem = (label: string) =>
+      [...container.querySelectorAll('[role="menuitem"]')].find((item) => item.textContent === label) as HTMLButtonElement
+    const kashmirVisible = () => Boolean(container.querySelector('[aria-label="Kashmir actions"]'))
+
+    openMenu()
+    await settle()
+    menuItem('Hide this gallery').click()
+    await settle()
+
+    const hide = calls.find((call) => call.url.endsWith('/api/galleries/kashmir/hide'))
+    expect(hide?.init?.method).toBe('PATCH')
+    expect(JSON.parse(String(hide?.init?.body))).toEqual({ hidden: true })
+    expect((hide?.init?.headers as Record<string, string>).Authorization).toBe('Bearer session-token-1')
+
+    // The card leaves its section and waits behind the collapsed Hidden
+    // heading — the toggle opens before the card exists in the DOM.
+    expect(kashmirVisible()).toBe(false)
+    const toggle = container.querySelector('#native-hidden-title') as HTMLButtonElement
+    expect(toggle.getAttribute('aria-expanded')).toBe('false')
+    // The result rides a toast, not an in-flow line above the sections.
+    expect(container.querySelector('.native-toast-stack .admin-toast')?.textContent).toContain('Hidden')
+
+    toggle.click()
+    await settle()
+    expect(kashmirVisible()).toBe(true)
+    openMenu()
+    await settle()
+    menuItem('Unhide gallery').click()
+    await settle()
+
+    const unhide = calls.filter((call) => call.url.endsWith('/api/galleries/kashmir/hide')).at(-1)
+    expect(JSON.parse(String(unhide?.init?.body))).toEqual({ hidden: false })
+    expect(container.querySelector('#native-hidden-title')).toBeNull()
+    expect(kashmirVisible()).toBe(true)
   })
 
   test('Free owners can see every retained gallery even above their editing limit', async () => {
@@ -1373,6 +1440,28 @@ describe('signed-in account area', () => {
     expect(container.querySelector('[aria-label="Back to the library"]')).not.toBeNull()
   })
 
+  test('the hosted count includes hidden galleries', async () => {
+    installLocalStorage()
+    signInStorage()
+    stubFetch({
+      galleries: json({ galleries: [
+        accountSummary({ slug: 'kashmir' }),
+        accountSummary({ slug: 'ladakh', title: 'Ladakh' }),
+        accountSummary({ slug: 'secret', title: 'Secret', hiddenAt: '2026-11-01T00:00:00.000Z' }),
+      ] }),
+      account: json({ ownerSlug: 'quiet-owner', tier: 'pro' }),
+    })
+    const { container } = mountAccount()
+    await settle()
+
+    const foot = container.querySelector('.native-lib-foot')
+    expect(foot?.textContent).toContain('3 of 99 Cloud galleries')
+    // The hidden row still renders only inside its own disclosure.
+    ;(container.querySelector('#native-hidden-title') as HTMLButtonElement).click()
+    await settle()
+    expect(container.querySelector('[aria-labelledby="native-hidden-title"]')?.textContent).toContain('Secret')
+  })
+
   test('names pipeline galleries without a shortened internal label', async () => {
     installLocalStorage()
     signInStorage()
@@ -1408,7 +1497,7 @@ describe('signed-in account area', () => {
     expect(container.querySelector('#settings-owner-address')).not.toBeNull()
   })
 
-  test('cached galleries paint before the account list resolves', async () => {
+  test('a same-owner saved copy waits out the pending account list instead of flickering sections', async () => {
     installLocalStorage()
     signInStorage()
     let resolveAccount!: (response: Response) => void
@@ -1429,15 +1518,47 @@ describe('signed-in account area', () => {
     const { container } = mountAccount({ store })
     await settle()
 
-    const card = container.querySelector('[data-cached-gallery="saved-album"]')
-    expect(card).not.toBeNull()
-    expect(card?.textContent).toContain('Saved on this device')
-    expect(card?.textContent).toContain('account list pending')
+    // While the account list is in flight the copy may yet be claimed by its
+    // Cloud row — the Catalogue holds it out of the Library rather than paint
+    // the orphan section first and move it after.
+    expect(container.querySelector('[data-cached-gallery="saved-album"]')).toBeNull()
+    expect(container.querySelector('[data-cached-library]')).toBeNull()
     expect(calls.some((call) => call.url.includes('cdn.example') || call.url.includes('/api/dropbox/file'))).toBe(false)
 
     resolveAccount(json({ galleries: [] }))
     await settle()
     expect(container.querySelector('[data-cached-gallery="saved-album"]')?.textContent).toContain('not in the online account list')
+  })
+
+  test('a saved copy claimed by its account row keeps the Cloud section and earns the saved badge', async () => {
+    installLocalStorage()
+    signInStorage()
+    stubFetch({ galleries: json({ galleries: [accountSummary({ slug: 'saved-album', title: 'Saved Album' })] }) })
+    const galleryId = await offlineGalleryId({ owner: 'quiet-owner', slug: 'saved-album' })
+    const grid: OfflineGridGallery = {
+      galleryId,
+      owner: 'quiet-owner',
+      slug: 'saved-album',
+      title: 'Saved Album',
+      frames: [{ id: 'cached-one', entryId: 'thumb:cached-one', mimeType: 'image/jpeg', video: false, width: 1200, height: 800, alt: 'Cached photograph', index: 0 }],
+    }
+    const store = {
+      listGalleries: async () => [{ status: 'cached' as const, galleryId, owner: 'quiet-owner', slug: 'saved-album', title: 'Saved Album', images: 12 }],
+      listGridGalleries: async () => [grid],
+      readThumbnail: async () => undefined,
+    } as unknown as OfflineGalleryStore
+    const { container } = mountAccount({ store })
+    await settle()
+
+    // The gallery stays with its Cloud row — the separate saved section is
+    // only for copies whose account row never landed.
+    expect(container.querySelector('[data-cached-library]')).toBeNull()
+    const card = container.querySelector('[data-lib-card="saved-album"]')
+    expect(card).not.toBeNull()
+    const badge = card?.querySelector('.lib-badge-saved')
+    expect(badge?.textContent).toBe('Saved on this device')
+    // The badge states the copy; the grey device word would only repeat it.
+    expect(card?.querySelector('.lib-card-sub')?.textContent).not.toContain('On this iPhone')
   })
 
   test('a vaulted open shows an opening state while the vault decrypts', async () => {
@@ -1517,8 +1638,10 @@ describe('signed-in account area', () => {
       await settle()
 
       expect(container.querySelector('.native-lib-foot')?.textContent).toContain('1 gallery on this iPhone')
-      // The card agrees — the same predicate drives its device word.
-      expect(container.querySelector('.lib-card-sub')?.textContent).toContain('On this iPhone')
+      // The card agrees — its committed copy speaks through the saved badge,
+      // the same green affirmation the Mac prints under the title.
+      expect(container.querySelector('.lib-badge-saved')?.textContent).toBe('Saved on this device')
+      expect(container.querySelector('.lib-card-sub')?.textContent).not.toContain('On this iPhone')
     } finally {
       // The seed lives in the real localStorage — it must not leak into the
       // next test's policy reads, even when an assertion throws.
@@ -1918,7 +2041,7 @@ describe('signed-in account area', () => {
     expect(container.innerHTML).not.toContain('Subscriptions are unavailable right now. Please try again shortly.')
   })
 
-  test('Details rescans with a session-only timestamp', async () => {
+  test('the ··· menu rescans a gallery with the session', async () => {
     installLocalStorage()
     signInStorage()
     stubFetch({
@@ -1931,16 +2054,13 @@ describe('signed-in account area', () => {
     await settle()
     ;(container.querySelector('[aria-label="Kashmir actions"]') as HTMLButtonElement).click()
     await settle()
-    ;([...container.querySelectorAll('[role="menuitem"]')].find((item) => item.textContent === 'Gallery details') as HTMLButtonElement).click()
-    await settle()
-    const refresh = [...container.querySelectorAll('.m-actionrow')].find((row) => row.textContent === 'Refresh gallery contents') as HTMLButtonElement
-    refresh.click()
+    // The level-1 sheet mirrors macOS now — refresh lives in the menu only.
+    ;([...container.querySelectorAll('[role="menuitem"]')].find((item) => item.textContent === 'Refresh gallery') as HTMLButtonElement).click()
     await settle()
     const call = calls.find((entry) => entry.url === 'https://manorama.xyz/api/galleries/kashmir/refresh')
     expect(call?.init?.method).toBe('POST')
     expect((call?.init?.headers as Record<string, string>).Authorization).toBe('Bearer session-token-1')
-    expect(container.querySelector('[data-screen="details"]')?.textContent).toContain('Read just now')
-    expect(container.querySelector('[data-screen="details"]')?.textContent).not.toContain('2026-01-01')
+    expect(container.textContent).toContain('Gallery refreshed')
   })
 
   test('Details keeps the positive download switch and provider-neutral removal', async () => {
@@ -1956,7 +2076,7 @@ describe('signed-in account area', () => {
     await settle()
     ;(container.querySelector('[aria-label="Kashmir actions"]') as HTMLButtonElement).click()
     await settle()
-    ;([...container.querySelectorAll('[role="menuitem"]')].find((item) => item.textContent === 'Gallery details') as HTMLButtonElement).click()
+    ;([...container.querySelectorAll('[role="menuitem"]')].find((item) => item.textContent === 'More settings…') as HTMLButtonElement).click()
     await settle()
     const keep = container.querySelector('[role="switch"]') as HTMLButtonElement
     expect(keep.getAttribute('aria-checked')).toBe('false')
@@ -1975,6 +2095,102 @@ describe('signed-in account area', () => {
     expect(container.querySelector('[data-screen="details"]')).toBeNull()
   })
 
+  test('turning Keep copy off deletes the saved Vault copy', async () => {
+    installLocalStorage()
+    signInStorage()
+    stubFetch({ galleries: json({ galleries: [accountSummary()] }) })
+    const galleryId = await offlineGalleryId({ owner: 'quiet-owner', slug: 'kashmir' })
+    const grid: OfflineGridGallery = {
+      galleryId,
+      owner: 'quiet-owner',
+      slug: 'kashmir',
+      title: 'Kashmir',
+      frames: [{ id: 'cached-one', entryId: 'thumb:cached-one', mimeType: 'image/jpeg', video: false, width: 1200, height: 800, alt: 'Cached photograph', index: 0 }],
+    }
+    const purged: string[] = []
+    const store = {
+      listGalleries: async () => [{ status: 'cached' as const, galleryId, owner: 'quiet-owner', slug: 'kashmir', title: 'Kashmir', images: 12 }],
+      listGridGalleries: async () => [grid],
+      readThumbnail: async () => undefined,
+      purgeGallery: async (id: string) => { purged.push(id) },
+    } as unknown as OfflineGalleryStore
+    // Keeping is on: the seeded 'vault' override is what a copy in the vault
+    // means, so the switch starts checked with something to delete.
+    window.localStorage.setItem(`CapacitorStorage.${GALLERY_STREAM_ONLY_KEY}`, JSON.stringify({ [galleryPolicyKey('quiet-owner', 'kashmir')]: 'vault' }))
+    try {
+      const { container } = mountAccount({ store })
+      await settle()
+      expect(container.querySelector('[data-lib-card="kashmir"] .lib-badge-saved')?.textContent).toBe('Saved on this device')
+
+      ;(container.querySelector('[aria-label="Kashmir actions"]') as HTMLButtonElement).click()
+      await settle()
+      ;([...container.querySelectorAll('[role="menuitem"]')].find((item) => item.textContent === 'More settings…') as HTMLButtonElement).click()
+      await settle()
+
+      expect(container.textContent).toContain("Turning this off deletes copies saved to this device's Vault.")
+      const keep = container.querySelector('[role="switch"]') as HTMLButtonElement
+      expect(keep.getAttribute('aria-checked')).toBe('true')
+
+      keep.click()
+      await settle()
+      expect(keep.getAttribute('aria-checked')).toBe('false')
+      expect(purged).toEqual([galleryId])
+      // The card falls back to a streaming row — no saved badge, no copy.
+      expect(container.querySelector('[data-lib-card="kashmir"] .lib-badge-saved')).toBeNull()
+    } finally {
+      window.localStorage.removeItem(`CapacitorStorage.${GALLERY_STREAM_ONLY_KEY}`)
+    }
+  })
+
+  test('turning Keep copy on starts the vault fill immediately', async () => {
+    installLocalStorage()
+    signInStorage()
+    stubFetch({
+      galleries: json({ galleries: [accountSummary({ images: [
+        { id: 'first', ref: 'first', filename: 'first.jpg', src: 'https://cdn.example/first.jpg', width: 1200, height: 800 },
+      ] })] }),
+      fallback: (url) => url.includes('/api/gallery/')
+        ? new Response(JSON.stringify({
+            manifest: {
+              slug: 'kashmir', title: 'Kashmir', caption: '', date: '',
+              images: [{ id: 'first', ref: 'first', filename: 'first.jpg', src: 'https://cdn.example/first.jpg', width: 1200, height: 800, alt: '', c2pa: false, placeholder: 'data:,' }],
+            },
+            settings: { title: 'Kashmir', caption: '', date: '', curtainKicker: '', curtainPrompt: '', defaultMode: 'strip', defaultShowArrows: false, defaultShowCaptions: false, imageCaptions: {}, imageAlts: {} },
+          }), { status: 200, headers: { 'content-type': 'application/json' } })
+        : new Response('{}', { status: 404 }),
+    })
+    const galleryId = await offlineGalleryId({ owner: 'quiet-owner', slug: 'kashmir' })
+    const cached: ({ galleryId?: string } | undefined)[] = []
+    const store = {
+      listGalleries: async () => [],
+      listGridGalleries: async () => [],
+      readThumbnail: async () => undefined,
+      cache: async (selection: { galleryId?: string }) => { cached.push(selection); return { status: 'complete' as const, images: 1 } },
+      purgeGallery: async () => {},
+    } as unknown as OfflineGalleryStore
+    try {
+      const { container } = mountAccount({ store })
+      await settle()
+      ;(container.querySelector('[aria-label="Kashmir actions"]') as HTMLButtonElement).click()
+      await settle()
+      ;([...container.querySelectorAll('[role="menuitem"]')].find((item) => item.textContent === 'More settings…') as HTMLButtonElement).click()
+      await settle()
+
+      const keep = container.querySelector('[role="switch"]') as HTMLButtonElement
+      expect(keep.getAttribute('aria-checked')).toBe('false')
+      keep.click()
+      await settle()
+
+      expect(keep.getAttribute('aria-checked')).toBe('true')
+      // Keep is a save choice: the fill ran against this gallery's vault id
+      // the moment the switch landed, not the next time it opened.
+      expect(cached.map((selection) => selection?.galleryId)).toEqual([galleryId])
+      expect(container.querySelector('.admin-toast')?.textContent).toBe('Saved on this iPhone — encrypted, viewable only in manorama.')
+    } finally {
+      window.localStorage.removeItem(`CapacitorStorage.${GALLERY_STREAM_ONLY_KEY}`)
+    }
+  })
+
   test('Details edits and stores a gallery caption', async () => {
     installLocalStorage()
     signInStorage()
@@ -1989,7 +2205,7 @@ describe('signed-in account area', () => {
 
     ;(container.querySelector('[aria-label="Kashmir actions"]') as HTMLButtonElement).click()
     await settle()
-    ;([...container.querySelectorAll('[role="menuitem"]')].find((item) => item.textContent === 'Gallery details') as HTMLButtonElement).click()
+    ;([...container.querySelectorAll('[role="menuitem"]')].find((item) => item.textContent === 'More settings…') as HTMLButtonElement).click()
     await settle()
     expect(container.querySelector('[data-screen="details"]')).not.toBeNull()
     const captionRow = [...container.querySelectorAll('.m-actionrow')].find((row) => row.textContent?.includes('None')) as HTMLButtonElement
@@ -2028,7 +2244,7 @@ describe('signed-in account area', () => {
     await settle()
     const items = [...container.querySelectorAll('[role="menuitem"]')] as HTMLButtonElement[]
     expect(items.map((item) => item.textContent)).toEqual([
-      'Pin gallery', 'Copy link', 'Post to X', 'Gallery details', 'Reorder photographs', 'Refresh gallery contents', 'Remove gallery',
+      'Pin gallery', 'Hide this gallery', 'Copy link', 'Post to X', 'Reorder photographs', 'Refresh gallery', 'More settings…',
     ])
     // Words, not drawings — the sheet is a list of sentences.
     expect(items.every((item) => item.querySelector('svg') === null)).toBe(true)
@@ -2041,7 +2257,7 @@ describe('signed-in account area', () => {
     await settle()
     const pipelineItems = [...container.querySelectorAll('[role="menuitem"]')] as HTMLButtonElement[]
     const reorder = pipelineItems.find((item) => item.textContent === 'Reorder photographs')!
-    const refresh = pipelineItems.find((item) => item.textContent === 'Refresh gallery contents')!
+    const refresh = pipelineItems.find((item) => item.textContent === 'Refresh gallery')!
     expect(reorder.disabled).toBe(true)
     expect(refresh.disabled).toBe(true)
     expect(reorder.title).toBe('Temporary galleries cannot be edited on this plan')

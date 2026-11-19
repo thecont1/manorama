@@ -4,7 +4,7 @@ import { Button } from '../../app/components/ui/Button'
 import { Sheet } from '../../app/components/ui/Sheet'
 import type { GallerySummary } from '../../app/lib/gallery-repository'
 import { summaryMediaCount } from '../../app/lib/imagesource'
-import { deleteGallery, refreshGallery, updateGalleryMetadata } from '../lib/api'
+import { refreshGallery, updateGalleryMetadata } from '../lib/api'
 import { refreshEncryptedGallery } from '../lib/encrypted-gallery'
 import { isEncryptedSourceUrl } from '../../packages/core/encrypted-source'
 import { sourceLabelFor } from '../lib/library-media'
@@ -24,12 +24,14 @@ type Props = {
   deviceStatus?: Child
   onBack: () => void
   onOpen: () => void
-  onShare: () => void
+  onOpenSource?: () => void
   onReorder: () => void
   onStreamOnlyChange: (next: boolean) => void
   onChanged: (gallery: GallerySummary) => Promise<void>
+  /** The confirmed removal itself — the Library owns the server DELETE and
+   *  the device-side cleanup (encrypted key, media loader, account list). */
+  onDelete: () => Promise<void>
   onRemoved: () => void
-  onPurge: () => Promise<void>
 }
 
 /** Native command owner for Details. The shared view stays serializable and
@@ -48,19 +50,18 @@ export default function GalleryDetails({
   deviceStatus,
   onBack,
   onOpen,
-  onShare,
+  onOpenSource,
   onReorder,
   onStreamOnlyChange,
   onChanged,
+  onDelete,
   onRemoved,
-  onPurge,
 }: Props) {
   const [editing, setEditing] = useState<'name' | 'caption' | null>(null)
   const [draft, setDraft] = useState('')
   const [busy, setBusy] = useState<string | null>(null)
   const [note, setNote] = useState<string | null>(null)
   const [confirmingRemove, setConfirmingRemove] = useState(false)
-  const [confirmingPurge, setConfirmingPurge] = useState(false)
   const title = gallery.title || gallery.slug
 
   const saveMetadata = async () => {
@@ -107,25 +108,10 @@ export default function GalleryDetails({
     setBusy('remove')
     setNote(null)
     try {
-      await deleteGallery(apiBase, gallery.slug)
+      await onDelete()
       onRemoved()
     } catch (reason) {
       setNote(reason instanceof Error ? reason.message : 'The gallery could not be removed')
-      setBusy(null)
-    }
-  }
-
-  const purge = async () => {
-    if (busy) return
-    setBusy('purge')
-    setNote(null)
-    try {
-      await onPurge()
-      setConfirmingPurge(false)
-      setNote('Saved copy removed from this device')
-    } catch (reason) {
-      setNote(reason instanceof Error ? reason.message : 'The saved copy could not be removed')
-    } finally {
       setBusy(null)
     }
   }
@@ -155,13 +141,12 @@ export default function GalleryDetails({
         deviceStatus={deviceStatus}
         onBack={onBack}
         onOpen={onOpen}
-        onShare={onShare}
+        onOpenSource={onOpenSource}
         onEditName={() => { setDraft(title); setNote(null); setEditing('name') }}
         onEditCaption={() => { setDraft(gallery.caption ?? ''); setNote(null); setEditing('caption') }}
         onReorder={onReorder}
         onRefresh={() => void refresh()}
         onStreamOnlyChange={onStreamOnlyChange}
-        onPurge={() => setConfirmingPurge(true)}
         onRemove={() => setConfirmingRemove(true)}
       />
 
@@ -186,14 +171,6 @@ export default function GalleryDetails({
             )}
           </label>
         </form>
-      </Sheet>
-
-      <Sheet open={confirmingPurge} onClose={() => { if (!busy) setConfirmingPurge(false) }} title={`Remove the saved copy of “${title}”?`} dismissible={!busy}>
-        <p>This removes the encrypted copy from this device. The gallery and every original at its source remain.</p>
-        <div class="m-form-inline">
-          <Button variant="destructive" disabled={busy !== null} onClick={() => void purge()}>{busy === 'purge' ? 'Removing…' : 'Remove saved copy'}</Button>
-          <Button variant="secondary" disabled={busy !== null} onClick={() => setConfirmingPurge(false)}>Cancel</Button>
-        </div>
       </Sheet>
 
       <Sheet open={confirmingRemove} onClose={() => { if (!busy) setConfirmingRemove(false) }} title={`Remove “${title}”?`} dismissible={!busy}>
