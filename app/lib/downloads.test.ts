@@ -122,7 +122,10 @@ describe('handleDownloads', () => {
     const body = await (await handleDownloads(req('/'), env)).text()
     expect(body).toContain('Release history')
     expect(body.indexOf('v0.3.0')).toBeLessThan(body.indexOf('v0.2.5'))
-    expect(body).toContain('/v0.2.5/manorama_0.2.5_aarch64.dmg')
+    // File links belong to the latest release only — the older row keeps
+    // its notes and version page, never an installer URL.
+    expect(body).toContain('/v0.2.5')
+    expect(body).not.toContain('manorama_0.2.5_aarch64.dmg')
     expect(body).toContain('latest')
   })
 
@@ -138,7 +141,7 @@ describe('handleDownloads', () => {
     expect(body).toContain('https://github.com/thecont1/manorama/commit/abc1234')
   })
 
-  test('a version page lists that release\'s assets and notes', async () => {
+  test('a version page lists notes; file links only survive on the latest release', async () => {
     const env = envWith({
       'latest.json': objects['latest.json'],
       'history.json': fakeObject('history.json', JSON.stringify(HISTORY), 'application/json'),
@@ -148,9 +151,12 @@ describe('handleDownloads', () => {
     const res = await handleDownloads(req('/v0.2.5'), env)
     expect(res.status).toBe(200)
     const body = await res.text()
-    expect(body).toContain('manorama_0.2.5_aarch64.dmg')
+    // A superseded version page keeps its notes but drops file links.
+    expect(body).not.toContain('manorama_0.2.5_aarch64.dmg')
     expect(body).toContain('426 commits')
     expect(body).not.toContain('manorama_0.3.0_aarch64.dmg')
+    const latest = await (await handleDownloads(req('/v0.3.0'), env)).text()
+    expect(latest).toContain('manorama_0.3.0_aarch64.dmg')
     expect((await handleDownloads(req('/v9.9.9'), env)).status).toBe(404)
   })
 

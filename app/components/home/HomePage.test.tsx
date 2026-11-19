@@ -390,7 +390,7 @@ describe('the surfaces and the sample gallery', () => {
       expect(panel).toContain(`href="https://downloads.manorama.xyz${path}"`)
     }
     expect(panel).toContain('href="https://downloads.manorama.xyz/"')
-    expect(panel).toContain('>Downloads page</span>')
+    expect(panel).toContain('>All Releases</span>')
     // iOS has no published URL — listed quiet, never a dead link.
     expect(panel).toContain('home-downloads-soon')
     expect(panel).toContain('iPhone &amp; iPad')

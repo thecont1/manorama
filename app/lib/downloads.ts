@@ -466,9 +466,14 @@ const releaseHtml = (release: ReleaseView) => {
         })
         .join('')}</ul>`
     : ''
-  const assets = release.assets.length
-    ? `<ul class="dl-assets">${release.assets.map(assetLink).join('')}</ul>`
-    : '<p class="dl-empty">No installer artifacts are published for this release.</p>'
+  // Only the latest release offers files — an old build's installer is a
+  // support and security footgun, so the history rows carry notes, never
+  // download links.
+  const assets = !release.latest
+    ? ''
+    : release.assets.length
+      ? `<ul class="dl-assets">${release.assets.map(assetLink).join('')}</ul>`
+      : '<p class="dl-empty">No installer artifacts are published for this release.</p>'
   return `<article class="dl-release">
 <div class="dl-release-head"><a class="dl-version" href="/v${escapeHtml(release.version)}">v${escapeHtml(release.version)}</a>${latest}</div>
 <p class="dl-meta">${meta}</p>${highlights}${assets}

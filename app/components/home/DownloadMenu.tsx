@@ -12,7 +12,7 @@ const ITEMS: { label: string; href: string | null; soon?: boolean }[] = [
   { label: 'Linux', href: 'https://downloads.manorama.xyz/linux' },
   { label: 'Android', href: 'https://downloads.manorama.xyz/android' },
   { label: 'iPhone & iPad', href: null, soon: true },
-  { label: 'Downloads page', href: 'https://downloads.manorama.xyz/' },
+  { label: 'All Releases', href: 'https://downloads.manorama.xyz/' },
 ]
 
 export default function DownloadMenu({ class: cls }: { class?: string }) {
