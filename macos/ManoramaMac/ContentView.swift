@@ -17,6 +17,7 @@ struct ContentView: View {
     @Namespace private var clusterNamespace
     @FocusState private var focusedControl: ViewerChromeControl?
     @AccessibilityFocusState private var accessibleControl: ViewerChromeControl?
+    @State private var pendingChromeFocus = false
 
     private var chromeActive: Bool {
         libraryHovered || clusterHovered || clusterNearby || focusedControl != nil || accessibleControl != nil
@@ -95,13 +96,26 @@ struct ContentView: View {
             if !model.viewerChromeVisible {
                 focusedControl = nil
                 accessibleControl = nil
+                pendingChromeFocus = false
+            } else if pendingChromeFocus, model.isGalleryOpen {
+                // A focus request that raced the chrome's own visibility
+                // report lands now — order-independence, target preserved.
+                pendingChromeFocus = false
+                focusedControl = model.chromeFocusTarget
+                accessibleControl = model.chromeFocusTarget
             }
         }
         .onChange(of: model.chromeFocusRevision) {
             DispatchQueue.main.async {
-                guard model.isGalleryOpen, model.viewerChromeVisible else { return }
-                focusedControl = model.chromeFocusTarget
-                accessibleControl = model.chromeFocusTarget
+                if model.isGalleryOpen, model.viewerChromeVisible {
+                    focusedControl = model.chromeFocusTarget
+                    accessibleControl = model.chromeFocusTarget
+                    pendingChromeFocus = false
+                } else {
+                    // The request arrived before the chrome reported
+                    // visible — hold it rather than dropping it.
+                    pendingChromeFocus = true
+                }
             }
         }
         .onDisappear { model.setChromeActive(false) }
@@ -198,7 +212,13 @@ struct ContentView: View {
         .onExitCommand {
             focusedControl = nil
             accessibleControl = nil
-            model.focusViewerStage()
+            // The pointer's own activity still holds the chrome — handing
+            // focus to the stage now would let the idle timer hide it
+            // mid-hover. Only with no native interaction left does the
+            // stage take focus back and idle hiding resume.
+            if !libraryHovered && !clusterHovered && !clusterNearby {
+                model.focusViewerStage()
+            }
         }
 
         return Group {

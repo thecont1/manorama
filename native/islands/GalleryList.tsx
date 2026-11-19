@@ -42,6 +42,7 @@ import {
   openNativeEncryptedSession,
   productionOfflineGalleryStore,
   type NetworkFirstGallery,
+  type OfflineCacheResult,
   type OfflineGallerySummary,
   type OfflineGridGallery,
   type OfflineGalleryStore,
@@ -109,6 +110,19 @@ type Props = {
  *  gallery says the same thing. */
 const galleryName = (gallery: { title?: string; slug: string }): string =>
   gallery.title || gallery.slug
+
+/** A saved copy counts as complete only when its committed manifest covers
+ *  every published item. `imageCount` counts concealed photographs too, and
+ *  those never reach the vault manifest — comparing against it would fail a
+ *  copy that honestly holds everything a viewer can open. */
+const savedCopyComplete = (
+  summary: OfflineGallerySummary | undefined,
+  gallery: Pick<GallerySummary, 'imageCount' | 'mediaCount'>,
+): boolean => {
+  if (summary?.status !== 'cached') return false
+  const published = summaryMediaCount(gallery)
+  return summary.images >= published.stills + published.videos
+}
 
 /** The card's on-device status: "Streamed" when the owner declined a copy,
  *  a live meter while vault writes land. Once the vault record commits, the
@@ -411,6 +425,15 @@ export default function GalleryList({ apiBase, owner, slug, deepLinkSelection, o
   // post carries back to it.
   const [postToX, setPostToX] = useState<{ gallery: GallerySummary; url: string; galleryId: string } | null>(null)
   const [vaultGalleries, setVaultGalleries] = useState<ReadonlyMap<string, OfflineGallerySummary>>(new Map())
+  /** Queued Keep/purge operations run after the render that queued them —
+   *  completeness and the account summary must be re-read, not captured. */
+  const vaultGalleriesRef = useRef(vaultGalleries)
+  vaultGalleriesRef.current = vaultGalleries
+  const accountGalleriesRef = useRef(accountGalleries)
+  accountGalleriesRef.current = accountGalleries
+  /** The last tier this session actually answered — a stalled or missing
+   *  plan response never hides it. A session change clears the memory. */
+  const answeredTierRef = useRef<{ token: string; tier: AccountTier } | null>(null)
   const [vaultUsageBytes, setVaultUsageBytes] = useState<number | undefined>(undefined)
   const [cachedLibraryGalleries, setCachedLibraryGalleries] = useState<OfflineGridGallery[]>([])
   const [cachedMenuGallery, setCachedMenuGallery] = useState<OfflineGridGallery | null>(null)
@@ -631,12 +654,33 @@ export default function GalleryList({ apiBase, owner, slug, deepLinkSelection, o
           // drifted one swaps in, keeping the frame the owner is on.
           if (!gallery.revalidate) return
           void gallery.revalidate.then((fresh) => {
-            if (!active || !fresh) return
-            if (gallery.committedManifest && offlineManifestMatches(gallery.committedManifest, fresh.manifest)) return
+            if (!active || !fresh || (gallery.committedManifest && offlineManifestMatches(gallery.committedManifest, fresh.manifest, gallery.settings, fresh.settings))) {
+              // A discarded replacement still opened its resolver session
+              // and may still be filling — quiet the fill, then release
+              // what it opened once the writes settle.
+              if (fresh) {
+                void (fresh.cacheFill ?? Promise.resolve(undefined))
+                  .catch(() => {})
+                  .finally(() => fresh.dispose?.())
+              }
+              return
+            }
             applyGallery(fresh)
             const currentId = positionRef.current?.imageId
             const matched = currentId ? fresh.manifest.images.findIndex((image) => image.id === currentId) : -1
             setFrameKick((kick) => ({ index: matched >= 0 ? matched : 0, nonce: kick.nonce + 1 }))
+          }).catch((reason: unknown) => {
+            // The revalidation only rejects on an authoritative deletion —
+            // the stale copy is already invalidated, so the viewer stops
+            // presenting a gallery that no longer exists.
+            if (!active) return
+            disposeLease()
+            currentManifest = null
+            currentStatus = 'error'
+            setManifest(null)
+            setSettings(null)
+            setStatus('error')
+            setError(reason instanceof Error ? reason.message : 'This gallery is no longer available.')
           })
         })
         .catch((reason: unknown) => {
@@ -707,6 +751,18 @@ export default function GalleryList({ apiBase, owner, slug, deepLinkSelection, o
     return () => { active = false }
   }, [base])
 
+  /** Commits a tier answer for this session. An omitted or failed response
+   *  keeps the last tier this token earned — an explicit Free answer is a
+   *  real answer and applies normally. Only a session change clears it. */
+  const applyTierAnswer = (token: string, tier: AccountTier | null | undefined) => {
+    if (tier) {
+      answeredTierRef.current = { token, tier }
+      setAccountTier(tier)
+      return
+    }
+    setAccountTier(answeredTierRef.current?.token === token ? answeredTierRef.current.tier : null)
+  }
+
   // The account area resolves once per base from secure storage; a failed
   // list keeps its section quiet rather than blocking the manual form.
   useEffect(() => {
@@ -722,6 +778,7 @@ export default function GalleryList({ apiBase, owner, slug, deepLinkSelection, o
       setOwnerSlugDraft(slug ?? '')
       setSignedIn(Boolean(token))
       if (!token) {
+        answeredTierRef.current = null
         setAccountTier(null)
         return
       }
@@ -733,17 +790,21 @@ export default function GalleryList({ apiBase, owner, slug, deepLinkSelection, o
       setDeviceId(ownId)
       await registerDevice(base, ownId, nativeDeviceKindFor()).catch(() => null)
       if (!active) return
-      const [account, device, identities, deviceList, accountInfo] = await Promise.allSettled([
+      // The plan answer publishes on its own clock — a stalled or missing
+      // tier must not hold the gallery lists, the saved-copy pending gate
+      // or the list's retry state behind it.
+      void fetchAccountTier(base, controller.signal)
+        .then((tier) => { if (active) applyTierAnswer(token, tier) })
+        .catch(() => { if (active) applyTierAnswer(token, null) })
+      const [account, device, identities, deviceList] = await Promise.allSettled([
         fetchAccountGalleries(base, controller.signal),
         fetchDeviceGalleries(base, controller.signal),
         fetchAccountIdentities(base, controller.signal),
         fetchDevices(base, controller.signal),
-        fetchAccountTier(base, controller.signal),
       ])
       if (!active) return
       setAccountGalleries(account.status === 'fulfilled' ? account.value : null)
       setAccountListFailed(account.status === 'rejected')
-      setAccountTier(accountInfo.status === 'fulfilled' ? accountInfo.value ?? null : null)
       setDeviceGalleries(device.status === 'fulfilled' ? device.value : null)
       setDeviceListFailed(device.status === 'rejected')
       setDevices(deviceList.status === 'fulfilled' ? deviceList.value : [])
@@ -1028,7 +1089,7 @@ export default function GalleryList({ apiBase, owner, slug, deepLinkSelection, o
     // pane itself so a screen reader hears where it arrived rather than
     // falling to body.
     const focusTarget = saved.focus ? layout.querySelector(saved.focus) as HTMLElement | null : null
-    ;(focusTarget ?? pane).focus()
+    ;(focusTarget ?? pane).focus({ preventScroll: true })
   }, [libraryVisible, nav.screen.kind])
   // A screen change is a focus change: Settings' own back control is the
   // landing, the same place Back returns from.
@@ -1225,6 +1286,7 @@ export default function GalleryList({ apiBase, owner, slug, deepLinkSelection, o
   const galleryPoliciesRef = useRef<Record<string, GalleryLoadOverride>>({})
   const streamOnlyWrites = useRef(new Map<string, Promise<void>>())
   const vaultSaveAborts = useRef(new Map<string, AbortController>())
+  const vaultGalleryOps = useRef(new Map<string, Promise<void>>())
   /** Keep ON means the copy should exist — fetch the manifest and start the
    *  fill now, with progress the switch row and the Library finding can both
    *  report. A newer tap replaces the controller, so only one fill per
@@ -1238,18 +1300,30 @@ export default function GalleryList({ apiBase, owner, slug, deepLinkSelection, o
     setVaultSave({ owner: target.owner, slug: target.slug, completed: 0, total: 0, note: note(0, 0) })
     try {
       const gallery = await fetchGallery(base, target.owner, target.slug, controller.signal)
-      const selection = { owner: target.owner, slug: target.slug, galleryId, sourceUrl: target.sourceUrl }
+      // Custody is indexed by the immutable server id — the selection's
+      // digest id only names the vault record, and the summary's sourceUrl
+      // is keyless and can never open a session on its own.
+      const serverGalleryId = accountGalleriesRef.current?.find((item) => item.slug === target.slug)?.id
+      const custodyUrl = serverGalleryId ? await resolveEncryptedSourceForSelection(serverGalleryId).catch(() => null) : null
+      const selection = { owner: target.owner, slug: target.slug, galleryId, sourceUrl: custodyUrl ?? target.sourceUrl }
       const encryptedSession = gallery.manifest.images.some((image) => !isVideoItem(image) && image.media?.kind === 'encrypted')
         ? await openNativeEncryptedSession(selection, gallery.manifest.sourceUrl)
         : undefined
-      const result = await offlineStore.cache(
-        selection,
-        gallery,
-        controller.signal,
-        (progress) => setVaultSave({ owner: target.owner, slug: target.slug, completed: progress.completed, total: progress.total, note: note(progress.completed, progress.total) }),
-        undefined,
-        encryptedSession,
-      )
+      let result: OfflineCacheResult
+      try {
+        result = await offlineStore.cache(
+          selection,
+          gallery,
+          controller.signal,
+          (progress) => setVaultSave({ owner: target.owner, slug: target.slug, completed: progress.completed, total: progress.total, note: note(progress.completed, progress.total) }),
+          undefined,
+          encryptedSession,
+        )
+      } finally {
+        // A session opened only for this fill closes when it settles —
+        // success, failure and cancellation alike.
+        encryptedSession?.dispose()
+      }
       if (result.status === 'complete') {
         // Re-list the vault so the saved badge, the Keep row's Saved value
         // and the footer count all pick the copy up.
@@ -1301,33 +1375,46 @@ export default function GalleryList({ apiBase, owner, slug, deepLinkSelection, o
     // copy the vault was keeping goes with the policy, as the switch's
     // supporting text states. Skipped when a newer choice already moved
     // the key back to vault.
-    if (enabled) {
-      vaultSaveAborts.current.get(target.slug)?.abort()
-      setVaultSave((current) => (current?.slug === target.slug ? null : current))
-      const galleryId = target.galleryId ?? galleryIds[target.slug]
-      if (galleryId && galleryPoliciesRef.current[key] === 'stream') {
-        try {
-          await offlineStore.purgeGallery(galleryId)
-          libraryLoader.invalidate(galleryId)
-          setCachedLibraryGalleries((previous) => previous.filter((item) => item.galleryId !== galleryId))
-          setVaultGalleries((previous) => {
-            const next = new Map(previous)
-            next.delete(galleryId)
-            return next
-          })
-          setVaultNote('Saved copy removed from this device')
-        } catch {
-          setVaultNote('The saved copy could not be removed')
+    // The vault mutation serialises per gallery behind the policy write:
+    // a purge a queued OFF tap ordered must finish before this save runs,
+    // and the save re-reads intent and completeness when its turn comes —
+    // state read inside the chain comes from the refs, never this render.
+    const vaultOp = (vaultGalleryOps.current.get(key) ?? Promise.resolve())
+      .catch(() => {})
+      .then(async () => {
+        const galleryId = target.galleryId ?? galleryIds[target.slug]
+          ?? await offlineGalleryId({ owner: target.owner, slug: target.slug }).catch(() => undefined)
+        if (enabled) {
+          vaultSaveAborts.current.get(target.slug)?.abort()
+          setVaultSave((current) => (current?.slug === target.slug ? null : current))
+          if (galleryId && galleryPoliciesRef.current[key] === 'stream') {
+            try {
+              await offlineStore.purgeGallery(galleryId)
+              libraryLoader.invalidate(galleryId)
+              setCachedLibraryGalleries((previous) => previous.filter((item) => item.galleryId !== galleryId))
+              setVaultGalleries((previous) => {
+                const next = new Map(previous)
+                next.delete(galleryId)
+                return next
+              })
+              setVaultNote('Saved copy removed from this device')
+            } catch {
+              setVaultNote('The saved copy could not be removed')
+            }
+          }
+        } else if (galleryPoliciesRef.current[key] === 'vault') {
+          // Keep is a save choice, not only a future-opens one — start the
+          // fill now unless a complete copy already sits in the vault. A
+          // copy the queued purge just removed no longer counts, and one
+          // already covering every published item skips the download.
+          const cached = galleryId ? vaultGalleriesRef.current.get(galleryId) : undefined
+          const summary = accountGalleriesRef.current?.find((item) => item.slug === target.slug)
+          const complete = cached && summary ? savedCopyComplete(cached, summary) : cached?.status === 'cached'
+          if (galleryId && !complete) void saveGalleryToVault(target, galleryId)
         }
-      }
-    } else if (galleryPoliciesRef.current[key] === 'vault') {
-      // Keep is a save choice, not only a future-opens one — start the fill
-      // now unless a complete copy already sits in the vault.
-      const galleryId = target.galleryId ?? galleryIds[target.slug]
-      if (galleryId && vaultGalleries.get(galleryId)?.status !== 'cached') {
-        void saveGalleryToVault(target, galleryId)
-      }
-    }
+      })
+    vaultGalleryOps.current.set(key, vaultOp)
+    await vaultOp
   }
 
   const openReorderFor = (
@@ -1494,6 +1581,38 @@ export default function GalleryList({ apiBase, owner, slug, deepLinkSelection, o
   const detailsStreamOnly = detailsSummary && ownerSlug
     ? (galleryPolicies?.[galleryPolicyKey(ownerSlug, detailsSummary.slug)] ?? DEFAULT_VAULT_LOAD_POLICY) === 'stream'
     : false
+  /** The one removal path — the card menu no longer deletes; Gallery
+   *  settings' "Remove from Library" row lands here after its sheet
+   *  confirms, so the server row, the encrypted key, the media loader and
+   *  the account list all move together. Declared before the conditional
+   *  Viewer return so its onDelete callback resolves on that path too. */
+  const deleteAccountGallery = async (gallery: GallerySummary) => {
+    const token = await getSessionToken()
+    if (!token) throw new Error('Sign in to manage this gallery.')
+    const response = await fetch(`${base}/api/galleries/${encodeURIComponent(gallery.slug)}`, {
+      method: 'DELETE', headers: { Authorization: `Bearer ${token}` },
+    })
+    const payload = await response.json().catch(() => ({})) as { error?: string }
+    if (!response.ok) throw new Error(payload.error || 'The gallery could not be removed')
+    // The server row is already gone at this point — a key-removal
+    // failure must not skip the list updates below or masquerade as a
+    // failed delete. Its outcome only changes the closing note.
+    let keyRemoved = true
+    if (gallery.id) {
+      try {
+        await removeEncryptedSourceForSelection(gallery.id)
+      } catch {
+        keyRemoved = false
+      }
+    }
+    const galleryId = galleryIds[gallery.slug]
+    if (galleryId) libraryLoader.invalidate(galleryId)
+    setAccountGalleries((previous) => previous?.filter((item) => item.slug !== gallery.slug) ?? null)
+    setAccountRevision((revision) => revision + 1)
+    setGalleryActionNote(keyRemoved
+      ? 'Gallery removed. Your cloud files were not changed.'
+      : 'Gallery removed, but its key could not be removed from this device — sign out to clear remaining keys.')
+  }
   const detailsView = detailsSummary && ownerSlug ? (
     <GalleryDetails
       apiBase={base}
@@ -1510,7 +1629,7 @@ export default function GalleryList({ apiBase, owner, slug, deepLinkSelection, o
         : vaultSave?.slug === detailsSummary.slug && vaultSave.total > 0 ? { completed: vaultSave.completed, total: vaultSave.total }
         : null
       }
-      hasSavedCopy={detailsGalleryId ? vaultGalleries.get(detailsGalleryId)?.status === 'cached' : false}
+      hasSavedCopy={detailsGalleryId ? savedCopyComplete(vaultGalleries.get(detailsGalleryId), detailsSummary) : false}
       backLabel={detailsFromViewer ? 'Back' : 'Library'}
       backAriaLabel={detailsFromViewer ? `Back to ${galleryName(detailsSummary)}` : undefined}
       rail={(
@@ -1704,6 +1823,10 @@ export default function GalleryList({ apiBase, owner, slug, deepLinkSelection, o
             onClose={() => setGlobalViewOpen(false)}
           />
         ) : null}
+        {/* Action notes must reach the owner in the Viewer branch too —
+            a View-source or Keep failure reported from inside gallery
+            settings cannot wait for a return to Library. */}
+        {galleryActionNote ? <div class="admin-toast" role="status">{galleryActionNote}</div> : null}
       </>
     )
   }
@@ -2054,37 +2177,6 @@ export default function GalleryList({ apiBase, owner, slug, deepLinkSelection, o
     } finally { setGalleryActionBusy(null) }
   }
 
-  /** The one removal path — the card menu no longer deletes; Gallery
-   *  settings' "Remove from Library" row lands here after its sheet
-   *  confirms, so the server row, the encrypted key, the media loader and
-   *  the account list all move together. */
-  const deleteAccountGallery = async (gallery: GallerySummary) => {
-    const token = await getSessionToken()
-    if (!token) throw new Error('Sign in to manage this gallery.')
-    const response = await fetch(`${base}/api/galleries/${encodeURIComponent(gallery.slug)}`, {
-      method: 'DELETE', headers: { Authorization: `Bearer ${token}` },
-    })
-    const payload = await response.json().catch(() => ({})) as { error?: string }
-    if (!response.ok) throw new Error(payload.error || 'The gallery could not be removed')
-    // The server row is already gone at this point — a key-removal
-    // failure must not skip the list updates below or masquerade as a
-    // failed delete. Its outcome only changes the closing note.
-    let keyRemoved = true
-    if (gallery.id) {
-      try {
-        await removeEncryptedSourceForSelection(gallery.id)
-      } catch {
-        keyRemoved = false
-      }
-    }
-    const galleryId = galleryIds[gallery.slug]
-    if (galleryId) libraryLoader.invalidate(galleryId)
-    setAccountGalleries((previous) => previous?.filter((item) => item.slug !== gallery.slug) ?? null)
-    setAccountRevision((revision) => revision + 1)
-    setGalleryActionNote(keyRemoved
-      ? 'Gallery removed. Your cloud files were not changed.'
-      : 'Gallery removed, but its key could not be removed from this device — sign out to clear remaining keys.')
-  }
   // Saved copies are a device fact, not an account fact: show them even when
   // the owner slug or the account list is unavailable — only a gallery the
   // account list actually returned drops out of this section. While the
@@ -2156,7 +2248,7 @@ export default function GalleryList({ apiBase, owner, slug, deepLinkSelection, o
             onClick={() => setOpenMenuSlug(gallery.slug)}
           >···</button>
         </div>
-        {vaultSummary?.status === 'cached' ? <p class="lib-badge-saved">Saved on this device</p> : null}
+        {savedCopyComplete(vaultSummary, gallery) ? <p class="lib-badge-saved">Saved on this device</p> : null}
         <p class="lib-card-sub">
           {formatMediaCount({ stills: mediaCount.stills, videos: mediaCount.videos })}
           {gallery.retention === 'pipeline' ? ` · Temporary gallery${gallery.expiresAt ? ` · expires in ${expiryCountdownText(gallery.expiresAt, now)}` : ''}` : ''}
@@ -2165,7 +2257,7 @@ export default function GalleryList({ apiBase, owner, slug, deepLinkSelection, o
             imageCount={gallery.imageCount}
             streamOnly={streamOnlyGallery}
             summary={vaultSummary}
-            savedAnnounced={vaultSummary?.status === 'cached'}
+            savedAnnounced={savedCopyComplete(vaultSummary, gallery)}
           />
         </p>
         {caption ? <p class="native-gallery-caption">{caption}</p> : null}
@@ -2217,7 +2309,7 @@ export default function GalleryList({ apiBase, owner, slug, deepLinkSelection, o
     ? retainedAccountGalleries.filter((gallery) => {
         if ((galleryPolicies?.[galleryPolicyKey(ownerSlug, gallery.slug)] ?? DEFAULT_VAULT_LOAD_POLICY) === 'stream') return false
         const summary = galleryIds[gallery.slug] ? vaultGalleries.get(galleryIds[gallery.slug]) : undefined
-        return summary?.status === 'cached' && summary.images >= gallery.imageCount
+        return savedCopyComplete(summary, gallery)
       }).length
     : 0
   const vaultFillActive = vaultProgress && vaultProgress.total > 0
@@ -2289,7 +2381,7 @@ export default function GalleryList({ apiBase, owner, slug, deepLinkSelection, o
       onUnlinkIdentity={(provider) => { void unlinkIdentity(provider) }}
       onLinkIdentity={(provider) => { void linkIdentity(provider) }}
       tier={effectiveTier}
-      retainedCount={allowance.permanent}
+      retainedCount={retainedAccountGalleries.length}
       galleryLimit={galleryLimit}
       controller={vaultSettingsController}
       globalViewEnabled={globalViewEnabled}

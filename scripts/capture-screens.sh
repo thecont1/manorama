@@ -96,9 +96,15 @@ cleanup() {
 trap cleanup EXIT INT TERM
 
 # Runs that died before the trap could fire leave their staged apps behind —
-# sweep them. Two live runs cannot collide here: the fixed harness port means
-# a second invocation dies at its own server bind before it stages anything.
-rm -rf /tmp/manorama-capture-app.* 2>/dev/null || true
+# sweep them. The sweep runs before this invocation's own server bind, so a
+# live run's staged copies can sit under the glob: only a directory whose
+# creating PID (the middle segment of its name) has exited is removed.
+for stale in /tmp/manorama-capture-app.*.*; do
+  [ -d "$stale" ] || continue
+  owner="${stale#/tmp/manorama-capture-app.}"
+  owner="${owner%%.*}"
+  kill -0 "$owner" 2>/dev/null || rm -rf "$stale"
+done
 
 # --- the device ---------------------------------------------------------------
 

@@ -285,6 +285,27 @@ describe('LibraryRail', () => {
     expect(cells()[2]!.style.width).toBe('0px')
   })
 
+  test('a failed first batch resolves at manifest size so a later image can decode', async () => {
+    const { container } = await mount({ count: 20, viewport: { width: 300, height: 200 } })
+    const rail = container.querySelector('.lib-rail') as unknown as HTMLElement
+    // Every mounted thumb fails — the cells resolve at manifest size, so the
+    // strip's width and the window can move past the dead cluster.
+    for (const img of container.querySelectorAll('img')) img.dispatchEvent(new dom.Event('error') as unknown as Event)
+    await settle()
+    rail.scrollLeft = 1400
+    rail.dispatchEvent(new dom.Event('scroll') as unknown as Event)
+    await settle()
+    const at = [...container.querySelectorAll<HTMLButtonElement>('.lib-th')].map((cell) => Number(cell.dataset.at))
+    expect(Math.max(...at)).toBeGreaterThan(7)
+    // A later cell's successful decode still owns its honest bitmap size.
+    const last = [...container.querySelectorAll<HTMLElement>('.lib-th img')].at(-1)!
+    Object.defineProperties(last, { naturalWidth: { value: 1600 }, naturalHeight: { value: 800 } })
+    last.dispatchEvent(new dom.Event('load') as unknown as Event)
+    await settle()
+    const decoded = last.closest('.lib-th') as HTMLElement
+    expect(decoded.style.width).toBe('400px')
+  })
+
   test('a thumb click opens its own index; rail background opens the first', async () => {
     const { container, opened } = await mount({ count: 3 })
     ;(container.querySelectorAll('.lib-th')[2] as unknown as HTMLElement).click()

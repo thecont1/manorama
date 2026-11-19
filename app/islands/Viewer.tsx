@@ -581,6 +581,11 @@ export default function Viewer({ slug, galleryTitle, images: sourceImages, encry
   }
   const openGrid = () => {
     if (onOpenGlobalView) {
+      // The host owns this picker — its open commits asynchronously, so
+      // the modal gate is marked now: a settings activation in the gap
+      // must not stack a second surface on top of it. The host's close
+      // flips nativePickerOpen and the render-time recompute clears it.
+      anyModalOpenRef.current = true
       onOpenGlobalView(indexRef.current)
       return
     }
@@ -2344,9 +2349,28 @@ export default function Viewer({ slug, galleryTitle, images: sourceImages, encry
 
   const tabToChrome = (event: KeyboardEvent) => {
     if (onChromeFocus && document.body.classList.contains('gallery-entered')) {
-      event.preventDefault()
-      requestShowChrome()
-    } else showChrome()
+      // The chrome handoff belongs at the end of the stage's own tab
+      // order, not on every Tab: an interior Tab keeps the browser's
+      // traversal so the stage's own controls — the video cluster, the
+      // end card's Rewind — stay keyboard-reachable, and only a forward
+      // Tab past the last focusable exits to the native chrome. Focus
+      // outside the stage (body after a sheet closes) keeps the old
+      // entry handoff; an empty stage has no interior to traverse.
+      const stage = stageRef.current
+      const active = document.activeElement as HTMLElement | null
+      const focusables = stage
+        ? [...stage.querySelectorAll<HTMLElement>('button, input, a[href], [tabindex]:not([tabindex="-1"])')].filter((el) => !el.hasAttribute('disabled'))
+        : []
+      const index = active ? focusables.indexOf(active) : -1
+      const insideStage = Boolean(stage && active && stage.contains(active) && active !== stage)
+      const atEnd = index >= 0 && index === focusables.length - 1
+      if ((!event.shiftKey && (!insideStage || atEnd)) || (event.shiftKey && !insideStage)) {
+        event.preventDefault()
+        requestShowChrome()
+      }
+      return
+    }
+    showChrome()
   }
   const chromeActionsRef = useRef({ show: showChrome, hide: hideChrome, toggle: () => {}, pause: pauseChrome, tab: tabToChrome })
   chromeActionsRef.current = {

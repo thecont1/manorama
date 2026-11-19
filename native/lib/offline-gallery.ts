@@ -5,7 +5,7 @@ import { NativeGalleryHttpError, type NativeGalleryResponse } from './api'
 import type { VaultLoadPolicy } from './vault-settings'
 import { thumbnailEntryId, videoEntryId } from './thumbs'
 import { localComputeEntryId } from './local-compute'
-import type { EncryptedVault } from './vault'
+import type { EncryptedVault, VaultEpoch } from './vault'
 import { productionVault } from './vault'
 import { EncryptedMediaResolver, type EncryptedClientSession } from '../../app/lib/encrypted-resolver'
 import { EncryptedSourceLockedError, EncryptedSourceMismatchError, persistEncryptedSourceForSelection } from './encrypted-gallery'
@@ -100,7 +100,7 @@ export interface OfflineGalleryStore {
   purgeAll(): Promise<void>
 }
 
-export type OfflineFetchResponse = Pick<Response, 'ok' | 'status' | 'headers' | 'arrayBuffer'>
+export type OfflineFetchResponse = Pick<Response, 'ok' | 'status' | 'headers' | 'arrayBuffer' | 'body'>
 export type OfflineImageFetch = (input: string, init?: RequestInit) => Promise<OfflineFetchResponse>
 export interface OfflineObjectUrlProvider {
   /** Implementations must snapshot bytes before returning; the store wipes them immediately. */
@@ -108,7 +108,17 @@ export interface OfflineObjectUrlProvider {
   revoke(url: string): void
 }
 
-type OfflineVault = Pick<EncryptedVault, 'read' | 'readMany' | 'write' | 'remove' | 'clearGallery' | 'clear' | 'epoch' | 'listGalleryIds' | 'touch'>
+type OfflineVault = Pick<EncryptedVault, 'read' | 'readMany' | 'write' | 'remove' | 'clearGallery' | 'clear' | 'epoch' | 'listGalleryIds' | 'touch' | 'cap'>
+
+/** The overhead write() adds to every entry — record header, nonce and GCM
+ *  tag (HEADER_BYTES + NONCE_BYTES + TAG_BYTES in vault.ts). A body that
+ *  would pack over the cap is rejected before it is fully buffered. */
+const VAULT_RECORD_OVERHEAD_BYTES = 40
+
+/** The plaintext ceiling a single vault entry accepts. A null cap means the
+ *  vault is unbounded and so is the body. */
+const vaultEntryPlaintextLimit = (vault: OfflineVault): number | null =>
+  vault.cap === null ? null : Math.max(0, vault.cap - VAULT_RECORD_OVERHEAD_BYTES)
 /** One record per manifest item, index-aligned with `manifest.images` —
  *  `gridGallery` zips them positionally. `entryId` always holds the still
  *  bytes (the image itself, or a video's poster); `videoEntryId` appears
@@ -396,14 +406,86 @@ export class EncryptedOfflineGalleryStore implements OfflineGalleryStore {
       sessionPromise ??= this.openEncryptedSession(rawSelection)
       return sessionPromise
     }
+    // The fill invalidates the commit record before writing a byte; it
+    // hands that record out through onInvalidated so a transient failure
+    // can restore it instead of leaving a healthy copy commit-less.
+    const stashed: { current: { metadata: OfflineMetadata; since: VaultEpoch } | null } = { current: null }
     try {
-      return await this.cacheFill(rawSelection, gallery, openSession, signal, onProgress, onItemReady)
+      const result = await this.cacheFill(rawSelection, gallery, openSession, signal, onProgress, onItemReady, (metadata, since) => { stashed.current = { metadata, since } })
+      stashed.current = null
+      return result
+    } catch (error) {
+      // The replacement was never published — restore the record the fill's
+      // invalidation step stashed so the kept copy stays honest at its last
+      // version. The stashed epoch is stale after a purge or a newer fill,
+      // so an authoritative removal can never be quietly resurrected.
+      const galleryId = await offlineGalleryId(requireSelection(rawSelection)).catch(() => null)
+      if (galleryId && stashed.current) {
+        const priorBytes = encoder.encode(JSON.stringify(stashed.current.metadata))
+        try {
+          await this.vault.write(galleryId, METADATA_ENTRY_ID, priorBytes, { since: stashed.current.since })
+        } catch { /* a purge or newer fill owns this vault now */ }
+        finally { priorBytes.fill(0) }
+      }
+      throw error
     } finally {
       if (!sharedSession && sessionPromise) (await sessionPromise).dispose()
     }
   }
 
-  private async cacheFill(rawSelection: GallerySelection, gallery: NativeGalleryResponse, openSession: () => Promise<EncryptedClientSession>, signal?: AbortSignal, onProgress?: (progress: OfflineCacheProgress) => void, onItemReady?: (item: OfflineCacheItemReady) => void): Promise<OfflineCacheResult> {
+  /** Reads a video body with the vault's own entry ceiling: an honest
+   *  Content-Length over the limit fails before any byte is buffered, and a
+   *  body without one is cut off the moment it exceeds it. */
+  private async readBoundedBody(response: OfflineFetchResponse, signal?: AbortSignal): Promise<Uint8Array> {
+    const limit = vaultEntryPlaintextLimit(this.vault)
+    if (limit === null) return new Uint8Array(await response.arrayBuffer())
+    const oversize = () => new Error('Offline video is larger than one vault entry can hold')
+    const declared = Number(response.headers.get('content-length'))
+    if (Number.isFinite(declared) && declared > limit) throw oversize()
+    const stream = response.body
+    if (!stream) {
+      const bytes = new Uint8Array(await response.arrayBuffer())
+      if (bytes.length > limit) throw oversize()
+      return bytes
+    }
+    const reader = stream.getReader()
+    const chunks: Uint8Array[] = []
+    let received = 0
+    try {
+      for (;;) {
+        throwIfAborted(signal)
+        const { done, value } = await reader.read()
+        if (done) break
+        received += value?.length ?? 0
+        if (received > limit) throw oversize()
+        if (value) chunks.push(value)
+      }
+    } catch (error) {
+      await reader.cancel().catch(() => {})
+      throw error
+    } finally {
+      reader.releaseLock()
+    }
+    const bytes = new Uint8Array(received)
+    let offset = 0
+    for (const chunk of chunks) { bytes.set(chunk, offset); offset += chunk.length }
+    return bytes
+  }
+
+  /** Every entry a commit is about to advertise must still be in the vault —
+   *  a write's LRU pass can evict an earlier entry of the same fill. */
+  private async entriesPresent(galleryId: string, images: readonly CachedImage[]): Promise<boolean> {
+    for (const image of images) {
+      for (const entryId of image.videoEntryId ? [image.entryId, image.videoEntryId] : [image.entryId]) {
+        const bytes = await this.vault.read(galleryId, entryId, { touch: false })
+        if (!bytes) return false
+        bytes.fill(0)
+      }
+    }
+    return true
+  }
+
+  private async cacheFill(rawSelection: GallerySelection, gallery: NativeGalleryResponse, openSession: () => Promise<EncryptedClientSession>, signal?: AbortSignal, onProgress?: (progress: OfflineCacheProgress) => void, onItemReady?: (item: OfflineCacheItemReady) => void, onInvalidated?: (prior: OfflineMetadata, since: VaultEpoch) => void): Promise<OfflineCacheResult> {
     // Captured synchronously at call time, before the gallery ID resolves: a
     // purge bumps the vault's mutation epoch inside its serialized boundary,
     // and every write below hands back the epoch this fill started under. A
@@ -436,7 +518,10 @@ export class EncryptedOfflineGalleryStore implements OfflineGalleryStore {
       })
     }
     // Invalidate the commit record first. A failed refresh may leave encrypted
-    // bytes behind, but they can never be mistaken for a complete gallery.
+    // bytes behind, but they can never be mistaken for a complete gallery —
+    // and the record itself goes out through onInvalidated so the caller can
+    // restore it if this fill dies before publishing its replacement.
+    if (prior.status === 'ready') onInvalidated?.(prior.value, guard.since)
     await this.vault.remove(galleryId, METADATA_ENTRY_ID)
     const items = gallery.manifest.images
     if (items.length === 0) throw new Error('An empty gallery cannot be cached offline')
@@ -479,6 +564,14 @@ export class EncryptedOfflineGalleryStore implements OfflineGalleryStore {
           await this.vault.write(galleryId, METADATA_ENTRY_ID, metadataBytes, guard)
         } finally {
           metadataBytes.fill(0)
+        }
+        // The commit write's own eviction pass could drop an entry the touch
+        // check just confirmed — re-probe once more before declaring
+        // complete. touch is a presence probe, not a byte read.
+        const missingAfter = await this.vault.touch(galleryId, priorImages.flatMap((image) => image.videoEntryId ? [image.entryId, image.videoEntryId] : [image.entryId]))
+        if (missingAfter.length > 0) {
+          await this.vault.clearGallery(galleryId)
+          return { status: 'over-cap', images: 0 }
         }
         return { status: 'complete', images: items.length }
       }
@@ -538,7 +631,7 @@ export class EncryptedOfflineGalleryStore implements OfflineGalleryStore {
         const videoResponse = await this.fetchImage(image.src, { signal })
         if (!videoResponse.ok) throw new Error(`Offline video request failed (${videoResponse.status})`)
         const videoMime = videoMimeTypeOf(videoResponse, image)
-        const videoBytes = new Uint8Array(await videoResponse.arrayBuffer())
+        const videoBytes = await this.readBoundedBody(videoResponse, signal)
         try {
           throwIfAborted(signal)
           if (videoBytes.length === 0) throw new Error('Offline video response was empty')
@@ -585,16 +678,7 @@ export class EncryptedOfflineGalleryStore implements OfflineGalleryStore {
     // and the newest entries are written last — so a fill larger than the cap
     // evicts its own earlier entries. Verify every entry survived before the
     // metadata commit below advertises a complete gallery.
-    let lost = false
-    for (const image of cachedImages) {
-      for (const entryId of image.videoEntryId ? [image.entryId, image.videoEntryId] : [image.entryId]) {
-        const bytes = await this.vault.read(galleryId, entryId, { touch: false })
-        if (!bytes) { lost = true; break }
-        bytes.fill(0)
-      }
-      if (lost) break
-    }
-    if (lost) {
+    if (!(await this.entriesPresent(galleryId, cachedImages))) {
       // Purge the partial fill: orphaned ciphertext still counts against the
       // cap and would be unreachable without a commit record anyway.
       await this.vault.clearGallery(galleryId)
@@ -614,6 +698,12 @@ export class EncryptedOfflineGalleryStore implements OfflineGalleryStore {
       await this.vault.write(galleryId, METADATA_ENTRY_ID, metadataBytes, guard)
     } finally {
       metadataBytes.fill(0)
+    }
+    // The commit write itself runs the same LRU — it may have evicted an
+    // entry just verified. Check once more before declaring the fill done.
+    if (!(await this.entriesPresent(galleryId, cachedImages))) {
+      await this.vault.clearGallery(galleryId)
+      return { status: 'over-cap', images: 0 }
     }
     return { status: 'complete', images: cachedImages.length }
   }
@@ -866,14 +956,28 @@ const prepareOnline = async (options: OpenOptions, gallery: NativeGalleryRespons
   return { ...gallery, source: 'online', cacheFill, encryptedResolver, dispose: () => encryptedResolver?.dispose() }
 }
 
-/** True when the fresh manifest is the committed one — same image order,
- *  same ids, same byte identity (src for provider media, contentVersion for
- *  encrypted refs). Anything else is drift worth a swap. */
-export const offlineManifestMatches = (committed: GalleryManifest, fresh: GalleryManifest): boolean =>
+/** True when the fresh answer is the committed one — presentation first
+ *  (title, caption, date, per-item alt, poster, settings), then media byte
+ *  identity (same order, ids, src/contentVersion). A text-only edit counts
+ *  as drift for the *install* decision so the Viewer picks it up, while the
+ *  cache fill still keys its download decisions on byte identity alone. */
+export const offlineManifestMatches = (
+  committed: GalleryManifest,
+  fresh: GalleryManifest,
+  committedSettings?: GallerySettings,
+  freshSettings?: GallerySettings,
+): boolean =>
+  committed.title === fresh.title &&
+  committed.caption === fresh.caption &&
+  committed.date === fresh.date &&
+  (committedSettings === undefined || freshSettings === undefined ||
+    JSON.stringify(committedSettings) === JSON.stringify(freshSettings)) &&
   committed.images.length === fresh.images.length &&
   committed.images.every((image, index) => {
     const next = fresh.images[index]
-    if (!next || next.id !== image.id) return false
+    if (!next || next.id !== image.id || next.alt !== image.alt) return false
+    if (isVideoItem(image) !== isVideoItem(next)) return false
+    if (isVideoItem(image) && isVideoItem(next) && image.poster.src !== next.poster.src) return false
     const versionOf = (item: GalleryMediaItem) =>
       'contentVersion' in item && typeof item.contentVersion === 'string' ? item.contentVersion : item.src
     return versionOf(image) === versionOf(next)
@@ -888,7 +992,17 @@ export const openGalleryNetworkFirst = async (options: OpenOptions): Promise<Net
     if (cached) {
       const revalidate = options.fetchOnline(options.signal)
         .then((gallery) => prepareOnline(options, gallery))
-        .catch(() => null)
+        .catch(async (error: unknown) => {
+          // An authoritative miss is a deletion, not a hiccup: the kept copy
+          // is stale, not a fallback — drop it and surface the failure so
+          // the viewer stops presenting a gallery that no longer exists.
+          // Transient failures keep offline access and report no drift.
+          if (error instanceof NativeGalleryHttpError && CACHE_INVALIDATING_HTTP_STATUSES.has(error.status)) {
+            await options.store.invalidate(options.selection).catch(() => undefined)
+            throw error
+          }
+          return null
+        })
       return { ...cached, revalidate }
     }
   }

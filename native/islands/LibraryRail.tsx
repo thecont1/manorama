@@ -114,7 +114,7 @@ const RailCell = ({
   // CSS url() would fetch an arbitrary tracker (same safePlaceholder rule the
   // manifest validator enforces). Delivered as a custom property so the
   // url() never passes through a declaration parser on the way in.
-  const placeholderPaint = image.placeholder?.startsWith('data:image/svg+xml') && !/[<>]/.test(image.placeholder)
+  const placeholderPaint = image.placeholder?.startsWith('data:image/svg+xml') && !/["<>\\\n\r]/.test(image.placeholder)
     ? `url("${image.placeholder}")`
     : undefined
   const cellStyle: Record<string, string> = compact
@@ -145,7 +145,13 @@ const RailCell = ({
             onLoaded?.(index, { width: img.naturalWidth, height: img.naturalHeight })
           }
         }}
-        onError={() => setSrc(undefined)}
+        onError={() => {
+          setSrc(undefined)
+          // A failed thumb still resolves the cell at its manifest size —
+          // the window calculation advances past it instead of pinning the
+          // lookahead cluster on a zero-width gap.
+          onLoaded?.(index, { width: Math.max(1, image.width), height: Math.max(1, image.height) })
+        }}
       /> : null}
     </button>
   )
