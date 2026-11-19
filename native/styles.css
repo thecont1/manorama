@@ -952,7 +952,10 @@ body.manorama-native[data-native-fold-divided] .native-library-layout .native-se
 @container native-galleries (min-width: 380px) {
   .native-library-layout .native-library-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
-@container native-galleries (min-width: 700px) {
+/* Three columns only when each keeps the plan's comfortable item width —
+   at 700px the cells sank to ~222px; 760px guarantees ~242px apiece
+   (3×240 + 2×16 gap) and anything narrower takes two roomy columns. */
+@container native-galleries (min-width: 760px) {
   .native-library-layout .native-library-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
 }
 /* At phone width the cover grid is a wall of postage stamps — the island
