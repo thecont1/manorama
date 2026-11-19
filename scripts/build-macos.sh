@@ -145,6 +145,7 @@ cat > "$APP_BUNDLE/Contents/Info.plist" <<PLIST
     <dict>
       <key>CFBundleTypeName</key><string>Folder</string>
       <key>CFBundleTypeRole</key><string>Viewer</string>
+      <key>LSHandlerRank</key><string>Alternate</string>
       <key>LSItemContentTypes</key><string>public.folder</string>
     </dict>
   </array>
@@ -184,8 +185,12 @@ echo "==> signing the app bundle"
 # key on the next launch. A stable Developer ID signature makes the identity
 # — and therefore the Keychain trust — survive rebuilds.
 IDENTITY="${MACOS_SIGN_IDENTITY:-Developer ID Application: Mahesh Shantaram (373K7W3LKU)}"
+# App Store builds sign with ManoramaMac-AppStore.entitlements, which adds the
+# application/team identifiers the distribution signature requires; direct
+# (Developer ID) builds keep the leaner set.
+ENTITLEMENTS="${MANORAMA_MACOS_ENTITLEMENTS:-$APP/ManoramaMac.entitlements}"
 codesign --force --sign "$IDENTITY" --options runtime --timestamp \
-  --entitlements "$APP/ManoramaMac.entitlements" "$APP_BUNDLE"
+  --entitlements "$ENTITLEMENTS" "$APP_BUNDLE"
 
 echo "==> done: $APP_BUNDLE"
 echo "    run: open '$APP_BUNDLE'"

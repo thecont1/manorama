@@ -89,3 +89,4 @@ macos/ManoramaMac/build-focus-test/
 
 # Local styled-DMG preview output
 /build/dmg-preview/
+macos/ManoramaMac/build-*/
