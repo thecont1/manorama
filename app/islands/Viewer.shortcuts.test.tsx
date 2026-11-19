@@ -162,10 +162,15 @@ const mountNative = (props: Partial<Parameters<typeof Viewer>[0]> = {}) => {
   return { root, chromeRef, focusRequests, libraryReturns }
 }
 
-// The picker deliberately lets its 180ms closing animation finish before
-// committing the photograph and restoring focus.
-const settlePickerClose = async () => {
-  await new Promise((resolve) => setTimeout(resolve, 200))
+// The picker deliberately lets its closing animation finish before
+// committing the photograph and restoring focus — wait on the teardown
+// itself, not a fixed sleep that suite load can outrun.
+const settlePickerClose = async (root: HTMLElement) => {
+  const deadline = Date.now() + 5000
+  while (root.querySelector('.viewer-filmstrip')) {
+    if (Date.now() > deadline) throw new Error('picker did not close within 5s')
+    await settle()
+  }
   await settle()
 }
 
@@ -195,7 +200,7 @@ describe('native viewer chrome', () => {
         if (control === 'position') expect(overlay!.querySelectorAll('[data-grid-item]')).toHaveLength(1)
         if (dismissal === 'Escape') press(dom.document.activeElement, 'Escape')
         else overlay!.querySelector<HTMLButtonElement>('button[aria-label^="Close"]')!.click()
-        if (control === 'position') await settlePickerClose()
+        if (control === 'position') await settlePickerClose(root)
         else await settle()
         expect(root.querySelector(overlayFor(control))).toBeNull()
         expect(focusRequests).toEqual([control])
@@ -220,7 +225,7 @@ describe('native viewer chrome', () => {
         expect(root.querySelector('[data-grid-active]')?.getAttribute('data-image-id')).toBe('frame-1')
         press(dom.document.activeElement, 'Enter')
       }
-      await settlePickerClose()
+      await settlePickerClose(root)
       expect(root.querySelector('.viewer-filmstrip')).toBeNull()
       expect(root.querySelector('[data-chrome-position]')?.textContent).toBe('1 of 2')
       expect(focusRequests).toEqual(['position'])
@@ -380,7 +385,7 @@ describe('ordinary web chrome remains DOM-owned', () => {
       await settle()
       expect(root.querySelector(overlayFor(control))).not.toBeNull()
       press(dom.document.activeElement, 'Escape')
-      if (control === 'position') await settlePickerClose()
+      if (control === 'position') await settlePickerClose(root)
       else await settle()
       expect(root.querySelector(overlayFor(control))).toBeNull()
       expect(dom.document.activeElement).toBe(button)

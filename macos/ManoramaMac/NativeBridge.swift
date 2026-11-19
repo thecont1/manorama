@@ -75,6 +75,10 @@ final class NativeBridge {
 
     /// Custom-scheme deep links (`in.thecontrarian.manorama.desktop://...`) received by the app.
     private var currentDeepLinks: [String] = []
+    /// URLs buffered for get_current whose live emit has not yet confirmed —
+    /// the read-once call must skip them so a racing read cannot deliver
+    /// the same link the emit is about to land.
+    private var inFlightDeepLinks: Set<String> = []
     /// Whether this document has installed its listeners and read the launch URLs.
     private var pageReadyForDeepLinks = false
 
@@ -190,6 +194,9 @@ final class NativeBridge {
     /// URLs for the replacement's read-once get_current call.
     func resetDeepLinkReadiness() {
         pageReadyForDeepLinks = false
+        // An emit into a dead document can never confirm — release the
+        // in-flight marks so the replacement's get_current can read them.
+        inFlightDeepLinks.removeAll()
     }
 
     /// Buffer until the document is listening; a live delivery is never replayed.
@@ -209,12 +216,16 @@ final class NativeBridge {
               let singleData = try? JSONSerialization.data(withJSONObject: urlString, options: [.fragmentsAllowed]),
               let singleJson = String(data: singleData, encoding: .utf8) else { return }
         // The URL joins the read-once buffer before the emit so a document
-        // replacement mid-flight still finds it; a confirmed delivery
-        // removes it. __manoramaShellEmit && (...) reports undefined —
-        // not an error — so the script answers a Bool instead.
+        // replacement mid-flight still finds it — but marked in-flight, so
+        // a get_current that races the emit does not hand the page the same
+        // URL twice. __manoramaShellEmit && (...) reports undefined — not
+        // an error — so the script answers a Bool, and the completion runs
+        // on the main actor where assumeIsolated keeps the bookkeeping
+        // synchronous.
         if !currentDeepLinks.contains(urlString) {
             currentDeepLinks.append(urlString)
         }
+        inFlightDeepLinks.insert(urlString)
         let script = """
         window.__manoramaShellEmit ? (
           window.__manoramaShellEmit("deep-link://new-url", \(arrayJson)),
@@ -223,8 +234,9 @@ final class NativeBridge {
         ) : false;
         """
         webView.evaluateJavaScript(script) { [weak self] result, error in
-            Task { @MainActor [weak self] in
+            MainActor.assumeIsolated {
                 guard let self else { return }
+                self.inFlightDeepLinks.remove(urlString)
                 if error == nil, result as? Bool == true {
                     self.currentDeepLinks.removeAll { $0 == urlString }
                 } else {
@@ -331,8 +343,10 @@ final class NativeBridge {
             pageReadyForDeepLinks = true
             // Read-once: a handoff that failed (no in-memory verifier, an
             // expired token) must not replay its error on every launch.
-            let buffered = currentDeepLinks
-            currentDeepLinks.removeAll()
+            // In-flight URLs stay buffered — their live emit may still
+            // land, and handing them out here would deliver the link twice.
+            let buffered = currentDeepLinks.filter { !inFlightDeepLinks.contains($0) }
+            currentDeepLinks.removeAll { !inFlightDeepLinks.contains($0) }
             return buffered.isEmpty ? NSNull() : buffered
 
         case "plugin:event|listen":

@@ -543,6 +543,11 @@ final class RecordingBridgeWebView: WKWebView {
             replies[id] = reply
         } else {
             emissions.append(javaScriptString)
+            // The deep-link emit asks the page whether a listener exists —
+            // a recorded emission means the fake's page is listening, so
+            // it answers true and lets the bridge retire the buffer.
+            completionHandler?(javaScriptString.contains("__manoramaShellEmit") ? true : nil, nil)
+            return
         }
         completionHandler?(nil, nil)
     }
