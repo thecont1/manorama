@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'hono/jsx'
 import { cacheFillRegistry } from '../lib/cache-fill'
 import {
   mimeTypeForItem,
-  previewSrcFor,
+  railPreviewSrcFor,
   type LibraryMediaCell,
   type LibraryMediaLease,
   type LibraryMediaLoader,
@@ -17,7 +17,7 @@ export type RailImage = {
   width: number
   height: number
   alt: string
-  placeholder: string
+  placeholder?: string
   variants?: readonly { src: string; format?: string }[]
   type?: 'video'
   poster?: { src: string }
@@ -31,10 +31,14 @@ type Props = {
   title: string
   /** index is the tapped thumbnail's position; strip background opens 0. */
   onOpen(index: number): void
+  /** The details surface's preview strip — it never scrolls, so the mounted
+   *  window is exactly the cells the visible width can hold (plus the small
+   *  lookahead the collapse-cap grants cells still waiting on bytes). */
+  preview?: boolean
 }
 
 const fallbackRowHeight = () =>
-  typeof window === 'undefined' ? 220 : Math.min(220, window.innerHeight * .34)
+  typeof window === 'undefined' ? 330 : Math.min(330, window.innerHeight * .5)
 
 /** One rail cell: an aspect-true placeholder that materializes media only
  *  while it sits inside the visible window (plus one viewport of overscan on
@@ -46,8 +50,10 @@ const RailCell = ({
   index,
   left,
   width,
+  height,
   visible,
   loader,
+  onLoaded,
   onOpen,
   compact = false,
 }: {
@@ -57,8 +63,11 @@ const RailCell = ({
   index: number
   left: number
   width: number
+  /** The row height — every image in a strip is the same height. */
+  height?: number
   visible: boolean
   loader: LibraryMediaLoader
+  onLoaded?(index: number, dims: { width: number; height: number }): void
   onOpen(index: number): void
 }) => {
   const [src, setSrc] = useState<string | undefined>(undefined)
@@ -68,7 +77,7 @@ const RailCell = ({
     galleryId,
     entryId: thumbnailEntryId(image.id),
     mimeType: mimeTypeForItem(image),
-    remote: previewSrcFor(image),
+    remote: railPreviewSrcFor(image),
   }
 
   useEffect(() => {
@@ -101,32 +110,40 @@ const RailCell = ({
 
   const dimensions = natural && natural.src === src ? natural : image
   const dpr = deviceImageDpr(typeof window === 'undefined' ? 1 : window.devicePixelRatio)
-  // Scanner fallbacks (4×3 stills, 16×9 video) mark unknown dimensions, not
-  // intrinsic pixels — clamping to them shrinks the cell to ~1px on a hi-dpi
-  // screen. Only a real measurement earns the no-upscale clamp; the decoded
-  // size replaces it the moment the bytes land.
-  const measured = Boolean(natural && natural.src === src) || (image.width > 16 && image.height > 16)
+  // Only self-contained data-SVG placeholders may paint — a remote URL in a
+  // CSS url() would fetch an arbitrary tracker (same safePlaceholder rule the
+  // manifest validator enforces). Delivered as a custom property so the
+  // url() never passes through a declaration parser on the way in.
+  const placeholderPaint = image.placeholder?.startsWith('data:image/svg+xml') && !/[<>]/.test(image.placeholder)
+    ? `url("${image.placeholder}")`
+    : undefined
+  const cellStyle: Record<string, string> = compact
+    ? { aspectRatio: `${dimensions.width} / ${dimensions.height}`, ...(natural && natural.src === src ? { maxWidth: `${dimensions.width / dpr}px`, maxHeight: `${dimensions.height / dpr}px` } : {}) }
+    : {
+        position: 'absolute',
+        left: `${left}px`,
+        width: `${width}px`,
+        height: height !== undefined ? `${height}px` : '100%',
+        '--ar': `${image.width} / ${image.height}`,
+      }
+  if (placeholderPaint) cellStyle['--ph'] = placeholderPaint
   return (
     <button
       type="button"
       class={compact ? 'lib-th native-library-cover' : 'lib-th'}
       data-rail-cell
       data-at={index}
-      style={compact ? { aspectRatio: `${dimensions.width} / ${dimensions.height}` } : {
-        position: 'absolute',
-        left: `${left}px`,
-        width: `${width}px`,
-        height: '100%',
-        '--ar': `${image.width} / ${image.height}`,
-      }}
+      style={cellStyle}
       aria-label={image.alt || `Photograph ${index + 1}`}
       onClick={() => onOpen(index)}
     >
       {src ? <img src={src} alt="" width={image.width} height={image.height} draggable={false} class="on"
-        style={measured ? { maxWidth: `${dimensions.width / dpr}px`, maxHeight: `${dimensions.height / dpr}px` } : undefined}
         onLoad={(event: Event) => {
           const img = event.currentTarget as HTMLImageElement
-          if (img.naturalWidth && img.naturalHeight) setNatural({ src, width: img.naturalWidth, height: img.naturalHeight })
+          if (img.naturalWidth && img.naturalHeight) {
+            setNatural({ src, width: img.naturalWidth, height: img.naturalHeight })
+            onLoaded?.(index, { width: img.naturalWidth, height: img.naturalHeight })
+          }
         }}
         onError={() => setSrc(undefined)}
       /> : null}
@@ -168,23 +185,37 @@ const firstOffsetAt = (offsets: readonly number[], target: number) => {
 /** A virtualised aspect-true rail. Only the visible window plus one viewport
  * on either side is mounted or read; the spacer preserves the full scroll
  * geometry and every image keeps its own proportions. */
-export const LibraryRail = ({ galleryId, images, loader, title, onOpen }: Props) => {
+export const LibraryRail = ({ galleryId, images, loader, title, onOpen, preview = false }: Props) => {
   const railRef = useRef<HTMLDivElement>(null)
   const [rowHeight, setRowHeight] = useState(fallbackRowHeight)
   const [visible, setVisible] = useState<ReadonlySet<number>>(() => new Set())
+  // Ids whose bytes have decoded this session, with the bitmap's own size.
+  // Cells reserve no space before that — the strip is always a contiguous
+  // cluster of real photographs at their honest rendition size, the same
+  // contract the desktop strip's width:auto flow produces.
+  const [loaded, setLoaded] = useState<ReadonlyMap<string, { width: number; height: number }>>(() => new Map())
   const [range, setRange] = useState({ start: 0, end: Math.min(images.length - 1, 7) })
   const dragRef = useRef<{ x: number; scroll: number; moved: boolean } | null>(null)
 
   const layout = useMemo(() => {
-    const widths = images.map((image) => image.height > 0 && image.width > 0 ? rowHeight * image.width / image.height : rowHeight)
+    const widths = images.map((image) => {
+      const dims = loaded.get(image.id)
+      // Every image in the strip rides at the strip's height — the decoded
+      // bitmap owns the aspect, the row owns the height. Undecoded cells
+      // estimate from the manifest until their bytes land.
+      if (dims) return rowHeight * dims.width / dims.height
+      return image.height > 0 && image.width > 0 ? rowHeight * image.width / image.height : rowHeight
+    })
     const offsets: number[] = []
     let totalWidth = 0
-    for (const width of widths) {
+    let estTotal = 0
+    for (let index = 0; index < images.length; index++) {
       offsets.push(totalWidth)
-      totalWidth += width
+      totalWidth += loaded.has(images[index]!.id) ? widths[index]! : 0
+      estTotal += widths[index]!
     }
-    return { widths, offsets, totalWidth }
-  }, [images, rowHeight])
+    return { widths, offsets, totalWidth, estTotal }
+  }, [images, rowHeight, loaded])
 
   useEffect(() => {
     const rail = railRef.current
@@ -201,9 +232,19 @@ export const LibraryRail = ({ galleryId, images, loader, title, onOpen }: Props)
       // would mount every cell. Bound the overscan to the device width until
       // a real measurement arrives.
       const viewport = rail.clientWidth || window.innerWidth
-      const left = rail.scrollLeft
-      const start = Math.max(0, firstOffsetAt(layout.offsets, left - viewport))
-      const end = Math.min(images.length - 1, firstOffsetAt(layout.offsets, left + viewport * 2))
+      const left = preview ? 0 : rail.scrollLeft
+      const start = preview ? 0 : Math.max(0, firstOffsetAt(layout.offsets, left - viewport))
+      // A preview mounts only what the frame can show — one viewport of strip,
+      // no overscan. The scrollable rail reads a viewport further ahead.
+      let end = firstOffsetAt(layout.offsets, preview ? viewport : left + viewport * 2)
+      // Every unloaded cell collapses onto the cluster's end offset, so a
+      // target past it finds the last index — cap the lookahead to a handful
+      // of cells waiting there instead. Never below start: a scroll beyond
+      // the cluster still owns its window.
+      if (layout.offsets[end]! >= layout.totalWidth && layout.totalWidth < layout.estTotal) {
+        end = Math.max(start, Math.min(end, firstOffsetAt(layout.offsets, layout.totalWidth) + 7))
+      }
+      end = Math.min(images.length - 1, end)
       setRange((previous) => previous.start === start && previous.end === end ? previous : { start, end })
     }
     const schedule = () => {
@@ -220,7 +261,7 @@ export const LibraryRail = ({ galleryId, images, loader, title, onOpen }: Props)
       observer?.disconnect()
       window.removeEventListener('resize', schedule)
     }
-  }, [galleryId, images.length, layout, rowHeight])
+  }, [galleryId, images.length, layout, rowHeight, preview])
 
   useEffect(() => {
     const rail = railRef.current
@@ -273,7 +314,7 @@ export const LibraryRail = ({ galleryId, images, loader, title, onOpen }: Props)
   }, [galleryId, images, range.start, range.end])
 
   const onPointerDown = (event: PointerEvent) => {
-    if (event.pointerType !== 'mouse' || event.button !== 0) return
+    if (preview || event.pointerType !== 'mouse' || event.button !== 0) return
     const rail = railRef.current
     if (!rail) return
     dragRef.current = { x: event.clientX, scroll: rail.scrollLeft, moved: false }
@@ -306,9 +347,10 @@ export const LibraryRail = ({ galleryId, images, loader, title, onOpen }: Props)
   return (
     <div
       ref={railRef}
-      class="lib-rail"
+      class={preview ? 'lib-rail lib-rail--preview' : 'lib-rail'}
       role="group"
       aria-label={`${title} — photographs`}
+      data-rail-preview={preview || undefined}
       data-rail-total={images.length}
       data-window-start={range.start}
       data-window-end={range.end}
@@ -334,9 +376,11 @@ export const LibraryRail = ({ galleryId, images, loader, title, onOpen }: Props)
               image={image}
               index={index}
               left={layout.offsets[index]!}
-              width={layout.widths[index]!}
+              width={loaded.has(image.id) ? layout.widths[index] : 0}
+              height={rowHeight}
               visible={visible.has(index)}
               loader={loader}
+              onLoaded={(at, dims) => setLoaded((previous) => previous.has(images[at]!.id) ? previous : new Map(previous).set(images[at]!.id, dims))}
               onOpen={openAt}
             />
           )

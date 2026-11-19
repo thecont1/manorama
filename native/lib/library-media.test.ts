@@ -5,6 +5,7 @@ import {
   LibraryMediaLoader,
   mimeTypeForItem,
   previewSrcFor,
+  railPreviewSrcFor,
   type LibraryMediaCell,
 } from './library-media'
 import type { OfflineObjectUrlProvider } from './offline-gallery'
@@ -335,5 +336,21 @@ describe('gallery presentation helpers', () => {
     expect(mimeTypeForItem(still({}))).toBe('image/heic')
     expect(mimeTypeForItem(still({ filename: 'one.jpeg' }))).toBe('image/jpeg')
     expect(mimeTypeForItem(still({ filename: 'one' }))).toBe('application/octet-stream')
+  })
+
+  test('the rail asks parameterised proxies for the bigger preview', () => {
+    const gphotos = still({ variants: [{ width: 256, src: '/api/gphotos/image?u=https%3A%2F%2Flh3.example%2Fabc&r=h256', format: 'jpeg' }] })
+    expect(railPreviewSrcFor(gphotos)).toBe('/api/gphotos/image?u=https%3A%2F%2Flh3.example%2Fabc&r=h768')
+    const drive = still({ variants: [{ width: 256, src: '/api/drive/thumbnail?id=abc&size=w256', format: 'jpeg' }] })
+    expect(railPreviewSrcFor(drive)).toBe('/api/drive/thumbnail?id=abc&size=w2048')
+    const local = still({ variants: [{ width: 256, src: '/api/local/file?path=%2Ftmp%2Fone.jpg&w=256', format: 'webp' }] })
+    expect(railPreviewSrcFor(local)).toBe('/api/local/file?path=%2Ftmp%2Fone.jpg&w=768')
+    // Dropbox previews already arrive at the largest box; checksum-bound
+    // iCloud renditions and remote URLs keep what the scan recorded.
+    const dropbox = still({ variants: [{ width: 2048, src: '/api/dropbox/thumbnail?sourceUrl=x&filename=a.jpg&size=w2048h1536', format: 'jpeg' }] })
+    expect(railPreviewSrcFor(dropbox)).toBe('/api/dropbox/thumbnail?sourceUrl=x&filename=a.jpg&size=w2048h1536')
+    const icloud = still({ variants: [{ width: 256, src: '/api/icloud/image?token=t&guid=g&checksum=c', format: 'jpeg' }] })
+    expect(railPreviewSrcFor(icloud)).toBe('/api/icloud/image?token=t&guid=g&checksum=c')
+    expect(railPreviewSrcFor(still({}))).toBe('https://provider.test/original.heic')
   })
 })
