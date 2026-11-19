@@ -36,12 +36,18 @@ const shellWindow = (): ShellWindow | undefined =>
 export const hasIosGlass = (): boolean =>
   typeof document !== 'undefined' && document.documentElement.dataset.iosGlass === '1'
 
-/** Posts to the native side through the same handler the observer uses. */
+/** Posts to the native side through the same handler the observer uses.
+ *  The injected observer mints a generation per document (and per replay);
+ *  tagging bundle posts with it lets the shell drop a stale document's
+ *  late messages after a navigation reset. */
 export const iosPost = (message: { type: 'focus'; control: ViewerChromeControl }) => {
-  const handler = (window as unknown as {
+  const win = window as unknown as {
+    __manoramaChromeGen?: string
     webkit?: { messageHandlers?: { manorama?: { postMessage(payload: unknown): void } } }
-  }).webkit?.messageHandlers?.manorama
-  handler?.postMessage(message)
+  }
+  const handler = win.webkit?.messageHandlers?.manorama
+  const gen = win.__manoramaChromeGen
+  handler?.postMessage(gen === undefined ? message : { ...message, gen })
 }
 
 /**

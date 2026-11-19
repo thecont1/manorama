@@ -78,12 +78,29 @@ The contract is small and bounded:
   handed off in both directions: Escape on a native control returns the
   stage; the page reports which control was focused so VoiceOver and the
   key loop land on the same capsule.
-- **`{type:'chrome-layout'}`** — the web bar's rect (finite-validated) seats
-  the native cluster over the chrome's real box, and `inert` state closes it
-  while a sheet owns the stage.
-- Validation: main-frame + trusted-document + `manorama://localhost` origin
-  before any body is parsed; `didCommit` resets ready/chrome state so a new
-  document generation never inherits the last one's listeners.
+- **`{type:'chrome-layout'}`** — **macOS only.** The web bar's rect
+  (finite-validated) seats the native cluster over the chrome's real box,
+  and `inert` state closes it while a sheet owns the stage. iOS never uses
+  it: the overlay seats from safe-area insets and `reservedRegions` fed by
+  `SceneDelegate`, and each capsule publishes its own hit rect.
+- **Picker state** — the injected observer suppresses native capsules while
+  a picker surface is mounted (`.viewer-filmstrip` in the Viewer, or
+  `.native-global-view` — the host-mounted Global View). On iOS the host
+  passes `nativePickerOpen` to the mounted Viewer, which treats the external
+  picker as its own modal: dismissal runs the same native focus-restore
+  path (`{type:'focus'}`) as the in-tree filmstrip.
+- **Validation** — macOS: main-frame + trusted-document +
+  `manorama://localhost` origin before any body is parsed; `didCommit`
+  resets ready/chrome state so a new document generation never inherits the
+  last one's listeners. iOS: posts are main-frame only and their origin must
+  match the committed document's own. Every observer post carries the
+  document generation minted at injection — the first post of a new
+  generation is the document boundary (state is reset, then the generation
+  is adopted); a generation retired when a navigation starts is dropped.
+  When loading ends without a new generation reporting, the surviving
+  document is asked to replay: `__manoramaChromeReplay` mints a fresh
+  generation and reposts, so a cancelled navigation cannot strand the chrome
+  state. The position label is bounded before it reaches the model.
 
 ## Tokens
 
@@ -154,9 +171,12 @@ floating single controls), `.glass-regular` (pills, toolbars, popovers),
 
 Two details the phases added that the tier table above does not show:
 - **Duo seating is native-side too.** `SceneDelegate` publishes the active
-  `reservedRegions` to the overlay model on the same pass that posts
-  `__MANORAMA_IOS_LAYOUT__`; capsules clear a leading system bar and the
-  bottom cluster centres in the widest unreserved run of screen.
+  `reservedRegions` and `verticalBarEdge` to the overlay model on the same
+  pass that posts `__MANORAMA_IOS_LAYOUT__`; capsules clear a leading system
+  bar and the bottom cluster centres in the widest unreserved run that fits
+  its padded bounds. When `verticalBarEdge` names an edge, the controls
+  become a vertical column docked to it — the same adaptation the web
+  chrome makes as `.m-chrome--side`.
 - **Vertical-bar pills keep `.92`.** Under the frost gate
   `.m-chrome--side .m-chrome-pill` retains its near-opaque fill — a Tier-B
   blur inside the system bar's thin strip is invisible, and the arm outlives

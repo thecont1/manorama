@@ -388,7 +388,14 @@ export default function GalleryList({ apiBase, owner, slug, deepLinkSelection, o
   // the props and the published handle simply never come into play.
   const chromeRef = useRef<ViewerChromeHandle | null>(null)
   const chromeProps = hasIosGlass()
-    ? { chromeRef, onChromeFocus: (control: ViewerChromeControl) => iosPost({ type: 'focus', control }) }
+    ? {
+        chromeRef,
+        onChromeFocus: (control: ViewerChromeControl) => iosPost({ type: 'focus', control }),
+        // Global View lives outside the Viewer tree; the viewer treats its
+        // open state as its own modal so dismissal runs the native
+        // focus-restore path (the observer reports picker open/close too).
+        nativePickerOpen: globalViewOpen,
+      }
     : {}
   const navRef = useRef<OwnerNavState>(null as unknown as OwnerNavState)
   navRef.current = nav

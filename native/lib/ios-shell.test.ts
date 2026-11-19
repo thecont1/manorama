@@ -10,6 +10,7 @@ type ShellWindow = Window & {
     focusStage: () => void
   }
   __manoramaChrome?: unknown
+  __manoramaChromeGen?: string
   webkit?: { messageHandlers?: { manorama?: { postMessage(payload: unknown): void } } }
 }
 
@@ -85,6 +86,18 @@ describe('iOS shell chrome contract', () => {
   test('focus posts travel through the manorama message handler', () => {
     iosPost({ type: 'focus', control: 'position' })
     expect(posted).toEqual([{ type: 'focus', control: 'position' }])
+  })
+
+  test('posts carry the document generation the observer minted', () => {
+    w().__manoramaChromeGen = 'dtest123'
+    iosPost({ type: 'focus', control: 'position' })
+    expect(posted).toEqual([{ type: 'focus', control: 'position', gen: 'dtest123' }])
+    delete w().__manoramaChromeGen
+    iosPost({ type: 'focus', control: 'settings' })
+    expect(posted).toEqual([
+      { type: 'focus', control: 'position', gen: 'dtest123' },
+      { type: 'focus', control: 'settings' },
+    ])
   })
 
   test('hasIosGlass reads the document-start stamp', () => {

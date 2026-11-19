@@ -72,6 +72,11 @@ type Props = {
   /** Native shells route the existing position pill to their vault-backed
    *  global thumbnail picker. Web and desktop keep the local filmstrip. */
   onOpenGlobalView?: (index: number) => void
+  /** The host's picker surface is mounted outside this tree (native Global
+   *  View). The viewer treats it as its own modal: chrome activity, the
+   *  activate() gate and the native focus-restore path behave exactly as
+   *  they do for the in-tree filmstrip. */
+  nativePickerOpen?: boolean
   /** Native-only actions remain in the controls panel, never on the stage. */
   onReturnToGalleries?: () => void
   /** Browser fullscreen is web-only; native and desktop shells suppress it. */
@@ -316,7 +321,7 @@ const writeViewPrefs = (slug: string, patch: Partial<ViewPrefs>) => {
  *  preserve their aspect ratio, fit height-first in strip mode, width-first in
  *  vertical mode (portraits contain both axes instead, so they cannot run
  *  past the fold), and within both axes in single mode without upscaling. */
-export default function Viewer({ slug, galleryTitle, images: sourceImages, encryptedResolver = null, galleryId, settings: initialSettings, plate = null, onOpenGlobalView, onReturnToGalleries, allowFullscreen = true, initialIndex = 0, navigationRef, chromeRef, onChromeFocus, embedded = false, demoRef, demoDisplayScaleRef, suspended = false, onPositionChange, onOpenDetails, viewerRole, galleryOwner, onAddToLibrary, addToLibraryBusy, addToLibraryLabel, signInHref, libraryHref, apiBase = '', authToken, ownerGallery, initialEdit = false, editStore, foldLayout = null, demoVerticalBarEdge, demoVerticalStyle, foldRenderer, keyStore, shareHref, onEditSaved, onGalleryRenamed, onGalleryRefreshed, onGalleryRemoved }: Props) {
+export default function Viewer({ slug, galleryTitle, images: sourceImages, encryptedResolver = null, galleryId, settings: initialSettings, plate = null, onOpenGlobalView, nativePickerOpen = false, onReturnToGalleries, allowFullscreen = true, initialIndex = 0, navigationRef, chromeRef, onChromeFocus, embedded = false, demoRef, demoDisplayScaleRef, suspended = false, onPositionChange, onOpenDetails, viewerRole, galleryOwner, onAddToLibrary, addToLibraryBusy, addToLibraryLabel, signInHref, libraryHref, apiBase = '', authToken, ownerGallery, initialEdit = false, editStore, foldLayout = null, demoVerticalBarEdge, demoVerticalStyle, foldRenderer, keyStore, shareHref, onEditSaved, onGalleryRenamed, onGalleryRefreshed, onGalleryRemoved }: Props) {
   const [settings, setSettings] = useState<GallerySettings>(initialSettings)
   const viewPrefs = useMemo(() => (embedded || typeof localStorage === 'undefined' ? {} : readViewPrefs(slug)), [slug, embedded])
   const [mode, setMode] = useState<Mode>(viewPrefs.mode ?? initialSettings.defaultMode)
@@ -512,7 +517,7 @@ export default function Viewer({ slug, galleryTitle, images: sourceImages, encry
   // closures and render-synced values lag a setState call. The open/close
   // helpers write this at event time; the render line is the backstop.
   const anyModalOpenRef = useRef(false)
-  anyModalOpenRef.current = modalOpen || infoOpen || gridOpen || shortcutsOpen
+  anyModalOpenRef.current = modalOpen || infoOpen || gridOpen || shortcutsOpen || nativePickerOpen
   // A saved name propagates into the picker's header — the prop is the
   // SSR title, this override is the live one.
   const [titleOverride, setTitleOverride] = useState<string | undefined>(undefined)
@@ -2229,8 +2234,16 @@ export default function Viewer({ slug, galleryTitle, images: sourceImages, encry
     return () => cancelAnimationFrame(frame)
   }, [gridOpen])
 
+  // The host picker mounts outside this tree, so gridOpen never tracks it.
+  // When it opens without going through activate() (a keyboard 'g'), its
+  // semantic origin is still the position control — record that so the
+  // restore effect below lands on the right capsule.
   useEffect(() => {
-    if (gridOpen || modalOpen || infoOpen || shortcutsOpen) return
+    if (nativePickerOpen && onChromeFocus) nativeInvokerRef.current ??= 'position'
+  }, [nativePickerOpen, onChromeFocus])
+
+  useEffect(() => {
+    if (gridOpen || modalOpen || infoOpen || shortcutsOpen || nativePickerOpen) return
     const nativeControl = nativeInvokerRef.current
       ?? (onChromeFocus && previousFocusRef.current === positionPillRef.current && previousFocusRef.current ? 'position' : null)
     if (nativeControl && onChromeFocus) {
@@ -2252,7 +2265,7 @@ export default function Viewer({ slug, galleryTitle, images: sourceImages, encry
       }
       requestAnimationFrame(() => target.focus({ preventScroll: true }))
     }
-  }, [gridOpen, modalOpen, infoOpen, shortcutsOpen])
+  }, [gridOpen, modalOpen, infoOpen, shortcutsOpen, nativePickerOpen])
 
   useEffect(() => {
     if (!gridOpen) return
