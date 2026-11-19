@@ -84,7 +84,10 @@ export const normalizeLocalPathString = (input: string): string => {
   // Windows drive paths may arrive slash-prefixed (file:///C:/x or a typed
   // /C:/x) — strip the lead so path.resolve sees the drive letter.
   candidate = candidate.replace(/^\/+(?=[A-Za-z]:[\\/])/, '')
-  return candidate.replace(/^\/+/, '/').replace(/\/+$/, '')
+  // An all-slash input normalises to '' and path.resolve('') lands on the
+  // process cwd — keep the slash so the callers' filesystem-root guard sees
+  // the root it was meant to refuse rather than scanning the cwd.
+  return candidate.replace(/^\/+/, '/').replace(/\/+$/, '') || '/'
 }
 
 const resolveLocalPath = async (input: string): Promise<string> => {
