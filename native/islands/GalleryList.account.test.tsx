@@ -692,6 +692,61 @@ describe('signed-in account area', () => {
     expect(settingsHtml).not.toContain('Open photo picker')
   })
 
+  test('a narrow gallery pane swaps compact covers for the filmstrip rail', async () => {
+    installLocalStorage()
+    signInStorage()
+    stubFetch({ galleries: json({ galleries: [accountSummary({
+      images: [
+        { id: 'first', ref: 'first', filename: 'first.jpg', src: 'https://cdn.example/first.jpg', width: 1200, height: 800 },
+        { id: 'second', ref: 'second', filename: 'second.jpg', src: 'https://cdn.example/second.jpg', width: 800, height: 1200 },
+      ],
+    })] }) })
+    // A ResizeObserver the test can re-fire — the island reads the gallery
+    // pane's content width to decide cover vs rail.
+    const observed: { callback: ResizeObserverCallback; elements: Element[] }[] = []
+    const previousObserver = globals.ResizeObserver
+    globals.ResizeObserver = class {
+      callback: ResizeObserverCallback
+      elements: Element[] = []
+      constructor(callback: ResizeObserverCallback) {
+        this.callback = callback
+        observed.push(this as unknown as { callback: ResizeObserverCallback; elements: Element[] })
+      }
+      observe(element: Element) {
+        this.elements.push(element)
+        this.callback([], this as unknown as ResizeObserver)
+      }
+      unobserve() {}
+      disconnect() {}
+    } as unknown as typeof ResizeObserver
+    try {
+      const { container } = mountAccount({ billing: entitlement('free') })
+      await settle()
+      // An unlaid-out pane reports no width and keeps the wide treatment —
+      // a single cover cell on a compact card.
+      let card = container.querySelector('[data-lib-card="kashmir"]') as HTMLElement
+      expect(card.className).toContain('native-library-compact-card')
+      expect(card.querySelector('.native-library-cover')).not.toBeNull()
+      expect(card.querySelector('.lib-rail')).toBeNull()
+
+      const pane = container.querySelector('.native-list-card') as HTMLElement
+      const watcher = observed.find((instance) => instance.elements.includes(pane))
+      expect(watcher).toBeTruthy()
+      Object.defineProperty(pane, 'clientWidth', { value: 400, configurable: true })
+      watcher!.callback([], watcher as unknown as ResizeObserver)
+      await settle()
+
+      // Phone width: the card carries the gallery's own filmstrip, the same
+      // component the pinned strips and the viewer's strip share.
+      card = container.querySelector('[data-lib-card="kashmir"]') as HTMLElement
+      expect(card.className).not.toContain('native-library-compact-card')
+      expect(card.querySelector('.native-library-cover')).toBeNull()
+      expect(card.querySelectorAll('.lib-rail .lib-th')).toHaveLength(2)
+    } finally {
+      globals.ResizeObserver = previousObserver
+    }
+  })
+
   test('PATCHes an edited address from Settings', async () => {
     installLocalStorage()
     signInStorage()

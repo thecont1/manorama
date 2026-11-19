@@ -264,6 +264,11 @@ export default function GalleryList({ apiBase, owner, slug, deepLinkSelection, o
   // the toggle; everyone else just gets the visibility answer applied.
   const [suppressions, setSuppressions] = useState<AdSuppression[] | null>(null)
   const [foldLayout, setFoldLayout] = useState<FoldLayout | null>(null)
+  // Below this content width a compact cover is a postage stamp — every
+  // card carries its own filmstrip instead (the miniature of the viewer it
+  // opens into). The grid collapses with it in CSS at the same measure.
+  const [narrowLibrary, setNarrowLibrary] = useState(false)
+  const libraryPaneObserverRef = useRef<ResizeObserver | null>(null)
   const [status, setStatus] = useState<GalleryStatus>('idle')
   const [error, setError] = useState<string | null>(null)
   // A gallery already open at mount (props or a restored URL selection)
@@ -880,6 +885,36 @@ export default function GalleryList({ apiBase, owner, slug, deepLinkSelection, o
     const sync = () => setFoldLayout(readRuntimeFoldLayout())
     sync()
     return subscribeToRuntimeFoldLayout(sync)
+  }, [])
+
+  // The rail swap measures the same box the container queries read — the
+  // gallery pane's content width — so a narrow pane (a phone, or one half
+  // of a divided fold layout) gets the same filmstrip treatment without
+  // guessing from the whole viewport. A callback ref: hono re-invokes it on
+  // every prop application, so a stale observer is dropped and re-armed
+  // only when the element actually changes.
+  const libraryPaneElementRef = useRef<HTMLElement | null>(null)
+  const observeLibraryPane = (element: HTMLElement | null) => {
+    if (element === libraryPaneElementRef.current) return
+    libraryPaneElementRef.current = element
+    libraryPaneObserverRef.current?.disconnect()
+    libraryPaneObserverRef.current = null
+    if (!element || typeof ResizeObserver === 'undefined') return
+    const measure = () => {
+      const style = getComputedStyle(element)
+      const inner = element.clientWidth - (parseFloat(style.paddingLeft) || 0) - (parseFloat(style.paddingRight) || 0)
+      // Zero is an unlaid-out DOM (hidden pane, non-layout mount) — hold
+      // the wide cover treatment until a real measure arrives.
+      if (inner > 0) setNarrowLibrary(inner <= 560)
+    }
+    const observer = new ResizeObserver(measure)
+    observer.observe(element)
+    libraryPaneObserverRef.current = observer
+  }
+  useEffect(() => () => {
+    libraryPaneObserverRef.current?.disconnect()
+    libraryPaneObserverRef.current = null
+    libraryPaneElementRef.current = null
   }, [])
 
   useEffect(() => {
@@ -1833,9 +1868,10 @@ export default function GalleryList({ apiBase, owner, slug, deepLinkSelection, o
     const streamOnlyGallery = ownerSlug
       ? (galleryPolicies?.[galleryPolicyKey(ownerSlug, gallery.slug)] ?? DEFAULT_VAULT_LOAD_POLICY) === 'stream'
       : false
-    const GalleryPreview = gallery.pinnedAt && !gallery.hiddenAt ? LibraryRail : LibraryCover
+    const useRail = narrowLibrary || (gallery.pinnedAt && !gallery.hiddenAt)
+    const GalleryPreview = useRail ? LibraryRail : LibraryCover
     return (
-      <article class={GalleryPreview === LibraryRail ? 'lib-card' : 'lib-card native-library-compact-card'} data-lib-card={gallery.slug}>
+      <article class={useRail ? 'lib-card' : 'lib-card native-library-compact-card'} data-lib-card={gallery.slug}>
         <GalleryPreview
           galleryId={galleryId}
           images={gallery.images.filter((image) => !image.hidden)}
@@ -1880,30 +1916,33 @@ export default function GalleryList({ apiBase, owner, slug, deepLinkSelection, o
       </article>
     )
   }
-  const cachedGalleryRow = (gallery: OfflineGridGallery) => (
-    <article class="lib-card native-library-compact-card" data-cached-gallery={gallery.slug}>
-      <LibraryCover
-        galleryId={gallery.galleryId}
-        images={gallery.frames.map((frame) => ({
-          id: frame.id,
-          filename: frame.id,
-          src: '',
-          width: frame.width,
-          height: frame.height,
-          alt: frame.alt,
-          placeholder: '',
-        }))}
-        loader={libraryLoader}
-        title={gallery.title}
-        onOpen={(index) => openSelectionAt(gallery.owner, gallery.slug, index)}
-      />
-      <div class="lib-card-head">
-        <button type="button" class="lib-card-title" onClick={() => openSelectionAt(gallery.owner, gallery.slug, 0)}>{gallery.title}</button>
-        <button type="button" class="lib-card-menu" aria-label={`${gallery.title} saved-copy actions`} aria-haspopup="dialog" onClick={() => setCachedMenuGallery(gallery)}>···</button>
-      </div>
-      <p class="lib-card-sub">{formatMediaCount({ stills: gallery.frames.length - gallery.frames.filter((frame) => frame.video).length, videos: gallery.frames.filter((frame) => frame.video).length })} · Offline copy complete · Saved on this device{accountListFailed ? ' · account list unavailable' : accountGalleries ? ' · not in the online account list' : ' · account list pending'}</p>
-    </article>
-  )
+  const cachedGalleryRow = (gallery: OfflineGridGallery) => {
+    const GalleryPreview = narrowLibrary ? LibraryRail : LibraryCover
+    return (
+      <article class={narrowLibrary ? 'lib-card' : 'lib-card native-library-compact-card'} data-cached-gallery={gallery.slug}>
+        <GalleryPreview
+          galleryId={gallery.galleryId}
+          images={gallery.frames.map((frame) => ({
+            id: frame.id,
+            filename: frame.id,
+            src: '',
+            width: frame.width,
+            height: frame.height,
+            alt: frame.alt,
+            placeholder: '',
+          }))}
+          loader={libraryLoader}
+          title={gallery.title}
+          onOpen={(index) => openSelectionAt(gallery.owner, gallery.slug, index)}
+        />
+        <div class="lib-card-head">
+          <button type="button" class="lib-card-title" onClick={() => openSelectionAt(gallery.owner, gallery.slug, 0)}>{gallery.title}</button>
+          <button type="button" class="lib-card-menu" aria-label={`${gallery.title} saved-copy actions`} aria-haspopup="dialog" onClick={() => setCachedMenuGallery(gallery)}>···</button>
+        </div>
+        <p class="lib-card-sub">{formatMediaCount({ stills: gallery.frames.length - gallery.frames.filter((frame) => frame.video).length, videos: gallery.frames.filter((frame) => frame.video).length })} · Offline copy complete · Saved on this device{accountListFailed ? ' · account list unavailable' : accountGalleries ? ' · not in the online account list' : ' · account list pending'}</p>
+      </article>
+    )
+  }
   // Render gate: an unresolved entitlement drops the slot in the same paint
   // that learns the tier, so no stale creative can outlive a change. The
   // master switch suppresses it outright.
@@ -2113,7 +2152,7 @@ export default function GalleryList({ apiBase, owner, slug, deepLinkSelection, o
         </footer>
         </div>
       </aside>
-      <section class={quiet ? 'native-list-card lib-quiet' : 'native-list-card'} style={libraryRegionStyle(galleryRegion)} aria-label="Galleries" aria-live="polite" aria-busy={status === 'loading'} hidden={nav.screen.kind === 'settings' || undefined}>
+      <section ref={observeLibraryPane} class={quiet ? 'native-list-card lib-quiet' : 'native-list-card'} style={libraryRegionStyle(galleryRegion)} aria-label="Galleries" aria-live="polite" aria-busy={status === 'loading'} hidden={nav.screen.kind === 'settings' || undefined}>
         {pendingUpdate ? (
           <div class="app-update-banner" role="status">
             <span class="app-update-text">manorama <strong>v{pendingUpdate.version}</strong> is available.</span>

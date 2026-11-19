@@ -929,6 +929,16 @@ body.manorama-native[data-native-fold-divided] .native-library-layout .native-se
 @container native-galleries (min-width: 700px) {
   .native-library-layout .native-library-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
 }
+/* At phone width the cover grid is a wall of postage stamps — the island
+   swaps every card's cover for its own filmstrip at this same measure
+   (560px content width), so the list reads as one column of scrollable
+   gallery previews, each strip bleeding to the pane edges like the viewer
+   it miniaturises. Later in source than the min-width rules so it decides
+   the 380–560px band too. */
+@container native-galleries (max-width: 560px) {
+  .native-library-layout .native-library-grid { grid-template-columns: minmax(0, 1fr); }
+  .native-library-layout .lib-rail { margin-inline: -20px; height: clamp(160px, 46cqw, 220px); }
+}
 @media (min-width: 760px) {
   .native-library-layout:not([data-library-divided]):not([data-library-settings]) {
     grid-template-areas: 'rail galleries';
