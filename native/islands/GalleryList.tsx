@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useReducer, useRef, useState } from 'hono/jsx'
+import { useEffect, useLayoutEffect, useMemo, useReducer, useRef, useState } from 'hono/jsx'
 import { canGoBack, initialOwnerNav, ownerNavReducer, type OwnerNavAction, type OwnerNavState } from '../../packages/core/owner-navigation'
 import { closeTopOverlay, overlayDepth } from '../../app/lib/overlay-stack'
 import { expiryCountdownText } from '../../app/lib/gallery-policy'
@@ -163,6 +163,33 @@ export const LibraryDeviceStatus = ({
     </>)
   }
   return <span class="lib-card-device"> · On {nativeDeviceLabel()}</span>
+}
+
+/** The Library's resting place: each scrolling region's offset and a stable
+ *  address for the control that last held focus. The gallery viewer removes
+ *  the whole layout from the DOM and `hidden` zeroes the pane's scroll box,
+ *  so this has to be remembered in state — the browser does not. */
+type LibraryViewMemory = { pane: number; rail: number; layout: number; focus: string | null }
+
+const attrSelector = (name: string, value: string): string =>
+  `[${name}="${value.replace(/\\/g, '\\\\').replace(/"/g, '\\"')}"]`
+
+/** A selector that re-finds the focused control after the Library remounts.
+ *  Cards are addressed by slug, labelled buttons by their label; a rail
+ *  thumbnail returns focus to its card's title rather than an index that may
+ *  have shifted under a refreshed list. */
+const libraryFocusSelector = (el: HTMLElement): string | null => {
+  const card = el.closest('[data-lib-card],[data-cached-gallery]') as HTMLElement | null
+  if (card) {
+    const slug = card.dataset.libCard ?? card.dataset.cachedGallery
+    if (!slug) return null
+    const base = attrSelector(card.dataset.libCard !== undefined ? 'data-lib-card' : 'data-cached-gallery', slug)
+    return `${base} ${el.classList.contains('lib-card-menu') ? '.lib-card-menu' : '.lib-card-title'}`
+  }
+  const label = el.getAttribute('aria-label')
+  if (label) return `button${attrSelector('aria-label', label)}`
+  if (el.classList.contains('native-lib-foot-open')) return '.native-lib-foot-open'
+  return null
 }
 
 const PRIVACY_URL = 'https://manorama.xyz/privacy'
@@ -916,6 +943,73 @@ export default function GalleryList({ apiBase, owner, slug, deepLinkSelection, o
     libraryPaneObserverRef.current = null
     libraryPaneElementRef.current = null
   }, [])
+
+  // The Library remembers where it was: a live ref tracks the scrolling
+  // regions and the last focused control while it is on screen, a saved
+  // snapshot freezes them when a surface replaces it, and returning puts
+  // them back — plan §1 keeps the exact gallery and scroll position after
+  // Settings or a gallery. 'welcome' is a session boundary, not a surface
+  // the user can back out of, so its snapshot is dropped.
+  const libraryLayoutElementRef = useRef<HTMLElement | null>(null)
+  const libraryLiveViewRef = useRef<LibraryViewMemory | null>(null)
+  const librarySavedViewRef = useRef<LibraryViewMemory | null>(null)
+  const libraryVisible = nav.screen.kind === 'library' && !galleryOpen
+  useEffect(() => {
+    const onScroll = (event: Event) => {
+      const live = libraryLiveViewRef.current
+      const target = event.target as HTMLElement | null
+      if (!live || !target?.classList) return
+      if (target === libraryPaneElementRef.current) live.pane = target.scrollTop
+      else if (target.classList.contains('native-library-rail')) live.rail = target.scrollTop
+      else if (target.classList.contains('native-library-layout')) live.layout = target.scrollTop
+    }
+    const onFocusIn = (event: Event) => {
+      const live = libraryLiveViewRef.current
+      const target = event.target
+      if (!live || !(target instanceof HTMLElement)) return
+      if (!libraryLayoutElementRef.current?.contains(target)) return
+      const selector = libraryFocusSelector(target)
+      if (selector) live.focus = selector
+    }
+    document.addEventListener('scroll', onScroll, true)
+    document.addEventListener('focusin', onFocusIn)
+    return () => {
+      document.removeEventListener('scroll', onScroll, true)
+      document.removeEventListener('focusin', onFocusIn)
+    }
+  }, [])
+  // Layout effect: the pane's scroll box has to be re-seated before paint,
+  // or the user watches the list land at the top and jump back down.
+  useLayoutEffect(() => {
+    if (!libraryVisible) {
+      if (libraryLiveViewRef.current) {
+        librarySavedViewRef.current = nav.screen.kind === 'welcome' ? null : { ...libraryLiveViewRef.current }
+        libraryLiveViewRef.current = null
+      }
+      return
+    }
+    const saved = librarySavedViewRef.current
+    librarySavedViewRef.current = null
+    libraryLiveViewRef.current = saved ?? { pane: 0, rail: 0, layout: 0, focus: null }
+    const pane = libraryPaneElementRef.current
+    const layout = libraryLayoutElementRef.current
+    if (!saved || !pane || !layout) return
+    pane.scrollTop = saved.pane
+    const rail = layout.querySelector('.native-library-rail') as HTMLElement | null
+    if (rail) rail.scrollTop = saved.rail
+    layout.scrollTop = saved.layout
+    // The recorded control may be gone from a refreshed list — land on the
+    // pane itself so a screen reader hears where it arrived rather than
+    // falling to body.
+    const focusTarget = saved.focus ? layout.querySelector(saved.focus) as HTMLElement | null : null
+    ;(focusTarget ?? pane).focus()
+  }, [libraryVisible, nav.screen.kind])
+  // A screen change is a focus change: Settings' own back control is the
+  // landing, the same place Back returns from.
+  useEffect(() => {
+    if (nav.screen.kind !== 'settings') return
+    ;(libraryLayoutElementRef.current?.querySelector('[aria-label="Back to the library"]') as HTMLElement | null)?.focus()
+  }, [nav.screen.kind])
 
   useEffect(() => {
     const body = document.body
@@ -2096,7 +2190,7 @@ export default function GalleryList({ apiBase, owner, slug, deepLinkSelection, o
 
   return (
     <>
-    <main class="m-owner native-list-shell native-account-shell native-library-layout" style={librarySafeStyle} data-library-divided={dividedLibrary || undefined} data-library-settings={nav.screen.kind === 'settings' || undefined}>
+    <main ref={libraryLayoutElementRef} class="m-owner native-list-shell native-account-shell native-library-layout" style={librarySafeStyle} data-library-divided={dividedLibrary || undefined} data-library-settings={nav.screen.kind === 'settings' || undefined}>
       <aside class="native-library-rail" style={libraryRegionStyle(libraryControlRegion)} aria-label="Library controls">
         <div class="native-library-tools">
         <img class="m-topbar-logo" src="/manorama-merged-logo.png" alt="manorama" width="140" height="47" />
@@ -2159,7 +2253,7 @@ export default function GalleryList({ apiBase, owner, slug, deepLinkSelection, o
         </footer>
         </div>
       </aside>
-      <section ref={observeLibraryPane} class={quiet ? 'native-list-card lib-quiet' : 'native-list-card'} style={libraryRegionStyle(galleryRegion)} aria-label="Galleries" aria-live="polite" aria-busy={status === 'loading'} hidden={nav.screen.kind === 'settings' || undefined}>
+      <section ref={observeLibraryPane} tabIndex={-1} class={quiet ? 'native-list-card lib-quiet' : 'native-list-card'} style={libraryRegionStyle(galleryRegion)} aria-label="Galleries" aria-live="polite" aria-busy={status === 'loading'} hidden={nav.screen.kind === 'settings' || undefined}>
         {pendingUpdate ? (
           <div class="app-update-banner" role="status">
             <span class="app-update-text">manorama <strong>v{pendingUpdate.version}</strong> is available.</span>

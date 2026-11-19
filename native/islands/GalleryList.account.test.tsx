@@ -746,6 +746,74 @@ describe('signed-in account area', () => {
     }
   })
 
+  test('the Library keeps its scroll position and focus through Settings and a gallery', async () => {
+    installLocalStorage()
+    signInStorage()
+    const photo = (id: string) => ({
+      id,
+      filename: `${id}.svg`,
+      src: `data:image/svg+xml,${encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" width="64" height="90"/>')}`,
+      width: 64,
+      height: 90,
+      alt: `${id} photograph`,
+      c2pa: false,
+      placeholder: `data:image/svg+xml,${encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" width="64" height="90"/>')}`,
+    })
+    stubFetch({
+      galleries: json({ galleries: [accountSummary({ images: [
+        { id: 'first', ref: 'first', filename: 'first.jpg', src: 'https://cdn.example/first.jpg', width: 1200, height: 800 },
+        { id: 'second', ref: 'second', filename: 'second.jpg', src: 'https://cdn.example/second.jpg', width: 800, height: 1200 },
+      ] })] }),
+      fallback: (url) => url.includes('/api/gallery/')
+        ? new Response(JSON.stringify({
+            manifest: { slug: 'kashmir', title: 'Kashmir', caption: '', date: '', images: [photo('first'), photo('second')] },
+            settings: { title: 'Kashmir', caption: '', date: '', curtainKicker: '', curtainPrompt: '', defaultMode: 'strip', defaultShowArrows: false, defaultShowCaptions: false, imageCaptions: {}, imageAlts: {} },
+          }), { status: 200, headers: { 'content-type': 'application/json' } })
+        : new Response('{}', { status: 404 }),
+    })
+    const { container } = mountAccount({ billing: entitlement('free') })
+    await settle()
+
+    // A real scroll event arms the memory — the listener reads the pane.
+    const pane = container.querySelector('.native-list-card') as HTMLElement
+    pane.scrollTop = 1200
+    pane.dispatchEvent(new dom.Event('scroll') as unknown as Event)
+    // Settings through the gear: the trigger is what focus returns to.
+    const gear = container.querySelector('[aria-label="Settings"]') as HTMLButtonElement
+    gear.focus()
+    gear.dispatchEvent(new dom.Event('focusin', { bubbles: true }) as unknown as Event)
+    gear.click()
+    await settle()
+
+    // A screen change is a focus change — landing is Settings' own back.
+    expect(document.activeElement).toBe(container.querySelector('[aria-label="Back to the library"]'))
+    ;(container.querySelector('[aria-label="Back to the library"]') as HTMLButtonElement).click()
+    await settle()
+    const repane = container.querySelector('.native-list-card') as HTMLElement
+    expect(repane.scrollTop).toBe(1200)
+    expect(document.activeElement).toBe(container.querySelector('[aria-label="Settings"]'))
+
+    // A gallery removes the Library outright; the chrome's Library button
+    // returns it to the same scroll and the same control.
+    const title = repane.querySelector('[data-lib-card="kashmir"] .lib-card-title') as HTMLButtonElement
+    title.focus()
+    title.dispatchEvent(new dom.Event('focusin', { bubbles: true }) as unknown as Event)
+    title.click()
+    await settle()
+    expect(container.querySelector('.native-list-card')).toBeNull()
+    // The chrome's Library pill mounts once the curtain lifts.
+    ;(container.querySelector('[data-curtain]') as HTMLElement).click()
+    await settle()
+    const libraryButton = container.querySelector('[data-chrome-library]') as HTMLElement
+    expect(libraryButton).not.toBeNull()
+    libraryButton.click()
+    await settle()
+    const restored = container.querySelector('.native-list-card') as HTMLElement
+    expect(restored).not.toBeNull()
+    expect(restored.scrollTop).toBe(1200)
+    expect(document.activeElement).toBe(restored.querySelector('[data-lib-card="kashmir"] .lib-card-title'))
+  })
+
   test('PATCHes an edited address from Settings', async () => {
     installLocalStorage()
     signInStorage()
