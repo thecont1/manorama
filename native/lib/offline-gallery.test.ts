@@ -16,7 +16,7 @@ import {
   type OfflineObjectUrlProvider,
 } from './offline-gallery'
 import { cacheFillRegistry } from './cache-fill'
-import { thumbnailEntryId } from './thumbs'
+import { thumbnailEntryId, videoEntryId } from './thumbs'
 import { localComputeEntryId } from './local-compute'
 import type { VaultKeyProvider, VaultStorageProvider } from './vault'
 import { EncryptedVault, VAULT_INDEX_PATH, webCryptoProvider } from './vault'
@@ -473,11 +473,13 @@ describe('EncryptedOfflineGalleryStore', () => {
       manifest: { ...manifest, images: [...manifest.images, video] },
       settings: defaultGallerySettings({ ...manifest, images: [...manifest.images, video] }),
     }
-    const { store, requested } = makeHarness(new Map([
+    const posterBytes = new TextEncoder().encode('poster bytes')
+    const mp4Bytes = new TextEncoder().encode('mp4 bytes')
+    const { store, vault, storage, requested } = makeHarness(new Map([
       ['https://provider.test/original-one.jpg', { bytes: firstBytes, type: 'image/jpeg' }],
       ['https://provider.test/original-two.png', { bytes: secondBytes, type: 'image/png' }],
-      ['https://provider.test/poster.jpg', { bytes: new TextEncoder().encode('poster bytes'), type: 'image/jpeg' }],
-      ['https://provider.test/video.mp4', { bytes: new TextEncoder().encode('mp4 bytes'), type: 'video/mp4' }],
+      ['https://provider.test/poster.jpg', { bytes: posterBytes, type: 'image/jpeg' }],
+      ['https://provider.test/video.mp4', { bytes: mp4Bytes, type: 'video/mp4' }],
     ]))
 
     // Three media items: two photos, then the video's poster + MP4 entries.
@@ -485,6 +487,16 @@ describe('EncryptedOfflineGalleryStore', () => {
     expect(requested).toContain('https://provider.test/poster.jpg')
     expect(requested).toContain('https://provider.test/video.mp4')
     expect(await store.inspect(selection)).toEqual({ status: 'complete', images: 3 })
+
+    // The video pair lands under its own entry ids, encrypted at rest —
+    // the same no-plaintext-bytes contract the stills test pins.
+    const galleryId = await offlineGalleryId(selection)
+    expect(await vault.read(galleryId, thumbnailEntryId('video-one'))).toEqual(posterBytes)
+    expect(await vault.read(galleryId, videoEntryId('video-one'))).toEqual(mp4Bytes)
+    expect(storageContains(storage, posterBytes)).toBe(false)
+    expect(storageContains(storage, mp4Bytes)).toBe(false)
+    const index = JSON.parse(new TextDecoder().decode((await storage.read(VAULT_INDEX_PATH))!)) as { entries: Record<string, unknown> }
+    expect(Object.keys(index.entries)).toContain(`${galleryId}\u0000${videoEntryId('video-one')}`)
 
     const opened = await store.open(selection)
     expect(opened?.manifest.images.length).toBe(3)
@@ -715,6 +727,27 @@ describe('openGalleryNetworkFirst', () => {
     // A shorter manifest is drift.
     const trimmed: GalleryManifest = { ...manifest, images: [manifest.images[0]!] }
     expect(offlineManifestMatches(manifest, trimmed)).toBe(false)
+  })
+
+  test('offlineManifestMatches detects presentation drift under identical bytes', () => {
+    const edit = (patch: Partial<GalleryImage>): GalleryManifest => ({
+      ...manifest,
+      images: [{ ...manifest.images[0]!, ...patch }, manifest.images[1]!],
+    })
+    // Item-level text fields count as drift — a kept copy must not present
+    // a stale caption or EXIF until the next byte change.
+    expect(offlineManifestMatches(manifest, edit({ caption: 'edited caption' }))).toBe(false)
+    expect(offlineManifestMatches(manifest, edit({ exif: { camera: 'Ricoh GR' } }))).toBe(false)
+    expect(offlineManifestMatches(manifest, edit({ hidden: true }))).toBe(false)
+    // Identical presentation keys pass.
+    expect(offlineManifestMatches(manifest, edit({}))).toBe(true)
+
+    // Settings carried by only one side are drift — an older committed
+    // copy cannot vouch for presentation it never stored.
+    const settings = defaultGallerySettings(manifest)
+    expect(offlineManifestMatches(manifest, manifest, settings, settings)).toBe(true)
+    expect(offlineManifestMatches(manifest, manifest, settings, undefined)).toBe(false)
+    expect(offlineManifestMatches(manifest, manifest, undefined, settings)).toBe(false)
   })
 })
 

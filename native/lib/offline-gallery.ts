@@ -748,6 +748,8 @@ export class EncryptedOfflineGalleryStore implements OfflineGalleryStore {
       // One serialized slot, batched decrypts: a whole gallery's ciphertext
       // comes back in parallel windows instead of one entry at a time. A
       // video item contributes both its still entry and its MP4 entry.
+      // Every plaintext is live simultaneously — a full-cap vault can reach
+      // ~1.7x its bytes in heap and blob storage at open. Tracked in #265.
       const entryIds = metadata.value.images.flatMap((image) => image.videoEntryId ? [image.entryId, image.videoEntryId] : [image.entryId])
       const results = await this.vault.readMany(galleryId, entryIds)
       if (results.some((bytes) => !bytes)) {
@@ -956,32 +958,48 @@ const prepareOnline = async (options: OpenOptions, gallery: NativeGalleryRespons
   return { ...gallery, source: 'online', cacheFill, encryptedResolver, dispose: () => encryptedResolver?.dispose() }
 }
 
+/** Every per-item field the viewer renders — text edits here are
+ *  presentation drift even when the media bytes are untouched. */
+const presentationKey = (item: GalleryMediaItem): string =>
+  JSON.stringify([
+    item.id, item.ref, item.filename, item.width, item.height,
+    item.alt, item.caption, 'exif' in item ? item.exif : undefined,
+    item.placeholder, item.c2pa, item.fidelity, item.thumbnailFidelity,
+    item.hidden, 'media' in item ? item.media : undefined, item.variants,
+    isVideoItem(item)
+      ? [item.poster.src, item.durationSeconds, item.sources, item.captions, item.transcript, item.credit]
+      : undefined,
+  ])
+
 /** True when the fresh answer is the committed one — presentation first
- *  (title, caption, date, per-item alt, poster, settings), then media byte
- *  identity (same order, ids, src/contentVersion). A text-only edit counts
- *  as drift for the *install* decision so the Viewer picks it up, while the
- *  cache fill still keys its download decisions on byte identity alone. */
+ *  (title, caption, date, settings, and every per-item field in
+ *  presentationKey), then media byte identity (same order and
+ *  src/contentVersion). A text-only edit counts as drift for the
+ *  *install* decision so the Viewer picks it up, while the cache fill
+ *  still keys its download decisions on byte identity alone. Settings
+ *  carried by only one side — an older committed copy — are drift too. */
 export const offlineManifestMatches = (
   committed: GalleryManifest,
   fresh: GalleryManifest,
   committedSettings?: GallerySettings,
   freshSettings?: GallerySettings,
-): boolean =>
-  committed.title === fresh.title &&
-  committed.caption === fresh.caption &&
-  committed.date === fresh.date &&
-  (committedSettings === undefined || freshSettings === undefined ||
-    JSON.stringify(committedSettings) === JSON.stringify(freshSettings)) &&
-  committed.images.length === fresh.images.length &&
-  committed.images.every((image, index) => {
-    const next = fresh.images[index]
-    if (!next || next.id !== image.id || next.alt !== image.alt) return false
-    if (isVideoItem(image) !== isVideoItem(next)) return false
-    if (isVideoItem(image) && isVideoItem(next) && image.poster.src !== next.poster.src) return false
-    const versionOf = (item: GalleryMediaItem) =>
-      'contentVersion' in item && typeof item.contentVersion === 'string' ? item.contentVersion : item.src
-    return versionOf(image) === versionOf(next)
-  })
+): boolean => {
+  const versionOf = (item: GalleryMediaItem) =>
+    'contentVersion' in item && typeof item.contentVersion === 'string' ? item.contentVersion : item.src
+  return committed.title === fresh.title &&
+    committed.caption === fresh.caption &&
+    committed.date === fresh.date &&
+    (committedSettings === undefined || freshSettings === undefined
+      ? committedSettings === freshSettings
+      : JSON.stringify(committedSettings) === JSON.stringify(freshSettings)) &&
+    committed.images.length === fresh.images.length &&
+    committed.images.every((image, index) => {
+      const next = fresh.images[index]
+      return next !== undefined &&
+        presentationKey(image) === presentationKey(next) &&
+        versionOf(image) === versionOf(next)
+    })
+}
 
 /** Online bytes win. A successful response returns before its cache fill
  *  settles — unless `preferVault` finds a complete copy, which opens from
