@@ -50,6 +50,21 @@ viewing, and a Global View matrix of every saved frame.
 - Vault keys live in the device keychain; deleting the app destroys them.
 - The macOS app is a separate listing; the iOS listing claims no Mac features.
 
+## macOS listing — entitlement justification (for App Review Information)
+
+The Mac build carries `com.apple.security.network.server` for exactly one
+purpose: the provider sign-in flow. When an owner connects Dropbox or Google
+Drive, the app binds an ephemeral HTTP listener on `127.0.0.1` (localhost
+only, an OS-assigned port) to receive the OAuth 2.0 redirect — the standard
+installed-app OAuth pattern, since the provider's registered redirect URI is
+`http://127.0.0.1:<port>`. The listener accepts a single GET carrying the
+authorization code or error, then closes; it exists only for the duration of
+one sign-in attempt and never listens on any non-loopback interface.
+
+To exercise it during review: Settings → Connect a provider → Dropbox —
+the listener lives only while that sign-in is in flight, so automated
+analysis will not see it at rest.
+
 ## Contact
 
 Questions during review: mahesh@thecontrarian.in —
