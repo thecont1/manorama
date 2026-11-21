@@ -14,8 +14,11 @@ html.light { --app-canvas-image: url('/app-canvas-light.svg'); }
    app-page only outside the public marketing pages and embedded demo.
    Match the html.light body.shell .surface shorthands' specificity so
    switching themes cannot reset this later background-image to none. */
+/* The wall is a Library and Gallery privilege: pages authored flat —
+   * the ops console, 404, policy — keep their explicit solid body fills
+   * instead of wearing the tile. */
 html:root:is(.app-page, :has(body.manorama-native), :has(body.manorama-desktop)) :is(
-  body,
+  body:not(:has(.ops-page, .not-found, .policy-page)),
   .admin-page,
   .admin-drawer-panel,
   .m-screen,
