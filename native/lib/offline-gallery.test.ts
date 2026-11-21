@@ -13,7 +13,6 @@ import {
   openGalleryNetworkFirst,
   type OfflineCacheItemReady,
   type OfflineGalleryStore,
-  type OfflineObjectUrlProvider,
 } from './offline-gallery'
 import { cacheFillRegistry } from './cache-fill'
 import { thumbnailEntryId, videoEntryId } from './thumbs'
@@ -46,17 +45,25 @@ class MemoryKeys implements VaultKeyProvider {
   async remove(key: string) { this.values.delete(key) }
 }
 
-class FakeObjectUrls implements OfflineObjectUrlProvider {
-  readonly created: { url: string; bytes: Uint8Array; mimeType: string }[] = []
-  readonly revoked: string[] = []
-  readonly inputs: Uint8Array[] = []
-  create(bytes: Uint8Array, mimeType: string) {
-    this.inputs.push(bytes)
-    const url = `blob:offline-${this.created.length + 1}`
-    this.created.push({ url, bytes: bytes.slice(), mimeType })
+const realCreateObjectURL = URL.createObjectURL
+const realRevokeObjectURL = URL.revokeObjectURL
+
+/** The vault resolver mints through the global URL API — stubbing it is the
+ *  only way a test can watch creation, bytes and revocation. */
+const stubObjectUrls = () => {
+  const created: { url: string; blob: Blob }[] = []
+  const revoked: string[] = []
+  URL.createObjectURL = ((blob: Blob) => {
+    const url = `blob:offline-${created.length + 1}`
+    created.push({ url, blob })
     return url
-  }
-  revoke(url: string) { this.revoked.push(url) }
+  }) as typeof URL.createObjectURL
+  URL.revokeObjectURL = ((url: string) => { revoked.push(url) }) as typeof URL.revokeObjectURL
+  return { created, revoked }
+}
+const restoreObjectUrls = () => {
+  URL.createObjectURL = realCreateObjectURL
+  URL.revokeObjectURL = realRevokeObjectURL
 }
 
 const selection = { owner: 'photographer', slug: 'quiet-light' }
@@ -131,11 +138,9 @@ const makeHarness = (
       randomBytes(length) { return new Uint8Array(length).fill(7) },
     },
   })
-  const urls = new FakeObjectUrls()
   const requested: string[] = []
   const store = new EncryptedOfflineGalleryStore({
     vault,
-    objectUrls: urls,
     fetchImage: async (url) => {
       requested.push(url)
       const response = responses.get(url)
@@ -143,7 +148,7 @@ const makeHarness = (
       return new Response(response.bytes.slice(), { headers: { 'content-type': response.type } })
     },
   })
-  return { storage, keys, vault, urls, requested, store }
+  return { storage, keys, vault, requested, store }
 }
 
 const storageContains = (storage: MemoryStorage, needle: Uint8Array): boolean =>
@@ -164,11 +169,16 @@ describe('EncryptedOfflineGalleryStore', () => {
     expect(opened?.settings).toEqual(gallery.settings)
     expect(opened?.manifest).toEqual({
       ...gallery.manifest,
-      images: gallery.manifest.images.map((item, index) => ({
-        ...item,
-        src: `blob:offline-${index + 1}`,
-        variants: item.variants?.map((variant) => ({ ...variant, src: `blob:offline-${index + 1}` })),
-      })),
+      images: gallery.manifest.images.map((item) => {
+        const mimeType = item.id === 'stable-one' ? 'image/jpeg' : 'image/png'
+        const media = { kind: 'encrypted', provider: 'vault', entryId: thumbnailEntryId(item.id), mimeType }
+        return {
+          ...item,
+          src: item.placeholder,
+          media,
+          variants: item.variants?.map((variant) => ({ ...variant, src: item.placeholder, media })),
+        }
+      }),
     })
   })
 
@@ -303,24 +313,37 @@ describe('EncryptedOfflineGalleryStore', () => {
     expect(ready.find((item) => item.id === 'stable-two')?.mimeType).toBe('image/png')
   })
 
-  test('open decrypts entries concurrently instead of one at a time', async () => {
-    const { store, storage } = makeHarness()
+  test('open decrypts no image entries — media materializes through the resolver', async () => {
+    const { store, vault } = makeHarness()
     await store.cache(selection, gallery)
 
-    let inFlight = 0
-    let maxInFlight = 0
-    const originalRead = storage.read.bind(storage)
-    storage.read = async (path: string) => {
-      inFlight += 1
-      maxInFlight = Math.max(maxInFlight, inFlight)
-      await new Promise((resolve) => setTimeout(resolve, 5))
-      inFlight -= 1
-      return originalRead(path)
-    }
+    const originalRead = vault.read.bind(vault)
+    const entryReads: string[] = []
+    vault.read = ((id: string, entryId: string, options?: { touch?: boolean }) => {
+      if (entryId !== __private__.METADATA_ENTRY_ID) entryReads.push(entryId)
+      return originalRead(id, entryId, options)
+    }) as typeof vault.read
 
-    const opened = await store.open(selection)
-    expect(opened).toBeDefined()
-    expect(maxInFlight).toBeGreaterThan(1)
+    const urls = stubObjectUrls()
+    try {
+      const opened = await store.open(selection)
+      expect(opened).toBeDefined()
+      // The completeness probe is index-level and the manifest carries
+      // media references — nothing is decrypted or minted at open.
+      expect(entryReads).toEqual([])
+      expect(urls.created).toEqual([])
+
+      const still = opened!.manifest.images[0] as GalleryImage
+      const url = await opened!.encryptedResolver!.acquire(still.media!, false)
+      expect(url).toBe('blob:offline-1')
+      expect(entryReads).toEqual([thumbnailEntryId('stable-one')])
+      expect(urls.created[0]?.blob.type).toBe('image/jpeg')
+      expect(new Uint8Array(await urls.created[0]!.blob.arrayBuffer())).toEqual(firstBytes)
+      opened!.dispose()
+    } finally {
+      restoreObjectUrls()
+      vault.read = originalRead
+    }
   })
 
   test('an unchanged repeat fill never reads an image entry', async () => {
@@ -397,31 +420,45 @@ describe('EncryptedOfflineGalleryStore', () => {
     expect(await vault.read(galleryId, thumbnailEntryId('stable-two'))).toBeUndefined()
   })
 
-  test('reconstructs stills with short-lived URLs while retaining all manifest fields', async () => {
-    const { store, urls } = makeHarness()
+  test('reconstructs stills as vault media refs while retaining all manifest fields', async () => {
+    const { store } = makeHarness()
     await store.cache(selection, gallery)
-    const opened = await store.open(selection)
-    expect(opened?.source).toBe('offline')
-    expect(opened?.manifest.slug).toBe(selection.slug)
-    expect(opened?.manifest.images[0]).toMatchObject({
-      id: 'stable-one',
-      ref: 'provider-stable-one',
-      filename: 'one.jpg',
-      src: 'blob:offline-1',
-      width: 2400,
-      height: 1600,
-      alt: 'stable-one alt',
-      caption: 'First caption',
-      exif: { camera: 'Camera A', lens: 'Lens A' },
-      c2pa: true,
-      placeholder: 'data:image/svg+xml,stable-one',
-      variants: [
-        { width: 1024, src: 'blob:offline-1', format: 'jpeg' },
-        { width: 320, src: 'blob:offline-1', format: 'jpeg' },
-      ],
-    })
-    expect(urls.created.map((entry) => entry.mimeType)).toEqual(['image/jpeg', 'image/png'])
-    expect(urls.created.map((entry) => entry.bytes)).toEqual([firstBytes, secondBytes])
+    const urls = stubObjectUrls()
+    try {
+      const opened = await store.open(selection)
+      expect(opened?.source).toBe('offline')
+      expect(opened?.manifest.slug).toBe(selection.slug)
+      const media = { kind: 'encrypted', provider: 'vault', entryId: thumbnailEntryId('stable-one'), mimeType: 'image/jpeg' }
+      expect(opened?.manifest.images[0]).toMatchObject({
+        id: 'stable-one',
+        ref: 'provider-stable-one',
+        filename: 'one.jpg',
+        src: 'data:image/svg+xml,stable-one',
+        width: 2400,
+        height: 1600,
+        alt: 'stable-one alt',
+        caption: 'First caption',
+        exif: { camera: 'Camera A', lens: 'Lens A' },
+        c2pa: true,
+        placeholder: 'data:image/svg+xml,stable-one',
+        media,
+        variants: [
+          { width: 1024, src: 'data:image/svg+xml,stable-one', format: 'jpeg', media },
+          { width: 320, src: 'data:image/svg+xml,stable-one', format: 'jpeg', media },
+        ],
+      })
+      // Nothing is minted at open — materialization happens per acquire.
+      expect(urls.created).toEqual([])
+      const item = opened!.manifest.images[0] as GalleryImage
+      const url = await opened!.encryptedResolver!.acquire(item.media!, false)
+      expect(urls.created[0]?.url).toBe(url)
+      expect(urls.created[0]?.blob.type).toBe('image/jpeg')
+      expect(new Uint8Array(await urls.created[0]!.blob.arrayBuffer())).toEqual(firstBytes)
+      opened!.dispose()
+      expect(urls.revoked).toEqual([url])
+    } finally {
+      restoreObjectUrls()
+    }
   })
 
   test('recovers from corrupt metadata without claiming offline success', async () => {
@@ -434,24 +471,42 @@ describe('EncryptedOfflineGalleryStore', () => {
     expect(await vault.read(galleryId, __private__.METADATA_ENTRY_ID)).toBeUndefined()
   })
 
-  test('revokes partial and live URLs and wipes every decrypted buffer', async () => {
-    const { store, vault, urls } = makeHarness()
-    await store.cache(selection, gallery)
-    await vault.remove(await offlineGalleryId(selection), thumbnailEntryId('stable-two'))
+  test('an incomplete cache mints nothing; dispose revokes live URLs and wipes buffers', async () => {
+    const urls = stubObjectUrls()
+    try {
+      const { store, vault } = makeHarness()
+      await store.cache(selection, gallery)
+      await vault.remove(await offlineGalleryId(selection), thumbnailEntryId('stable-two'))
 
-    expect(await store.open(selection)).toBeUndefined()
-    // Entries are decrypted and verified before any URL is minted, so an
-    // incomplete cache never creates a partial URL to revoke.
-    expect(urls.revoked).toEqual([])
-    expect(urls.inputs).toEqual([])
+      expect(await store.open(selection)).toBeUndefined()
+      // The completeness probe is index-level — an incomplete cache never
+      // decrypts an entry or mints a partial URL to revoke.
+      expect(urls.created).toEqual([])
 
-    const complete = makeHarness()
-    await complete.store.cache(selection, gallery)
-    const opened = await complete.store.open(selection)
-    opened?.dispose()
-    opened?.dispose()
-    expect(complete.urls.revoked).toEqual(['blob:offline-1', 'blob:offline-2'])
-    expect(complete.urls.inputs.every((bytes) => bytes.every((byte) => byte === 0))).toBe(true)
+      const complete = makeHarness()
+      await complete.store.cache(selection, gallery)
+      const originalRead = complete.vault.read.bind(complete.vault)
+      const decrypted: Uint8Array[] = []
+      complete.vault.read = (async (id: string, entryId: string, options?: { touch?: boolean }) => {
+        const bytes = await originalRead(id, entryId, options)
+        if (bytes && entryId !== __private__.METADATA_ENTRY_ID) decrypted.push(bytes)
+        return bytes
+      }) as typeof complete.vault.read
+
+      const opened = await complete.store.open(selection)
+      const first = opened!.manifest.images[0] as GalleryImage
+      const second = opened!.manifest.images[1] as GalleryImage
+      const firstUrl = await opened!.encryptedResolver!.acquire(first.media!, false)
+      const secondUrl = await opened!.encryptedResolver!.acquire(second.media!, false)
+      opened?.dispose()
+      opened?.dispose()
+      expect(urls.revoked.sort()).toEqual([firstUrl, secondUrl].sort())
+      // The resolver snapshots into a Blob and wipes the vault's plaintext.
+      expect(decrypted).toHaveLength(2)
+      expect(decrypted.every((bytes) => bytes.every((byte) => byte === 0))).toBe(true)
+    } finally {
+      restoreObjectUrls()
+    }
   })
 
   test('caches a mixed gallery — the poster and the MP4 both land in the vault', async () => {
@@ -503,11 +558,26 @@ describe('EncryptedOfflineGalleryStore', () => {
     const videoOut = opened?.manifest.images[2]
     expect(videoOut && isVideoItem(videoOut)).toBe(true)
     if (videoOut && isVideoItem(videoOut)) {
-      // The MP4 and its poster are local object URLs — nothing remote
-      // survives into the lease.
-      expect(videoOut.src).toMatch(/^blob:/)
-      expect(videoOut.poster.src).toMatch(/^blob:/)
-      expect(videoOut.variants?.every((variant) => variant.src.startsWith('blob:'))).toBe(true)
+      // The MP4 and its poster are vault media refs — nothing remote
+      // survives into the lease, and nothing is minted until acquired.
+      expect(videoOut.src).toBe('')
+      expect(videoOut.media).toEqual({ kind: 'encrypted', provider: 'vault', entryId: videoEntryId('video-one'), mimeType: 'video/mp4' })
+      expect(videoOut.poster.src).toBe(videoOut.placeholder)
+      expect(videoOut.poster.media).toEqual({ kind: 'encrypted', provider: 'vault', entryId: thumbnailEntryId('video-one'), mimeType: 'image/jpeg' })
+      expect(videoOut.variants?.every((variant) => variant.src === videoOut.placeholder && !('media' in variant))).toBe(true)
+
+      const urls = stubObjectUrls()
+      try {
+        const mp4Url = await opened!.encryptedResolver!.acquire(videoOut.media!, false)
+        const posterUrl = await opened!.encryptedResolver!.acquire(videoOut.poster.media!, true)
+        const mp4Blob = urls.created.find((entry) => entry.url === mp4Url)?.blob
+        const posterBlob = urls.created.find((entry) => entry.url === posterUrl)?.blob
+        expect(mp4Blob?.type).toBe('video/mp4')
+        expect(new Uint8Array(await mp4Blob!.arrayBuffer())).toEqual(mp4Bytes)
+        expect(new Uint8Array(await posterBlob!.arrayBuffer())).toEqual(posterBytes)
+      } finally {
+        restoreObjectUrls()
+      }
     }
     opened?.dispose()
   })
@@ -531,7 +601,7 @@ describe('EncryptedOfflineGalleryStore', () => {
     expect(await store.cache(selection, legacy)).toEqual({ status: 'skipped-encrypted', images: 0 })
     expect(requested).toHaveLength(2) // only the first fill's requests
     expect(await store.inspect(selection)).toEqual({ status: 'complete', images: 2 })
-    expect((await store.open(selection))?.manifest.images[0]?.src).toBe('blob:offline-1')
+    expect((await store.open(selection))?.manifest.images[0]?.src).toBe('data:image/svg+xml,stable-one')
   })
 })
 
@@ -546,7 +616,8 @@ describe('openGalleryNetworkFirst', () => {
       fetchOnline: async () => { throw new TypeError('offline') },
     })
     expect(opened.source).toBe('offline')
-    expect(opened.manifest.images[0]?.src).toBe('blob:offline-1')
+    expect(opened.manifest.images[0]?.src).toBe('data:image/svg+xml,stable-one')
+    expect((opened.manifest.images[0] as GalleryImage).media).toMatchObject({ provider: 'vault' })
   })
 
   test('rethrows HTTP errors and invalidates a cache for deleted galleries', async () => {
@@ -661,8 +732,9 @@ describe('openGalleryNetworkFirst', () => {
     })
     expect(opened.source).toBe('offline')
     expect(opened.committedManifest?.images.map((item) => item.id)).toEqual(['stable-one', 'stable-two'])
-    // Every src is a local object URL — no remote address survives the lease.
-    expect(opened.manifest.images.every((item) => item.src.startsWith('blob:'))).toBe(true)
+    // Every image carries a vault media ref — no remote address survives
+    // the lease, and nothing is minted until the viewer acquires it.
+    expect(opened.manifest.images.every((item) => { const media = (item as GalleryImage).media; return media?.kind === 'encrypted' && media.provider === 'vault' })).toBe(true)
 
     releaseFetch()
     const fresh = await opened.revalidate
@@ -789,36 +861,53 @@ describe('EncryptedOfflineGalleryStore catalog and purge', () => {
   })
 
   test('purgeGallery removes the vault entries and releases live object URLs', async () => {
-    const { store, vault, urls } = makeHarness()
-    await store.cache(selection, gallery)
-    const opened = await store.open(selection)
-    expect(opened).toBeDefined()
-    const galleryId = await offlineGalleryId(selection)
+    const urls = stubObjectUrls()
+    try {
+      const { store, vault } = makeHarness()
+      await store.cache(selection, gallery)
+      const opened = await store.open(selection)
+      expect(opened).toBeDefined()
+      const first = opened!.manifest.images[0] as GalleryImage
+      const second = opened!.manifest.images[1] as GalleryImage
+      const firstUrl = await opened!.encryptedResolver!.acquire(first.media!, false)
+      const secondUrl = await opened!.encryptedResolver!.acquire(second.media!, false)
+      const galleryId = await offlineGalleryId(selection)
 
-    await store.purgeGallery(galleryId)
+      await store.purgeGallery(galleryId)
 
-    expect(urls.revoked.sort()).toEqual(['blob:offline-1', 'blob:offline-2'])
-    expect(await vault.listGalleryIds()).toEqual([])
-    expect(await store.listGalleries()).toEqual([])
-    expect(await store.inspect(selection)).toEqual({ status: 'missing', images: 0 })
+      // Cryptographic erasure must not leave readable object URLs behind.
+      expect(urls.revoked.sort()).toEqual([firstUrl, secondUrl].sort())
+      expect(await vault.listGalleryIds()).toEqual([])
+      expect(await store.listGalleries()).toEqual([])
+      expect(await store.inspect(selection)).toEqual({ status: 'missing', images: 0 })
+    } finally {
+      restoreObjectUrls()
+    }
   })
 
   test('purgeAll removes every gallery and every live object URL', async () => {
-    const { store, vault, urls } = makeHarness()
-    await store.cache(selection, gallery)
-    const other = { owner: 'photographer', slug: 'second-album' }
-    await store.cache(other, {
-      ...gallery,
-      manifest: { ...manifest, slug: other.slug },
-      settings: { ...gallery.settings },
-    })
-    await store.open(selection)
-    await store.open(other)
+    const urls = stubObjectUrls()
+    try {
+      const { store, vault } = makeHarness()
+      await store.cache(selection, gallery)
+      const other = { owner: 'photographer', slug: 'second-album' }
+      await store.cache(other, {
+        ...gallery,
+        manifest: { ...manifest, slug: other.slug },
+        settings: { ...gallery.settings },
+      })
+      const first = await store.open(selection)
+      const second = await store.open(other)
+      const firstUrl = await first!.encryptedResolver!.acquire((first!.manifest.images[0] as GalleryImage).media!, false)
+      const secondUrl = await second!.encryptedResolver!.acquire((second!.manifest.images[0] as GalleryImage).media!, false)
 
-    await store.purgeAll()
+      await store.purgeAll()
 
-    expect(urls.revoked).toHaveLength(4)
-    expect(await vault.listGalleryIds()).toEqual([])
+      expect(urls.revoked.sort()).toEqual([firstUrl, secondUrl].sort())
+      expect(await vault.listGalleryIds()).toEqual([])
+    } finally {
+      restoreObjectUrls()
+    }
   })
 
   test('a purge during a cache fill stops the fill from repopulating the vault', async () => {
@@ -849,7 +938,7 @@ describe('EncryptedOfflineGalleryStore catalog and purge', () => {
 
 describe('EncryptedOfflineGalleryStore grid catalog', () => {
   test('gridGallery returns manifest-aligned frames without minting URLs', async () => {
-    const { store, urls } = makeHarness()
+    const { store } = makeHarness()
     await store.cache(selection, gallery)
     const galleryId = await offlineGalleryId(selection)
 
@@ -866,8 +955,6 @@ describe('EncryptedOfflineGalleryStore grid catalog', () => {
       index: 0,
     })
     expect(grid!.frames[1]).toMatchObject({ id: 'stable-two', index: 1 })
-    // The catalog is metadata-only: no thumbnail URLs are created up front.
-    expect(urls.created).toEqual([])
   })
 
   test('gridGallery is undefined for missing or corrupt metadata', async () => {
@@ -995,7 +1082,7 @@ describe('encrypted-source offline materialization', () => {
     const disposed = { value: false }
     const materialize = { count: 0 }
     const store = new EncryptedOfflineGalleryStore({
-      vault: harness.vault, objectUrls: harness.urls,
+      vault: harness.vault,
       fetchImage: async () => { throw new Error('encrypted media must not use the HTTP fetcher') },
       openEncryptedSession: async () => sessionFor([encryptedImage('a'.repeat(64))], firstBytes, disposed, materialize),
     })
@@ -1004,9 +1091,17 @@ describe('encrypted-source offline materialization', () => {
     expect(disposed.value).toBe(true)
     expect(storageContains(harness.storage, firstBytes)).toBe(false)
     const lease = await store.open(encryptedSelection)
-    expect(lease?.manifest.images[0]?.src).toBe('blob:offline-1')
-    expect(harness.urls.created[0]?.bytes).toEqual(firstBytes)
-    expect(harness.urls.created[0]?.mimeType).toBe('image/jpeg')
+    const item = lease?.manifest.images[0] as GalleryImage
+    expect(item.src).toBe(item.placeholder)
+    expect(item.media).toEqual({ kind: 'encrypted', provider: 'vault', entryId: thumbnailEntryId('mega-node1'), mimeType: 'image/jpeg' })
+    const urls = stubObjectUrls()
+    try {
+      const url = await lease!.encryptedResolver!.acquire(item.media!, false)
+      expect(new Uint8Array(await urls.created.find((entry) => entry.url === url)!.blob.arrayBuffer())).toEqual(firstBytes)
+      expect(urls.created[0]?.blob.type).toBe('image/jpeg')
+    } finally {
+      restoreObjectUrls()
+    }
     lease?.dispose()
   })
 
@@ -1015,7 +1110,7 @@ describe('encrypted-source offline materialization', () => {
     const disposed = { value: false }
     const materialize = { count: 0 }
     const store = new EncryptedOfflineGalleryStore({
-      vault: harness.vault, objectUrls: harness.urls,
+      vault: harness.vault,
       openEncryptedSession: async () => sessionFor([encryptedImage('a'.repeat(64))], firstBytes, disposed, materialize),
     })
     const gallery = encryptedGallery('a'.repeat(64))
@@ -1026,12 +1121,16 @@ describe('encrypted-source offline materialization', () => {
     }]
     await store.cache(encryptedSelection, gallery)
     const lease = await store.open(encryptedSelection)
-    const item = lease?.manifest.images[0]!
-    expect(item.src).toBe('blob:offline-1')
-    expect('media' in item).toBe(false)
-    expect(item.variants?.every((variant) => variant.src === 'blob:offline-1' && !('media' in variant))).toBe(true)
+    const item = lease?.manifest.images[0] as GalleryImage
+    // Nothing provider-resolvable survives — every media surface carries a
+    // vault ref the offline resolver can materialize without the network.
+    expect(item.src).toBe(item.placeholder)
+    expect(item.media).toMatchObject({ provider: 'vault', entryId: thumbnailEntryId('mega-node1') })
+    expect(item.variants?.every((variant) => variant.src === item.placeholder && variant.media?.kind === 'encrypted' && variant.media.provider === 'vault')).toBe(true)
     // The stored manifest keeps its refs — the next fill compares against it.
-    expect((gallery.manifest.images[0] as GalleryImage).media?.kind).toBe('encrypted')
+    const committed = (gallery.manifest.images[0] as GalleryImage).media
+    expect(committed?.kind).toBe('encrypted')
+    expect(committed?.kind === 'encrypted' && committed.provider === 'mega').toBe(true)
     lease?.dispose()
   })
 
@@ -1039,18 +1138,18 @@ describe('encrypted-source offline materialization', () => {
     const harness = makeHarness()
     const firstDispose = { value: false }
     const firstCalls = { count: 0 }
-    const firstStore = new EncryptedOfflineGalleryStore({ vault: harness.vault, objectUrls: harness.urls, openEncryptedSession: async () => sessionFor([encryptedImage('a'.repeat(64))], firstBytes, firstDispose, firstCalls) })
+    const firstStore = new EncryptedOfflineGalleryStore({ vault: harness.vault, openEncryptedSession: async () => sessionFor([encryptedImage('a'.repeat(64))], firstBytes, firstDispose, firstCalls) })
     await firstStore.cache(encryptedSelection, encryptedGallery('a'.repeat(64)))
 
     const reuseDispose = { value: false }
     const reuseCalls = { count: 0 }
-    const reuseStore = new EncryptedOfflineGalleryStore({ vault: harness.vault, objectUrls: harness.urls, openEncryptedSession: async () => sessionFor([encryptedImage('a'.repeat(64))], secondBytes, reuseDispose, reuseCalls) })
+    const reuseStore = new EncryptedOfflineGalleryStore({ vault: harness.vault, openEncryptedSession: async () => sessionFor([encryptedImage('a'.repeat(64))], secondBytes, reuseDispose, reuseCalls) })
     await reuseStore.cache(encryptedSelection, encryptedGallery('a'.repeat(64)))
     expect(reuseCalls.count).toBe(0)
 
     const replacementDispose = { value: false }
     const replacementCalls = { count: 0 }
-    const replacementStore = new EncryptedOfflineGalleryStore({ vault: harness.vault, objectUrls: harness.urls, openEncryptedSession: async () => sessionFor([encryptedImage('b'.repeat(64))], secondBytes, replacementDispose, replacementCalls) })
+    const replacementStore = new EncryptedOfflineGalleryStore({ vault: harness.vault, openEncryptedSession: async () => sessionFor([encryptedImage('b'.repeat(64))], secondBytes, replacementDispose, replacementCalls) })
     await replacementStore.cache(encryptedSelection, encryptedGallery('b'.repeat(64)))
     expect(replacementCalls.count).toBe(1)
     expect(replacementDispose.value).toBe(true)

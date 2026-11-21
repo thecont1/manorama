@@ -29,7 +29,18 @@ export type ProtonMediaReference = {
   previewId?: string
 }
 export type HttpMediaReference = { kind: 'http'; url: string }
-export type MediaReference = HttpMediaReference | MegaMediaReference | EnteMediaReference | ProtonMediaReference
+/** A still or clip held in this device's encrypted vault. Local-only: the
+ *  vault's own media resolver materializes it from the committed entry, so a
+ *  vaulted lease never carries a provider URL — and the published-manifest
+ *  validator pins `provider` to the source's own, so 'vault' can never be
+ *  written into a server-side manifest. */
+export type VaultMediaReference = {
+  kind: 'encrypted'
+  provider: 'vault'
+  entryId: string
+  mimeType: string
+}
+export type MediaReference = HttpMediaReference | MegaMediaReference | EnteMediaReference | ProtonMediaReference | VaultMediaReference
 
 const HANDLE = /^[0-9A-Za-z_-]{1,256}$/
 const SAFE_NODE = /^[0-9A-Za-z_-]{1,256}$/
@@ -185,6 +196,10 @@ export const mediaReferenceIsValid = (value: unknown): value is MediaReference =
     return candidate.sourceKind === 'urls' && typeof candidate.sourceId === 'string' && HANDLE.test(candidate.sourceId) &&
       typeof candidate.nodeId === 'string' && PROTON_NODE.test(candidate.nodeId) &&
       (candidate.previewId === undefined || candidate.previewId === candidate.nodeId)
+  }
+  if (candidate.provider === 'vault') {
+    return typeof candidate.entryId === 'string' && candidate.entryId.length > 0 &&
+      typeof candidate.mimeType === 'string' && candidate.mimeType.length > 0
   }
   return false
 }
