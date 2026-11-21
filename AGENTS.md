@@ -72,9 +72,10 @@ works, and will be reverted.
    Dropbox, Drive, iCloud or MEGA is ever modified or deleted.
 10. **Never invent procedures.** If `docs/manorama-operations.md` does not cover something,
     say so plainly.
-11. **Pinned is display, permanence is separate.** A pin only moves a card between
-    the "Pinned galleries" strips and the "Your galleries" compact cards — any
-    gallery can be pinned, and pinning or unpinning never touches `retention` or
+11. **Pinned is display, permanence is separate.** A pin adds a strip view in
+    "Pinned galleries" while the card keeps its home-section slot in "Cloud
+    galleries" or "Local galleries" — any gallery can be pinned, and pinning or
+    unpinning never touches `retention` or
     `expires_at` (the old pin↔permanence coupling let a Free owner launder a fresh
     30-day window by pin-cycling). Permanence changes only through a tier change
     or the temporary↔permanent swap, which exchanges the two galleries' retention,

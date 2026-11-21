@@ -82,8 +82,9 @@ const slugify = (value: string) => value
   .replace(/^-+|-+$/g, '')
   .slice(0, 48) || 'gallery'
 
-/** Pin policy in one place: a pin is a display choice — it moves the
- *  card between the strip and compact sections and nothing more.
+/** Pin policy in one place: a pin is a display choice — it adds a strip
+ *  view in "Pinned galleries" while the card keeps its home-section slot,
+ *  and nothing more.
  *  Permanence is a separate axis handled by the swap route, so no
  *  pin-only request can mint a fresh expiry window or a free retain. */
 const applyGalleryPin = async (accountId: string, gallery: GalleryRecord, pinned: boolean, env: GalleryEnv | undefined) =>
@@ -620,9 +621,9 @@ export const createManoramaApi = () => {
   })
 
   /** The Library's drag reorder: one positions map covering every card
-   *  in the section the owner arranged. Ranks are per-section, so the
-   *  same integers may repeat across pinned and compact — each gallery's
-   *  rank only ever competes inside its own section. */
+   *  in the section the owner arranged. Ranks are per-section — a pinned
+   *  gallery's rank orders the strip section only, since its home card
+   *  keeps arrival order and takes no rank of its own. */
   api.put('/api/library/order', bodyLimit({ maxSize: 64 * 1024 }), async (c) => {
     const session = c.get('manoramaSession')
     const payload = await c.req.json<{ positions?: Record<string, unknown> }>().catch(() => null)

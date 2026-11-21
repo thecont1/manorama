@@ -2232,7 +2232,10 @@ export default function GalleryList({ apiBase, owner, slug, deepLinkSelection, o
       setGalleryActionBusy(null)
     }
   }
-  const accountGalleryRow = (gallery: GallerySummary) => {
+  // `rail` marks the Pinned section's strip cards — a pinned gallery also
+  // keeps a compact card back in "Cloud galleries", where it must take
+  // the cover form like every other home card.
+  const accountGalleryRow = (gallery: GallerySummary, rail = false) => {
     const title = gallery.title || gallery.slug
     const caption = gallery.caption?.trim() ?? ''
     const galleryId = galleryIds[gallery.slug] ?? ''
@@ -2241,7 +2244,7 @@ export default function GalleryList({ apiBase, owner, slug, deepLinkSelection, o
       ? (galleryPolicies?.[galleryPolicyKey(ownerSlug, gallery.slug)] ?? DEFAULT_VAULT_LOAD_POLICY) === 'stream'
       : false
     const mediaCount = summaryMediaCount(gallery)
-    const useRail = narrowLibrary || (gallery.pinnedAt && !gallery.hiddenAt)
+    const useRail = narrowLibrary || rail
     const GalleryPreview = useRail ? LibraryRail : LibraryCover
     return (
       <article class={useRail ? 'lib-card' : 'lib-card native-library-compact-card'} data-lib-card={gallery.slug}>
@@ -2585,7 +2588,7 @@ export default function GalleryList({ apiBase, owner, slug, deepLinkSelection, o
                   Pinned galleries <span class="lib-hidden-count">({accountLayout.strips.length})</span>
                 </button>
                 {pinnedOpen ? <ul class="native-gallery-list">
-                  {accountLayout.strips.map((slug) => <li key={slug}>{accountGalleryRow(accountBySlug.get(slug)!)}</li>)}
+                  {accountLayout.strips.map((slug) => <li key={slug}>{accountGalleryRow(accountBySlug.get(slug)!, true)}</li>)}
                 </ul> : null}
               </section> : null}
               {accountLayout.compact.length > 0 ? <section aria-labelledby="native-cloud-title">

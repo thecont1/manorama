@@ -47,7 +47,8 @@ export const catalogue = {
       addedAt: '2026-10-11T05:00:00.000Z',
       lastSeenAt: '2026-10-11T05:00:00.000Z',
       // A pin so both card forms render: this gallery rides the strip in
-      // "Pinned galleries", the other sits compact under "Local galleries".
+      // "Pinned galleries" and keeps its compact card under "Local
+      // galleries", where the other sits compact alone.
       pinnedAt: '2026-10-11T06:00:00.000Z',
     },
     {
@@ -173,7 +174,8 @@ export const buildCatalogue = (photos: FixturePhoto[], source: string) => ({
       addedAt: '2026-10-11T05:00:00.000Z',
       lastSeenAt: '2026-10-11T05:00:00.000Z',
       // A pin so both card forms render: this gallery rides the strip in
-      // "Pinned galleries", the other sits compact under "Local galleries".
+      // "Pinned galleries" and keeps its compact card under "Local
+      // galleries", where the other sits compact alone.
       pinnedAt: '2026-10-11T06:00:00.000Z',
     },
     {

@@ -325,7 +325,8 @@ describeNative('Duo responsive Spread', () => {
     await page.goto(`${nativeUrl}/`, { waitUntil: 'domcontentloaded' })
     const library = page.locator('.native-library-layout')
     await expect(library.locator('.lib-rail')).toHaveCount(1)
-    await expect(library.locator('.native-library-cover')).toHaveCount(4)
+    // Four unpinned covers plus the pinned gallery's own home card.
+    await expect(library.locator('.native-library-cover')).toHaveCount(5)
     for (const [state, width, height] of [
       ['flat', 951, 669], ['book', 951, 669], ['laptop', 951, 669],
       ['closed', 382, 580], ['closed', 320, 568], ['closed', 678, 466],

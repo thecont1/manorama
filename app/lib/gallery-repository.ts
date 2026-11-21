@@ -47,10 +47,11 @@ export type GalleryRecord = GalleryManifest & {
   /** The last completed source-freshness probe. Drives the Library-load
    *  check throttle — a manual refresh stamps it too (a rescan IS a read). */
   lastSourceCheckAt?: string | null
-  /** The owner's manual rank inside whichever Library section the gallery
-   *  currently sits in — written by a drag reorder. NULL keeps the
-   *  default order (pin date for strips, arrival for compact) and sorts
-   *  after every positioned sibling. */
+  /** The owner's manual rank inside the Library section the gallery is
+   *  arranged in — written by a drag reorder. For a pinned gallery that
+   *  is the strip section alone; its home card keeps arrival order.
+   *  NULL keeps the default order (pin date for strips, arrival for
+   *  compact) and sorts after every positioned sibling. */
   position?: number | null
 }
 
@@ -467,8 +468,9 @@ export const updateGallerySlug = async (ownerId: string, slug: string, nextSlug:
 }
 
 /** Sets or clears the pinned timestamp — a display choice only. A pin
- *  moves a card between the strip and compact sections; permanence lives
- *  on `retention` and changes through `swapGalleryRetention`,
+ *  adds a strip view in "Pinned galleries" while the card keeps its
+ *  home-section slot; permanence lives on `retention` and changes through
+ *  `swapGalleryRetention`,
  *  `setGalleryRetained`, or a tier change — never through the pin, so an
  *  unpin cannot launder a fresh expiry window. */
 export const setGalleryPinned = async (ownerId: string, slug: string, pinned: boolean, env?: GalleryEnv): Promise<GalleryRecord | null> => {
@@ -852,11 +854,12 @@ export const toSummary = (gallery: GalleryRecord) => {
 }
 export type GallerySummary = ReturnType<typeof toSummary>
 
-/** The Library's payload diet: a strip gallery ships its whole rail in
- *  stored order (hidden items ride along — the owner rail dims them),
- *  a compact gallery ships only its first visible item as a cover, and
- *  every summary keeps its real counts. `layout` names the treatment so
- *  the Admin island never recomputes it. */
+/** The Library's payload diet: a gallery with a strip view ships its
+ *  whole rail in stored order (hidden items ride along — the owner rail
+ *  dims them, and the same summary's compact card finds its cover among
+ *  them), every other gallery ships only its first visible item as a
+ *  cover, and every summary keeps its real counts. `layout` names the
+ *  payload treatment so the Admin island never recomputes it. */
 export const toLibrarySummaries = (galleries: readonly GalleryRecord[], tier: AccountTier) => {
   const layout = libraryLayout(galleries, tier)
   const strips = new Set(layout.strips)

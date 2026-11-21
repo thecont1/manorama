@@ -82,9 +82,12 @@ const openCatalogue = async (page: Page) => {
     }), { timeout: 15_000 })
     .toBe('28px/auto')
   // The rail's geometry is only meaningful once the originals have decoded.
+  // A pinned gallery keeps its compact cover in the home section too, so
+  // each pin adds one more decoded image beside the rail's own.
+  const pinnedCovers = built.galleries.filter((gallery) => gallery.pinnedAt).length
   await expect
     .poll(async () => page.locator('.desktop-catalogue img.is-loaded').count(), { timeout: 30_000, intervals: [250, 500] })
-    .toBe(allPhotos.length)
+    .toBe(allPhotos.length + pinnedCovers)
   return api
 }
 
@@ -164,18 +167,22 @@ for (const size of sizes) {
     // The launch really did call the account's seam, and the fixture answered.
     expect(api.calls()).toBeGreaterThan(0)
     // Both sources are on the page: the pinned folder rides the "Pinned
-    // galleries" strip; the card sits compact under "Local galleries".
+    // galleries" strip AND keeps its compact card; both sit compact under
+    // "Local galleries".
     await expect(page.locator('.lib-card')).toHaveCount(1)
-    await expect(page.locator('.lib-compact-card')).toHaveCount(1)
+    await expect(page.locator('.lib-compact-card')).toHaveCount(2)
     // Sources are named by kind, never by path — the roots are local-only by
     // contract and stay off the surface.
     await expect(page.locator('.lib-card').nth(0).locator('.lib-card-sub')).toContainText('This Mac')
-    await expect(page.locator('.lib-compact-card').nth(0).locator('.lib-card-sub')).toContainText('Memory card')
+    await expect(page.locator('.lib-compact-card', { hasText: 'Monsoon Card' }).locator('.lib-card-sub')).toContainText('Memory card')
+    await expect(page.locator('.lib-compact-card', { hasText: 'Pictures' })).toHaveCount(1)
     await expect(page.locator('body')).not.toContainText('/Volumes/NO NAME/DCIM')
     await expect(page.locator('body')).not.toContainText(SOURCE)
     // Each card carries exactly one ··· menu — the old workbench card actions
-    // (View/Rescan/Share/Remove) stay off it.
-    for (let index = 0; index < built.galleries.length; index++) {
+    // (View/Rescan/Share/Remove) stay off it. One strip plus each gallery's
+    // home card.
+    const cardTotal = await page.locator('.lib-card, .lib-compact-card').count()
+    for (let index = 0; index < cardTotal; index++) {
       const card = page.locator('.lib-card, .lib-compact-card').nth(index)
       await expect(card.locator('.lib-card-menu')).toHaveCount(1)
     }

@@ -31,10 +31,10 @@ export type LocalGalleryRecord = {
    *  draft a cloud gallery's `hidden` set carries. Optional because
    *  pre-feature catalogues have no field to read. */
   hidden?: string[]
-  /** Display choice like a cloud gallery's pin — moves the card between
-   *  "Pinned galleries" and the Local section's compact grid. Device-local:
-   *  the sync projection has no slot for it and other devices keep their
-   *  own pinning. */
+  /** Display choice like a cloud gallery's pin — adds a strip in
+   *  "Pinned galleries" while the card keeps its compact slot in the Local
+   *  section. Device-local: the sync projection has no slot for it and
+   *  other devices keep their own pinning. */
   pinnedAt?: string | null
   /** Concealed from the Library, account-wide: the flag rides the sync
    *  payload so this Mac's other devices hide the mirror too. Clearing it
@@ -45,8 +45,9 @@ export type LocalGalleryRecord = {
    *  yield readable dimensions are not re-probed on every launch; a
    *  manual rescan always can. */
   dimsScannedAt?: string | null
-  /** The owner's manual rank inside whichever Library section the record
-   *  sits in — a local gallery's drag reorder, mirroring the cloud
+  /** The owner's manual rank inside the Library section the record is
+   *  arranged in — for a pinned record that is the strip section alone;
+   *  home sections ignore it and keep arrival order, mirroring the cloud
    *  gallery's `position` column. Device-local like the pin: the sync
    *  projection has no slot for it. */
   position?: number | null

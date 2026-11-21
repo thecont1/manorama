@@ -1730,9 +1730,10 @@ export default function Catalogue({ apiBase }: { apiBase: string }) {
     }
   }
 
-  // The local pin — same display contract as the account pin (the card moves
-  // between "Pinned galleries" and the compact grid) but persisted into
-  // catalogue.json, not the API: a local record has no server row to PATCH.
+  // The local pin — same display contract as the account pin (a strip in
+  // "Pinned galleries" while the card keeps its Local grid slot) but
+  // persisted into catalogue.json, not the API: a local record has no
+  // server row to PATCH.
   const toggleLocalPin = async (record: LocalGalleryRecord) => {
     if (!catalogue) return
     const pinning = !record.pinnedAt
@@ -2939,9 +2940,10 @@ export default function Catalogue({ apiBase }: { apiBase: string }) {
   // read arrives, without waiting on the slower call.
   const localRecordIds = new Set(galleries.map((record) => record.id))
   const remoteDeviceGalleries = standaloneDeviceGalleries(deviceRows, accountGalleries ?? [], catalogue.deviceId, localRecordIds)
-  // Partition the account galleries into pinned strips and compact cards,
+  // Partition the account galleries into pinned strips and home cards,
   // mirroring the web Library's shared layout rule. Pinned rows lead by
-  // pinnedAt; everything else collapses to a compact cover card.
+  // pinnedAt; every gallery — pinned ones included — also keeps a compact
+  // card back in its own section.
   const liveAccountGalleries = accountGalleries ?? []
   // Locals join the same pinned/compact rule as account galleries — a pin
   // is a display choice on both kinds. Namespaced slugs keep the two
@@ -3007,13 +3009,30 @@ export default function Catalogue({ apiBase }: { apiBase: string }) {
       .map((item) => keyForIdent(section, cardIdentOf(item) ?? ''))
       .filter((key): key is string => Boolean(key))
 
+  // A pinned card sits in two sections at once, and `position` is a
+  // single rank field — so each section owns its own rank space: the
+  // pinned section reads and writes it for strip cards, while home
+  // sections never read it for pinned cards (libraryLayout ranks them
+  // unpositioned there) and never write it for them either. Without the
+  // split, a strip reorder would leak into the home grid and a home
+  // reorder would shuffle the strips.
+  const isPinnedLayoutKey = (key: string): boolean =>
+    key.startsWith('account:') ? Boolean(accountBySlug.get(key)?.pinnedAt)
+      : key.startsWith('local:') ? Boolean(localByCardId.get(key)?.pinnedAt)
+      : false
+
   const applySectionOrder = async (section: LibraryCardDrag['section'], keys: string[]) => {
     const accountPositions: Record<string, number> = {}
     const localPositions = new Map<string, number>()
-    keys.forEach((key, index) => {
-      if (key.startsWith('account:')) accountPositions[key.slice(8)] = index
-      else if (key.startsWith('local:')) localPositions.set(key.slice(6), index)
-    })
+    let rank = 0
+    for (const key of keys) {
+      // Pinned cards keep their arrival slot at home — only their strip
+      // section carries a manual rank, so they take no position here.
+      if (section !== 'pinned' && isPinnedLayoutKey(key)) continue
+      if (key.startsWith('account:')) accountPositions[key.slice(8)] = rank
+      else if (key.startsWith('local:')) localPositions.set(key.slice(6), rank)
+      rank += 1
+    }
     const previousGalleries = accountGalleries
     const previousCatalogue = catalogue
     // Optimistic — the layout re-derives on the next render, and a failed
@@ -3067,6 +3086,9 @@ export default function Catalogue({ apiBase }: { apiBase: string }) {
     if (!item || !ident) return
     const key = keyForIdent(section, ident)
     if (!key) return
+    // A pinned card keeps its arrival slot at home — there is no manual
+    // order to write there, so it does not drag outside the Pinned section.
+    if (section !== 'pinned' && isPinnedLayoutKey(key)) return
     dragCandidate.current = {
       key, section, ident,
       label: item.querySelector('.lib-card-title')?.textContent?.trim() || ident,
@@ -3160,9 +3182,10 @@ export default function Catalogue({ apiBase }: { apiBase: string }) {
     </article></li>
   }
 
-  /** The compact form a local gallery takes while unpinned — a cover card
-   *  in the Local section's grid, the same shape account galleries
-   *  collapse to in "Cloud galleries". */
+  /** The compact form every local gallery keeps in the Local section's
+   *  grid — a cover card, the same shape account galleries take in
+   *  "Cloud galleries". A pin adds a strip in "Pinned galleries" on top
+   *  of this card; it never replaces it. */
   const localCompactCard = (record: LocalGalleryRecord) => {
     const state = availability[record.id] ?? 'available'
     const unavailable = state === 'unavailable'
@@ -3789,8 +3812,9 @@ export default function Catalogue({ apiBase }: { apiBase: string }) {
              arrow-key roving focus here, so the menu role would overpromise. */
           <div class="lib-menu">
             {cardMenu.kind === 'account' ? (<>
-              {/* The pin moves the card between "Pinned galleries" and the
-                  compact list — a display choice, never permanence. */}
+              {/* The pin adds a strip view in "Pinned galleries" — the
+                  card stays in its own section. A display choice, never
+                  permanence. */}
               <button type="button" disabled={busy} onClick={() => { void togglePin(cardMenu.gallery) }}>{cardMenu.gallery.pinnedAt ? 'Unpin gallery' : 'Pin gallery'}</button>
               {accountTier === 'pro' ? (
                 <button type="button" disabled={busy} onClick={() => { void setGalleryHidden(cardMenu, !cardMenu.gallery.hiddenAt) }}>

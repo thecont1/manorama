@@ -59,7 +59,7 @@ Images always fit the stage whole — never cropped, never enlarged past their r
 
 The app's opening screens, Library, Settings and sheets share the approved 256px photographic texture, in stronger charcoal or warm-paper ink following the owner theme. Previously transparent controls, sponsored containers and gallery cards/strips have theme-matched translucent backings; primary buttons and selected states retain their solid fills. Reduced transparency or increased contrast makes those backings opaque. Galleries start on the Dark canvas; their own Dark/Light choices are independent of the app theme. The public marketing homepage does not use the app texture.
 
-- **Pinned galleries** get a full filmstrip. Pinning is a display choice; it never changes how long a gallery lives.
+- **Pinned galleries** get a full filmstrip in the Pinned section — the card also stays in Cloud or Local, exactly where it was. Pinning is a display choice; it never changes how long a gallery lives.
 - **Cloud galleries** settle into a fluid grid where each card keeps its own photograph's proportions. Nothing is cropped to fill a box.
 - **Local galleries** — the folders your Mac has shared with your account — arrive as a dense grid of small tiles with no thumbnails, on the web and on your phone. The names and counts are metadata; the paths never leave the Mac.
 - **Hidden galleries** stay out of the way until you want them, and adding a gallery always reveals the section it landed in.
