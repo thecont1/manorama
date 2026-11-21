@@ -90,3 +90,7 @@ macos/ManoramaMac/build-focus-test/
 # Local styled-DMG preview output
 /build/dmg-preview/
 macos/ManoramaMac/build-*/
+
+# Local working copy of the procedural-illustrator sampling engine — scratch;
+# its provenance ships as the tool-source zip under outputs/procedural-illustrator.
+/tools/

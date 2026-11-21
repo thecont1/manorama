@@ -1,0 +1,114 @@
+{
+  "engine": "0.1.0",
+  "note": "Absolute runtime measurements on this device; no prior baseline exists.",
+  "samples": [
+    {
+      "density": "sparse",
+      "seed": 1843,
+      "layoutMs": 330.04,
+      "svgMs": 2.59,
+      "pngMs": 16.67,
+      "placements": 21,
+      "attempts": 4200,
+      "svgBytes": 40773,
+      "pngBytes": 79199,
+      "valid": true
+    },
+    {
+      "density": "sparse",
+      "seed": 42,
+      "layoutMs": 268.12,
+      "svgMs": 1.98,
+      "pngMs": 13.64,
+      "placements": 21,
+      "attempts": 4200,
+      "svgBytes": 38795,
+      "pngBytes": 77201,
+      "valid": true
+    },
+    {
+      "density": "sparse",
+      "seed": 90210,
+      "layoutMs": 254.77,
+      "svgMs": 2.67,
+      "pngMs": 15.34,
+      "placements": 21,
+      "attempts": 4200,
+      "svgBytes": 48999,
+      "pngBytes": 75633,
+      "valid": true
+    },
+    {
+      "density": "medium",
+      "seed": 1843,
+      "layoutMs": 590.42,
+      "svgMs": 3.39,
+      "pngMs": 24.78,
+      "placements": 60,
+      "attempts": 12000,
+      "svgBytes": 77492,
+      "pngBytes": 105627,
+      "valid": true
+    },
+    {
+      "density": "medium",
+      "seed": 42,
+      "layoutMs": 563.2,
+      "svgMs": 3.46,
+      "pngMs": 21.17,
+      "placements": 60,
+      "attempts": 12000,
+      "svgBytes": 77801,
+      "pngBytes": 105340,
+      "valid": true
+    },
+    {
+      "density": "medium",
+      "seed": 90210,
+      "layoutMs": 612.98,
+      "svgMs": 3.49,
+      "pngMs": 20.94,
+      "placements": 60,
+      "attempts": 12000,
+      "svgBytes": 90210,
+      "pngBytes": 102464,
+      "valid": true
+    },
+    {
+      "density": "dense",
+      "seed": 1843,
+      "layoutMs": 888.94,
+      "svgMs": 4.45,
+      "pngMs": 29.04,
+      "placements": 88,
+      "attempts": 18000,
+      "svgBytes": 113712,
+      "pngBytes": 131392,
+      "valid": true
+    },
+    {
+      "density": "dense",
+      "seed": 42,
+      "layoutMs": 922.28,
+      "svgMs": 4.97,
+      "pngMs": 28.71,
+      "placements": 88,
+      "attempts": 18000,
+      "svgBytes": 115550,
+      "pngBytes": 131190,
+      "valid": true
+    },
+    {
+      "density": "dense",
+      "seed": 90210,
+      "layoutMs": 777.8,
+      "svgMs": 4.87,
+      "pngMs": 30.47,
+      "placements": 87,
+      "attempts": 18000,
+      "svgBytes": 122840,
+      "pngBytes": 126244,
+      "valid": true
+    }
+  ]
+}

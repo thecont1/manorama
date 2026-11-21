@@ -325,7 +325,7 @@ describe('the dashboard renders retention state', () => {
 })
 
 describe('the lean library layout', () => {
-  test('a Visionary library strips the pinned galleries and compacts the rest', async () => {
+  test('a Visionary library strips the pinned galleries and keeps every home card', async () => {
     const html = await renderDashboard(async () => {
       await setUserTier(TEST_OWNER.accountId, 'pro')
       for (let index = 0; index < 12; index += 1) {
@@ -341,13 +341,15 @@ describe('the lean library layout', () => {
       }
     })
     expect((html.match(/admin-gallery-strip-frame/g) ?? []).length).toBe(4)
-    expect((html.match(/lib-compact-card/g) ?? []).length).toBe(8)
+    // Every gallery keeps a compact card in "Cloud galleries" — the four
+    // pinned ones included, so the pin adds a strip without removing home.
+    expect((html.match(/lib-compact-card/g) ?? []).length).toBe(12)
     expect(html).toContain('Pinned galleries')
     expect(html).toContain('Cloud galleries')
     expect(html).not.toContain('More galleries')
   })
 
-  test('a free library renders retained strips then temporary rows', async () => {
+  test('a free library renders retained strips and keeps every home card', async () => {
     const html = await renderDashboard(async () => {
       for (let index = 0; index < 3; index += 1) {
         await createGallery(TEST_OWNER.accountId, {
@@ -365,10 +367,10 @@ describe('the lean library layout', () => {
         })
       }
     })
-    // Free: the three pinned retained galleries strip; both pipelines
-    // are compact cards under "Cloud galleries".
+    // Free: the three pinned retained galleries strip; all five galleries
+    // — pinned or not — keep a compact card under "Cloud galleries".
     expect((html.match(/admin-gallery-strip-frame/g) ?? []).length).toBe(3)
-    expect((html.match(/lib-compact-card/g) ?? []).length).toBe(2)
+    expect((html.match(/lib-compact-card/g) ?? []).length).toBe(5)
     expect(html).toContain('Cloud galleries')
     expect(html).toContain('data-retention="pipeline"')
   })

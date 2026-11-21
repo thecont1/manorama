@@ -20,7 +20,7 @@ import InfoSheet from '../components/viewer/InfoSheet'
 import { ActionGroup, ActionRow } from '../components/ui/ActionRow'
 import { createCredentialQueue } from '../lib/credential-queue'
 import SeededDoodleBackground from './SeededDoodleBackground'
-import { type BackgroundPreference } from '../lib/background-preference'
+import { DEFAULT_BACKGROUND, type BackgroundPreference } from '../lib/background-preference'
 import { singlePlatePositionsFor, type AdFrame } from '../lib/adframe'
 import { advanceEasedPosition, clamp, glideEase } from '../lib/sizing'
 import type { FoldLayout, FoldSegment, FoldVerticalBarEdge } from '../../packages/core/fold'
@@ -299,16 +299,17 @@ const STRIP_RETAIN = 6
 /** Anonymous per-gallery viewing preferences: the view mode and the
  *  canvas choice are remembered in localStorage keyed by gallery slug,
  *  so a link recipient keeps their own preference without an account.
- *  The canvas *default* is not stored — it follows the owner theme
- *  (Light in the Library means a Light canvas here); a change inside a
- *  gallery lands on this bag only, never on the app-wide default. */
+ *  The canvas *default* is Dark — the Blank canvas was retired by the
+ *  owner, and a legacy stored 'none' is dropped here so such a gallery
+ *  falls back to the default; a change inside a gallery lands on this
+ *  bag only, never on the app-wide default. */
 type ViewPrefs = { mode?: Mode; background?: BackgroundPreference }
 const readViewPrefs = (slug: string): ViewPrefs => {
   try {
     const stored = JSON.parse(localStorage.getItem(`manorama:view:${slug}`) ?? '{}') as ViewPrefs
     return {
       mode: stored.mode && ['strip', 'vertical', 'single', 'spread'].includes(stored.mode) ? stored.mode : undefined,
-      background: stored.background && ['none', 'light', 'dark'].includes(stored.background) ? stored.background : undefined,
+      background: stored.background && ['light', 'dark'].includes(stored.background) ? stored.background : undefined,
     }
   } catch {
     return {}
@@ -424,12 +425,16 @@ export default function Viewer({ slug, galleryTitle, images: sourceImages, encry
   // gallery-wide setting — the feed scrolls natively, so they're only
   // ever an opt-in.
   const [showArrowsVertical, setShowArrowsVertical] = useState(false)
-  // Background: an app-wide preference. 'none' (the default) keeps
-  // photographs abutting on the bare dark canvas; light and dark wake
-  // the doodle field and give every image a 10px margin. Read as 'none'
-  // for SSR, then reconciled on mount so server and client markup agree
-  // during hydration.
-  const [background, setBackground] = useState<BackgroundPreference>('none')
+  // Canvas: Light or Dark — both paint the approved artwork field and
+  // give every image a 10px optical margin. (The Blank canvas was
+  // retired by the owner; no gallery surface renders without the
+  // field.) 'none' survives only as the embedded marketing home demo's
+  // bare edge-to-edge stage — that surface is not a gallery and keeps
+  // its existing look. The initial read is 'none' for SSR so server and
+  // client markup agree during hydration (the field was never a
+  // server-rendered layer), then reconciled on mount to the default or
+  // the stored pairing.
+  const [background, setBackground] = useState<'none' | BackgroundPreference>('none')
   const [showCaptions, setShowCaptions] = useState(initialSettings.defaultShowCaptions)
   const [fullscreenAvailable, setFullscreenAvailable] = useState(false)
   const [fullscreenActive, setFullscreenActive] = useState(false)
@@ -466,10 +471,21 @@ export default function Viewer({ slug, galleryTitle, images: sourceImages, encry
   // images get 10px bands top and bottom, vertical rows against a stage
   // 20px narrower for 10px rails left and right. The trailing gutter —
   // right in strip, bottom in vertical — is frame margin in CSS. 'none'
-  // stages against the raw stage, so photographs abut edge to edge.
+  // (embedded home demo only) stages against the raw stage, so
+  // photographs abut edge to edge.
   const imageMarginPx = background !== 'none' ? 10 : 0
   const stagingWidth = Math.max(0, stageSize.width - (effectiveMode === 'vertical' ? imageMarginPx * 2 : 0))
   const stagingHeight = Math.max(0, stageSize.height - (effectiveMode === 'strip' ? imageMarginPx * 2 : 0))
+  /* The keyboard glide is wired on the first commit, when the canvas is
+     still the SSR 'none' stage — getBounds reached through that path
+     would read a stale imageMarginPx of 0, subtract nothing for the
+     endcard's trailing gutter, and let End park the card one gutter
+     inside the stage. Mirror the margin in a ref so every caller, stale
+     closure included, measures against the live canvas. */
+  const imageMarginPxRef = useRef(imageMarginPx)
+  useLayoutEffect(() => {
+    imageMarginPxRef.current = imageMarginPx
+  }, [imageMarginPx])
   // Viewer-level sound: once a visitor unmutes, every subsequently
   // activated video starts audible. Deliberately NOT persisted — it
   // resets when the viewer unmounts, so a fresh visit is always quiet.
@@ -973,12 +989,12 @@ export default function Viewer({ slug, galleryTitle, images: sourceImages, encry
   })
   useEffect(() => { modeRef.current = effectiveMode }, [effectiveMode])
 
-  // The canvas default is always Blank — photographs abut edge-to-edge
-  // unless this gallery carries its own stored Light/Dark choice. The
-  // Library theme never picks one: a canvas the viewer did not choose
-  // reads as seams between photos, not as a mount.
+  // Galleries always land on a canvas: the stored Light/Dark pairing,
+  // else Dark. The Library theme never picks one — an unchosen canvas
+  // is the app default, not a theme echo. The embedded home demo keeps
+  // its bare stage (it mounts no field at all).
   useEffect(() => {
-    setBackground(embedded ? 'none' : readViewPrefs(slug).background ?? 'none')
+    setBackground(embedded ? 'none' : readViewPrefs(slug).background ?? DEFAULT_BACKGROUND)
   }, [slug, viewPrefs, embedded])
 
   useEffect(() => {
@@ -1180,7 +1196,7 @@ export default function Viewer({ slug, galleryTitle, images: sourceImages, encry
     // plus its trailing margin) while it is unrevealed.
     if (!endcapRevealedRef.current) {
       const cap = trackRef.current?.querySelector<HTMLElement>('[data-endcard]')
-      if (cap) max = Math.max(0, max - cap.offsetWidth - imageMarginPx)
+      if (cap) max = Math.max(0, max - cap.offsetWidth - imageMarginPxRef.current)
     }
     boundsRef.current = { min: 0, max }
     boundsDirtyRef.current = false
@@ -1498,10 +1514,26 @@ export default function Viewer({ slug, galleryTitle, images: sourceImages, encry
     return trackRef.current?.querySelector<HTMLElement>(`[data-index="${imageIndex + 1}"]`)?.offsetLeft ?? 0
   }
 
+  // How far below the stage top a frame's docked edge sits: the lead row
+  // alone carries the feed's top margin, so its dock line sits one image
+  // margin lower. 'none' backgrounds carry no margins — offset stays 0.
+  const verticalDockOffset = (frame: HTMLElement) =>
+    frame.dataset.index === '1' ? imageMarginPxRef.current : 0
+
   const dockVerticalFrame = (target: HTMLElement, behavior: ScrollBehavior) => {
-    if (embedded) {
-      // scrollIntoView also moves the homepage document; only the device stage may scroll.
-      stageRef.current?.scrollTo({ top: target.offsetTop, behavior })
+    const stage = stageRef.current
+    // scrollIntoView also moves the homepage document; only the device
+    // stage may scroll. Measure against the stage so the lead row can
+    // dock one margin below the top — a flush align would scroll the
+    // lead space away.
+    if (stage && (embedded || verticalDockOffset(target) > 0)) {
+      // getBoundingClientRect reports rendered screen pixels; scrollTop is
+      // in the stage's local CSS pixels. An embedded stage can be scaled,
+      // which separates the two — convert before combining, and keep the
+      // dock margin (already CSS px) in the same units.
+      const scale = stage.offsetHeight > 0 ? stage.getBoundingClientRect().height / stage.offsetHeight : 1
+      const drop = (target.getBoundingClientRect().top - stage.getBoundingClientRect().top) / (scale || 1)
+      stage.scrollTo({ top: stage.scrollTop + drop - verticalDockOffset(target), behavior })
       return
     }
     target.scrollIntoView({ block: 'start', behavior })
@@ -1577,7 +1609,7 @@ export default function Viewer({ slug, galleryTitle, images: sourceImages, encry
     // scrolls it into view rather than stopping at the photo.
     const frames = [...(trackRef.current?.querySelectorAll<HTMLElement>('[data-index], [data-endcard]') ?? [])]
     if (direction === 1) {
-      const next = frames.find((f) => f.getBoundingClientRect().top > stageTop + 8)
+      const next = frames.find((f) => f.getBoundingClientRect().top > stageTop + 8 + verticalDockOffset(f))
       if (!next) return
       if (next.dataset.endcard !== undefined) { dockVerticalFrame(next, 'smooth'); return }
       goTo(Number(next.dataset.index) - 1)
@@ -1685,7 +1717,7 @@ export default function Viewer({ slug, galleryTitle, images: sourceImages, encry
       // it again would loop forever, so finish on the last frame instead.
       const target = atScrollLimit
         ? frames[frames.length - 1]
-        : frames.find((frame) => frame.getBoundingClientRect().top > stageTop + 8)
+        : frames.find((frame) => frame.getBoundingClientRect().top > stageTop + 8 + verticalDockOffset(frame))
       if (!target) { onComplete('end'); return }
       step(direction)
       const docked = () => {
@@ -1700,7 +1732,7 @@ export default function Viewer({ slug, galleryTitle, images: sourceImages, encry
         const limitDock = stage !== null &&
           stage.scrollTop + stage.clientHeight >= stage.scrollHeight - 1 &&
           top < currentStageTop + stage.clientHeight
-        if (Math.abs(top - currentStageTop) <= 8 || limitDock) {
+        if (Math.abs(top - (currentStageTop + verticalDockOffset(target))) <= 8 || limitDock) {
           onComplete(target.dataset.endcard !== undefined ? 'end' : 'photo')
           return
         }
@@ -3227,9 +3259,8 @@ export default function Viewer({ slug, galleryTitle, images: sourceImages, encry
   // selectors are unchanged.
   return (
     <div style="display:contents" inert={suspended || undefined} aria-hidden={suspended ? 'true' : undefined}>
-      {/* Behind everything, inert: a deterministic field keyed to this
-          gallery's URL. Sits outside the stage so it stays put while the
-          track scrolls. */}
+      {/* The approved photographic field sits inside the isolated stage,
+          behind the moving track, and stays put as photographs travel. */}
       <div
         ref={stageRef}
         class={`viewer-stage mode-${effectiveMode} bg-${background}${arrowsVisible ? ' has-arrow-bar' : ''}${chromeVisible && !suspended ? ' chrome-on' : ''}`}
@@ -3832,7 +3863,9 @@ export default function Viewer({ slug, galleryTitle, images: sourceImages, encry
           mode={effectiveMode}
           onMode={setMode}
           spreadAvailable={spreadAvailable}
-          background={background}
+          /* The sheet only ever offers the two surviving pairings; the
+             transient SSR/embedded 'none' reads as the default there. */
+          background={background === 'none' ? DEFAULT_BACKGROUND : background}
           onBackground={(next) => { setBackground(next); writeViewPrefs(slug, { background: next }) }}
           arrowsOn={arrowsOn}
           onArrows={(on) => { if (effectiveMode === 'vertical') setShowArrowsVertical(on); else setShowArrows(on) }}

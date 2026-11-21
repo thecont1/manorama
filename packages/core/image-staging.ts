@@ -10,10 +10,10 @@ export const effectiveImageDpr = (dpr: number | undefined) => Math.min(dpr && Nu
 export const deviceImageDpr = (dpr: number | undefined) => dpr && Number.isFinite(dpr) && dpr > 0 ? dpr : 1
 
 /** Computes aspect-ratio-preserving CSS dimensions for a still image. Strip
- *  mode fits stage height, vertical mode fits stage width — except portraits,
- *  which contain both axes so a tall frame cannot run several screens past
- *  the fold — and single mode contains both axes; no mode requests more
- *  pixels than the source provides. */
+ *  mode fits stage height, vertical mode fits stage width bounded again by
+ *  stage height so no frame runs taller than the stage, and single mode
+ *  contains both axes; no mode requests more pixels than the source
+ *  provides. */
 export const imageStageSize = (input: {
   mode: ImageStageMode
   naturalWidthPx: number
@@ -37,11 +37,10 @@ export const imageStageSize = (input: {
   // shorter and centred rather than fabricating pixels. Hi-res sources
   // are unaffected (stageHeight/h is already the tighter bound), so a
   // mixed folder blends seamlessly.
-  // A portrait fit-to-width in the vertical feed would stand several
-  // screens tall, so portraits take the contain rule instead: height is
-  // what binds on a normal stage, width still guards a narrow one.
+  // Vertical scroll fits width-first like the feed, but a frame that
+  // would stand taller than the stage takes the contain bound instead —
+  // orientation does not matter, only whether the height fits.
   const scale = mode === 'strip' ? Math.min(stageHeight / h, 1 / dpr)
-    : mode === 'vertical' && h <= w ? Math.min(stageWidth / w, 1 / dpr)
     : Math.min(stageWidth / w, stageHeight / h, 1 / dpr)
   return { width: w * scale, height: h * scale }
 }

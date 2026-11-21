@@ -7,10 +7,10 @@ const entry = (slug: string, extra: Partial<{ retention: 'retained' | 'pipeline'
 const slugs = (count: number, prefix = 'g') => Array.from({ length: count }, (_, index) => entry(`${prefix}-${index}`))
 
 describe('libraryLayout', () => {
-  test('pinned galleries strip on every tier — the pin is display only', () => {
+  test('pinned galleries strip on every tier and keep their home card — the pin is display only', () => {
     // Retention never decides the section: a retained-unpinned gallery
     // compacts next to a pipeline one, and a pinned pipeline gallery
-    // strips right alongside the permanent set.
+    // strips right alongside the permanent set while staying compact.
     const entries = [
       entry('kept', { pinnedAt: '2026-10-01T00:00:00.000Z' }),
       entry('a'), entry('b'),
@@ -20,7 +20,9 @@ describe('libraryLayout', () => {
     for (const tier of ['free', 'pro'] as const) {
       expect(libraryLayout(entries, tier)).toEqual({
         strips: ['kept', 'temp-pinned'],
-        compact: ['a', 'b', 'pipe'],
+        // Every gallery keeps its home card — pinned ones included, in
+        // arrival order like any unpositioned card.
+        compact: ['kept', 'a', 'b', 'pipe', 'temp-pinned'],
       })
     }
   })
@@ -41,7 +43,8 @@ describe('libraryLayout', () => {
     const layout = libraryLayout(entries, 'pro')
     // Five pins, five strips — pinning spends no permanence, so no limit.
     expect(layout.strips).toEqual(['g-4', 'g-5', 'g-6', 'g-7', 'g-8'])
-    expect(layout.compact).toEqual(['g-0', 'g-1', 'g-2', 'g-3', 'g-9', 'g-10', 'g-11'])
+    // And all twelve keep their home cards in arrival order.
+    expect(layout.compact).toEqual(slugs(12).map((item) => item.slug))
   })
 
   test('empty and small libraries still resolve both lists', () => {
@@ -60,17 +63,35 @@ describe('libraryLayout', () => {
     // Positioned pins lead in rank order; the unpositioned ones keep
     // their pin-date order at the tail.
     expect(libraryLayout(entries, 'pro').strips).toEqual(['new-pin', 'mid-pin', 'old-pin', 'late-pin'])
+    // In the home section a pin's position belongs to the strip rank
+    // space — every pinned card keeps arrival order instead.
+    expect(libraryLayout(entries, 'pro').compact).toEqual(['old-pin', 'new-pin', 'mid-pin', 'late-pin'])
   })
 
-  test('a manual position reorders compact cards without disturbing pin membership', () => {
+  test('a manual position reorders home cards without disturbing pin membership', () => {
     const entries = [
       entry('a'), entry('b', { position: 0 }), entry('c'), entry('d', { position: 1 }),
       entry('pinned', { pinnedAt: '2026-01-01T00:00:00.000Z', position: 5 }),
     ]
     const layout = libraryLayout(entries, 'pro')
     expect(layout.strips).toEqual(['pinned'])
-    // Positioned compact cards lead in rank order; unpositioned keep
-    // arrival order behind them.
-    expect(layout.compact).toEqual(['b', 'd', 'a', 'c'])
+    // Positioned home cards lead in rank order; unpositioned keep
+    // arrival order behind them — the pinned card joins them at its
+    // arrival slot rather than its strip rank.
+    expect(layout.compact).toEqual(['b', 'd', 'a', 'c', 'pinned'])
+  })
+
+  test('a pinned card keeps its arrival slot between positioned and unpositioned home cards', () => {
+    const entries = [
+      entry('top', { position: 0 }),
+      entry('pinned-mid', { pinnedAt: '2026-10-01T00:00:00.000Z' }),
+      entry('plain'),
+      entry('bottom', { position: 1 }),
+    ]
+    const layout = libraryLayout(entries, 'pro')
+    expect(layout.strips).toEqual(['pinned-mid'])
+    // Positioned cards still lead; the pinned card sits in arrival order
+    // among the unpositioned, exactly where it would sit unpinned.
+    expect(layout.compact).toEqual(['top', 'bottom', 'pinned-mid', 'plain'])
   })
 })

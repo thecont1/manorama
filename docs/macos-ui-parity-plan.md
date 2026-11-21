@@ -103,10 +103,10 @@ non-draggable window. Does **not** yet close the layout gaps below.
 - Keep local galleries in their own section ("On this Mac") or fold them into
   "Your galleries" — decide in the PR; recommend a separate, clearly-labelled
   section to avoid implying local folders are cloud galleries.
-- Add tests: pinned account gallery renders as a strip; unpinned renders as a
-  compact card; a tier change leaves the partition stable — `libraryLayout`
-  partitions on `pinnedAt` alone, so only re-pinning moves a card between
-  sections.
+- Add tests: a pinned account gallery renders as a strip and keeps its
+  compact card; an unpinned one renders compact only; a tier change leaves
+  the partition stable — `libraryLayout` partitions on `pinnedAt` alone, so
+  only re-pinning adds or removes the strip view.
 
 ### Phase 3 — Sidebar parity
 - Add the account tier line to the rail when a session exists:

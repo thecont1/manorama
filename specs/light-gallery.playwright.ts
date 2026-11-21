@@ -30,7 +30,10 @@ test('light mode: owner screens and the dark gallery stay readable', async ({ br
     await page.getByRole('button', { name: 'Settings', exact: true }).click()
     await page.locator('.web-settings').getByRole('radio', { name: 'Light', exact: true }).click()
     await expect(page.locator('html')).toHaveClass(/light/)
-    await page.getByRole('button', { name: 'Back', exact: true }).click()
+    /* The settings pane's back control was renamed to "Back to the
+       library" by the committed pane restyle; the old bare 'Back' name
+       matches nothing and the click hung until the test timed out. */
+    await page.getByRole('button', { name: 'Back to the library', exact: true }).click()
     await expect(page.locator('.web-settings')).toHaveCount(0)
 
     // Gallery settings sheet: the surface stays readable in Light mode.
@@ -45,8 +48,8 @@ test('light mode: owner screens and the dark gallery stay readable', async ({ br
     await sheet.getByRole('button', { name: 'Close', exact: true }).click()
     await expect(sheet).toHaveCount(0)
 
-    // The gallery's canvas follows the owner's theme by default, so pin the
-    // album to Dark first — the check below is that the *surfaces* keep
+    // The gallery canvas defaults to Dark now, but pin the album to Dark
+    // explicitly anyway: the check below is that the *surfaces* keep
     // their own ink when a shell restores html.light globally.
     await page.goto(`${base}/thecontrarian/mixed-album`, { waitUntil: 'domcontentloaded' })
     await page.waitForSelector('.viewer-stage', { timeout: 15_000 })
@@ -89,7 +92,10 @@ test('light mode: owner screens and the dark gallery stay readable', async ({ br
       await btn.click()
     }
     for (const { name, sel } of [
-      { name: /^Settings/i, sel: '.m-sheet-label, .m-sheet-title, .m-sheet-hint, .m-segmented-option, .m-quiet-copy, kbd' },
+      /* The viewer chrome pill carries the accessible name
+         'Gallery Settings' since the committed chrome relabel; the bare
+         /^Settings/i never matched and the reveal loop timed out. */
+      { name: /^gallery settings$/i, sel: '.m-sheet-label, .m-sheet-title, .m-sheet-hint, .m-segmented-option, .m-quiet-copy, kbd' },
       { name: /^Info/i, sel: '.m-sheet-label, .m-sheet-title, .m-info-row dt, .m-info-row dd, .m-quiet-copy' },
     ]) {
       await reveal(name)

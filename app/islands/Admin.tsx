@@ -81,9 +81,10 @@ const isLocked = (gallery: GallerySummary) => gallery.retention === 'pipeline'
 // The Library prints the build commit under the mark; the guard keeps
 // unit tests and scripts, which never see vite's define, on 'dev'.
 const buildCommit = typeof __MANORAMA_COMMIT__ === 'string' ? __MANORAMA_COMMIT__ : 'dev'
-/** The pin is a display choice — the strip section follows the stamped
- *  timestamp, not the retention flag. Permanence only moves through the
- *  swap or a tier change. */
+/** The pin is a display choice — it adds a strip view in "Pinned
+ *  galleries" while the card stays in its own section. The strip order
+ *  follows the stamped timestamp, not the retention flag. Permanence
+ *  only moves through the swap or a tier change. */
 const effectivePinned = (gallery: GallerySummary) => Boolean(gallery.pinnedAt)
 
 /** After a new gallery card mounts, bring it fully into view: centered with
@@ -184,7 +185,8 @@ export default function Admin({ galleries: initialGalleries, owner, ownerName, p
   // or Hidden list would leave the post-add scroll with nothing to find.
   const revealGallerySection = (gallery: GallerySummary) => {
     if (gallery.hiddenAt) setHiddenOpen(true)
-    else if (gallery.pinnedAt) setPinnedOpen(true)
+    // A pinned gallery lives in two sections at once — reveal both.
+    else if (gallery.pinnedAt) { setPinnedOpen(true); setCloudOpen(true) }
     else setCloudOpen(true)
   }
   // `?details=` opens the sheet once per page load. The marker lives on
@@ -808,7 +810,7 @@ export default function Admin({ galleries: initialGalleries, owner, ownerName, p
     if (request === libraryRequestSeq.current) setGalleries(sortRecent(list.galleries))
   }
 
-  /** Pinning reshuffles the whole strip/compact split, so the lean list is
+  /** Pinning changes the strip/compact split, so the lean list is
    *  refetched rather than patched — covers and rails come back in sync.
    *  A Free owner at the pin cap is not refused outright: the chooser
    *  makes them pick which permanent gallery to give up, or the plan. */
@@ -1062,7 +1064,7 @@ export default function Admin({ galleries: initialGalleries, owner, ownerName, p
             Pinned galleries <span class="lib-hidden-count">({stripGalleries.length})</span>
           </button>
           {pinnedOpen ? (<>
-          <p class="lib-section-sub">Pinned galleries show up as strips and download entirely — pinning is a display choice, not permanence.</p>
+          <p class="lib-section-sub">Pinned galleries show up as strips here and download entirely — the card also stays in its own section below. Pinning is a display choice, not permanence.</p>
           <ul class="lib-list">{stripGalleries.map((gallery) => {
           const title = gallery.title || gallery.slug
           const locked = isLocked(gallery)
@@ -1241,8 +1243,9 @@ export default function Admin({ galleries: initialGalleries, owner, ownerName, p
           {/* Native buttons and links, not menu/menuitem roles: there is no
               arrow-key roving focus here, so the menu role would overpromise. */}
           <div class="lib-menu">
-            {/* The pin moves the card between "Pinned galleries" and the
-                compact list — a display choice, never permanence. */}
+            {/* The pin adds a strip view in "Pinned galleries" — the card
+                stays put in its own section. A display choice, never
+                permanence. */}
             <button
               type="button"
               disabled={busy}

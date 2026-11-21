@@ -1,0 +1,28 @@
+{
+  "before": {
+    "valid": true,
+    "collisionPairs": [],
+    "coverage": 0.345703125,
+    "occupiedFraction": 0.22412109375,
+    "densityVariance": 0.03902602195739746,
+    "repetitionPenalty": 0.6,
+    "alignmentPenalty": 0.6484920990342895,
+    "largestGap": 288,
+    "score": 0.2697101284219858,
+    "warnings": []
+  },
+  "after": {
+    "valid": true,
+    "collisionPairs": [],
+    "coverage": 0.346923828125,
+    "occupiedFraction": 0.228759765625,
+    "densityVariance": 0.025874078273773193,
+    "repetitionPenalty": 0.6,
+    "alignmentPenalty": 0.6353602094548624,
+    "largestGap": 224,
+    "score": 0.29437730049559657,
+    "warnings": []
+  },
+  "steps": 120,
+  "accepted": 35
+}

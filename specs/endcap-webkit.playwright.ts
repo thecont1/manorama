@@ -227,16 +227,25 @@ test.describe("strip endcap bounds on WebKit", () => {
     await expect(endcap).toHaveCount(1);
     const stageBox = await stage.boundingBox();
 
-    // The track must never measure wider than its laid-out frames — the
-    // inflated read is what used to park the endcard off-stage. Video
-    // frames are the only children that could contribute an intrinsic
-    // width here; photos carry explicit staged px widths.
+    /* The track must never measure wider than its laid-out frames — the
+       inflated read is what used to park the endcard off-stage. Video
+       frames are the only children that could contribute an intrinsic
+       width here; photos carry explicit staged px widths. The laid-out
+       extent of the last card includes its own trailing canvas gutter:
+       with Blank retired every gallery carries the 10px strip margins,
+       and the track legitimately ends one gutter past the card's border
+       box. Without Blank there is no zero-margin configuration left to
+       measure, so the gutter is folded into the expectation rather than
+       the stage being reseeded onto a retired preference. */
     await expect
       .poll(
         async () =>
           endcap.evaluate((el) => {
             const trackEl = el.parentElement as HTMLElement;
-            return Math.abs(trackEl.offsetWidth - (el.offsetLeft + el.offsetWidth));
+            const trailing = parseFloat(getComputedStyle(el).marginRight) || 0;
+            return Math.abs(
+              trackEl.offsetWidth - (el.offsetLeft + el.offsetWidth + trailing),
+            );
           }),
         { timeout: 10_000 },
       )
@@ -265,8 +274,10 @@ test.describe("strip endcap bounds on WebKit", () => {
 
     // Dragging past the last photograph is the touch path to the card: the
     // reveal joins it to the pan range and the gesture carries into it.
-    // It must dock flush with the stage's right edge — under the inflated
-    // track the strip parked on canvas past the card instead.
+    // Its margin box must dock flush with the stage's right edge — under
+    // the inflated track the strip parked on canvas past the card
+    // instead. The border box itself sits one gutter inside, exactly like
+    // the second test's dockedDelta measures.
     const dragPastEnd = async () => {
       await page.mouse.move(stageBox!.x + stageBox!.width - 20, stageBox!.y + stageBox!.height / 2);
       await page.mouse.down();
@@ -281,7 +292,11 @@ test.describe("strip endcap bounds on WebKit", () => {
     await expect
       .poll(async () => {
         const box = await endcap.boundingBox();
-        return box ? Math.abs(box.x + box.width - (stageBox!.x + stageBox!.width)) : Infinity;
+        if (!box) return Infinity;
+        const marginRight = await endcap.evaluate(
+          (el) => parseFloat(getComputedStyle(el).marginRight) || 0,
+        );
+        return Math.abs(box.x + box.width + marginRight - (stageBox!.x + stageBox!.width));
       }, { timeout: 10_000 })
       .toBeLessThan(2);
 
@@ -297,14 +312,16 @@ test.describe("strip endcap bounds on WebKit", () => {
       .toBeLessThan(2);
   });
 
-  // A canvas switch (Blank → Dark → Blank) restages every frame — strip
-  // frames gain or lose the 10px image margin — but the measured bounds
-  // and the docked transform used to stay stale: docked on "The End."
-  // card, switching to Dark shrank the track and left the card parked
-  // off the left edge with Rewind unreachable (repro: /tmp/dark-switch2.mjs
-  // against manorama.xyz/vidzee/singapore). The viewer must re-dock —
-  // holding the card at the new end — on either direction of the switch.
-  test("a canvas switch while docked on the endcard re-docks flush, both directions", async ({
+  // A canvas switch restages the strip while "The End." card is docked.
+  // The original bug (repro: /tmp/dark-switch2.mjs against
+  // manorama.xyz/vidzee/singapore) was a Blank → Dark switch shrinking
+  // the track under a stale transform and parking the card off the left
+  // edge with Rewind unreachable. Blank has since been retired — every
+  // canvas carries the same 10px margin, so the switch must leave the
+  // dock exactly where it was. Both directions of the surviving pairing
+  // are exercised: the re-dock still runs, and a settled card that
+  // drifts at all is the regression.
+  test("a canvas switch while docked on the endcard holds the flush dock, both directions", async ({
     page,
     request,
   }) => {
@@ -404,12 +421,13 @@ test.describe("strip endcap bounds on WebKit", () => {
     await page.touchscreen.tap(stageBox!.x + stageBox!.width / 2, stageBox!.y + stageBox!.height / 2);
     await page.getByRole("button", { name: /gallery settings/i }).first().click({ timeout: 5_000 });
     const canvas = page.getByRole("radiogroup", { name: "Canvas" });
-    await canvas.getByRole("radio", { name: "Dark" }).click({ timeout: 5_000 });
-    // Dark adds the margin: the track shrinks and the dock must follow
-    // the card to the new end instead of parking past it.
+    // The gallery mounted on the Dark default; switching to Light
+    // repaints the field without changing the frame margins, and the
+    // re-dock that runs must resettle the card at the same flush end.
+    await canvas.getByRole("radio", { name: "Light" }).click({ timeout: 5_000 });
     await expectDockedFlush();
-    await canvas.getByRole("radio", { name: "Blank" }).click({ timeout: 5_000 });
-    // Blank removes it again — the larger end must dock flush too.
+    await canvas.getByRole("radio", { name: "Dark" }).click({ timeout: 5_000 });
+    // And back — the charcoal pairing holds the dock just as surely.
     await expectDockedFlush();
     await page.keyboard.press("Escape");
     await page.waitForTimeout(400);

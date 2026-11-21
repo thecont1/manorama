@@ -1,167 +1,68 @@
-import { useEffect, useMemo, useState } from 'hono/jsx'
-import { listenForGalleryHistoryWrites } from '../lib/gallery-url'
-import {
-  CANVAS_SCALE,
-  DEFAULT_MAX_ICONS,
-  DOODLE_ICONS,
-  buildDoodleLayout,
-  quantizeViewport,
-  responsiveCell,
-  seedFromUrl,
-} from '../lib/doodle-background'
+import { useId } from 'hono/jsx'
+import ground from '../assets/gallery-ground'
 
-/**
- * The scattered-doodle background layer.
- *
- * Renders one absolutely-positioned SVG behind everything: a single
- * <defs> sprite of <symbol>s plus one <use> per placement, so fourteen
- * path definitions serve two hundred glyphs. The layer is inert —
- * pointer-events: none and aria-hidden — so it can never intercept a tap
- * on a photograph or leak into the accessibility tree.
- *
- * Determinism comes from app/lib/doodle-background.ts: URL -> FNV-1a ->
- * mulberry32 -> layout. This component only decides *when* to recompute.
- */
+/* The approved photographic field is baked once, not repacked on the device.
+   The owner chose a fine 256px repeat of the unchanged 1024-unit artwork.
+   Only this decorative vector field scales; photographs and their boxes do not.
+   The generator, project parser and model SDK stay out of every app bundle. */
+const tileSize = 256
+const artworkScale = tileSize / ground.width
+type Props = { enabled?: boolean }
 
-type Props = {
-  /** Explicit seed URL. Defaults to the live location on the client. */
-  url?: string
-  /** Render nothing when false — the flat background shows through. */
-  enabled?: boolean
-  maxIcons?: number
-}
-
-/** Resize settle window: long enough to skip the whole drag, short
- *  enough that a finished resize repaints without feeling stuck. */
-const RESIZE_DEBOUNCE_MS = 180
-
-const viewportNow = () => ({
-  width: typeof window === 'undefined' ? 0 : window.innerWidth,
-  height: typeof window === 'undefined' ? 0 : window.innerHeight,
-})
-
-const currentHref = () => typeof window === 'undefined' ? '' : window.location.pathname + window.location.search
-
-export default function SeededDoodleBackground({ url, enabled = true, maxIcons = DEFAULT_MAX_ICONS }: Props) {
-  // The server cannot know the viewport. Live islands (no explicit URL)
-  // therefore start at zero on both SSR and the browser's hydration render;
-  // the mount effect fills the real viewport afterwards. Explicit URLs are
-  // retained for deterministic render tests and non-hydrated callers.
-  const [viewport, setViewport] = useState(() => (url === undefined ? { width: 0, height: 0 } : viewportNow()))
-  // The URL is safe to read during the first client render: while viewport
-  // is zero no SVG is emitted, so it cannot create a hydration mismatch.
-  // This avoids ever generating a visible `/` pattern before the URL effect.
-  const [href, setHref] = useState(() => url ?? currentHref())
-
-  // Track the URL without a router: history navigation in this app swaps
-  // the whole document, but a pushState-based transition (or a future
-  // client route) must repaint the field too.
-  useEffect(() => {
-    if (url !== undefined) { setHref(url); return }
-    if (typeof window === 'undefined') return
-    const sync = () => setHref(window.location.pathname + window.location.search)
-    sync()
-    window.addEventListener('popstate', sync)
-    const stopListening = listenForGalleryHistoryWrites(window, sync)
-    return () => {
-      window.removeEventListener('popstate', sync)
-      stopListening()
-    }
-  }, [url])
-
-  // Debounced resize. Compare the actual layout inputs — quantized canvas
-  // dimensions plus responsive cell size — so crossing a cell breakpoint
-  // (for example 899→900px) rebuilds even if the width stays in one bucket.
-  useEffect(() => {
-    if (typeof window === 'undefined') return
-    setViewport(viewportNow())
-    let timer: number | undefined
-    const onResize = () => {
-      if (timer !== undefined) window.clearTimeout(timer)
-      timer = window.setTimeout(() => {
-        const next = viewportNow()
-        setViewport((prev) =>
-          quantizeViewport(prev.width) === quantizeViewport(next.width) &&
-          quantizeViewport(prev.height) === quantizeViewport(next.height) &&
-          responsiveCell(prev.width) === responsiveCell(next.width)
-            ? prev
-            : next)
-      }, RESIZE_DEBOUNCE_MS)
-    }
-    window.addEventListener('resize', onResize)
-    window.addEventListener('orientationchange', onResize)
-    return () => {
-      if (timer !== undefined) window.clearTimeout(timer)
-      window.removeEventListener('resize', onResize)
-      window.removeEventListener('orientationchange', onResize)
-    }
-  }, [])
-
-  const seed = useMemo(() => seedFromUrl(href), [href])
-  // Quantized dimensions are the real memo keys: the layout is rebuilt
-  // only when the seed or a material size bucket changes, never on an
-  // unrelated parent re-render.
-  const cols = quantizeViewport(viewport.width)
-  const rowsPx = quantizeViewport(viewport.height) * CANVAS_SCALE
-  const cell = responsiveCell(viewport.width)
-  const layout = useMemo(
-    () => (enabled ? buildDoodleLayout(seed, { width: cols, height: rowsPx, cell, maxIcons }) : null),
-    [enabled, seed, cols, rowsPx, cell, maxIcons],
-  )
-
-  if (!enabled || !layout || layout.placements.length === 0) return null
+export default function SeededDoodleBackground({ enabled = true }: Props) {
+  /* Multiple mounted viewers may use different palettes. A local paint-server
+     id keeps one SVG from resolving another viewer's currentColor pattern. */
+  const patternId = `gallery-ground-${useId().replace(/[^a-zA-Z0-9_-]/g, '-')}`
+  if (!enabled) return null
 
   return (
     <svg
       class="doodle-bg"
       data-doodle-bg
-      data-doodle-seed={String(layout.seed)}
-      data-doodle-count={String(layout.placements.length)}
-      width={layout.width}
-      height={layout.height}
-      viewBox={`0 0 ${layout.width} ${layout.height}`}
-      // The canvas is taller than the viewport (scroll headroom), so the
-      // SVG must fill its box and crop the overflow rather than
-      // letter-box itself to fit — plain `meet` scales the field down and
-      // leaves bare gutters left and right.
-      preserveAspectRatio="xMidYMin slice"
+      data-doodle-artwork={ground.artworkId}
+      data-doodle-seed={String(ground.seed)}
+      data-doodle-count={String(ground.placementCount)}
+      width="100%"
+      height="100%"
       shape-rendering="geometricPrecision"
       aria-hidden="true"
       role="presentation"
       focusable="false"
       xmlns="http://www.w3.org/2000/svg"
     >
-      {/* One definition per icon; every placement is a cheap <use>.
-          Crisp thin line art: round caps and joins, ~1.25px screen weight
-          (non-scaling-stroke pins it when the 24-unit viewBox is scaled to
-          the placement size), geometric precision — no blur or filters. */}
       <defs>
-        {DOODLE_ICONS.map((icon) => (
-          <symbol key={icon.id} id={icon.id} viewBox="0 0 24 24">
-            <path
-              d={icon.path}
-              fill="none"
-              stroke="currentColor"
-              stroke-width="1.25"
-              stroke-linecap="round"
-              stroke-linejoin="round"
-              vector-effect="non-scaling-stroke"
-            />
-          </symbol>
-        ))}
+        {/* The repeat is fixed in CSS pixels, not fitted to the viewport.
+            One uniform transform scales paths, strokes and packing gaps alike. */}
+        <pattern
+          id={patternId}
+          x="0"
+          y="0"
+          width={tileSize}
+          height={ground.height * artworkScale}
+          patternUnits="userSpaceOnUse"
+          patternContentUnits="userSpaceOnUse"
+          overflow="hidden"
+        >
+          <g data-gallery-ground-scale={String(artworkScale)} transform={`scale(${artworkScale})`}>
+            {ground.groups.map((group, copy) => (
+              <g key={copy} data-gallery-ground-motif={group.motifId} data-gallery-ground-placement={group.placementId}>
+                {group.paths.map((path, index) => (
+                  <path
+                    key={index}
+                    d={path}
+                    fill="none"
+                    stroke="currentColor"
+                    stroke-width={ground.strokeWidth}
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                  />
+                ))}
+              </g>
+            ))}
+          </g>
+        </pattern>
       </defs>
-      {layout.placements.map((placement, i) => (
-        <use
-          key={`${placement.icon}-${i}`}
-          href={`#${placement.icon}`}
-          x={-placement.size / 2}
-          y={-placement.size / 2}
-          width={placement.size}
-          height={placement.size}
-          opacity={placement.opacity}
-          transform={`translate(${placement.x} ${placement.y}) rotate(${placement.rotation})`}
-        />
-      ))}
+      <rect x="0" y="0" width="100%" height="100%" fill={`url(#${patternId})`} />
     </svg>
   )
 }

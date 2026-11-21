@@ -6,7 +6,7 @@ import { ActionGroup, ActionRow } from '../ui/ActionRow'
 import { Button } from '../ui/Button'
 import type { Child } from 'hono/jsx'
 import type { ViewerMode } from '../../../packages/core/gallery-settings'
-
+import type { BackgroundPreference } from '../../lib/background-preference'
 /** The Settings popover: a "View" group (layout, canvas, arrows,
  *  fullscreen) then one role-bound slot — the member's Add to Library, a
  *  visitor's Sign in, or, for an owner with a `galleryPanel`, a single
@@ -22,8 +22,10 @@ export type SettingsSheetProps = {
   mode: ViewerMode
   onMode: (mode: ViewerMode) => void
   spreadAvailable?: boolean
-  background: 'none' | 'dark' | 'light'
-  onBackground: (background: 'none' | 'dark' | 'light') => void
+  /* The two surviving canvas pairings — the Blank option was retired
+     with the artwork integration, and every gallery paints the field. */
+  background: BackgroundPreference
+  onBackground: (background: BackgroundPreference) => void
   arrowsOn: boolean
   onArrows: (on: boolean) => void
   fullscreenAvailable: boolean
@@ -80,13 +82,12 @@ export default function SettingsSheet({
   })
 
   const layoutHint =
-    mode === 'strip' ? 'Side by side, edge to edge'
+    mode === 'strip' ? 'Side by side, a little space between'
     : mode === 'vertical' ? 'Each photograph fits the screen'
     : mode === 'spread' ? 'Two consecutive photographs, in the photographer’s order'
     : 'One at a time, swipe or tap'
   const canvasHint =
-    background === 'none' ? 'No space between photographs'
-    : background === 'dark' ? 'Black background, space around images'
+    background === 'dark' ? 'Black background, space around images'
     : 'White background, space around images'
 
   /** Escape and the scrim share one dismissal path: inside the gallery
@@ -134,9 +135,8 @@ export default function SettingsSheet({
                   <Segmented
                     label="Canvas"
                     value={background}
-                    onChange={(v) => onBackground(v as 'none' | 'dark' | 'light')}
+                    onChange={(v) => onBackground(v as BackgroundPreference)}
                     options={[
-                      { value: 'none', label: 'Blank' },
                       { value: 'dark', label: 'Dark' },
                       { value: 'light', label: 'Light' },
                     ]}

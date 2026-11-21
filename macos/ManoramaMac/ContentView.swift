@@ -24,7 +24,10 @@ struct ContentView: View {
     }
 
     private var clusterExpanded: Bool {
-        reduceMotion || clusterHovered || clusterNearby
+        // Proximity only keeps the chrome alive — the blob itself stays
+        // merged until the pointer is actually on the buttons (or focus
+        // lands there).
+        reduceMotion || clusterHovered
             || (focusedControl != nil && focusedControl != .library)
             || (accessibleControl != nil && accessibleControl != .library)
     }

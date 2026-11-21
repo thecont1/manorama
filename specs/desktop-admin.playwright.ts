@@ -111,24 +111,26 @@ for (const size of sizes) {
 
         // The local catalogue is on the page, in the web dashboard's type.
         // The pinned gallery rides the "Pinned galleries" strip with its rail
-        // of originals; the unpinned one sits compact under "Local galleries".
+        // of originals AND keeps its compact card under "Local galleries";
+        // the unpinned one sits compact there alone.
         // The rail's geometry is measured in desktop-catalogue.playwright.ts.
         const cards = page.locator('.lib-card')
         const compact = page.locator('.lib-compact-card')
         await expect(cards).toHaveCount(1)
-        await expect(compact).toHaveCount(1)
+        await expect(compact).toHaveCount(2)
         await expect(cards.first()).toContainText('Bangkok Rain')
         await expect(cards.first()).toContainText('25 photographs')
         // The source is named by kind, never by its path: the root path and
         // mount point are local-only by contract and stay off the surface.
         await expect(cards.nth(0).locator('.lib-card-sub')).toContainText('This Mac')
-        await expect(compact.nth(0).locator('.lib-card-sub')).toContainText('Memory card')
+        await expect(compact.filter({ hasText: 'Monsoon Card' }).locator('.lib-card-sub')).toContainText('Memory card')
+        await expect(compact.filter({ hasText: 'Bangkok Rain' })).toHaveCount(1)
         await expect(page.locator('body')).not.toContainText('/Volumes/NO NAME/DCIM')
         await expect(page.locator('body')).not.toContainText('/Users/photographer/Pictures')
         // Each card carries exactly one ··· menu — the old workbench card
         // actions (View/Rescan/Share/Remove) stay off it.
         const anyCard = page.locator('.lib-card, .lib-compact-card')
-        for (let index = 0; index < 2; index++) {
+        for (let index = 0; index < 3; index++) {
           await expect(anyCard.nth(index).locator('.lib-card-menu')).toHaveCount(1)
         }
         for (const old of ['View', 'Rescan', 'Share', 'Remove']) {

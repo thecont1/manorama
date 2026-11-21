@@ -1190,7 +1190,9 @@ describe('signed-in account area', () => {
     ] }) })
     const { container } = mountAccount()
     await settle()
-    const cards = [...container.querySelectorAll('.native-gallery-list > li .lib-card')]
+    // Both galleries are pinned, so each also keeps a compact cover in
+    // "Cloud galleries" — the rail assertions belong to the strip cards.
+    const cards = [...container.querySelectorAll('[aria-labelledby="native-pinned-title"] .native-gallery-list > li .lib-card')]
     expect(cards.length).toBe(2)
     for (const card of cards) {
       // The photographs lead, then the title row with its ··· menu, then the
@@ -1225,9 +1227,13 @@ describe('signed-in account area', () => {
     const { container } = mountAccount()
     await settle()
     expect(container.querySelector('[aria-labelledby="native-pinned-title"] [data-lib-card="pinned"] .lib-rail')).not.toBeNull()
-    expect(container.querySelectorAll('[data-lib-card="pinned"] .lib-th')).toHaveLength(2)
+    // The strip card's rail thumbs; the pinned gallery's compact cover in
+    // Cloud galleries is a .lib-th too, so scope to the rail itself.
+    expect(container.querySelectorAll('[data-lib-card="pinned"] .lib-rail .lib-th')).toHaveLength(2)
     expect(container.querySelector('[data-lib-card="pinned"]')?.textContent).toContain('Temporary gallery')
-    expect(container.querySelectorAll('[aria-labelledby="native-cloud-title"] .native-library-cover')).toHaveLength(1)
+    // The unpinned cover plus the pinned gallery's own home card — a pin
+    // adds a strip, it never removes the compact card.
+    expect(container.querySelectorAll('[aria-labelledby="native-cloud-title"] .native-library-cover')).toHaveLength(2)
     expect(container.querySelector('[data-lib-card="compact"] img')?.getAttribute('src')).toBe('https://cdn.example/first.jpg')
     // Hidden galleries wait behind the collapsed toggle, like the Mac —
     // no card in the tree until the section opens.

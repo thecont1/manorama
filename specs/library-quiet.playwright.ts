@@ -31,7 +31,9 @@ const openLibrary = async (page: Page, surface: string) => {
     await page.route('**/api/**', (route) => route.fulfill({ json: route.request().url().endsWith('/api/galleries')
       ? { galleries } : { galleries: [], devices: [], identities: [], suppressions: [], show: false } }))
     await page.goto(nativeUrl, { waitUntil: 'domcontentloaded' })
-    await expect(page.locator('.native-list-card .lib-card-title')).toHaveCount(3)
+    // One gallery is pinned, so it lists twice: its strip in "Pinned
+    // galleries" and its compact card in "Cloud galleries".
+    await expect(page.locator('.native-list-card .lib-card-title')).toHaveCount(4)
     await expect(page.locator('.native-library-layout')).toHaveCSS('grid-template-areas', '"rail galleries"')
   }
   await expect(page.locator('.lib-quiet-toggle')).toHaveAttribute('aria-pressed', 'false')

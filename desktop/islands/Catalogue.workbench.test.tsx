@@ -1907,7 +1907,7 @@ describe('desktop catalogue workbench', () => {
     expect(container.querySelector('.viewer-picker-mode')?.textContent).toBe('Reorder Photos')
   })
 
-  test('a local gallery pins into Pinned galleries and back, persisted in the catalogue', async () => {
+  test('a local gallery pins a strip into Pinned galleries, keeps its Local card, and back', async () => {
     const calls: { url: string; method?: string }[] = []
     const defaultFetch = globals.fetch
     globals.fetch = (async (url: string, init?: { method?: string }) => {
@@ -1932,14 +1932,19 @@ describe('desktop catalogue workbench', () => {
       expect(saved.galleries[0]!.pinnedAt).toBeTruthy()
       expect(calls.some((call) => call.url.includes('/pin'))).toBe(false)
 
-      // The card moves to Pinned galleries as a full strip. The section
-      // already says pinned, so the title carries no redundant pin glyph.
+      // The pin adds a full strip in Pinned galleries — the card keeps its
+      // compact cover back in Local. The section already says pinned, so
+      // the title carries no redundant pin glyph.
       const pinnedSection = container.querySelector<HTMLElement>('[aria-labelledby="pinned-galleries-title"]')!
       const strip = pinnedSection.querySelector(`[data-gallery-card="${GALLERY_ID}"]`)!
       expect(strip.querySelector('.admin-gallery-strip')).not.toBeNull()
       expect(strip.querySelector('.lib-pin')).toBeNull()
-      // With nothing left, the Local section folds away.
-      expect(container.querySelector('#local-galleries-title')).toBeNull()
+      // The Local section stays — the same gallery still lists there as a
+      // compact card alongside its new strip.
+      const localSection = container.querySelector<HTMLElement>('[aria-labelledby="local-galleries-title"]')!
+      const homeCard = localSection.querySelector(`[data-gallery-card="${GALLERY_ID}"]`)!
+      expect(homeCard.classList.contains('lib-compact-card')).toBe(true)
+      expect(homeCard.querySelector('.admin-gallery-strip')).toBeNull()
 
       strip.querySelector<HTMLButtonElement>(`[aria-label="${TITLE} actions"]`)!.click()
       await settle()
@@ -2264,6 +2269,11 @@ describe('desktop catalogue workbench', () => {
       expect(section).not.toBeNull()
       const strip = section!.querySelector('.admin-gallery-strip')
       expect(strip?.querySelectorAll('.admin-gallery-strip-item').length).toBe(3)
+      // …and the same gallery keeps its compact cover back in Cloud galleries.
+      const cloud = container.querySelector('[aria-labelledby="lib-compact-title"]')
+      const homeCard = cloud?.querySelector('[data-gallery-card="tcnwm"]')
+      expect(homeCard?.classList.contains('lib-compact-card')).toBe(true)
+      expect(homeCard?.querySelector('.admin-gallery-strip')).toBeNull()
     } finally {
       globals.fetch = defaultFetch
     }

@@ -1,6 +1,7 @@
 import { render } from 'hono/jsx/dom'
 import Catalogue from './islands/Catalogue'
 import './styles.css'
+import '../app/styles/canvas.css'
 
 const root = document.getElementById('app')
 if (!root) throw new Error('Desktop app root is missing')

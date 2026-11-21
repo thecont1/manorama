@@ -41,11 +41,10 @@
   font-weight: 100 900;
   font-display: swap;
 }
-
 :root {
   --ink: 243, 240, 232;
-  /* Doodle field ink: light on the dark canvas, flipped under html.light. */
-  --doodle-ink: rgba(255, 255, 255, 0.2);
+  /* The gallery canvas chooses the field's ink independently of app chrome. */
+  --doodle-ink: #484848;
   --gallery-canvas: #0a0a0a;
   color-scheme: dark;
   font-family: 'Manrope', ui-sans-serif, system-ui, sans-serif;
@@ -482,14 +481,20 @@ button { color: inherit; }
 /* The single grid cell must be sized to the frame (minmax(0,100%)), not
    the image: a percentage max-height on a grid item resolves against the
    track, and an auto track is content-sized — the cap would never bite. */
-.viewer-frame { position: relative; display: grid; grid-template: minmax(0, 100%) / 100%; place-items: center; flex: 0 0 auto; height: 100%; margin: 0; padding: 0; background: var(--gallery-canvas); overflow: visible; }
+/* Frames never paint: with the artwork ground under the content, a frame
+   that carries even its own canvas colour lays a film over the field in
+   every letterbox. The stage paints the ground; the frame only places. */
+.viewer-frame { position: relative; display: grid; grid-template: minmax(0, 100%) / 100%; place-items: center; flex: 0 0 auto; height: 100%; margin: 0; padding: 0; background: transparent; overflow: visible; }
 /* Never upsize: images shrink to fit the frame but a small image stays
    at its natural size (centred) rather than scaling up soft. The full
    image crossfades over the placeholder layer instead of popping in. */
 /* max-width clamps to the frame: when a record's stored aspect is narrower
    than the real file's, the image letterboxes inside its slot instead of
    overflowing onto neighbouring frames (overflow: visible). Never crops. */
-.viewer-frame img { grid-area: 1 / 1; min-width: 0; min-height: 0; display: block; width: auto; height: auto; max-width: 100%; max-height: 100%; object-fit: contain; user-select: none; -webkit-user-drag: none; background: transparent; }
+/* A hair of corner rounding on every photograph in the gallery, at the
+   owner's request. It masks the box it lands in; the source bytes are
+   never re-encoded or cropped (invariants 2 and 13 unaffected). */
+.viewer-frame img { grid-area: 1 / 1; min-width: 0; min-height: 0; display: block; width: auto; height: auto; max-width: 100%; max-height: 100%; object-fit: contain; user-select: none; -webkit-user-drag: none; background: transparent; border-radius: 4px; }
 .viewer-frame .frame-ph { width: 100%; height: 100%; object-fit: contain; }
 /* The scanned placeholder is a flat SVG card, not a preview: when the
    staged image is smaller than its frame (the no-upscale cap) the card
@@ -510,28 +515,17 @@ button { color: inherit; }
    an encrypted materialize, or a HEIC decode with one rule. */
 .viewer-frame .frame-img.is-loaded ~ .viewer-frame-progress { display: none; }
 /* A plate: a photograph whose own pixels cannot fill this stage, shown at its
-   honest size inside a frame that keeps the stage's full height. The canvas
-   left above and below is the mount, and the mount is marked the way every
-   other quiet surface in the app is marked — one step up from the canvas, and
-   a hairline at the photograph's own edge. Rule 3 allows a photograph no
-   colour, no rounding and no shadow, so the plate is defined rather than
-   dressed; the point is only that the space around it reads as a mount
-   instead of as a hole in the strip. */
-/* A 2.8% white lift, not a colour: over the app's #0a0a0a ground it lands on
-   #111111 — the top of the range Rule 3 allows — and it stays correct on any
-   other ground a theme sets, because it lifts whatever is behind it instead of
-   naming a tone. `--gallery-canvas` is the wrong source here: it is
-   `transparent` for the default "no background" gallery, so mixing into it
-   produced nothing at all. */
-:is(.viewer-stage, .magnifier-world) .viewer-frame.viewer-frame--short { background: rgba(255, 255, 255, .028); }
+   honest size inside a frame that keeps the stage's full height. The space
+   above and below is now simply the artwork ground — the owner retired the
+   mount film — and the plate is defined by a hairline at the photograph's
+   own edge alone, the way ad plates are defined rather than dressed. */
 .viewer-frame--short .frame-img { outline: 1px solid rgba(var(--ink), .14); outline-offset: 0; }
 
 .viewer-track--vertical .viewer-frame { width: 100%; height: auto; overflow: visible; }
 .viewer-track--vertical .viewer-frame img { width: auto; height: auto; max-width: 100%; max-height: calc(var(--viewer-stage-height, 100dvh) - var(--viewer-arrows-bar, 0px)); margin: 0 auto; object-fit: contain; }
 .viewer-track--vertical .viewer-frame:not(.viewer-frame--video) { place-items: center; }
-.viewer-track--vertical .viewer-frame:not(.viewer-frame--video) img { max-height: none; }
 .viewer-track--vertical .viewer-frame .frame-ph { width: 100%; height: 100%; }
-.viewer-track--vertical .viewer-frame--video.viewer-frame--portrait { display: grid; place-items: center; height: calc(var(--viewer-stage-height, 100dvh) - var(--viewer-arrows-bar, 0px)); background: var(--gallery-canvas); overflow: hidden; }
+.viewer-track--vertical .viewer-frame--video.viewer-frame--portrait { display: grid; place-items: center; height: calc(var(--viewer-stage-height, 100dvh) - var(--viewer-arrows-bar, 0px)); overflow: hidden; }
 .viewer-track--vertical .viewer-frame--video.viewer-frame--portrait img { width: auto; height: auto; max-width: 100%; max-height: calc(var(--viewer-stage-height, 100dvh) - var(--viewer-arrows-bar, 0px)); object-fit: contain; }
 .viewer-track--single .viewer-frame .frame-ph { width: 100%; height: 100%; }
 .viewer-track--single .viewer-frame { position: absolute; top: 0; left: 0; width: 100%; height: 100%; place-items: center; opacity: 0; transition: opacity 160ms cubic-bezier(0.22, 1, 0.36, 1), background-color 400ms ease; pointer-events: none; }
@@ -1119,6 +1113,7 @@ body.magnifier-paused * { cursor: auto !important; }
   width: 100%;
   height: 100%;
   object-fit: contain;
+  border-radius: 4px;
   /* Crossfade in only once a frame has decoded — no black flash. */
   opacity: 0;
   transition: opacity .32s ease;
@@ -1482,8 +1477,8 @@ body.magnifier-paused * { cursor: auto !important; }
 @media (prefers-reduced-motion: reduce) { .quickadd-spinner { animation: none; } }
 
 /* ---------------------------------------------------------------------
-   Seeded doodle background
-   A deterministic scatter of photography glyphs derived from the URL.
+   Approved photographic gallery ground
+   The owner's fixed seamless tile, shared by every gallery.
    The layer is absolute behind the gallery content and completely inert: it must
    never eat a tap meant for a photograph or a control.
    --------------------------------------------------------------------- */
@@ -1495,21 +1490,11 @@ body.magnifier-paused * { cursor: auto !important; }
   height: 100%;
   pointer-events: none;
   user-select: none;
-  /* Contrast token, not a hardcoded colour: the glyphs stroke in
-     currentColor, so one variable tints the whole field. Deliberately
-     more present than the near-invisible first cut — legible at normal
-     viewing distance while photos stay unquestionably dominant. The
-     light theme (html.light, the app's real theme switch — it does NOT
-     use prefers-color-scheme) flips to dark ink at slightly lower
-     weight, as light-on-light tolerance is lower. */
-  color: var(--doodle-ink, rgba(255, 255, 255, 0.2));
-  /* The canvas is twice the viewport height for scroll headroom; the
-     SVG's own preserveAspectRatio="…slice" crops it to the box.
-     (object-fit does not apply to inline SVG, only to replaced
-     elements, so it would be a no-op here.) */
+  /* The approved 1024-unit vector tile repeats at the owner's chosen 256px:
+     3-unit strokes become 0.75px. Viewport changes never repack or rescale it. */
+  color: var(--doodle-ink, #484848);
   contain: strict;
-  /* Painting 200 glyphs once into a layer beats repainting them on
-     every scroll of the track above. */
+  /* Only the one-time fade animates; gallery travel never repacks the field. */
   will-change: opacity;
 }
 /* Fade the field in on first paint, but never for a visitor who
@@ -1522,29 +1507,29 @@ body.magnifier-paused * { cursor: auto !important; }
 
 /* The doodle field is a decorative layer INSIDE the stage's isolated
    stacking context at z-index 0; the gallery content sits above it at
-   z-index 1. The track and its frames are always transparent, so the
-   pattern shows through only the gaps between tiles and the exposed
-   canvas — never over photographs or UI. The stage itself paints the
+   z-index 1. The track and its frames never paint (base rules put them
+   transparent), so the field shows through the gutters and every
+   letterbox — never over photographs or UI. The stage itself paints the
    canvas colour beneath the layer, so the field reads against a solid
    ground in both pairings. */
-:is(.viewer-stage, .magnifier-world) .viewer-track,
-:is(.viewer-stage, .magnifier-world) .viewer-frame,
-:is(.viewer-stage, .magnifier-world) .viewer-track--vertical .viewer-frame--video.viewer-frame--portrait { background: transparent; }
 
-/* Background pairing: Dark (default) is the near-black canvas with
-   light-ink doodles; Light flips the stage's ground to the app's
-   warm paper tone and inks the field dark. The overlay chrome
+/* Dark is the default gallery canvas; Light repaints the same approved
+   field with its warm-paper palette. (The Blank canvas was retired by the
+   owner — every gallery paints the field; 'bg-none' survives only on the
+   embedded marketing home-demo stage, which mounts no field at all.)
+   The overlay chrome
    (arrows, logo pill, curtain) keeps its own dark surfaces and stays
-   readable over both. The html.light override below is the admin
-   app's theme switch — the viewer manages its ink independently. */
-html.light .doodle-bg { --doodle-ink: rgba(0, 0, 0, 0.16); }
-:is(.viewer-stage, .magnifier-world).bg-light { --gallery-canvas: #e9e5dc; --doodle-ink: rgba(0, 0, 0, 0.16); }
+   readable over both. The viewer manages its ink independently of html.light. */
+:is(.viewer-stage, .magnifier-world).bg-dark { --gallery-canvas: #101010; --doodle-ink: #484848; }
+:is(.viewer-stage, .magnifier-world).bg-light { --gallery-canvas: #e9e5dc; --doodle-ink: #aaa59b; }
 /* The endcap card and ad plate paint their copy in --ink over the canvas —
    on the Light canvas that must be dark ink, or "The End." and the plate
    copy go light-on-light. Scoped to the cards themselves: the arrow and
    video chips carry their own dark surface and keep the light ink. */
 :is(.viewer-stage, .magnifier-world).bg-light :is(.viewer-endcap, .viewer-ad-frame) { --ink: 22, 24, 23; }
-/* Light and Dark give every image a 10px margin ('none' abuts). The
+/* Light and Dark give every image a 10px margin — the default, since
+   galleries always land on one of the two pairings; only the embedded
+   home demo's 'bg-none' stage abuts. The
    frame carries the margin, the staged image inside it is already
    shrunk to fit: strip frames get top/bottom/right so neighbours keep a
    10px gutter; vertical rows sit on a 10px-railed track with a 10px
@@ -1555,7 +1540,14 @@ html.light .doodle-bg { --doodle-ink: rgba(0, 0, 0, 0.16); }
   margin: 10px 10px 10px 0;
   height: calc(100% - 20px);
 }
-:is(.viewer-stage, .magnifier-world):is(.bg-light, .bg-dark) .viewer-track--vertical { padding: 0 10px; }
+/* Every frame keeps 10px toward its successor but none on its leading
+   edge, so without this the first photograph would abut the screen's
+   left edge while its trailing side sits a gutter off the second. The
+   lead frame wears the same 10px on the side facing the screen. */
+:is(.viewer-stage, .magnifier-world):is(.bg-light, .bg-dark) .viewer-track:not(.viewer-track--vertical):not(.viewer-track--single) > .viewer-frame:first-of-type {
+  margin-left: 10px;
+}
+:is(.viewer-stage, .magnifier-world):is(.bg-light, .bg-dark) .viewer-track--vertical { padding: 10px 10px 0; }
 :is(.viewer-stage, .magnifier-world):is(.bg-light, .bg-dark) .viewer-track--vertical .viewer-frame { margin-bottom: 10px; }
 
 /* The strip's terminal card: a borderless faux frame that the last
@@ -1607,11 +1599,15 @@ html.light .doodle-bg { --doodle-ink: rgba(0, 0, 0, 0.16); }
 /* In the vertical feed the card is a footer frame — full width, own
    height — since the feed has no pan bound to hide it behind. */
 .viewer-endcap--feed { width: 100%; min-height: 55svh; padding: 48px 40px; }
-/* One-by-one overlays it on the last photograph: opaque canvas card
-   faded in over 450ms, inert and hidden until the step past the end. */
-.viewer-endcap--single { position: absolute; inset: 0; z-index: 3; width: auto; height: auto; padding: 40px; background: var(--gallery-canvas); opacity: 0; visibility: hidden; transition: opacity 450ms cubic-bezier(0.22, 1, 0.36, 1), visibility 0s 450ms; }
+/* One-by-one overlays it on the last photograph: the card carries no
+   background of its own — only the artwork ground is behind "The End." —
+   and the photograph beneath fades out on the same 450ms curve the card
+   fades in, so the closing beat lands on the field, not on a frozen
+   image or a flat slab. Inert and hidden until the step past the end. */
+.viewer-endcap--single { position: absolute; inset: 0; z-index: 3; width: auto; height: auto; padding: 40px; opacity: 0; visibility: hidden; transition: opacity 450ms cubic-bezier(0.22, 1, 0.36, 1), visibility 0s 450ms; }
 .viewer-endcap--single.is-open { opacity: 1; visibility: visible; transition: opacity 450ms cubic-bezier(0.22, 1, 0.36, 1); }
-@media (prefers-reduced-motion: reduce) { .viewer-endcap--single { transition: none; } }
+.viewer-stage:has(.viewer-endcap--single.is-open) .viewer-frame { opacity: 0; transition: opacity 450ms cubic-bezier(0.22, 1, 0.36, 1); }
+@media (prefers-reduced-motion: reduce) { .viewer-endcap--single { transition: none; } .viewer-stage:has(.viewer-endcap--single.is-open) .viewer-frame { transition: none; } }
 /* The in-strip plate wears the endcap's clothes — borderless faux frame,
    wordmark display face — with the required disclosure set small above the
    headline and the width capped so longer creative still reads as a card. */
@@ -1658,8 +1654,21 @@ html.light .doodle-bg { --doodle-ink: rgba(0, 0, 0, 0.16); }
    headroom is 2x the viewport — the track can be twenty times taller).
    A sticky layer stays pinned in the scrollport at every depth while
    remaining inside the stage's isolated stacking context, beneath the
-   photographs. */
-:is(.viewer-stage, .magnifier-world).mode-vertical .doodle-bg { position: sticky; top: 0; }
+   photographs. Sticky still needs flow space, so the layer gives its
+   own height back as a negative margin: without it scroll offset 0 is a
+   full viewport of bare canvas and the first photograph starts a screen
+   down. The margin mirrors the stage's own height formula — the layer is
+   100% of the content box, which is var(--viewer-stage-height) less
+   var(--viewer-arrows-bar). */
+:is(.viewer-stage, .magnifier-world).mode-vertical .doodle-bg {
+  position: sticky;
+  top: 0;
+  /* Block, not the svg's default inline box: an inline-level layer sits
+     in a line box whose strut keeps a few px of dead space under it that
+     the cancelling margin cannot reach. */
+  display: block;
+  margin-bottom: calc(var(--viewer-arrows-bar, 0px) - var(--viewer-stage-height, 100dvh));
+}
 
 /* Private master operations surface. It is deliberately visually distinct
    from the public gallery and never shares its controls with the photograph
@@ -1835,7 +1844,7 @@ body:has(.ops-page) { overflow: auto; overflow-x: clip; background: #111312; }
 @media (min-width: 860px) {
   .admin-page--selector .admin-content {
     display: grid;
-    grid-template-columns: minmax(225px, min(300px, var(--admin-pane-limit, 300px))) minmax(0, 1fr);
+    grid-template-columns: minmax(255px, min(340px, var(--admin-pane-limit, 340px))) minmax(0, 1fr);
     column-gap: clamp(24px, 4vw, 56px);
     align-items: start;
   }
@@ -1865,13 +1874,18 @@ body:has(.ops-page) { overflow: auto; overflow-x: clip; background: #111312; }
     position: fixed;
     top: calc(16px + var(--shell-top-inset, 0px));
     left: clamp(20px, 7vw, 112px);
-    width: min(300px, var(--admin-pane-limit, 300px));
-    min-width: 225px;
+    width: min(340px, var(--admin-pane-limit, 340px));
+    min-width: 255px;
     max-height: calc(100dvh - 32px - var(--shell-top-inset, 0px));
     overflow-x: clip;
     overflow-y: auto;
     overscroll-behavior-y: contain;
-    padding-right: 14px;
+    /* The column wears a real inset now: 20px air on every side keeps
+       the version line, tier copy and copyright clear of the rounded
+       corners, and the brand mark's -16px bleed lands inside the left
+       pad instead of clipping at the rail edge. The right pad stacks
+       14px of scrollbar clearance on top of the same 20px inset. */
+    padding: 20px 34px 20px 20px;
   }
   /* A fixed rail leaves grid flow — pin the list to column 2 so
      auto-placement cannot slide it under the rail's track. */
@@ -2074,6 +2088,12 @@ html.light .lib-quiet-toggle[aria-pressed="true"] { color: #e9e5dc; }
 :root:is([data-macos-glass], [data-ios-glass]) [data-chrome-bottom] .m-chrome-pill { visibility: hidden; }
 .m-chrome--top { top: calc(env(safe-area-inset-top, 0px) + 8px + var(--shell-top-inset, 0px)); justify-content: space-between; transform: translateY(-8px); }
 .m-chrome--bottom { bottom: calc(env(safe-area-inset-bottom, 0px) + 16px); justify-content: center; transform: translateY(8px); }
+/* Picker, Settings and Info rest as one blob: the identically-filled pills
+   sit flush so the bar reads as a single mass, and it only separates into
+   its parts under the pointer or keyboard focus. The bar is pointer-inert
+   except over the pills, so hovering anywhere on the blob counts. */
+.m-chrome--bottom { gap: 0; transition: opacity 200ms var(--m-ease, ease), transform 200ms var(--m-ease, ease), gap 200ms var(--m-ease, ease); }
+.m-chrome--bottom:is(:hover, :focus-within) { gap: 10px; }
 /* With the arrow bar reserved, the temporary bottom chrome rides just
    above it rather than inside the controls' strip. */
 body:has(.viewer-stage.has-arrow-bar) .m-chrome--bottom { bottom: calc(env(safe-area-inset-bottom, 0px) + 64px + 10px); }
@@ -2092,7 +2112,8 @@ body:has(.viewer-stage.has-arrow-bar) .m-chrome--bottom { bottom: calc(env(safe-
 .m-chrome--side-leading { left: 0; transform: translateX(-8px); }
 .m-chrome--side-trailing { left: auto; right: 0; transform: translateX(8px); }
 .m-chrome--side-leading.is-visible, .m-chrome--side-trailing.is-visible { transform: translateX(0); }
-.m-chrome--side { width: 60px; padding-inline: 8px; gap: 8px; }
+.m-chrome--side { width: 60px; padding-inline: 8px; gap: 0; transition: opacity 200ms var(--m-ease, ease), transform 200ms var(--m-ease, ease), gap 200ms var(--m-ease, ease); }
+.m-chrome--side:is(:hover, :focus-within) { gap: 10px; }
 .m-chrome--side-leading { left: env(safe-area-inset-left, 0px); }
 .m-chrome--side-trailing { right: env(safe-area-inset-right, 0px); }
 .m-chrome--side .m-chrome-pill { width: 44px; min-width: 44px; height: 44px; flex-shrink: 0; padding: 0; background: rgba(10, 10, 10, .92); }
@@ -2121,6 +2142,19 @@ body:has(.viewer-stage.has-arrow-bar) .m-chrome--bottom { bottom: calc(env(safe-
 }
 @supports not (backdrop-filter: blur(12px)) { .m-chrome-pill { background: rgba(10, 10, 10, .85); } }
 .m-chrome-pill:focus-visible { outline: 2px solid var(--m-focus, rgba(243, 240, 232, .85)); outline-offset: 2px; }
+/* Flush capsule pills only tangent-touch at their crowns — a dumbbell,
+   not a blob. Squaring the junction corners makes the union silhouette
+   one stadium (or one vertical lozenge in the side rail); the same 200ms
+   ease that opens the gap rounds the corners back into separate
+   capsules, so the mass appears to flow apart rather than pop. */
+.m-chrome--bottom .m-chrome-pill,
+.m-chrome--side .m-chrome-pill { border-radius: 0; transition: border-radius 200ms var(--m-ease, ease); }
+.m-chrome--bottom .m-chrome-pill:first-child { border-top-left-radius: var(--m-pill, 999px); border-bottom-left-radius: var(--m-pill, 999px); }
+.m-chrome--bottom .m-chrome-pill:last-child { border-top-right-radius: var(--m-pill, 999px); border-bottom-right-radius: var(--m-pill, 999px); }
+.m-chrome--bottom:is(:hover, :focus-within) .m-chrome-pill { border-radius: var(--m-pill, 999px); }
+.m-chrome--side .m-chrome-pill:first-child { border-top-left-radius: var(--m-pill, 999px); border-top-right-radius: var(--m-pill, 999px); }
+.m-chrome--side .m-chrome-pill:last-child { border-bottom-left-radius: var(--m-pill, 999px); border-bottom-right-radius: var(--m-pill, 999px); }
+.m-chrome--side:is(:hover, :focus-within) .m-chrome-pill { border-radius: var(--m-pill, 999px); }
 .m-chrome-skip {
   opacity: 0;
   pointer-events: none;
@@ -2158,6 +2192,10 @@ body:has(.viewer-stage.has-arrow-bar) .m-chrome--bottom { bottom: calc(env(safe-
 }
 @media (prefers-reduced-motion: reduce) {
   .m-chrome { transition: opacity 200ms ease; transform: none !important; }
+  /* The blob's gap snaps instantly here, so its corner morph must too —
+     a rounding trail over already-separated pills would read as lag. */
+  .m-chrome--bottom .m-chrome-pill,
+  .m-chrome--side .m-chrome-pill { transition: none; }
 }
 
 /* Owner Add / Details / Share surfaces (P7). These stay inside .m-owner so

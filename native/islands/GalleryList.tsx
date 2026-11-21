@@ -206,7 +206,13 @@ const libraryFocusSelector = (el: HTMLElement): string | null => {
     const slug = card.dataset.libCard ?? card.dataset.cachedGallery
     if (!slug) return null
     const base = attrSelector(card.dataset.libCard !== undefined ? 'data-lib-card' : 'data-cached-gallery', slug)
-    return `${base} ${el.classList.contains('lib-card-menu') ? '.lib-card-menu' : '.lib-card-title'}`
+    // A slug is not unique on the page — a pinned gallery sits in the
+    // "Pinned galleries" section *and* in its home section. Qualify with
+    // the enclosing section's identity so restore lands on the occurrence
+    // the user was actually on, not the earlier copy.
+    const sectionId = card.closest('section[aria-labelledby]')?.getAttribute('aria-labelledby')
+    const scope = sectionId ? `section${attrSelector('aria-labelledby', sectionId)} ` : ''
+    return `${scope}${base} ${el.classList.contains('lib-card-menu') ? '.lib-card-menu' : '.lib-card-title'}`
   }
   const label = el.getAttribute('aria-label')
   if (label) return `button${attrSelector('aria-label', label)}`
@@ -1795,7 +1801,7 @@ export default function GalleryList({ apiBase, owner, slug, deepLinkSelection, o
         placeholder: image.placeholder,
         video: isVideoItem(image) ? image : undefined,
       }))
-      return <Diptych frames={diptychFrames} segments={segments} dpr={dpr} activeIndex={activeIndex} renderVideo={renderVideo} onImageLoad={onImageLoad} />
+      return <Diptych frames={diptychFrames} segments={segments} dpr={dpr} activeIndex={activeIndex} background="transparent" renderVideo={renderVideo} onImageLoad={onImageLoad} />
     }
     return (
       <>
@@ -2232,7 +2238,10 @@ export default function GalleryList({ apiBase, owner, slug, deepLinkSelection, o
       setGalleryActionBusy(null)
     }
   }
-  const accountGalleryRow = (gallery: GallerySummary) => {
+  // `rail` marks the Pinned section's strip cards — a pinned gallery also
+  // keeps a compact card back in "Cloud galleries", where it must take
+  // the cover form like every other home card.
+  const accountGalleryRow = (gallery: GallerySummary, rail = false) => {
     const title = gallery.title || gallery.slug
     const caption = gallery.caption?.trim() ?? ''
     const galleryId = galleryIds[gallery.slug] ?? ''
@@ -2241,7 +2250,7 @@ export default function GalleryList({ apiBase, owner, slug, deepLinkSelection, o
       ? (galleryPolicies?.[galleryPolicyKey(ownerSlug, gallery.slug)] ?? DEFAULT_VAULT_LOAD_POLICY) === 'stream'
       : false
     const mediaCount = summaryMediaCount(gallery)
-    const useRail = narrowLibrary || (gallery.pinnedAt && !gallery.hiddenAt)
+    const useRail = narrowLibrary || rail
     const GalleryPreview = useRail ? LibraryRail : LibraryCover
     return (
       <article class={useRail ? 'lib-card' : 'lib-card native-library-compact-card'} data-lib-card={gallery.slug}>
@@ -2585,7 +2594,7 @@ export default function GalleryList({ apiBase, owner, slug, deepLinkSelection, o
                   Pinned galleries <span class="lib-hidden-count">({accountLayout.strips.length})</span>
                 </button>
                 {pinnedOpen ? <ul class="native-gallery-list">
-                  {accountLayout.strips.map((slug) => <li key={slug}>{accountGalleryRow(accountBySlug.get(slug)!)}</li>)}
+                  {accountLayout.strips.map((slug) => <li key={slug}>{accountGalleryRow(accountBySlug.get(slug)!, true)}</li>)}
                 </ul> : null}
               </section> : null}
               {accountLayout.compact.length > 0 ? <section aria-labelledby="native-cloud-title">

@@ -49,7 +49,7 @@ The stage shows only your photographs — the chrome is temporary. A tap, mouse 
 - **`M`** on desktop summons a magnifier that follows your cursor at 3×.
 - **The strip ends honestly**: a "The End." card slides in past the last photograph, with **Rewind** to run home.
 - **Video** plays ambient — muted and looping — with a speaker button for sound.
-- **Canvas** offers Black (the default — photographs abut), Dark, or Light — the latter two wake a subtle doodle field and give every image a 10px margin.
+- **Canvas** offers Dark or Light — both show the same fine, dense photographic texture of cameras, film and darkroom objects, repeating every 256px in charcoal or warm-paper ink. Every image carries a 10px margin, so strip neighbours sit a gutter apart over the artwork. Dark is the default; the old Blank canvas was retired by the owner.
 
 Images always fit the stage whole — never cropped, never enlarged past their real resolution. Smaller sources float at their honest size rather than stretching.
 
@@ -57,7 +57,9 @@ Images always fit the stage whole — never cropped, never enlarged past their r
 
 `manorama.xyz/{you}` is where everything lands. It is deliberately quiet: four sections you can fold away — **Pinned**, **Cloud**, **Local** and **Hidden** — each with a chevron, and the Library opens with them all showing so you can see the shape of your collection at a glance.
 
-- **Pinned galleries** get a full filmstrip. Pinning is a display choice; it never changes how long a gallery lives.
+The app's opening screens, Library, Settings and sheets share the approved 256px photographic texture, in stronger charcoal or warm-paper ink following the owner theme. Previously transparent controls, sponsored containers and gallery cards/strips have theme-matched translucent backings; primary buttons and selected states retain their solid fills. Reduced transparency or increased contrast makes those backings opaque. Galleries start on the Dark canvas; their own Dark/Light choices are independent of the app theme. The public marketing homepage does not use the app texture.
+
+- **Pinned galleries** get a full filmstrip in the Pinned section — the card also stays in Cloud or Local, exactly where it was. Pinning is a display choice; it never changes how long a gallery lives.
 - **Cloud galleries** settle into a fluid grid where each card keeps its own photograph's proportions. Nothing is cropped to fill a box.
 - **Local galleries** — the folders your Mac has shared with your account — arrive as a dense grid of small tiles with no thumbnails, on the web and on your phone. The names and counts are metadata; the paths never leave the Mac.
 - **Hidden galleries** stay out of the way until you want them, and adding a gallery always reveals the section it landed in.

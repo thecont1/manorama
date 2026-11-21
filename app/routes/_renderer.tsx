@@ -13,7 +13,7 @@ export default jsxRenderer(({ children, title, description, ogImage, ownerTheme,
   const image = ogImage ?? '/og-image.png'
   const absoluteImage = image.startsWith('http') ? image : `${origin}${image}`
   return (
-  <html lang="en" class={home ? 'home-page' : undefined}>
+  <html lang="en" class={home ? 'home-page' : 'app-page'}>
     <head>
       <meta charSet="utf-8" />
       <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
@@ -30,6 +30,7 @@ export default jsxRenderer(({ children, title, description, ogImage, ownerTheme,
       {home ? <script src="/home-hero.js" defer></script> : null}
       {home ? <script src="/home-library.js" defer></script> : null}
       <Link href="/app/styles.css" rel="stylesheet" />
+      {home ? null : <Link href="/app/styles/canvas.css" rel="stylesheet" />}
       {home ? <Link href="/app/home.css" rel="stylesheet" /> : null}
       <title>{title}</title>
       <meta property="og:site_name" content="manorama" />
