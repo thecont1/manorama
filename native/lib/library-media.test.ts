@@ -13,6 +13,7 @@ import type { OfflineObjectUrlProvider } from './offline-gallery'
 const cell = (input: Partial<LibraryMediaCell> & Pick<LibraryMediaCell, 'entryId'>): LibraryMediaCell => ({
   galleryId: input.galleryId ?? 'gallery-a',
   entryId: input.entryId,
+  coverId: input.coverId,
   mimeType: input.mimeType ?? 'image/jpeg',
   remote: input.remote,
 })
@@ -272,6 +273,33 @@ describe('LibraryMediaLoader', () => {
     gate.resolve(new Uint8Array([7]))
     expect(await pending).toBeUndefined()
     expect(objectUrls.created).toEqual([])
+  })
+
+  test('a stored cover resolves a gallery the vault never kept', async () => {
+    const objectUrls = countingUrls()
+    // The original entry misses; only the cover entry holds bytes — the
+    // cover-only scope still answers locally.
+    const { read, reads } = byteStore({ 'gallery-a:cover:one': new Uint8Array([1, 2, 3]) })
+    const loader = new LibraryMediaLoader({ read, objectUrls })
+    const lease = await loader.acquire(cell({ entryId: 'thumb:one', coverId: 'cover:one', remote: 'https://provider.test/preview.jpg' }))
+    expect(lease?.kind).toBe('vault')
+    expect(lease?.src).toBe('blob:lib-0')
+    expect(reads).toEqual(['gallery-a:thumb:one', 'gallery-a:cover:one'])
+    lease?.release()
+  })
+
+  test('a total vault miss emits onRemoteFallback once the remote lease lands', async () => {
+    const { read } = byteStore({})
+    const fallbacks: string[] = []
+    const loader = new LibraryMediaLoader({
+      read,
+      objectUrls: countingUrls(),
+      onRemoteFallback: (target) => { fallbacks.push(target.coverId ?? target.entryId) },
+    })
+    const lease = await loader.acquire(cell({ entryId: 'thumb:one', coverId: 'cover:one', remote: 'https://provider.test/preview.jpg' }))
+    expect(lease?.kind).toBe('remote')
+    expect(fallbacks).toEqual(['cover:one'])
+    lease?.release()
   })
 })
 

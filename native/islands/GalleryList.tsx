@@ -462,6 +462,17 @@ export default function GalleryList({ apiBase, owner, slug, deepLinkSelection, o
       create: (bytes, mimeType) => URL.createObjectURL(new Blob([bytes.slice().buffer], { type: mimeType })),
       revoke: (url) => URL.revokeObjectURL(url),
     },
+    // A cover miss is a one-time fetch: the vault keeps it so every later
+    // Library render resolves locally instead of paying the network again.
+    onRemoteFallback: (cell) => {
+      if (!cell.galleryId || !cell.coverId || !cell.remote) return
+      void offlineStore.ensureCover({
+        galleryId: cell.galleryId,
+        entryId: cell.coverId,
+        remote: cell.remote,
+        mimeType: cell.mimeType,
+      }).catch(() => {})
+    },
   }), [offlineStore])
   const vaultSettingsController = useMemo(() => createVaultSettingsController({
     vault: productionVault,

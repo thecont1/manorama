@@ -12,6 +12,10 @@ export type LibraryMediaCell = {
   entryId: string
   mimeType: string
   remote?: string
+  /** A second vault address probed after `entryId` misses — the `cover:`
+   *  entry a lazy cover fill may have written. Kept originals are probed
+   *  first so a saved copy can never be shadowed by its cover. */
+  coverId?: string
 }
 
 export type LibraryMediaLease = {
@@ -90,6 +94,7 @@ export const mimeTypeForItem = (item: {
 export class LibraryMediaLoader {
   private readonly read: (galleryId: string, entryId: string) => Promise<Uint8Array | undefined>
   private readonly objectUrls: OfflineObjectUrlProvider
+  private readonly onRemoteFallback?: (cell: LibraryMediaCell) => void
   private readonly maxLiveUrls: number
   private readonly maxBlobBytes: number
   private readonly maxConcurrent: number
@@ -105,12 +110,16 @@ export class LibraryMediaLoader {
   constructor(options: {
     read: (galleryId: string, entryId: string) => Promise<Uint8Array | undefined>
     objectUrls: OfflineObjectUrlProvider
+    /** Fires when a cell falls back to its remote preview — the seam a cover
+     *  cache uses to vault what the vault was missing. */
+    onRemoteFallback?: (cell: LibraryMediaCell) => void
     maxLiveUrls?: number
     maxBlobBytes?: number
     maxConcurrent?: number
   }) {
     this.read = options.read
     this.objectUrls = options.objectUrls
+    this.onRemoteFallback = options.onRemoteFallback
     this.maxLiveUrls = options.maxLiveUrls ?? LIBRARY_MEDIA_MAX_LIVE_URLS
     this.maxBlobBytes = options.maxBlobBytes ?? LIBRARY_MEDIA_MAX_BLOB_BYTES
     this.maxConcurrent = options.maxConcurrent ?? LIBRARY_MEDIA_MAX_CONCURRENT
@@ -177,7 +186,10 @@ export class LibraryMediaLoader {
     const url = await this.vaultUrl(cell, key, generation)
     if (url === undefined) {
       if (this.released || this.stale(cell, generation)) return undefined
-      if (cell.remote !== undefined) return { kind: 'remote', src: cell.remote }
+      if (cell.remote !== undefined) {
+        this.onRemoteFallback?.(cell)
+        return { kind: 'remote', src: cell.remote }
+      }
       return { kind: 'none', src: undefined }
     }
     return { kind: 'vault' }
@@ -187,7 +199,8 @@ export class LibraryMediaLoader {
     for (;;) {
       // A vault read error is a miss, not a failure — the cell falls back to
       // its remote preview rather than stranding every acquirer on the job.
-      const bytes = await this.read(cell.galleryId, cell.entryId).catch(() => undefined)
+      const bytes = (await this.read(cell.galleryId, cell.entryId).catch(() => undefined))
+        ?? (cell.coverId !== undefined ? await this.read(cell.galleryId, cell.coverId).catch(() => undefined) : undefined)
       if (this.released || this.stale(cell, generation)) { bytes?.fill(0); return undefined }
       if (!bytes) return undefined
       // A frame bigger than the entire budget is still shown — alone. It is

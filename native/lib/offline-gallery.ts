@@ -16,6 +16,9 @@ import { keylessSourceUrl, manifestIsEncryptedSource, type MediaReference } from
 
 const METADATA_VERSION = 1
 const METADATA_ENTRY_ID = 'offline-gallery:metadata:v1'
+/** Marks a vault scope that holds Library covers but no committed gallery —
+ *  its presence distinguishes a cover cache from a corrupt kept gallery. */
+const COVER_ENTRY_ID = 'offline-gallery:cover:v1'
 const encoder = new TextEncoder()
 const decoder = new TextDecoder()
 
@@ -98,6 +101,11 @@ export interface OfflineGalleryStore {
    *  scanning the grid visits every gallery, and counting that as use would
    *  flush the eviction signal a purge-cap decision relies on. */
   readThumbnail(galleryId: string, entryId: string): Promise<Uint8Array | undefined>
+  /** Vault a Library cover/preview under a `cover:` entry when one remote
+   *  fetch can buy every later visit an offline render. Opportunistic:
+   *  skipped silently when the entry exists, the vault has no headroom, or
+   *  the remote cannot be read — the cell's remote preview carries on. */
+  ensureCover(options: { galleryId: string; entryId: string; remote?: string; mimeType: string; itemId?: string; signal?: AbortSignal }): Promise<void>
   /** Purge one gallery by vault identity and release its live object URLs. */
   purgeGallery(galleryId: string): Promise<void>
   /** Cryptographic erasure of every cached gallery and every live object URL. */
@@ -112,7 +120,7 @@ export interface OfflineObjectUrlProvider {
   revoke(url: string): void
 }
 
-type OfflineVault = Pick<EncryptedVault, 'read' | 'write' | 'remove' | 'clearGallery' | 'clear' | 'epoch' | 'listGalleryIds' | 'touch' | 'cap'>
+type OfflineVault = Pick<EncryptedVault, 'read' | 'write' | 'remove' | 'clearGallery' | 'clear' | 'epoch' | 'listGalleryIds' | 'touch' | 'cap' | 'usage'>
 
 /** The overhead write() adds to every entry — record header, nonce and GCM
  *  tag (HEADER_BYTES + NONCE_BYTES + TAG_BYTES in vault.ts). A body that
@@ -320,6 +328,10 @@ export class EncryptedOfflineGalleryStore implements OfflineGalleryStore {
    *  copy held by an open lease. */
   private readonly liveResolvers = new Map<string, Set<EncryptedMediaResolver>>()
   private readonly fillOwners = new Map<string, object>()
+  /** Cover fills join in flight and attempt once per entry per session — a
+   *  dead remote or a full vault is answered by the preview, not retries. */
+  private readonly coverFills = new Map<string, Promise<void>>()
+  private readonly coverAttempts = new Set<string>()
 
   constructor(options: {
     vault: OfflineVault
@@ -870,18 +882,22 @@ export class EncryptedOfflineGalleryStore implements OfflineGalleryStore {
     const summaries: OfflineGallerySummary[] = []
     for (const galleryId of await this.vault.listGalleryIds()) {
       const metadata = await this.readMetadataById(galleryId)
-      summaries.push(
-        metadata.status === 'ready'
-          ? {
-              status: 'cached',
-              galleryId,
-              owner: metadata.value.owner,
-              slug: metadata.value.slug,
-              title: metadata.value.manifest.title,
-              images: metadata.value.images.length,
-            }
-          : { status: 'corrupt', galleryId },
-      )
+      if (metadata.status !== 'ready') {
+        // A scope of covers is a cache, not a damaged gallery — skip it
+        // silently; anything else without metadata is genuinely corrupt.
+        if ((await this.vault.touch(galleryId, [COVER_ENTRY_ID])).length > 0) {
+          summaries.push({ status: 'corrupt', galleryId })
+        }
+        continue
+      }
+      summaries.push({
+        status: 'cached',
+        galleryId,
+        owner: metadata.value.owner,
+        slug: metadata.value.slug,
+        title: metadata.value.manifest.title,
+        images: metadata.value.images.length,
+      })
     }
     return summaries
   }
@@ -918,6 +934,59 @@ export class EncryptedOfflineGalleryStore implements OfflineGalleryStore {
 
   async readThumbnail(galleryId: string, entryId: string): Promise<Uint8Array | undefined> {
     return this.vault.read(galleryId, entryId, { touch: false })
+  }
+
+  async ensureCover(options: { galleryId: string; entryId: string; remote?: string; mimeType: string; itemId?: string; signal?: AbortSignal }): Promise<void> {
+    const { galleryId, entryId, remote } = options
+    if (!galleryId || !entryId || !remote || remote.startsWith('data:')) return
+    const key = `${galleryId}${entryId}`
+    const prior = this.coverFills.get(key)
+    if (prior) return prior
+    if (this.coverAttempts.has(key)) return
+    this.coverAttempts.add(key)
+    const task = this.ensureCoverInner(options).catch(() => {})
+    this.coverFills.set(key, task)
+    try {
+      await task
+    } finally {
+      this.coverFills.delete(key)
+    }
+  }
+
+  /** One remote fetch buys every later Library visit an offline render. The
+   *  write is gated on headroom: a capped vault close to full must not let a
+   *  cover LRU-evict a kept gallery's entries — covers degrade to their
+   *  remote preview until space frees. */
+  private async ensureCoverInner(options: { galleryId: string; entryId: string; remote?: string; mimeType: string; itemId?: string; signal?: AbortSignal }): Promise<void> {
+    const { galleryId, entryId, remote, mimeType, itemId, signal } = options
+    // A purge or fill starting mid-work must not let this commit behind it.
+    const guard = { since: this.vault.epoch() }
+    // An existing entry — a cover from an earlier session — skips the fetch
+    // entirely; the attempt set only dedupes inside one session.
+    if ((await this.vault.touch(galleryId, [entryId])).length === 0) return
+    const response = await this.fetchImage(remote!, { signal })
+    if (!response.ok) return
+    const bytes = await this.readBoundedBody(response, signal)
+    try {
+      throwIfAborted(signal)
+      if (bytes.length === 0) return
+      if (this.vault.cap !== null) {
+        const usage = await this.vault.usage().catch(() => undefined)
+        if (!usage || usage.indexedBytes + bytes.length + VAULT_RECORD_OVERHEAD_BYTES > this.vault.cap) return
+      }
+      // The marker lands first: a scope that ever holds covers can never be
+      // mistaken for a corrupt kept gallery while the bytes are in flight.
+      const marker = encoder.encode(JSON.stringify({ v: 1, entryId }))
+      try {
+        await this.vault.write(galleryId, COVER_ENTRY_ID, marker, guard)
+        await this.vault.write(galleryId, entryId, bytes, guard)
+      } finally {
+        marker.fill(0)
+      }
+      cacheFillRegistry.publish({ galleryId, item: { id: itemId ?? entryId, entryId, mimeType, index: 0 } })
+    } finally {
+      bytes.fill(0)
+    }
   }
 
   async purgeGallery(galleryId: string): Promise<void> {

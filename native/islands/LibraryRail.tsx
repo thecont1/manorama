@@ -7,7 +7,7 @@ import {
   type LibraryMediaLease,
   type LibraryMediaLoader,
 } from '../lib/library-media'
-import { thumbnailEntryId } from '../lib/thumbs'
+import { coverEntryId, thumbnailEntryId } from '../lib/thumbs'
 import { deviceImageDpr } from '../../packages/core/image-staging'
 
 export type RailImage = {
@@ -80,6 +80,7 @@ const RailCell = ({
   const cell: LibraryMediaCell = {
     galleryId,
     entryId: thumbnailEntryId(image.id),
+    coverId: coverEntryId(image.id),
     mimeType: mimeTypeForItem(image),
     remote: railPreviewSrcFor(image),
   }
@@ -99,7 +100,9 @@ const RailCell = ({
     }
     void acquire()
     const off = cacheFillRegistry.subscribe(galleryId, (item) => {
-      if (item.entryId === cell.entryId) void acquire()
+      // A cover fill publishes its `cover:` id; a kept-gallery fill the
+      // `thumb:` id — either landing means better bytes exist now.
+      if (item.entryId === cell.entryId || item.entryId === cell.coverId) void acquire()
     })
     return () => {
       cancelled = true

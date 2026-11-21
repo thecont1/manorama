@@ -676,6 +676,7 @@ describe('openGalleryNetworkFirst', () => {
       async gridGallery() { return undefined },
       async listGridGalleries() { return [] },
       async readThumbnail() { return undefined },
+      async ensureCover() {},
       async purgeGallery() {},
       async purgeAll() {},
     }
@@ -1157,5 +1158,70 @@ describe('encrypted-source offline materialization', () => {
     const bytes = await harness.vault.read(galleryId, thumbnailEntryId('mega-node1'))
     expect(bytes).toEqual(secondBytes)
     bytes?.fill(0)
+  })
+})
+
+describe('vault gallery covers', () => {
+  const coverRemote = 'https://provider.test/original-one.jpg'
+
+  test('fetches a remote cover once, stores it, and publishes a fill', async () => {
+    const { store, vault, requested } = makeHarness()
+    const galleryId = await offlineGalleryId(selection)
+    const events: string[] = []
+    const unsubscribe = cacheFillRegistry.subscribe(galleryId, (item) => { events.push(item.entryId) })
+    try {
+      await store.ensureCover({ galleryId, entryId: 'cover:stable-one', remote: coverRemote, mimeType: 'image/jpeg', itemId: 'stable-one' })
+      const stored = await store.readThumbnail(galleryId, 'cover:stable-one')
+      expect(stored).toBeDefined()
+      expect(stored).toEqual(firstBytes)
+      stored?.fill(0)
+      expect(requested).toEqual([coverRemote])
+      expect(events).toEqual(['cover:stable-one'])
+      // The marker means this scope is a cover cache, not a damaged gallery.
+      expect((await vault.touch(galleryId, ['offline-gallery:cover:v1'])).length).toBe(0)
+    } finally {
+      unsubscribe()
+    }
+  })
+
+  test('dedupes the fill within a session and never refetches a stored cover', async () => {
+    const { store, vault, requested } = makeHarness()
+    const galleryId = await offlineGalleryId(selection)
+    await Promise.all([
+      store.ensureCover({ galleryId, entryId: 'cover:stable-one', remote: coverRemote, mimeType: 'image/jpeg' }),
+      store.ensureCover({ galleryId, entryId: 'cover:stable-one', remote: coverRemote, mimeType: 'image/jpeg' }),
+    ])
+    expect(requested).toEqual([coverRemote])
+
+    // A fresh store (empty attempt set) still skips the fetch — the vault
+    // entry itself is the durable record.
+    const secondStore = new EncryptedOfflineGalleryStore({ vault, fetchImage: async () => new Response('unused', { status: 500 }) })
+    await secondStore.ensureCover({ galleryId, entryId: 'cover:stable-one', remote: coverRemote, mimeType: 'image/jpeg' })
+    expect(requested).toEqual([coverRemote])
+  })
+
+  test('a capped vault refuses the write instead of evicting a kept gallery', async () => {
+    // Cap just under the cover bytes + record overhead so the headroom gate trips.
+    const { store, requested } = makeHarness(new Map([[coverRemote, { bytes: firstBytes, type: 'image/jpeg' }]]), firstBytes.length + 39)
+    const galleryId = await offlineGalleryId(selection)
+    await store.ensureCover({ galleryId, entryId: 'cover:stable-one', remote: coverRemote, mimeType: 'image/jpeg' })
+    expect(await store.readThumbnail(galleryId, 'cover:stable-one')).toBeUndefined()
+    // The fetch ran — only the write was refused.
+    expect(requested).toEqual([coverRemote])
+  })
+
+  test('a cover-only scope lists as neither cached nor corrupt', async () => {
+    const { store } = makeHarness()
+    const galleryId = await offlineGalleryId(selection)
+    await store.ensureCover({ galleryId, entryId: 'cover:stable-one', remote: coverRemote, mimeType: 'image/jpeg' })
+    expect(await store.listGalleries()).toEqual([])
+  })
+
+  test('purging the scope removes its covers too', async () => {
+    const { store } = makeHarness()
+    const galleryId = await offlineGalleryId(selection)
+    await store.ensureCover({ galleryId, entryId: 'cover:stable-one', remote: coverRemote, mimeType: 'image/jpeg' })
+    await store.purgeGallery(galleryId)
+    expect(await store.readThumbnail(galleryId, 'cover:stable-one')).toBeUndefined()
   })
 })
