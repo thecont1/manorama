@@ -477,11 +477,14 @@ export const setGalleryPinned = async (ownerId: string, slug: string, pinned: bo
   const pinnedAt = pinned ? new Date().toISOString() : null
   if (d1Configured(env)) {
     // A pinned entry's `position` is its strip rank; an unpinned one reads
-    // it as a home-section rank. Clearing on unpin keeps a strip reorder
-    // from leaping the card into the middle of the home arrangement — it
-    // returns to arrival order like any unpositioned card.
+    // it as a home-section rank. Clearing on an actual pinned→unpinned
+    // transition keeps a strip reorder from leaping the card into the
+    // middle of the home arrangement — it returns to arrival order like
+    // any unpositioned card. An already-unpinned card keeps the home rank
+    // it holds: the CASE reads the pre-update `pinned_at`, so a redundant
+    // unpin call does not erase it.
     const result = await env.DB
-      .prepare(`UPDATE galleries SET pinned_at = ?, position = CASE WHEN ? IS NULL THEN NULL ELSE position END WHERE owner_id = ? AND slug = ?`)
+      .prepare(`UPDATE galleries SET pinned_at = ?, position = CASE WHEN ? IS NULL AND pinned_at IS NOT NULL THEN NULL ELSE position END WHERE owner_id = ? AND slug = ?`)
       .bind(pinnedAt, pinnedAt, ownerId, slug).run()
     if ((result.meta.changes ?? 0) === 0) return null
     return getGallery(ownerId, slug, env)
@@ -490,7 +493,7 @@ export const setGalleryPinned = async (ownerId: string, slug: string, pinned: bo
   const current = store.get(slug)
   if (!current) return null
   const normalized = normalizeRecord(current)
-  const updated = { ...normalized, pinnedAt, position: pinned ? (normalized.position ?? null) : null }
+  const updated = { ...normalized, pinnedAt, position: pinnedAt === null && normalized.pinnedAt !== null ? null : normalized.position }
   store.set(slug, updated)
   return updated
 }
