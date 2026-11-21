@@ -85,4 +85,18 @@ describe('approved app canvas', () => {
       expect(read(entry)).toContain("import '../app/styles/canvas.css'")
     }
   })
+
+  test('the Library wall is pinned on the canvas element, never repainting behind the scroller', () => {
+    /* Fixed attachment on .admin-page or body repaints a frame behind the
+       scroll in some engines and only covers the element's own box, so
+       overscroll flashes the html canvas colour. The wall must live on the
+       propagated root background — composited once and tiled over the whole
+       canvas — with the layers above it transparent. */
+    expect(css).toContain('):has(.admin-page) {\n  background: #111312 var(--app-canvas-image) 0 0 / 256px 256px repeat fixed;')
+    expect(css).toContain('html.light:root:is(.app-page, :has(body.manorama-native), :has(body.manorama-desktop)):has(.admin-page) {\n  background-color: #e9e5dc;')
+    expect(css).toContain(':is(body:has(.admin-page), .admin-page) {\n  background: transparent;')
+    /* Element-level fixed attachment is the janky mechanism being replaced —
+       it must not return anywhere in the shared wall system. */
+    expect(css).not.toContain('background-attachment')
+  })
 })

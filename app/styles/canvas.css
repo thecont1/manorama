@@ -104,10 +104,24 @@ html:root:is(.app-page, :has(body.manorama-native), :has(body.manorama-desktop))
 }
 
 /* The Library wall is viewport-fixed: the page scrolls its gallery
-   cards, not the artwork behind them. Without this the repeat tile is
-   painted into the page box and rides up with the content. */
-html:root:is(.app-page, :has(body.manorama-native), :has(body.manorama-desktop)) .admin-page {
-  background-attachment: fixed;
+   cards, not the artwork behind them. Element-level fixed attachment
+   repaints behind the scroller in some engines — the artwork visibly
+   dances — and anything painted on body only covers body's own box,
+   so rubber-banding past either edge flashes the html canvas colour.
+   Anchoring the tile on the root element fixes both: the propagated
+   canvas background is composited once, pinned by construction, and
+   tiles over the whole overscroll region. Body and the page go
+   transparent so their opaque fills cannot hide the wall behind
+   them — the canvas supplies the same --admin-surface colour under
+   the tile. */
+html:root:is(.app-page, :has(body.manorama-native), :has(body.manorama-desktop)):has(.admin-page) {
+  background: #111312 var(--app-canvas-image) 0 0 / 256px 256px repeat fixed;
+}
+html.light:root:is(.app-page, :has(body.manorama-native), :has(body.manorama-desktop)):has(.admin-page) {
+  background-color: #e9e5dc;
+}
+html:root:is(.app-page, :has(body.manorama-native), :has(body.manorama-desktop)) :is(body:has(.admin-page), .admin-page) {
+  background: transparent;
 }
 
 /* Honor the shell accessibility stamp as well as browser preferences. The
