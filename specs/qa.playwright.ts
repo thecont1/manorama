@@ -1603,15 +1603,13 @@ for (const vp of viewports) {
       /* Vertical scroll fits width-first: display width is the stage
          width minus the canvas rails the spaced frames carry either
          side (measured, never assumed), bounded by natural pixels at
-         the effective DPR (capped at 2), and height follows the source
-         ratio — landscape frames run long down the feed instead of
-         shrinking to the viewport. Portraits are the exception the
-         density suite names: the same three bounds, with a fourth —
-         stage height times the source ratio — so a portrait is never
-         wider than one viewport tall. */
+         the effective DPR (capped at 2), and bounded again by stage
+         height times the source ratio — every orientation fits inside
+         the viewport height rather than running long. */
       const effectiveDpr = Math.min(geometry.landscape.dpr || 1, 2);
       const landscapeTarget = Math.min(
         geometry.stageWidth - geometry.landscape.gutterX,
+        geometry.stageHeight * geometry.landscape.sourceRatio,
         geometry.landscape.naturalWidth / effectiveDpr,
       );
       expect(

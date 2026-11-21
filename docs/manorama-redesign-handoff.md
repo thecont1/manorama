@@ -146,7 +146,7 @@ One by one
 - A phone in landscape (height 500px or less) counts as full-screen app, not the laptop proposal layout.
 
 Scroll
-- Fit to width, portraits included; a tall frame simply runs long. Unchanged from the spec.
+- Fit to width, and never upscale past natural size; a frame taller than the stage fits to height instead of running long.
 
 Curtain
 - A frosted veil over the first photograph carrying the mark, the title, the caption and the count. It dissolves to reveal that photograph sharp and in place. It does not lift or slide. Opening a specific photograph from a rail shows the same curtain over that photograph.

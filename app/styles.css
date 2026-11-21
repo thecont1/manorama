@@ -524,7 +524,6 @@ button { color: inherit; }
 .viewer-track--vertical .viewer-frame { width: 100%; height: auto; overflow: visible; }
 .viewer-track--vertical .viewer-frame img { width: auto; height: auto; max-width: 100%; max-height: calc(var(--viewer-stage-height, 100dvh) - var(--viewer-arrows-bar, 0px)); margin: 0 auto; object-fit: contain; }
 .viewer-track--vertical .viewer-frame:not(.viewer-frame--video) { place-items: center; }
-.viewer-track--vertical .viewer-frame:not(.viewer-frame--video) img { max-height: none; }
 .viewer-track--vertical .viewer-frame .frame-ph { width: 100%; height: 100%; }
 .viewer-track--vertical .viewer-frame--video.viewer-frame--portrait { display: grid; place-items: center; height: calc(var(--viewer-stage-height, 100dvh) - var(--viewer-arrows-bar, 0px)); overflow: hidden; }
 .viewer-track--vertical .viewer-frame--video.viewer-frame--portrait img { width: auto; height: auto; max-width: 100%; max-height: calc(var(--viewer-stage-height, 100dvh) - var(--viewer-arrows-bar, 0px)); object-fit: contain; }
