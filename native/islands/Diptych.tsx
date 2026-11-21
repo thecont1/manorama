@@ -42,6 +42,11 @@ export type DiptychProps = {
   dpr?: number
   activeIndex?: number
   class?: string
+  /** The wrapper's fill behind the figures. Standalone callers keep the
+   *  opaque stage colour; surfaces that already paint a canvas (the app
+   *  wall, the Library) pass 'transparent' so that wall shows through the
+   *  letterbox space instead of a bare slab. */
+  background?: string
   renderFrame?: (frame: DiptychFrame, context: DiptychRenderContext) => unknown
   onImageLoad?: (id: string, src: string, width: number, height: number) => void
   renderVideo?: (video: VideoItem, context: { width: number; height: number; active: boolean }) => unknown
@@ -188,6 +193,7 @@ export default function Diptych({
   dpr,
   activeIndex = 0,
   class: className,
+  background = '#0a0a0a',
   renderFrame,
   onImageLoad,
   renderVideo,
@@ -215,7 +221,7 @@ export default function Diptych({
       class={['native-diptych', className].filter(Boolean).join(' ')}
       data-diptych-mode={layout.mode}
       data-diptych-stage
-      style={{ position: 'relative', width: '100%', height: '100%', overflow: 'hidden', background: '#0a0a0a' }}
+      style={{ position: 'relative', width: '100%', height: '100%', overflow: 'hidden', background }}
     >
       {mounts.map(({ frame, context }) => (
         <figure

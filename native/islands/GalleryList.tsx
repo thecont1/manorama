@@ -206,7 +206,13 @@ const libraryFocusSelector = (el: HTMLElement): string | null => {
     const slug = card.dataset.libCard ?? card.dataset.cachedGallery
     if (!slug) return null
     const base = attrSelector(card.dataset.libCard !== undefined ? 'data-lib-card' : 'data-cached-gallery', slug)
-    return `${base} ${el.classList.contains('lib-card-menu') ? '.lib-card-menu' : '.lib-card-title'}`
+    // A slug is not unique on the page — a pinned gallery sits in the
+    // "Pinned galleries" section *and* in its home section. Qualify with
+    // the enclosing section's identity so restore lands on the occurrence
+    // the user was actually on, not the earlier copy.
+    const sectionId = card.closest('section[aria-labelledby]')?.getAttribute('aria-labelledby')
+    const scope = sectionId ? `section${attrSelector('aria-labelledby', sectionId)} ` : ''
+    return `${scope}${base} ${el.classList.contains('lib-card-menu') ? '.lib-card-menu' : '.lib-card-title'}`
   }
   const label = el.getAttribute('aria-label')
   if (label) return `button${attrSelector('aria-label', label)}`
@@ -1795,7 +1801,7 @@ export default function GalleryList({ apiBase, owner, slug, deepLinkSelection, o
         placeholder: image.placeholder,
         video: isVideoItem(image) ? image : undefined,
       }))
-      return <Diptych frames={diptychFrames} segments={segments} dpr={dpr} activeIndex={activeIndex} renderVideo={renderVideo} onImageLoad={onImageLoad} />
+      return <Diptych frames={diptychFrames} segments={segments} dpr={dpr} activeIndex={activeIndex} background="transparent" renderVideo={renderVideo} onImageLoad={onImageLoad} />
     }
     return (
       <>

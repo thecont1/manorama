@@ -1,0 +1,3 @@
+# The approved project file is hashed raw — its checkout must never
+# normalize line endings regardless of core.autocrlf.
+assets/gallery-ground/approved.project.json -text

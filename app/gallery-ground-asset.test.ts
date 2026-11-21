@@ -43,6 +43,18 @@ describe('approved photographic gallery ground', () => {
     for (const group of ground.groups) expect(group.motifId).toBe(identities.get(group.placementId))
   })
 
+  test('the baked geometry matches the validated export, bit for bit', () => {
+    /* The identity checks above prove the right placements and motifs are
+       present — they say nothing about the path data itself. This digest is
+       the independent reference: it was taken from the approved export once
+       and pinned, so any regeneration or hand-edit of the baked commands —
+       wrapped copies included — fails here rather than drifting silently. */
+    const canonical = JSON.stringify(ground.groups)
+    expect(createHash('sha256').update(canonical).digest('hex')).toBe(
+      'cc6a08d8da74e6eb5b98ad6792c5d622c84ce5fd53c26afc2239c1bb7706123d',
+    )
+  })
+
   test('contains only finite baked monoline commands, never active markup or media URLs', () => {
     for (const group of ground.groups) for (const path of group.paths) {
       expect(path).toMatch(/^M[MLQCZ0-9eE+\-.\s]+$/)

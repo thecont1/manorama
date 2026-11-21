@@ -108,6 +108,32 @@ describe('setGalleryPinned', () => {
     expect(found?.manifestVersion).toBe(1)
     expect(toSummary(found!).id).toBe(found!.id)
   })
+
+  test('unpinning clears the strip rank so the card keeps its home arrival slot', async () => {
+    /* A pinned entry's `position` is its strip rank — an unpinned entry
+       reads the same field as a home rank. Without the clear, a strip
+       reorder leaks into the home arrangement the moment the pin lifts. */
+    const { createGallery, getGallery, listGalleries, resetGalleryStore, setGalleryPinned, setGalleryPositions } = await import('./gallery-repository')
+    const { libraryLayout } = await import('../../packages/core/library-layout')
+    const { resetUserStore, upsertUser } = await import('./user-repository')
+    resetUserStore()
+    resetGalleryStore()
+    const user = await upsertUser({ accountId: 'dbid:test-unpin-rank', displayName: 'Unpin QA' })
+    const make = (slug: string, createdAt: string) =>
+      createGallery(user.accountId, { slug, title: slug, caption: '', date: '', createdAt, images: [still(slug)] })
+    await make('alpha', '2026-10-03T00:00:00.000Z')
+    await make('rover', '2026-10-02T00:00:00.000Z')
+    await make('beta', '2026-10-01T00:00:00.000Z')
+    await setGalleryPinned(user.accountId, 'rover', true)
+    // The owner drags the strip card to the front — its strip rank is 0.
+    await setGalleryPositions(user.accountId, { rover: 0 })
+    await setGalleryPinned(user.accountId, 'rover', false)
+    expect((await getGallery(user.accountId, 'rover'))?.position ?? null).toBeNull()
+    const compact = libraryLayout((await listGalleries(user.accountId)).map(toSummary), 'pro').compact
+    // The rank-0 strip position must not promote the card in its home
+    // section: it sits exactly where its arrival order puts it.
+    expect(compact).toEqual(['alpha', 'rover', 'beta'])
+  })
 })
 
 describe('updateGalleryRecord migration_devices guard', () => {

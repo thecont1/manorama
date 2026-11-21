@@ -1527,7 +1527,12 @@ export default function Viewer({ slug, galleryTitle, images: sourceImages, encry
     // dock one margin below the top — a flush align would scroll the
     // lead space away.
     if (stage && (embedded || verticalDockOffset(target) > 0)) {
-      const drop = target.getBoundingClientRect().top - stage.getBoundingClientRect().top
+      // getBoundingClientRect reports rendered screen pixels; scrollTop is
+      // in the stage's local CSS pixels. An embedded stage can be scaled,
+      // which separates the two — convert before combining, and keep the
+      // dock margin (already CSS px) in the same units.
+      const scale = stage.offsetHeight > 0 ? stage.getBoundingClientRect().height / stage.offsetHeight : 1
+      const drop = (target.getBoundingClientRect().top - stage.getBoundingClientRect().top) / (scale || 1)
       stage.scrollTo({ top: stage.scrollTop + drop - verticalDockOffset(target), behavior })
       return
     }

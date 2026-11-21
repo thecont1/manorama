@@ -8,9 +8,9 @@ An original low-contrast photographic field: cameras, optical diagrams, film rib
 
 | File | Purpose |
 |---|---|
-| `gallery-ground-dark.svg`, `gallery-ground-light.svg` | Editable, resolution-independent repeating tiles; preferred for gallery use |
-| `gallery-ground-dark.png`, `gallery-ground-light.png` | 2048 × 2048 raster tiles |
-| `gallery-ground-dark.project.json`, `gallery-ground-light.project.json` | Complete exact configurations, motif library, placements, diagnostics and engine version; import into Gallery ground |
+| `gallery-ground-dark.svg`, `gallery-ground-light.svg` | Standalone exports — editable, resolution-independent repeating tiles; preferred for gallery use |
+| `gallery-ground-dark.png`, `gallery-ground-light.png` | Standalone exports — 2048 × 2048 raster tiles |
+| `gallery-ground-dark.project.json`, `gallery-ground-light.project.json` | Standalone exports — complete exact configurations, motif library, placements, diagnostics and engine version; import into the companion **Gallery ground** tool to reopen the composition |
 | `gallery-ground-dark-repeat.png`, `gallery-ground-light-repeat.png` | 4096 × 4096 previews of a 3 × 3 repeat, not the production tile |
 | `dark-light-preview.png` | Dark-left / Light-right comparison, downsampled from the generated tiles |
 | `motif-library.json` | All 24 original normalized vector motifs and their briefs/envelopes; reusable with new seeds |
@@ -19,6 +19,8 @@ An original low-contrast photographic field: cameras, optical diagrams, film rib
 | `release-validation.json`, `profile-report.json` | Exact exported-file checks and nine measured seed/density runs |
 | `verification.md` | Test outcomes, visual review and outstanding external acceptance |
 | `checksums.sha256` | SHA-256 hashes of bundle files, excluding this checksum file itself |
+
+App maintainers: `docs/gallery-ground.md` records the approved app artwork, its frozen source, and how the baked export is configured inside manorama — consult it before touching `app/assets/gallery-ground.ts` or the canvas tiles.
 
 ## Exact recipe
 
@@ -45,7 +47,7 @@ Use the SVG for resolution-independent gallery backgrounds. If using the PNG, do
 
 ## Plain-local tool
 
-The separate `gallery-ground-tool-source.zip` contains a self-contained Bun/React/TypeScript package, locked dependencies, source, tests, configuration example, design notes and README. It excludes keys, private transcripts/cache, installed dependencies, build products and browser working files.
+The separate `gallery-ground-tool-source.zip` contains a self-contained Bun/React/TypeScript package, locked dependencies, source, tests, configuration example, design notes and README. It is distributed outside this repository — it was delivered with the export bundle's handoff directory and is not checked in anywhere here. It excludes keys, private transcripts/cache, installed dependencies, build products and browser working files.
 
 Extract it, then:
 

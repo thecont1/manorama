@@ -27,6 +27,19 @@ for (const shell of ['native', 'desktop'] as const) {
     for (const palette of ['dark', 'light'] as const) {
       await page.evaluate(value => document.documentElement.classList.toggle('light', value === 'light'), palette)
       for (const wall of await page.locator('[data-wall]').all()) {
+        /* The Library wall is the exception: the tile lives on the
+           propagated root background — viewport-locked by construction —
+           and the page paints transparent so nothing repaints behind the
+           scroller or flashes the canvas colour at the edges. Every other
+           wall carries the artwork directly. */
+        if (await wall.evaluate(el => el.classList.contains('admin-page'))) {
+          await expect(wall).toHaveCSS('background-image', 'none')
+          const root = page.locator('html')
+          await expect(root).toHaveCSS('background-image', new RegExp(`app-canvas-${palette}\\.svg`))
+          await expect(root).toHaveCSS('background-size', '256px 256px')
+          await expect(root).toHaveCSS('background-attachment', 'fixed')
+          continue
+        }
         await expect(wall).toHaveCSS('background-image', new RegExp(`app-canvas-${palette}\\.svg`))
         await expect(wall).toHaveCSS('background-size', '256px 256px')
       }
