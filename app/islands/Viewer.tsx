@@ -3133,9 +3133,10 @@ export default function Viewer({ slug, galleryTitle, images: sourceImages, encry
       if (!isFrameActive(imageIndex)) return
       keep.add(image.id)
       // Encrypted entries hold an empty src until the resolver materializes
-      // bytes — decoding earlier fetches the page itself and caches the HTML
-      // as this frame's "decoded" image permanently.
-      if (isHeic(image) && image.src && !heicSrc[image.id]) void decodeHeic(image)
+      // bytes, and a vaulted lease holds the placeholder — either way
+      // decoding early fetches something that is not the photograph and
+      // caches it as this frame's "decoded" image permanently.
+      if (isHeic(image) && image.src && image.src !== image.placeholder && !heicSrc[image.id]) void decodeHeic(image)
     })
     // Decoded blobs are megabytes each — drop entries that leave the
     // window and revoke their object URLs.
@@ -3312,7 +3313,7 @@ export default function Viewer({ slug, galleryTitle, images: sourceImages, encry
             return current?.src === src && current.width === width && current.height === height
               ? previous : { ...previous, [id]: { src, width, height } }
           }),
-          renderVideo: (video, { width, height, active }) => isVideoSlideActive(index) ? (
+          renderVideo: (video, { width, height, active }) => isVideoSlideActive(index) && video.src ? (
             <VideoSlide
               item={video}
               isActive={active}
@@ -3436,7 +3437,11 @@ export default function Viewer({ slug, galleryTitle, images: sourceImages, encry
                         modal) keeps its poster exposed with video.alt so
                         the slide is never left without a name. */}
                     {(() => {
-                    const videoMounted = isVideoSlideActive(imageIndex)
+                    // A vaulted clip mounts only once the MP4 is material —
+                    // src='' resolves to the page URL and errors before the
+                    // resolver lands, so the poster carries the frame until
+                    // then.
+                    const videoMounted = isVideoSlideActive(imageIndex) && Boolean(video.src)
                     return <>
                     <img
                       class="frame-ph"
@@ -3843,7 +3848,7 @@ export default function Viewer({ slug, galleryTitle, images: sourceImages, encry
                   onClick={() => selectFilmstripImage(imageIndex)}
                 >
                   {!video && (image.media || heicNoRendition)
-                    ? <HeicImg src={image.src} preview={heicNoRendition ? null : thumb} media={image.media} previewMedia={image.variants?.[0]?.media} galleryId={galleryId} filename={image.filename} loading="lazy" alt="" draggable={false} style={{ aspectRatio: `${image.width} / ${image.height}` }} onLoad={(event: Event) => (event.currentTarget as HTMLImageElement).classList.add('is-loaded')} />
+                    ? <HeicImg src={image.src} preview={heicNoRendition ? null : thumb} media={image.media} previewMedia={image.variants?.[0]?.media} encryptedResolver={encryptedResolver} galleryId={galleryId} filename={image.filename} loading="lazy" alt="" draggable={false} style={{ aspectRatio: `${image.width} / ${image.height}` }} onLoad={(event: Event) => (event.currentTarget as HTMLImageElement).classList.add('is-loaded')} />
                     : <img src={thumb} loading="lazy" alt="" draggable={false} style={{ aspectRatio: `${image.width} / ${image.height}` }} onLoad={(event: Event) => (event.currentTarget as HTMLImageElement).classList.add('is-loaded')} />}
                   {video ? <span class="viewer-filmstrip-badge">▶{formatDuration(image.durationSeconds) ? ` ${formatDuration(image.durationSeconds)}` : ''}</span> : null}
                 </button>

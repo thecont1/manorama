@@ -2352,6 +2352,7 @@ export default function Catalogue({ apiBase }: { apiBase: string }) {
             gallery,
             galleryId: gallery.id,
             edit,
+            ...(lease.encryptedResolver ? { encryptedResolver: lease.encryptedResolver } : {}),
           })
           return
         }

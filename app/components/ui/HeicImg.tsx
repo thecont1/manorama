@@ -3,6 +3,7 @@ import type { JSX } from 'hono/jsx'
 import { enqueueHeicObjectUrl, isHeicFilename } from '../../lib/heic'
 import type { MediaReference } from '../../../packages/core/encrypted-source'
 import { acquireEncryptedDisplay } from '../../lib/encrypted-display'
+import type { EncryptedMediaResolver } from '../../lib/encrypted-resolver'
 
 /** An <img> that renders HEIC originals. Browsers can't decode HEIC, so a
  *  filename that ends .heic/.heif with no renderable `preview` rendition
@@ -18,19 +19,26 @@ type Props = JSX.HTMLAttributes & {
   /** Keyless encrypted refs used by owner rails. Never a server fallback. */
   media?: MediaReference
   previewMedia?: MediaReference
+  /** The gallery's own bounded resolver — vault leases resolve through it;
+   *  without one the galleryId key-store session path runs instead. */
+  encryptedResolver?: EncryptedMediaResolver | null
   galleryId?: string
   /** Manifest filename; the .heic/.heif suffix selects the decode path. */
   filename?: string | null
 }
 
-export function HeicImg({ src, preview, media, previewMedia, galleryId, filename, onError, ...rest }: Props) {
+export function HeicImg({ src, preview, media, previewMedia, encryptedResolver = null, galleryId, filename, onError, ...rest }: Props) {
   const hasPreview = Boolean(preview || previewMedia)
   // A `preview` string can carry a placeholder-grade stand-in (MEGA writes an
   // SVG data URL into `placeholder`) — never a real rendition when `media`
   // is present, since encrypted manifests keep rendition URLs empty by
   // design. A HEIC original must therefore always decode unless a genuine
   // `previewMedia` rendition exists; unencrypted items keep the old rule.
-  const needsDecode = isHeicFilename(filename) && (media ? !previewMedia : !hasPreview)
+  // A vault lease points every rendition at the one stored entry, so a
+  // previewMedia identical to media is not a rendition at all — the vault
+  // holds originals, and an HEIC still must decode.
+  const hasRendition = previewMedia !== undefined && previewMedia !== media
+  const needsDecode = isHeicFilename(filename) && (media ? !hasRendition : !hasPreview)
   const [decoded, setDecoded] = useState<string | null>(null)
   // A provider that cannot produce a rendition (Dropbox answering
   // unsupported_file for a whole shared folder is the observed case) must
@@ -45,11 +53,34 @@ export function HeicImg({ src, preview, media, previewMedia, galleryId, filename
   const encryptedRelease = useRef<(() => void) | null>(null)
   const encryptedRef = hasPreview && previewMedia ? previewMedia : media
 
+  // The acquire itself is bounded to the visible window (with a preload
+  // margin): a strip of hundreds must not pin every ref in the resolver's
+  // working set at once. Leaving the window releases so a later gallery
+  // can use the bytes.
+  const [inView, setInView] = useState(false)
   useEffect(() => {
-    if (!encryptedRef || !galleryId || encryptedRef.kind !== 'encrypted') return
+    if (!encryptedRef) return
+    const el = hostRef.current
+    if (!el || typeof IntersectionObserver === 'undefined') { setInView(true); return }
+    const observer = new IntersectionObserver((entries) => {
+      const entry = entries.at(-1)
+      if (entry) setInView(entry.isIntersecting)
+    }, { rootMargin: '400px' })
+    observer.observe(el)
+    return () => observer.disconnect()
+  }, [encryptedRef])
+
+  useEffect(() => {
+    if (!encryptedRef || encryptedRef.kind !== 'encrypted' || !inView) return
+    if (!encryptedResolver && !galleryId) return
     let cancelled = false
     const previewRequest = encryptedRef === previewMedia
-    void acquireEncryptedDisplay(galleryId, encryptedRef, previewRequest).then(({ url, release }) => {
+    const reference = encryptedRef
+    const acquire = encryptedResolver
+      ? () => encryptedResolver.acquire(reference, previewRequest)
+          .then((url) => ({ url, release: () => encryptedResolver.release(reference, previewRequest) }))
+      : () => acquireEncryptedDisplay(galleryId!, reference, previewRequest)
+    void acquire().then(({ url, release }) => {
       if (cancelled) { release(); return }
       encryptedRelease.current = release
       setEncrypted({ url, preview: previewRequest })
@@ -61,8 +92,11 @@ export function HeicImg({ src, preview, media, previewMedia, galleryId, filename
       cancelled = true
       encryptedRelease.current?.()
       encryptedRelease.current = null
+      // The pin is gone: fall back to the placeholder rather than keep a
+      // revoked URL painted on screen.
+      setEncrypted(null)
     }
-  }, [encryptedRef, galleryId])
+  }, [encryptedRef, galleryId, encryptedResolver, inView])
 
   const source = encryptedRef && !encrypted ? '' : encrypted?.url ?? src
   useEffect(() => {
