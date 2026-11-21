@@ -7,20 +7,22 @@ import { defaultGallerySettings } from '../lib/gallery-settings'
 import type { GalleryImage, GalleryMediaItem } from '../../packages/core/imagesource'
 
 /**
- * A canvas switch mid-glide must not leave the strip parked at the
- * pre-switch destination. Dark/Light shrink every frame, so the offset a
- * paging glide was chasing is stale the moment the margin lands; the
- * glide finishing there leaves the photograph off its dock until the
- * next input. The re-dock is owed when motion ends — this pins that.
+ * A canvas switch mid-glide must not leave the strip parked or
+ * mis-anchored when the glide lands. Since the Blank canvas was retired,
+ * both pairings carry the same 10px image margin, so the switch keeps
+ * the geometry stable — the re-dock the switch still schedules must
+ * settle on the very dock the glide was already chasing, not disturb
+ * it. (If a future pairing ever changes the margin again, this is the
+ * machinery that keeps the strip honest, and the stamped geometry
+ * below is where that contract is exercised.)
  *
  * happy-dom has no layout, so the strip's geometry is stamped by hand:
  * each frame's offsetLeft/offsetWidth and the track's scrollWidth are
- * getters over a `marginPx` the test flips when it picks Dark — the same
- * 10px-per-side shrink the real canvas applies. The stamps land before
- * the mount-time settles run, so the first bounds read sees real
- * geometry instead of resolving to the last frame. rAF is queued by
- * hand and `performance.now` is a manual clock, so the glide's eased
- * ticks advance deterministically.
+ * getters over the `marginPx` the default Dark canvas applies. The
+ * stamps land before the mount-time settles run, so the first bounds
+ * read sees real geometry instead of resolving to the last frame. rAF
+ * is queued by hand and `performance.now` is a manual clock, so the
+ * glide's eased ticks advance deterministically.
  */
 
 const globals = globalThis as Record<string, unknown>
@@ -85,9 +87,10 @@ const photo = (id: string): GalleryImage => ({
 
 const images: GalleryMediaItem[] = Array.from({ length: COUNT }, (_, i) => photo(`p${i}`))
 
-// The margin the canvas currently applies — flipped to 10 by the Dark
-// pick, mirroring imageMarginPx = background !== 'none' ? 10 : 0.
-let marginPx = 0
+// The margin every surviving canvas pairing applies — mirroring
+// imageMarginPx = background === 'none' ? 0 : 10 with the gallery
+// defaulting to Dark. 'none' is the embedded home demo only.
+let marginPx = 10
 const widthAt = (margin: number) => FRAME_WIDTH - margin * 3
 const offsetAt = (index: number, margin: number) => {
   let left = 0
@@ -195,8 +198,8 @@ afterAll(() => {
 })
 
 describe('the canvas-switch re-dock', () => {
-  test('a width change during a paging glide re-docks at the new offset', async () => {
-    marginPx = 0
+  test('a canvas switch during a paging glide settles on the unchanged dock', async () => {
+    marginPx = 10
     const root = dom.document.createElement('div')
     dom.document.body.appendChild(root)
     const q = root as unknown as Queryable
@@ -205,9 +208,9 @@ describe('the canvas-switch re-dock', () => {
     // The strip opens docked on the first photograph.
     expect(transformX(q)).toBe(0)
 
-    // First page travels one viewport (-390): frame 1's 600px offset is
-    // wider than the stage, so the dock lands between frames and the
-    // position report keeps the index on frame 0.
+    // First page travels one viewport (-390): frame 1's 570px margin-
+    // shrunk offset is still wider than the stage, so the dock lands
+    // between frames and the position report keeps the index on frame 0.
     arrowRight()
     await settle()
     for (let i = 0; i < 80; i += 1) tick()
@@ -216,26 +219,28 @@ describe('the canvas-switch re-dock', () => {
     await settle()
     expect(Math.abs(transformX(q)! - -390)).toBeLessThan(0.001)
 
-    // Second page glides toward frame 1's dock (-600 pre-margin) —
-    // mid-flight it has left the first dock behind.
+    // Second page glides toward frame 1's dock (-570) — mid-flight it
+    // has left the first dock behind.
     arrowRight()
     await settle()
     for (let i = 0; i < 15; i += 1) tick()
     await settle()
     expect(transformX(q)!).toBeLessThan(-400)
 
-    // Switch Blank → Dark mid-glide through the real settings sheet.
+    // Switch Dark → Light mid-glide through the real settings sheet.
+    // The margin is stable, but the switch still restages the field and
+    // schedules its re-dock; the glide must land on the same dock the
+    // switch was chasing, with the pending re-dock agreeing.
     const pill = Array.from(q.querySelectorAll('button.m-chrome-pill')) as unknown as StubEl[]
     const settingsPill = pill.find((el) => el.textContent?.includes('Gallery Settings'))
     expect(settingsPill).not.toBeUndefined()
     settingsPill!.click()
     await settle()
     const radios = Array.from(q.querySelectorAll('[role="radio"]')) as unknown as StubEl[]
-    const dark = radios.find((el) => el.textContent?.includes('Dark'))
-    expect(dark).not.toBeUndefined()
-    dark!.click()
+    const light = radios.find((el) => el.textContent?.includes('Light'))
+    expect(light).not.toBeUndefined()
+    light!.click()
     await settle()
-    marginPx = 10
 
     // Run the glide out, the landing report, and the re-dock's frames.
     for (let i = 0; i < 200; i += 1) tick()
@@ -245,8 +250,8 @@ describe('the canvas-switch re-dock', () => {
     tick()
     await settle()
 
-    // The dock must read the post-switch geometry — frame 1 now starts
-    // at 570, not the stale 600 the glide was chasing.
+    // The dock reads the same geometry it did before the switch —
+    // frame 1 at 570, never a stale or disturbed position.
     const current = q.querySelector('.viewer-frame[aria-current="true"]') as unknown as StubEl | null
     expect(current).not.toBeNull()
     const index = Number(current!.dataset.index) - 1

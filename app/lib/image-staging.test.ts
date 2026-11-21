@@ -54,9 +54,11 @@ describe('deviceImageDpr', () => {
 })
 
 describe('imageStageSize in strip mode fits height-first', () => {
-  // The photostrip fills height-first and abuts edge-to-edge, but the
-  // same device-pixel budget as every other mode applies: a source short
-  // on pixels renders at natural/dpr rather than fabricating them.
+  /* The photostrip fills height-first against whatever stage box the
+     caller measured — under the spaced canvas default that is the stage
+     minus the two 10px bands (Viewer.tsx stagingHeight). The same
+     device-pixel budget as every other mode applies: a source short on
+     pixels renders at natural/dpr rather than fabricating them. */
   for (const dpr of DPRS) {
     const eff = Math.min(dpr, 2)
     for (const [name, w, h] of SHAPES) {
@@ -130,8 +132,8 @@ describe('imageStageSize in single mode contains both axes', () => {
 
 describe('imageStageSize never upscales', () => {
   test('display px multiplied by effective dpr stays within natural px', () => {
-    // Strict device-pixel parity holds in every mode: the strip keeps its
-    // edge-to-edge contact but never claims pixels the source lacks.
+    // Strict device-pixel parity holds in every mode: the strip keeps
+    // its full-height frames but never claims pixels the source lacks.
     for (const mode of MODES) {
       for (const dpr of DPRS) {
         const eff = Math.min(dpr, 2)

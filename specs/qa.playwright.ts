@@ -169,7 +169,7 @@ async function ensureNavArrows(page: import("@playwright/test").Page) {
   if ((await page.locator("[data-nav-arrow]").count()) === 0) {
     await showChrome(page);
     await page
-      .getByRole("button", { name: "Settings", exact: true })
+      .getByRole("button", { name: "Gallery Settings", exact: true })
       .click();
     await page
       .getByRole("switch", { name: /^arrows$/i })
@@ -469,7 +469,7 @@ for (const vp of viewports) {
       await expect(
         page.locator("[data-chrome-library]"),
       ).toHaveAttribute("href", /\//);
-      await page.getByRole("button", { name: "Settings", exact: true }).click();
+      await page.getByRole("button", { name: "Gallery Settings", exact: true }).click();
       const settingsDialog = page.getByRole("dialog", { name: "Settings" });
       await expect(settingsDialog).toBeVisible();
       // The owner's management drills in one level: the view page's role
@@ -571,7 +571,7 @@ for (const vp of viewports) {
         .dispatchEvent("click");
       await expect(bottom).toHaveClass(/is-visible/);
       await expect(
-        page.getByRole("button", { name: "Settings", exact: true }),
+        page.getByRole("button", { name: "Gallery Settings", exact: true }),
       ).toBeFocused();
       // Focus inside the chrome pauses the auto-hide — past three
       // seconds the bars are still up while a pill is focused.
@@ -596,7 +596,7 @@ for (const vp of viewports) {
       await expect(bottom).toHaveClass(/is-visible/);
       await expect(page.locator("[data-chrome-library]")).toHaveCount(0);
       await expect(
-        bottom.getByRole("button", { name: "Settings", exact: true }),
+        bottom.getByRole("button", { name: "Gallery Settings", exact: true }),
       ).toBeVisible();
       await expect(
         bottom.getByRole("button", { name: "Info", exact: true }),
@@ -607,7 +607,7 @@ for (const vp of viewports) {
       ).toBeVisible();
       // The popover offers the sign-in door only — management rows are
       // the owner's, the adopt row a member's.
-      await bottom.getByRole("button", { name: "Settings", exact: true }).click();
+      await bottom.getByRole("button", { name: "Gallery Settings", exact: true }).click();
       const visitorSettings = page.getByRole("dialog", { name: "Settings" });
       await expect(visitorSettings.getByRole("link", { name: "Sign in" })).toBeVisible();
       await expect(visitorSettings.getByRole("button", { name: "Manage gallery" })).toHaveCount(0);
@@ -744,7 +744,12 @@ for (const vp of viewports) {
           )!;
         const stageRect = stage.getBoundingClientRect();
         const imageRect = image.getBoundingClientRect();
+        const frameStyle = getComputedStyle(
+          image.closest(".viewer-frame") as HTMLElement,
+        );
         return {
+          gutterY:
+            parseFloat(frameStyle.marginTop) + parseFloat(frameStyle.marginBottom),
           cssHeight: stage.style.getPropertyValue("--viewer-stage-height"),
           imageHeight: imageRect.height,
           innerHeight: window.innerHeight,
@@ -759,8 +764,13 @@ for (const vp of viewports) {
       expect(
         Math.abs(geometry.stageHeight - (geometry.visualHeight - geometry.barOffset)),
       ).toBeLessThanOrEqual(1);
+      /* The spaced canvas gives every strip frame a 10px gutter above
+         and below; the height-first photograph fills the frame's
+         border box, so it stands that gutter short of the stage. */
       expect(
-        Math.abs(geometry.imageHeight - geometry.stageHeight),
+        Math.abs(
+          geometry.imageHeight - (geometry.stageHeight - geometry.gutterY),
+        ),
       ).toBeLessThanOrEqual(1);
       expect(geometry.stageHeight).toBeLessThanOrEqual(
         geometry.innerHeight + 1,
@@ -824,7 +834,7 @@ for (const vp of viewports) {
     test("vertical scroll answers a mouse drag", async ({ page }) => {
       await dismissCurtain(page);
       await showChrome(page);
-      await page.getByRole("button", { name: "Settings", exact: true }).click();
+      await page.getByRole("button", { name: "Gallery Settings", exact: true }).click();
       await page.getByRole("radio", { name: "Scroll" }).click();
       await expect(page.locator("[data-stage]")).toHaveClass(/mode-vertical/);
       await page.keyboard.press("Escape");
@@ -836,14 +846,30 @@ for (const vp of viewports) {
       await expect
         .poll(() => stage.evaluate((el) => el.scrollTop))
         .toBeGreaterThan(60);
-      // Dragging back down returns toward the feed top.
-      await page.mouse.move(vp.width / 2, vp.height - 360);
-      await page.mouse.down();
-      await page.mouse.move(vp.width / 2, vp.height - 200, { steps: 8 });
-      await page.mouse.up();
-      await expect
-        .poll(() => stage.evaluate((el) => el.scrollTop))
-        .toBeLessThan(60);
+      /* The `>60` poll answers as soon as the fling crosses the
+         threshold — mid-glide. A drag started into a moving stage is
+         ignored by design, and one 160px drag cannot guarantee a
+         return from wherever the release glide settles. Wait for the
+         stage to come to rest, then repeat the down-drag until the
+         top is in reach. Same contract (drag scrolls; dragging back
+         returns toward the top), honest about glide distance. */
+      const top = () => stage.evaluate((el) => el.scrollTop);
+      let prev = await top();
+      for (;;) {
+        await page.waitForTimeout(200);
+        const now = await top();
+        if (now === prev) break;
+        prev = now;
+      }
+      for (let i = 0; i < 12; i++) {
+        if ((await top()) < 60) break;
+        await page.mouse.move(vp.width / 2, vp.height - 360);
+        await page.mouse.down();
+        await page.mouse.move(vp.width / 2, vp.height - 200, { steps: 8 });
+        await page.mouse.up();
+        await page.waitForTimeout(250);
+      }
+      expect(await top()).toBeLessThan(60);
     });
 
     test("touch swipe moves directly and floats farther without snapping", async ({
@@ -942,7 +968,9 @@ for (const vp of viewports) {
       // same delta so viewed pixels stay put: raw track coordinates can
       // teleport hundreds of px while nothing on screen moved. Measure
       // the frame under the finger instead — it must track move-by-move,
-      // and only an abutting neighbour may take over under the point.
+      // and only a directly adjacent neighbour may take over under the
+      // point (the canvas gutter between frames is a few pixels, far
+      // inside the teleport tolerance below).
       const sample = (x: number) =>
         page.evaluate((fx) => {
           const registry = ((window as any).__touchProbe ??= new Map());
@@ -1180,7 +1208,7 @@ for (const vp of viewports) {
       );
       // Fullscreen lives in the display-settings panel.
       await showChrome(page);
-      await page.getByRole("button", { name: "Settings", exact: true }).click();
+      await page.getByRole("button", { name: "Gallery Settings", exact: true }).click();
       await expect(
         page.getByRole("switch", { name: /fullscreen/i }),
       ).toHaveCount(supported ? 1 : 0);
@@ -1195,14 +1223,14 @@ for (const vp of viewports) {
       await ensureNavArrows(page);
       await expect(page.locator("[data-nav-arrow]")).toHaveCount(2);
       await showChrome(page);
-      await page.getByRole("button", { name: "Settings", exact: true }).click();
+      await page.getByRole("button", { name: "Gallery Settings", exact: true }).click();
       await page
         .getByRole("switch", { name: /^arrows$/i })
         .click();
       await expect(page.locator("[data-nav-arrow]")).toHaveCount(0);
       await page.keyboard.press("Escape");
       await showChrome(page);
-      await page.getByRole("button", { name: "Settings", exact: true }).click();
+      await page.getByRole("button", { name: "Gallery Settings", exact: true }).click();
       await page
         .getByRole("switch", { name: /^arrows$/i })
         .click();
@@ -1211,14 +1239,14 @@ for (const vp of viewports) {
       // Vertical keeps the toggle but defaults arrows off — the feed
       // scrolls natively, so they appear only on request.
       await showChrome(page);
-      await page.getByRole("button", { name: "Settings", exact: true }).click();
+      await page.getByRole("button", { name: "Gallery Settings", exact: true }).click();
       await page.getByRole("radio", { name: "Scroll" }).click();
       await expect(page.locator("[data-stage]")).toHaveClass(/mode-vertical/);
       await page.keyboard.press("Escape");
       await expect(page.locator("[data-nav-arrow]")).toHaveCount(0);
       await page.keyboard.press("Escape");
       await showChrome(page);
-      await page.getByRole("button", { name: "Settings", exact: true }).click();
+      await page.getByRole("button", { name: "Gallery Settings", exact: true }).click();
       await page
         .getByRole("switch", { name: /^arrows$/i })
         .click();
@@ -1289,7 +1317,7 @@ for (const vp of viewports) {
         .toBeLessThan(24);
       // Hiding again restores the quiet default.
       await showChrome(page);
-      await page.getByRole("button", { name: "Settings", exact: true }).click();
+      await page.getByRole("button", { name: "Gallery Settings", exact: true }).click();
       await page
         .getByRole("switch", { name: /^arrows$/i })
         .click();
@@ -1297,7 +1325,7 @@ for (const vp of viewports) {
       await page.keyboard.press("Escape");
       // Single mode brings them back, stepping one image at a time.
       await showChrome(page);
-      await page.getByRole("button", { name: "Settings", exact: true }).click();
+      await page.getByRole("button", { name: "Gallery Settings", exact: true }).click();
       await page.getByRole("radio", { name: "One by one" }).click();
       await expect(page.locator("[data-stage]")).toHaveClass(/mode-single/);
       await page.keyboard.press("Escape");
@@ -1434,7 +1462,7 @@ for (const vp of viewports) {
       // The radios are visually hidden inside their labels — drive the
       // label, the element a pointer actually hits.
       await showChrome(page);
-      await page.getByRole("button", { name: "Settings", exact: true }).click();
+      await page.getByRole("button", { name: "Gallery Settings", exact: true }).click();
       await page.getByRole("radio", { name: "Scroll" }).click();
       await expect(page.locator("[data-stage]")).toHaveClass(/mode-vertical/);
       await page.keyboard.press("Escape");
@@ -1447,6 +1475,7 @@ for (const vp of viewports) {
         string,
         {
           stageWidth: number; stageHeight: number; dpr: number;
+          gutterX: number;
           width: number; height: number;
           naturalWidth: number; naturalHeight: number;
           sourceRatio: number; renderedRatio: number;
@@ -1485,6 +1514,12 @@ for (const vp of viewports) {
             stageWidth: stage.clientWidth,
             stageHeight: stage.clientHeight,
             dpr: window.devicePixelRatio,
+            /* Vertical rails are staging slack, not frame CSS: under a
+               visible canvas the app stages each frame against a box
+               20px narrower than the stage and centres it, so width
+               never touches the stage edges. The bare stage ('none',
+               embedded demo only) stages against the raw width. */
+            gutterX: stage.classList.contains("bg-none") ? 0 : 20,
             width: rect.width,
             height: rect.height,
             naturalWidth: image.naturalWidth,
@@ -1505,13 +1540,18 @@ for (const vp of viewports) {
         landscape: samples.landscape!,
         portrait: samples.portrait!,
       };
-      // Vertical scroll fits width-first: display width is the stage width
-      // bounded by natural pixels at the effective DPR (capped at 2), and
-      // height follows the source ratio — tall frames run long instead of
-      // shrinking to the viewport.
+      /* Vertical scroll fits width-first: display width is the stage
+         width minus the canvas rails the spaced frames carry either
+         side (measured, never assumed), bounded by natural pixels at
+         the effective DPR (capped at 2), and height follows the source
+         ratio — landscape frames run long down the feed instead of
+         shrinking to the viewport. Portraits are the exception the
+         density suite names: the same three bounds, with a fourth —
+         stage height times the source ratio — so a portrait is never
+         wider than one viewport tall. */
       const effectiveDpr = Math.min(geometry.landscape.dpr || 1, 2);
       const landscapeTarget = Math.min(
-        geometry.stageWidth,
+        geometry.stageWidth - geometry.landscape.gutterX,
         geometry.landscape.naturalWidth / effectiveDpr,
       );
       expect(
@@ -1521,7 +1561,8 @@ for (const vp of viewports) {
         Math.abs(geometry.landscape.height - landscapeTarget / geometry.landscape.sourceRatio),
       ).toBeLessThanOrEqual(2);
       const portraitTarget = Math.min(
-        geometry.stageWidth,
+        geometry.stageWidth - geometry.portrait.gutterX,
+        geometry.stageHeight * geometry.portrait.sourceRatio,
         geometry.portrait.naturalWidth / effectiveDpr,
       );
       expect(
@@ -1620,11 +1661,16 @@ for (const vp of viewports) {
       await expect(endcap).toHaveCount(1);
       await expect(endcap).toHaveText(/The\s*End\./);
       // A borderless faux frame: wordmark type 3×, 40px side padding,
-      // full stage height — wider than the old fixed 100px.
+      // the stage's height inside its 10px canvas gutters — wider
+      // than the old fixed 100px.
       const stageBox = await page.locator("[data-stage]").boundingBox();
       const capBox = await endcap.boundingBox();
+      const capGutterY = await endcap.evaluate((el) => {
+        const cs = getComputedStyle(el);
+        return parseFloat(cs.marginTop) + parseFloat(cs.marginBottom);
+      });
       expect(capBox!.width).toBeGreaterThan(110);
-      expect(Math.abs(capBox!.height - stageBox!.height)).toBeLessThan(2);
+      expect(Math.abs(capBox!.height + capGutterY - stageBox!.height)).toBeLessThan(2);
 
       await ensureNavArrows(page);
       await page.keyboard.press("Escape");
@@ -1645,8 +1691,16 @@ for (const vp of viewports) {
       await page.getByRole("button", { name: /next photograph/i }).click();
       await waitForTrackSettled(page);
       const shown = await endcap.boundingBox();
+      /* The card docks flush by its margin box: the spaced canvas
+         leaves the same 10px gutter after the finale as between
+         every pair of neighbours. */
+      const capTrailing = await endcap.evaluate(
+        (el) => parseFloat(getComputedStyle(el).marginRight) || 0,
+      );
       expect(
-        Math.abs(shown!.x + shown!.width - (stageBox!.x + stageBox!.width)),
+        Math.abs(
+          shown!.x + shown!.width + capTrailing - (stageBox!.x + stageBox!.width),
+        ),
       ).toBeLessThan(2);
 
       // The card carries a quiet Rewind that runs the strip home in a
@@ -1679,7 +1733,7 @@ for (const vp of viewports) {
       const stillShown = await endcap.boundingBox();
       expect(
         Math.abs(
-          stillShown!.x + stillShown!.width - (stageBox!.x + stageBox!.width),
+          stillShown!.x + stillShown!.width + capTrailing - (stageBox!.x + stageBox!.width),
         ),
       ).toBeLessThan(2);
       // aria-current is the leftmost visible frame — on wide stages
@@ -1691,7 +1745,7 @@ for (const vp of viewports) {
       // The card ends every layout — in Scroll it is a footer frame in
       // the feed itself rather than a slid-in faux frame.
       await showChrome(page);
-      await page.getByRole("button", { name: "Settings", exact: true }).click();
+      await page.getByRole("button", { name: "Gallery Settings", exact: true }).click();
       await page.getByRole("radio", { name: "Scroll" }).click();
       await expect(page.locator("[data-stage]")).toHaveClass(/mode-vertical/);
       const feedCard = page.locator(".viewer-endcap--feed");
@@ -1736,7 +1790,7 @@ for (const vp of viewports) {
       expect(nextBox.right).toBeGreaterThan(geo.viewportW * 0.7);
       // Turning arrows off hands the height straight back to the stage.
       await showChrome(page);
-      await page.getByRole("button", { name: "Settings", exact: true }).click();
+      await page.getByRole("button", { name: "Gallery Settings", exact: true }).click();
       await page.getByRole("switch", { name: /^arrows$/i }).click();
       await expect(stage).not.toHaveClass(/has-arrow-bar/);
       const restored = await page.evaluate(
@@ -1939,7 +1993,7 @@ test("alternate modes switch instantly and preserve the current image", async ({
   // Mode radios live in the display-settings panel and are visually
   // hidden — drive their labels. Position reports through the info dialog.
   await showChrome(page);
-  await page.getByRole("button", { name: "Settings", exact: true }).click();
+  await page.getByRole("button", { name: "Gallery Settings", exact: true }).click();
   await page
     .getByRole("radio", { name: "Scroll" })
     .click();
@@ -1949,7 +2003,7 @@ test("alternate modes switch instantly and preserve the current image", async ({
   await expect(page.getByRole("dialog", { name: `Photograph 2 of ${total}` })).toBeVisible();
   await page.keyboard.press("Escape");
   await showChrome(page);
-  await page.getByRole("button", { name: "Settings", exact: true }).click();
+  await page.getByRole("button", { name: "Gallery Settings", exact: true }).click();
   await page
     .getByRole("radio", { name: "One by one" })
     .click();
@@ -2109,7 +2163,7 @@ test.describe("display and info sheets", () => {
   }) => {
     await dismissCurtain(page);
     await showChrome(page);
-    await page.getByRole("button", { name: "Settings", exact: true }).click();
+    await page.getByRole("button", { name: "Gallery Settings", exact: true }).click();
     const dialog = page.getByRole("dialog", { name: "Settings" });
     await expect(dialog).toBeVisible();
 
@@ -2127,15 +2181,17 @@ test.describe("display and info sheets", () => {
     await expect(page.locator(".viewer-stage.bg-dark")).toHaveCount(1);
 
     await showChrome(page);
-    await page.getByRole("button", { name: "Settings", exact: true }).click();
+    await page.getByRole("button", { name: "Gallery Settings", exact: true }).click();
     await dialog.getByRole("radio", { name: "Strip" }).click();
-    await dialog.getByRole("radio", { name: "Blank" }).click();
+    /* The Blank canvas was retired with the artwork integration — the
+       second pairing (Light) round-trips persistence instead. */
+    await dialog.getByRole("radio", { name: "Light" }).click();
     await expect(page.locator("[data-stage]")).toHaveClass(/mode-strip/);
-    await expect(page.locator(".viewer-stage.bg-dark")).toHaveCount(0);
+    await expect(page.locator(".viewer-stage.bg-light")).toHaveCount(1);
     await page.reload({ waitUntil: "domcontentloaded" });
     await dismissCurtain(page);
     await expect(page.locator("[data-stage]")).toHaveClass(/mode-strip/);
-    await expect(page.locator(".viewer-stage.bg-dark")).toHaveCount(0);
+    await expect(page.locator(".viewer-stage.bg-light")).toHaveCount(1);
   });
 
   test("escape closes the display sheet once and returns focus to its pill", async ({
@@ -2143,7 +2199,7 @@ test.describe("display and info sheets", () => {
   }) => {
     await dismissCurtain(page);
     await showChrome(page);
-    const pill = page.getByRole("button", { name: "Settings", exact: true });
+    const pill = page.getByRole("button", { name: "Gallery Settings", exact: true });
     await pill.click();
     const dialog = page.getByRole("dialog", { name: "Settings" });
     await expect(dialog).toBeVisible();
@@ -2159,7 +2215,7 @@ test.describe("display and info sheets", () => {
   }) => {
     await dismissCurtain(page);
     await showChrome(page);
-    await page.getByRole("button", { name: "Settings", exact: true }).click();
+    await page.getByRole("button", { name: "Gallery Settings", exact: true }).click();
     const dialog = page.getByRole("dialog", { name: "Settings" });
     await expect(dialog).toBeVisible();
     const card = (await dialog.boundingBox())!;
@@ -2216,7 +2272,7 @@ test.describe("display and info sheets", () => {
     await expect(dialog).toBeHidden();
     await page.setViewportSize({ width: 375, height: 812 });
     await showChrome(page);
-    await page.getByRole("button", { name: "Settings", exact: true }).click();
+    await page.getByRole("button", { name: "Gallery Settings", exact: true }).click();
     await expect(dialog).toBeVisible();
     const smallCard = (await dialog.boundingBox())!;
     const smallNav = await page
@@ -2247,7 +2303,7 @@ test.describe("display and info sheets", () => {
   }) => {
     await dismissCurtain(page);
     await showChrome(page);
-    await page.getByRole("button", { name: "Settings", exact: true }).click();
+    await page.getByRole("button", { name: "Gallery Settings", exact: true }).click();
     const dialog = page.getByRole("dialog", { name: "Settings" });
     // Management rows live one level deep — the Gallery settings page.
     await dialog.getByRole("button", { name: "Gallery settings", exact: true }).click();
@@ -2277,7 +2333,7 @@ test.describe("display and info sheets", () => {
   }) => {
     await dismissCurtain(page);
     await showChrome(page);
-    await page.getByRole("button", { name: "Settings", exact: true }).click();
+    await page.getByRole("button", { name: "Gallery Settings", exact: true }).click();
     const fine = await page.evaluate(() => matchMedia("(pointer: fine)").matches);
     await expect(
       page.getByRole("dialog", { name: "Settings" }).getByText("Keyboard shortcuts"),
@@ -2289,7 +2345,7 @@ test.describe("display and info sheets", () => {
   }) => {
     await dismissCurtain(page);
     await showChrome(page);
-    await page.getByRole("button", { name: "Settings", exact: true }).click();
+    await page.getByRole("button", { name: "Gallery Settings", exact: true }).click();
     const dialog = page.getByRole("dialog", { name: "Settings" });
     const field = dialog.locator(".m-sheet-field", { hasText: "Canvas" }).first();
     const label = await field.locator(".m-sheet-label").boundingBox();
@@ -2315,7 +2371,7 @@ test.describe("display and info sheets", () => {
   }) => {
     await dismissCurtain(page);
     await showChrome(page);
-    await page.getByRole("button", { name: "Settings", exact: true }).click();
+    await page.getByRole("button", { name: "Gallery Settings", exact: true }).click();
     await expect(page.getByRole("dialog", { name: "Settings" })).toBeVisible();
     expect((await new AxeBuilder({ page }).analyze()).violations).toEqual([]);
     await page.keyboard.press("Escape");
@@ -3199,7 +3255,7 @@ test.describe("M magnifier (desktop only)", () => {
     const page = await context.newPage();
     await dismissCurtain(page);
     await showChrome(page);
-      await page.getByRole("button", { name: "Settings", exact: true }).click();
+      await page.getByRole("button", { name: "Gallery Settings", exact: true }).click();
     await page.getByRole("radio", { name: "Scroll" }).click();
     await expect(page.locator("[data-stage]")).toHaveClass(/mode-vertical/);
     await page.keyboard.press("Escape");
@@ -3254,7 +3310,7 @@ test.describe("M magnifier (desktop only)", () => {
     await page.keyboard.press("m");
     await expect(page.locator(".magnifier-lens")).toBeVisible();
     await showChrome(page);
-    await page.getByRole("button", { name: "Settings", exact: true }).click();
+    await page.getByRole("button", { name: "Gallery Settings", exact: true }).click();
     await expect(page.locator(".magnifier-lens")).toBeHidden();
   });
 
@@ -3275,7 +3331,7 @@ test.describe("M magnifier (desktop only)", () => {
   test("the shortcuts row opens the shortcuts sheet where the key works", async ({ page }) => {
     await dismissCurtain(page);
     await showChrome(page);
-    await page.getByRole("button", { name: "Settings", exact: true }).click();
+    await page.getByRole("button", { name: "Gallery Settings", exact: true }).click();
     const settings = page.getByRole("dialog", { name: "Settings" });
     await settings.getByRole("button", { name: "Keyboard shortcuts", exact: true }).click();
     const sheet = page.getByRole("dialog", { name: "Keyboard shortcuts" });
@@ -3301,7 +3357,7 @@ test.describe("video slides", () => {
     await expect(videos).toHaveCount(1);
 
     await showChrome(page);
-    await page.getByRole("button", { name: "Settings", exact: true }).click();
+    await page.getByRole("button", { name: "Gallery Settings", exact: true }).click();
     await expect(page.getByRole("dialog", { name: "Settings" })).toBeVisible();
     await expect(videos).toHaveCount(0);
   });
@@ -3679,22 +3735,35 @@ test.describe("density-aware staging", () => {
       const stageHeight = await page
         .locator("[data-stage]")
         .evaluate((el) => el.getBoundingClientRect().height);
-      // effectiveImageDpr caps the density ask at 2 — anything past
-      // retina stages exactly like DPR 2.
-      const wantH = Math.min(stageHeight, 1600 / Math.min(expected.dpr, 2));
+      /* effectiveImageDpr caps the density ask at 2 — anything past
+         retina stages exactly like DPR 2. Under a visible canvas every
+         strip frame carries 10px bands top and bottom, so "fills the
+         stage height" means the stage minus those gutters — measured,
+         never assumed. */
+      const gutterY = await page
+        .locator("[aria-current='true']")
+        .evaluate((el) => {
+          const cs = getComputedStyle(el);
+          return parseFloat(cs.marginTop) + parseFloat(cs.marginBottom);
+        });
+      const wantH = Math.min(
+        stageHeight - gutterY,
+        1600 / Math.min(expected.dpr, 2),
+      );
       const wantW = wantH * 1.5;
       const img = page.locator("[aria-current='true'] .frame-img");
       await expect(img).toBeVisible();
       const box = await img.boundingBox();
       expect(Math.abs(box!.width - wantW)).toBeLessThan(2);
       expect(Math.abs(box!.height - wantH)).toBeLessThan(2);
-      // A source with enough pixels still fills the stage — mixed-res
-      // folders blend: 1600×2400 has 2400 px for the ~1700 DPR-2 asks.
+      // A source with enough pixels still fills the stage between the
+      // gutters — mixed-res folders blend: 1600×2400 has 2400 px for
+      // the ~1700 DPR-2 asks.
       if (expected.dpr === 2) {
         const tall = page.locator("[data-image-id='tall'] .frame-img");
         await expect(tall).toBeVisible();
         const tallBox = await tall.boundingBox();
-        expect(Math.abs(tallBox!.height - stageHeight)).toBeLessThan(2);
+        expect(Math.abs(tallBox!.height - (stageHeight - gutterY))).toBeLessThan(2);
       }
       await context.close();
     }
@@ -3724,7 +3793,7 @@ test.describe("density-aware staging", () => {
     await context.close();
   });
 
-  test("small images stay small, centred, and abut their neighbours", async ({ playwright, browser }) => {
+  test("small images stay small, centred, and sit a canvas gutter from their neighbours", async ({ playwright, browser }) => {
     const url = await densityGallery(playwright, "d-tiny", [
       { id: "tiny", w: 120, h: 80 },
       { id: "tiny2", w: 160, h: 100 },
@@ -3745,24 +3814,28 @@ test.describe("density-aware staging", () => {
     expect(Math.abs(box!.width - 120)).toBeLessThan(2);
     expect(Math.abs(box!.height - 80)).toBeLessThan(2);
     // Plate-on-mount (ec00cfd): an undersized source keeps honest pixels
-    // centred inside a frame that keeps the stage's full height, marked
-    // with the mount class — the frame hugs the image in WIDTH only, so
-    // neighbours still abut.
+    // centred inside a frame marked with the mount class. With the
+    // Blank canvas retired, the default Dark pairing puts its 10px
+    // optical margin on every strip frame: the frame box is the stage
+    // minus two bands, hugs the image in WIDTH only, and neighbours
+    // keep a gutter between them — the artwork shows through it.
     expect(Math.abs(frameBox!.width - box!.width)).toBeLessThan(2);
     const stageHeight = (await page
       .locator("[data-stage]")
       .boundingBox())!.height;
-    expect(Math.abs(frameBox!.height - stageHeight)).toBeLessThan(2);
+    expect(Math.abs(frameBox!.height - (stageHeight - 20))).toBeLessThan(2);
     await expect(frame).toHaveClass(/viewer-frame--short/);
     const stageBox = await page.locator("[data-stage]").boundingBox();
     expect(Math.abs(box!.x + box!.width / 2 - (frameBox!.x + frameBox!.width / 2))).toBeLessThan(2);
     expect(Math.abs(box!.y + box!.height / 2 - (stageBox!.y + stageBox!.height / 2))).toBeLessThan(2);
-    // The next frame starts where this one ends — no one-image-per-page gap.
+    // The next frame starts where this one ends plus the canvas gutter
+    // — a little space, not a one-image-per-page gap.
     const next = page.locator("[data-image-id='tiny2']");
     const nextBox = await next.boundingBox();
-    expect(Math.abs(nextBox!.x - (frameBox!.x + frameBox!.width))).toBeLessThan(2);
+    expect(Math.abs(nextBox!.x - (frameBox!.x + frameBox!.width + 10))).toBeLessThan(2);
     const canvas = await page.locator("[data-stage]").evaluate((el) => getComputedStyle(el).backgroundColor);
-    expect(canvas).toBe("rgb(10, 10, 10)");
+    /* The Dark canvas ground (#101010), not the pre-artwork bare black. */
+    expect(canvas).toBe("rgb(16, 16, 16)");
     await context.close();
   });
 

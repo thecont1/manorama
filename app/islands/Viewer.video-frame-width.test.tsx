@@ -159,12 +159,15 @@ describe('the strip video frame size contract', () => {
 
     const videoFrame = root.querySelector('.viewer-frame[data-media-type="video"]') as unknown as HTMLElement | null
     expect(videoFrame).not.toBeNull()
-    // stageSize.height * frameW / frameH — the same box the aspect ratio
-    // would produce, stated as a definite width so WebKit cannot reach
-    // for the poster's intrinsic size. The CSSOM serializes the px value,
-    // so compare numerically.
+    /* (stageSize.height - 2 * 10px) * frameW / frameH — the same box the
+       aspect ratio would produce, stated as a definite width so WebKit
+       cannot reach for the poster's intrinsic size. With the Blank
+       canvas retired, the default Dark pairing puts its 10px image
+       margin on every strip frame, so the measurement runs against
+       stagingHeight, not the raw stage. The CSSOM serializes the px
+       value, so compare numerically. */
     expect(videoFrame!.style.width).toMatch(/^\d+(\.\d+)?px$/)
-    expect(Math.abs(parseFloat(videoFrame!.style.width) - (STAGE_HEIGHT * VIDEO_WIDTH) / VIDEO_HEIGHT)).toBeLessThan(0.001)
+    expect(Math.abs(parseFloat(videoFrame!.style.width) - ((STAGE_HEIGHT - 20) * VIDEO_WIDTH) / VIDEO_HEIGHT)).toBeLessThan(0.001)
     expect(videoFrame!.style.aspectRatio).toBe(`${VIDEO_WIDTH} / ${VIDEO_HEIGHT}`)
   })
 
@@ -182,7 +185,7 @@ describe('the strip video frame size contract', () => {
     expect(photoFrame!.style.aspectRatio).toBe('')
   })
 
-  test('a Dark canvas measures the frame against stagingHeight, not the raw stage', async () => {
+  test('an explicitly stored Dark preference measures the same stagingHeight', async () => {
     const root = dom.document.createElement('div')
     dom.document.body.appendChild(root)
     const settings = defaultGallerySettings({ slug: SLUG, title: 'Video frame', caption: '', date: '', images })

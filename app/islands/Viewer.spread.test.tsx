@@ -278,7 +278,10 @@ describe('explicit Spread', () => {
     const vertical = await mount({ mode: 'vertical', foldLayout: divided })
     const feedEnd = vertical.root.querySelector<HTMLElement>('[data-endcard]')!
     expect(feedEnd.style.width).toBe('590px')
-    expect(feedEnd.style.marginLeft).toBe('610px')
+    /* Blank is retired: the mount lands on the Dark default, whose 10px
+       image margin is deducted from the feed endcard's offset — the same
+       deduction Light and Dark have always shared. */
+    expect(feedEnd.style.marginLeft).toBe('600px')
 
     const single = await mount({ mode: 'single', foldLayout: divided })
     const singleEnd = single.root.querySelector<HTMLElement>('[data-endcard]')!

@@ -1,8 +1,15 @@
 /**
- * The "Background" preference: None (default — photographs abut on the
- * dark canvas, no doodle field), Dark (light-ink doodles behind 10px
- * margins), or Light (dark-ink doodles on the paper canvas, 10px
- * margins).
+ * The "Canvas" preference: Dark (the default — light-ink doodle field on
+ * the charcoal canvas) or Light (dark-ink doodles on the warm-paper
+ * canvas). Both pairings put every photograph in a 10px optical margin,
+ * so the artwork shows through the gaps between frames.
+ *
+ * The third historic value — 'none', the Blank canvas with photographs
+ * abutting and no field — was retired by the owner: galleries now always
+ * paint the approved artwork. Old stored 'none'/'flat'/false shapes
+ * normalize onto the new default instead of resurrecting an unreachable
+ * option. (The embedded marketing home demo keeps its bare edge-to-edge
+ * layout through the Viewer's own gate, not through this preference.)
  *
  * App-wide chrome, not per-album styling — so it follows the
  * `manorama:theme` precedent and lives under one global key rather than
@@ -16,24 +23,22 @@
  * exception on the render path.
  */
 
-export type BackgroundPreference = 'none' | 'light' | 'dark'
+export type BackgroundPreference = 'light' | 'dark'
 
 export const BACKGROUND_KEY = 'manorama:background'
-export const DEFAULT_BACKGROUND: BackgroundPreference = 'none'
+export const DEFAULT_BACKGROUND: BackgroundPreference = 'dark'
 
 /** Event fired on the window so every mounted island reacts to a change
  *  in the same tab (the native `storage` event only crosses tabs). */
 export const BACKGROUND_EVENT = 'manorama:background-change'
 
-/** Accepts the stored string. The pre-doodle-always era persisted
- *  'doodle'/'flat' (and, even earlier, a boolean): a visitor who had the
- *  pattern on keeps the dark doodle pairing, a visitor who had it off
- *  lands on None; anything unrecognised lands on the None default. */
-export const normalizeBackground = (value: unknown): BackgroundPreference => {
-  if (value === 'none' || value === 'light' || value === 'dark') return value
-  if (value === true || value === 'true' || value === 'doodle') return 'dark'
-  return DEFAULT_BACKGROUND
-}
+/** Accepts the stored string. Only the two surviving pairings are
+ *  distinguished: 'light' stays Light, and everything else lands on the
+ *  Dark default — including the retired Blank shapes ('none', 'flat',
+ *  false) and the historic 'doodle'/true pattern-on shapes, which always
+ *  meant the dark doodle pairing. Junk is the same default. */
+export const normalizeBackground = (value: unknown): BackgroundPreference =>
+  value === 'light' ? 'light' : DEFAULT_BACKGROUND
 
 export const loadBackgroundPreference = (): BackgroundPreference => {
   if (typeof window === 'undefined') return DEFAULT_BACKGROUND
