@@ -1556,6 +1556,7 @@ describe('signed-in account area', () => {
       listGalleries: async () => [{ status: 'cached', galleryId: grid.galleryId, owner: grid.owner, slug: grid.slug, title: grid.title, images: 1 }],
       listGridGalleries: async () => [grid],
       readThumbnail: async () => undefined,
+      ensureCover: async () => {},
     } as unknown as OfflineGalleryStore
     const { container } = mountAccount({ store })
     await settle()
@@ -1588,6 +1589,7 @@ describe('signed-in account area', () => {
       listGalleries: async () => [{ status: 'cached' as const, galleryId, owner: 'quiet-owner', slug: 'saved-album', title: 'Saved Album', images: 12 }],
       listGridGalleries: async () => [grid],
       readThumbnail: async () => undefined,
+      ensureCover: async () => {},
     } as unknown as OfflineGalleryStore
     const { container } = mountAccount({ store })
     await settle()
@@ -1618,6 +1620,7 @@ describe('signed-in account area', () => {
       listGalleries: async () => [],
       listGridGalleries: async () => [],
       readThumbnail: async () => undefined,
+      ensureCover: async () => {},
     } as unknown as OfflineGalleryStore
     const { container } = mountAccount({ store })
     await settle()
@@ -1646,6 +1649,7 @@ describe('signed-in account area', () => {
       listGalleries: async () => [{ status: 'cached', galleryId: grid.galleryId, owner: grid.owner, slug: grid.slug, title: grid.title, images: 1 }],
       listGridGalleries: async () => [grid],
       readThumbnail: async () => undefined,
+      ensureCover: async () => {},
     } as unknown as OfflineGalleryStore
     const { container } = mountAccount({ store })
     await settle()
@@ -1674,6 +1678,7 @@ describe('signed-in account area', () => {
       ],
       listGridGalleries: async () => [],
       readThumbnail: async () => undefined,
+      ensureCover: async () => {},
     } as unknown as OfflineGalleryStore
     const { container } = mountAccount({ store, billing: entitlement('free') })
     try {
@@ -2154,6 +2159,7 @@ describe('signed-in account area', () => {
       listGalleries: async () => [{ status: 'cached' as const, galleryId, owner: 'quiet-owner', slug: 'kashmir', title: 'Kashmir', images: 12 }],
       listGridGalleries: async () => [grid],
       readThumbnail: async () => undefined,
+      ensureCover: async () => {},
       purgeGallery: async (id: string) => { purged.push(id) },
     } as unknown as OfflineGalleryStore
     // Keeping is on: the seeded 'vault' override is what a copy in the vault
@@ -2207,6 +2213,7 @@ describe('signed-in account area', () => {
       listGalleries: async () => [],
       listGridGalleries: async () => [],
       readThumbnail: async () => undefined,
+      ensureCover: async () => {},
       cache: async (selection: { galleryId?: string }) => { cached.push(selection); return { status: 'complete' as const, images: 1 } },
       purgeGallery: async () => {},
     } as unknown as OfflineGalleryStore
