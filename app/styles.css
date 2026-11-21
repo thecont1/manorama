@@ -1832,7 +1832,7 @@ body:has(.ops-page) { overflow: auto; overflow-x: clip; background: #111312; }
 @media (min-width: 860px) {
   .admin-page--selector .admin-content {
     display: grid;
-    grid-template-columns: minmax(225px, min(300px, var(--admin-pane-limit, 300px))) minmax(0, 1fr);
+    grid-template-columns: minmax(255px, min(340px, var(--admin-pane-limit, 340px))) minmax(0, 1fr);
     column-gap: clamp(24px, 4vw, 56px);
     align-items: start;
   }
@@ -1862,13 +1862,18 @@ body:has(.ops-page) { overflow: auto; overflow-x: clip; background: #111312; }
     position: fixed;
     top: calc(16px + var(--shell-top-inset, 0px));
     left: clamp(20px, 7vw, 112px);
-    width: min(300px, var(--admin-pane-limit, 300px));
-    min-width: 225px;
+    width: min(340px, var(--admin-pane-limit, 340px));
+    min-width: 255px;
     max-height: calc(100dvh - 32px - var(--shell-top-inset, 0px));
     overflow-x: clip;
     overflow-y: auto;
     overscroll-behavior-y: contain;
-    padding-right: 14px;
+    /* The column wears a real inset now: 20px air on every side keeps
+       the version line, tier copy and copyright clear of the rounded
+       corners, and the brand mark's -16px bleed lands inside the left
+       pad instead of clipping at the rail edge. The right pad stacks
+       14px of scrollbar clearance on top of the same 20px inset. */
+    padding: 20px 34px 20px 20px;
   }
   /* A fixed rail leaves grid flow — pin the list to column 2 so
      auto-placement cannot slide it under the rail's track. */

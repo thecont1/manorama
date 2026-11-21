@@ -103,6 +103,13 @@ html:root:is(.app-page, :has(body.manorama-native), :has(body.manorama-desktop))
   border-radius: var(--m-radius-card, 14px);
 }
 
+/* The Library wall is viewport-fixed: the page scrolls its gallery
+   cards, not the artwork behind them. Without this the repeat tile is
+   painted into the page box and rides up with the content. */
+html:root:is(.app-page, :has(body.manorama-native), :has(body.manorama-desktop)) .admin-page {
+  background-attachment: fixed;
+}
+
 /* Honor the shell accessibility stamp as well as browser preferences. The
    same fill becomes solid; no geometry, selected-state or photo changes. */
 :root[data-reduced-transparency] { --app-surface-alpha: 1; }
