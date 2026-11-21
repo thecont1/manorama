@@ -1224,4 +1224,26 @@ describe('vault gallery covers', () => {
     await store.purgeGallery(galleryId)
     expect(await store.readThumbnail(galleryId, 'cover:stable-one')).toBeUndefined()
   })
+
+  test('concurrent covers for different entries cannot overdraw the cap together', async () => {
+    // Cap exactly one marker+record pair: either fill fits alone, never both.
+    const markerBytes = new TextEncoder().encode(JSON.stringify({ v: 1, entryId: 'cover:stable-one' })).length
+    const cap = markerBytes + firstBytes.length + 80
+    const { store } = makeHarness(new Map([
+      [coverRemote, { bytes: firstBytes, type: 'image/jpeg' }],
+      ['https://provider.test/original-two.png', { bytes: secondBytes, type: 'image/png' }],
+    ]), cap)
+    const galleryId = await offlineGalleryId(selection)
+    await Promise.all([
+      store.ensureCover({ galleryId, entryId: 'cover:stable-one', remote: coverRemote, mimeType: 'image/jpeg' }),
+      store.ensureCover({ galleryId, entryId: 'cover:stable-two', remote: 'https://provider.test/original-two.png', mimeType: 'image/png' }),
+    ])
+    const first = await store.readThumbnail(galleryId, 'cover:stable-one')
+    const second = await store.readThumbnail(galleryId, 'cover:stable-two')
+    // Exactly one landed — the second check priced in the first fill's
+    // outstanding reservation even though its writes had not settled.
+    expect([first, second].filter(Boolean)).toHaveLength(1)
+    first?.fill(0)
+    second?.fill(0)
+  })
 })

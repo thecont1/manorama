@@ -343,69 +343,6 @@ export default function Viewer({ slug, galleryTitle, images: sourceImages, encry
   // selection existed — distinguished so the prefs write does not freeze
   // it into a saved selection.
   const galleryDefaultModeRef = useRef<Mode | null>(null)
-  useEffect(() => {
-    if (!encryptedResolver) return
-    const desired = new Map<string, { image: GalleryMediaItem; reference: MediaReference; preview: boolean; variantIndex: number; target: 'src' | 'poster' | 'variant' }>()
-    for (const [imageIndex, image] of sourceImages.entries()) {
-      // A video's MP4 is an original-window item — the clip only mounts
-      // inside the stage's mount radius anyway — while its poster is a
-      // still, prefetched on the preview window like every other thumb.
-      if (isVideoItem(image)) {
-        if (image.media && Math.abs(imageIndex - index) <= 2) desired.set(`original:${JSON.stringify(image.media)}`, { image, reference: image.media, preview: false, variantIndex: -1, target: 'src' })
-        if (image.poster.media && Math.abs(imageIndex - index) <= 8) desired.set(`preview:${JSON.stringify(image.poster.media)}`, { image, reference: image.poster.media, preview: true, variantIndex: -1, target: 'poster' })
-        continue
-      }
-      if (!image.media) continue
-      if (Math.abs(imageIndex - index) <= 2) desired.set(`original:${JSON.stringify(image.media)}`, { image, reference: image.media, preview: false, variantIndex: -1, target: 'src' })
-      if (Math.abs(imageIndex - index) <= 8) {
-        image.variants?.forEach((variant, variantIndex) => {
-          if (variant.media) desired.set(`preview:${JSON.stringify(variant.media)}`, { image, reference: variant.media, preview: true, variantIndex, target: 'variant' })
-        })
-      }
-    }
-    const held = resolvedWindowRef.current
-    for (const [key, request] of held) {
-      if (!desired.has(key)) {
-        encryptedResolver.release(request.reference, request.preview)
-        held.delete(key)
-      }
-    }
-    for (const [key, request] of desired) {
-      if (held.has(key)) continue
-      held.set(key, { reference: request.reference, preview: request.preview })
-      void encryptedResolver.acquire(request.reference, request.preview).then((url) => {
-        if (unmountedRef.current) return
-        const { image, target } = request
-        setResolvedMedia((previous) => {
-          const current = previous[image.id] ?? { previews: {} }
-          if (target === 'poster') return { ...previous, [image.id]: { ...current, poster: url } }
-          // Several variants may share one media reference — a vaulted
-          // lease points every rendition at the same entry — so a resolved
-          // preview fills every slot whose ref matches, not just the one
-          // the desired-map entry happened to record.
-          const previews = { ...current.previews }
-          if (target === 'variant') {
-            const refJson = JSON.stringify(request.reference)
-            image.variants?.forEach((variant, index) => {
-              if (variant.media && JSON.stringify(variant.media) === refJson) previews[index] = url
-            })
-          }
-          return { ...previous, [image.id]: { ...current, src: target === 'src' ? url : current.src, previews } }
-        })
-      }).catch(() => {
-        // Drop the held mark so a later pass over the same frame retries —
-        // corrupt or transient items stay on their SSR geometry, never a
-        // server decryptor.
-        held.delete(key)
-      })
-    }
-  }, [sourceImages, index, encryptedResolver])
-  useEffect(() => () => {
-    // Unmount or resolver swap: every held ref returns to the working set.
-    const held = resolvedWindowRef.current
-    for (const [, request] of held) encryptedResolver?.release(request.reference, request.preview)
-    held.clear()
-  }, [encryptedResolver])
   const resolvedSourceImages = useMemo(() => sourceImages.map((image) => {
     const resolved = resolvedMedia[image.id]
     if (!resolved) return image
@@ -805,6 +742,81 @@ export default function Viewer({ slug, galleryTitle, images: sourceImages, encry
   const verticalMruRef = useRef<number[]>([])
   const [stripActive, setStripActive] = useState<ReadonlySet<number>>(() => new Set([0, 1, 2, 3]))
   const stripMruRef = useRef<number[]>([])
+  useEffect(() => {
+    if (!encryptedResolver) return
+    // In vertical mode frames stack in document flow and the observer's
+    // visibility set is the true original window — index proximity says
+    // nothing about what is on screen. Previews get an eight-frame halo
+    // past either end of the visible span; other modes keep the
+    // index-centred windows.
+    const verticalBounds = effectiveMode === 'vertical' && verticalActive.size > 0
+      ? { min: Math.min(...verticalActive), max: Math.max(...verticalActive) }
+      : null
+    const nearOriginal = (imageIndex: number) =>
+      verticalBounds ? verticalActive.has(imageIndex) : Math.abs(imageIndex - index) <= 2
+    const nearPreview = (imageIndex: number) =>
+      verticalBounds ? imageIndex >= verticalBounds.min - 8 && imageIndex <= verticalBounds.max + 8 : Math.abs(imageIndex - index) <= 8
+    const desired = new Map<string, { image: GalleryMediaItem; reference: MediaReference; preview: boolean; variantIndex: number; target: 'src' | 'poster' | 'variant' }>()
+    for (const [imageIndex, image] of sourceImages.entries()) {
+      // A video's MP4 is an original-window item — the clip only mounts
+      // inside the stage's mount radius anyway — while its poster is a
+      // still, prefetched on the preview window like every other thumb.
+      if (isVideoItem(image)) {
+        if (image.media && nearOriginal(imageIndex)) desired.set(`original:${JSON.stringify(image.media)}`, { image, reference: image.media, preview: false, variantIndex: -1, target: 'src' })
+        if (image.poster.media && nearPreview(imageIndex)) desired.set(`preview:${JSON.stringify(image.poster.media)}`, { image, reference: image.poster.media, preview: true, variantIndex: -1, target: 'poster' })
+        continue
+      }
+      if (!image.media) continue
+      if (nearOriginal(imageIndex)) desired.set(`original:${JSON.stringify(image.media)}`, { image, reference: image.media, preview: false, variantIndex: -1, target: 'src' })
+      if (nearPreview(imageIndex)) {
+        image.variants?.forEach((variant, variantIndex) => {
+          if (variant.media) desired.set(`preview:${JSON.stringify(variant.media)}`, { image, reference: variant.media, preview: true, variantIndex, target: 'variant' })
+        })
+      }
+    }
+    const held = resolvedWindowRef.current
+    for (const [key, request] of held) {
+      if (!desired.has(key)) {
+        encryptedResolver.release(request.reference, request.preview)
+        held.delete(key)
+      }
+    }
+    for (const [key, request] of desired) {
+      if (held.has(key)) continue
+      held.set(key, { reference: request.reference, preview: request.preview })
+      void encryptedResolver.acquire(request.reference, request.preview).then((url) => {
+        if (unmountedRef.current) return
+        const { image, target } = request
+        setResolvedMedia((previous) => {
+          const current = previous[image.id] ?? { previews: {} }
+          if (target === 'poster') return { ...previous, [image.id]: { ...current, poster: url } }
+          // Several variants may share one media reference — a vaulted
+          // lease points every rendition at the same entry — so a resolved
+          // preview fills every slot whose ref matches, not just the one
+          // the desired-map entry happened to record.
+          const previews = { ...current.previews }
+          if (target === 'variant') {
+            const refJson = JSON.stringify(request.reference)
+            image.variants?.forEach((variant, index) => {
+              if (variant.media && JSON.stringify(variant.media) === refJson) previews[index] = url
+            })
+          }
+          return { ...previous, [image.id]: { ...current, src: target === 'src' ? url : current.src, previews } }
+        })
+      }).catch(() => {
+        // Drop the held mark so a later pass over the same frame retries —
+        // corrupt or transient items stay on their SSR geometry, never a
+        // server decryptor.
+        held.delete(key)
+      })
+    }
+  }, [sourceImages, index, effectiveMode, verticalActive, encryptedResolver])
+  useEffect(() => () => {
+    // Unmount or resolver swap: every held ref returns to the working set.
+    const held = resolvedWindowRef.current
+    for (const [, request] of held) encryptedResolver?.release(request.reference, request.preview)
+    held.clear()
+  }, [encryptedResolver])
   const positionFrameRef = useRef<number | null>(null)
   const viewportFrameRef = useRef<number | null>(null)
   const stageMeasurementsRef = useRef({ width: 0, height: 0, dpr: 0 })

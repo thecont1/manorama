@@ -178,6 +178,10 @@ export const thumbnailEntryId = (providerImageId: string): string => `thumb:${pr
  *  original, and so a kept original always wins the cell's probe order. */
 export const coverEntryId = (providerImageId: string): string => `cover:${providerImageId}`
 
+/** Cover entries are display cache, never kept-gallery bytes — progress
+ *  meters and completeness checks must not count them as saved media. */
+export const isCoverEntryId = (entryId: string): boolean => entryId.startsWith('cover:')
+
 /** The video file's own vault entry, sibling to its poster's thumb entry —
  *  a kept gallery holds both so an offline open plays the MP4 without the
  *  network the save was meant to remove. */

@@ -48,7 +48,7 @@ import {
   type OfflineGalleryStore,
 } from '../lib/offline-gallery'
 import { computeCachedGallery, OnDeviceLocalCompute, readImageFeatures } from '../lib/local-compute'
-import { thumbnailEntryId } from '../lib/thumbs'
+import { isCoverEntryId, thumbnailEntryId } from '../lib/thumbs'
 import { mimeTypeForItem, LibraryMediaLoader } from '../lib/library-media'
 import { cacheFillRegistry } from '../lib/cache-fill'
 import { copyText, type GallerySharePayload } from '../../app/lib/gallery-share'
@@ -160,6 +160,9 @@ export const LibraryDeviceStatus = ({
   useEffect(() => {
     if (!galleryId) return
     return cacheFillRegistry.subscribe(galleryId, (item) => {
+      // Cover caches publish on the same registry — a cover landing is not
+      // saved progress and must never light the meter.
+      if (isCoverEntryId(item.entryId)) return
       fillingRef.current = true
       setLiveSaved((saved) => Math.max(saved, item.index + 1))
     })

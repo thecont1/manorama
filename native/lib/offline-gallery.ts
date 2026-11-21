@@ -332,6 +332,9 @@ export class EncryptedOfflineGalleryStore implements OfflineGalleryStore {
    *  dead remote or a full vault is answered by the preview, not retries. */
   private readonly coverFills = new Map<string, Promise<void>>()
   private readonly coverAttempts = new Set<string>()
+  /** Bytes reserved by in-flight cover writes — priced into every later
+   *  cap check so concurrent fills cannot overdraw the vault together. */
+  private coverReservedBytes = 0
 
   constructor(options: {
     vault: OfflineVault
@@ -967,20 +970,27 @@ export class EncryptedOfflineGalleryStore implements OfflineGalleryStore {
     const response = await this.fetchImage(remote!, { signal })
     if (!response.ok) return
     const bytes = await this.readBoundedBody(response, signal)
+    const marker = encoder.encode(JSON.stringify({ v: 1, entryId }))
     try {
       throwIfAborted(signal)
       if (bytes.length === 0) return
+      // Capacity for the marker and the cover is reserved the moment the
+      // usage check passes — before either write starts — so two fills for
+      // different entry IDs can never race past the cap together: each
+      // later check prices in every outstanding reservation.
+      const needed = marker.length + bytes.length + VAULT_RECORD_OVERHEAD_BYTES * 2
       if (this.vault.cap !== null) {
         const usage = await this.vault.usage().catch(() => undefined)
-        if (!usage || usage.indexedBytes + bytes.length + VAULT_RECORD_OVERHEAD_BYTES > this.vault.cap) return
+        if (!usage || usage.indexedBytes + this.coverReservedBytes + needed > this.vault.cap) return
+        this.coverReservedBytes += needed
       }
-      // The marker lands first: a scope that ever holds covers can never be
-      // mistaken for a corrupt kept gallery while the bytes are in flight.
-      const marker = encoder.encode(JSON.stringify({ v: 1, entryId }))
       try {
+        // The marker lands first: a scope that ever holds covers can never be
+        // mistaken for a corrupt kept gallery while the bytes are in flight.
         await this.vault.write(galleryId, COVER_ENTRY_ID, marker, guard)
         await this.vault.write(galleryId, entryId, bytes, guard)
       } finally {
+        if (this.vault.cap !== null) this.coverReservedBytes -= needed
         marker.fill(0)
       }
       cacheFillRegistry.publish({ galleryId, item: { id: itemId ?? entryId, entryId, mimeType, index: 0 } })
