@@ -1,0 +1,12 @@
+{
+  "valid": true,
+  "collisionPairs": [],
+  "coverage": 0.346923828125,
+  "occupiedFraction": 0.228759765625,
+  "densityVariance": 0.025874078273773193,
+  "repetitionPenalty": 0.6,
+  "alignmentPenalty": 0.6353602094548624,
+  "largestGap": 224,
+  "score": 0.29437730049559657,
+  "warnings": []
+}

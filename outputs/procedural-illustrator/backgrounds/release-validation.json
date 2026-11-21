@@ -1,0 +1,26 @@
+{
+  "geometry": "valid",
+  "collisions": 0,
+  "motifs": 24,
+  "placements": 60,
+  "theme": "Camera and photography — optical marginalia",
+  "seed": 1843,
+  "tile": {
+    "width": 1024,
+    "height": 1024
+  },
+  "png": {
+    "width": 2048,
+    "height": 2048
+  },
+  "repeatPreview": {
+    "width": 4096,
+    "height": 4096
+  },
+  "identicalPaletteCoordinates": true,
+  "exactSvgReexport": true,
+  "exactPngReexport": true,
+  "deterministicRebuild": true,
+  "source": "hand-authored",
+  "modelCalls": 0
+}
