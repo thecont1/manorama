@@ -491,7 +491,10 @@ button { color: inherit; }
 /* max-width clamps to the frame: when a record's stored aspect is narrower
    than the real file's, the image letterboxes inside its slot instead of
    overflowing onto neighbouring frames (overflow: visible). Never crops. */
-.viewer-frame img { grid-area: 1 / 1; min-width: 0; min-height: 0; display: block; width: auto; height: auto; max-width: 100%; max-height: 100%; object-fit: contain; user-select: none; -webkit-user-drag: none; background: transparent; }
+/* A hair of corner rounding on every photograph in the gallery, at the
+   owner's request. It masks the box it lands in; the source bytes are
+   never re-encoded or cropped (invariants 2 and 13 unaffected). */
+.viewer-frame img { grid-area: 1 / 1; min-width: 0; min-height: 0; display: block; width: auto; height: auto; max-width: 100%; max-height: 100%; object-fit: contain; user-select: none; -webkit-user-drag: none; background: transparent; border-radius: 4px; }
 .viewer-frame .frame-ph { width: 100%; height: 100%; object-fit: contain; }
 /* The scanned placeholder is a flat SVG card, not a preview: when the
    staged image is smaller than its frame (the no-upscale cap) the card
@@ -1111,6 +1114,7 @@ body.magnifier-paused * { cursor: auto !important; }
   width: 100%;
   height: 100%;
   object-fit: contain;
+  border-radius: 4px;
   /* Crossfade in only once a frame has decoded — no black flash. */
   opacity: 0;
   transition: opacity .32s ease;
