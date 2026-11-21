@@ -47,7 +47,9 @@ describe('approved app canvas', () => {
     for (const surface of ['.admin-page', '.m-sheet', '.m-screen', '.native-welcome', '.native-global-view', '.native-editor', '.desktop-welcome']) {
       expect(selector).toContain(surface)
     }
-    for (const excluded of ['.viewer-stage', '.viewer-frame', '.viewer-ad-frame', '.viewer-endcap', 'img', 'button', '.lib-card']) {
+    /* The curtain opens the gallery and stays a plain veil: the artwork is
+       the first reveal, so it never wears the app wall either. */
+    for (const excluded of ['.viewer-stage', '.viewer-frame', '.viewer-ad-frame', '.viewer-endcap', '.curtain', 'img', 'button', '.lib-card']) {
       expect(selector).not.toContain(excluded)
     }
     expect(css).not.toContain('backdrop-filter:')

@@ -5,7 +5,10 @@
 html.light { --app-canvas-image: url('/app-canvas-light.svg'); }
 /* Viewer sheets stay dark even when the owner's Library is Light. */
 .m-dark { --app-canvas-image: url('/app-canvas-dark.svg'); }
-.curtain, .viewer-filmstrip { --app-canvas-image: url('/app-canvas-dark.svg'); }
+/* The curtain is the wait before the gallery, not the gallery itself: it
+   keeps its own dark veil so the artwork stays the first reveal. The
+   filmstrip still wears the wall. */
+.viewer-filmstrip { --app-canvas-image: url('/app-canvas-dark.svg'); }
 
 /* Native markers are present before first paint. The web renderer stamps
    app-page only outside the public marketing pages and embedded demo.
@@ -17,7 +20,6 @@ html:root:is(.app-page, :has(body.manorama-native), :has(body.manorama-desktop))
   .admin-drawer-panel,
   .m-screen,
   .m-sheet,
-  .curtain,
   .viewer-filmstrip,
   .native-list-shell,
   .native-settings,
