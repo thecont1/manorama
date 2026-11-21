@@ -19,7 +19,7 @@ describe('network-first encrypted galleries', () => {
     const store: OfflineGalleryStore = {
       cache: async (_selection, _gallery, _signal, _progress, _ready, encryptedSession) => { shared = encryptedSession; return { status: 'complete', images: 1 } },
       inspect: async () => ({ status: 'missing', images: 0 }), open: async () => undefined, invalidate: async () => {},
-      listGalleries: async () => [], readThumbnail: async () => undefined, gridGallery: async () => undefined, listGridGalleries: async () => [], purgeGallery: async () => {}, purgeAll: async () => {},
+      listGalleries: async () => [], readThumbnail: async () => undefined, ensureCover: async () => {}, gridGallery: async () => undefined, listGridGalleries: async () => [], purgeGallery: async () => {}, purgeAll: async () => {},
     }
     const result = await openGalleryNetworkFirst({
       selection: { owner: 'owner', slug: 'encrypted', galleryId: '0123456789abcdef', sourceUrl: 'https://mega.nz/folder/AbCdEf12#secret' },
@@ -37,7 +37,7 @@ describe('network-first encrypted galleries', () => {
     const store: OfflineGalleryStore = {
       cache: async () => ({ status: 'complete', images: 1 }),
       inspect: async () => ({ status: 'missing', images: 0 }), open: async () => undefined, invalidate: async () => {},
-      listGalleries: async () => [], readThumbnail: async () => undefined, gridGallery: async () => undefined, listGridGalleries: async () => [], purgeGallery: async () => {}, purgeAll: async () => {},
+      listGalleries: async () => [], readThumbnail: async () => undefined, ensureCover: async () => {}, gridGallery: async () => undefined, listGridGalleries: async () => [], purgeGallery: async () => {}, purgeAll: async () => {},
     }
     await expect(openGalleryNetworkFirst({
       selection: { owner: 'owner', slug: 'encrypted', galleryId: '0123456789abcdef' },
@@ -51,7 +51,7 @@ describe('network-first encrypted galleries', () => {
     const store: OfflineGalleryStore = {
       cache: async () => ({ status: 'complete', images: 1 }),
       inspect: async () => ({ status: 'missing', images: 0 }), open: async () => lease, invalidate: async () => {},
-      listGalleries: async () => [], readThumbnail: async () => undefined, gridGallery: async () => undefined, listGridGalleries: async () => [], purgeGallery: async () => {}, purgeAll: async () => {},
+      listGalleries: async () => [], readThumbnail: async () => undefined, ensureCover: async () => {}, gridGallery: async () => undefined, listGridGalleries: async () => [], purgeGallery: async () => {}, purgeAll: async () => {},
     }
     const result = await openGalleryNetworkFirst({
       selection: { owner: 'owner', slug: 'encrypted', galleryId: '0123456789abcdef' },

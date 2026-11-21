@@ -12,10 +12,13 @@ import { EncryptedSourceLockedError, EncryptedSourceMismatchError, persistEncryp
 import { nativeGalleryKeyStore } from './gallery-key-store'
 import type { CacheFillItem } from './cache-fill'
 import { cacheFillRegistry } from './cache-fill'
-import { keylessSourceUrl, manifestIsEncryptedSource } from '../../packages/core/encrypted-source'
+import { keylessSourceUrl, manifestIsEncryptedSource, type MediaReference } from '../../packages/core/encrypted-source'
 
 const METADATA_VERSION = 1
 const METADATA_ENTRY_ID = 'offline-gallery:metadata:v1'
+/** Marks a vault scope that holds Library covers but no committed gallery —
+ *  its presence distinguishes a cover cache from a corrupt kept gallery. */
+const COVER_ENTRY_ID = 'offline-gallery:cover:v1'
 const encoder = new TextEncoder()
 const decoder = new TextDecoder()
 
@@ -43,6 +46,10 @@ export type OfflineGalleryLease = NativeGalleryResponse & {
    *  it against the fresh network manifest to tell a real change from a
    *  same-bytes re-open. */
   committedManifest: GalleryManifest
+  /** The vault-backed media resolver — media materializes inside the
+   *  viewer's preload window instead of the whole gallery decrypting at
+   *  open. Dispose with the lease: it revokes every minted object URL. */
+  encryptedResolver?: EncryptedMediaResolver
   dispose(): void
 }
 
@@ -94,6 +101,11 @@ export interface OfflineGalleryStore {
    *  scanning the grid visits every gallery, and counting that as use would
    *  flush the eviction signal a purge-cap decision relies on. */
   readThumbnail(galleryId: string, entryId: string): Promise<Uint8Array | undefined>
+  /** Vault a Library cover/preview under a `cover:` entry when one remote
+   *  fetch can buy every later visit an offline render. Opportunistic:
+   *  skipped silently when the entry exists, the vault has no headroom, or
+   *  the remote cannot be read — the cell's remote preview carries on. */
+  ensureCover(options: { galleryId: string; entryId: string; remote?: string; mimeType: string; itemId?: string; signal?: AbortSignal }): Promise<void>
   /** Purge one gallery by vault identity and release its live object URLs. */
   purgeGallery(galleryId: string): Promise<void>
   /** Cryptographic erasure of every cached gallery and every live object URL. */
@@ -108,7 +120,7 @@ export interface OfflineObjectUrlProvider {
   revoke(url: string): void
 }
 
-type OfflineVault = Pick<EncryptedVault, 'read' | 'readMany' | 'write' | 'remove' | 'clearGallery' | 'clear' | 'epoch' | 'listGalleryIds' | 'touch' | 'cap'>
+type OfflineVault = Pick<EncryptedVault, 'read' | 'write' | 'remove' | 'clearGallery' | 'clear' | 'epoch' | 'listGalleryIds' | 'touch' | 'cap' | 'usage'>
 
 /** The overhead write() adds to every entry — record header, nonce and GCM
  *  tag (HEADER_BYTES + NONCE_BYTES + TAG_BYTES in vault.ts). A body that
@@ -138,14 +150,6 @@ type MetadataRead =
   | { status: 'missing' | 'corrupt' }
 
 const defaultFetch: OfflineImageFetch = (input, init) => fetch(input, init)
-const defaultObjectUrls: OfflineObjectUrlProvider = {
-  create(bytes, mimeType) {
-    return URL.createObjectURL(new Blob([bytes.slice().buffer], { type: mimeType }))
-  },
-  revoke(url) {
-    URL.revokeObjectURL(url)
-  },
-}
 
 const normalizedSelection = (selection: GallerySelection): GallerySelection => ({
   owner: selection.owner.trim(),
@@ -318,22 +322,27 @@ const throwIfAborted = (signal?: AbortSignal): void => {
 export class EncryptedOfflineGalleryStore implements OfflineGalleryStore {
   private readonly vault: OfflineVault
   private readonly fetchImage: OfflineImageFetch
-  private readonly objectUrls: OfflineObjectUrlProvider
   private readonly openEncrypted?: (selection: GallerySelection) => Promise<EncryptedClientSession>
-  /** Live decrypted object URLs, by gallery. A confirmed purge revokes them so
-   *  "erased" never leaves a readable copy held by an open lease. */
-  private readonly liveUrls = new Map<string, Set<string>>()
+  /** Live media resolvers, by gallery. A confirmed purge disposes them —
+   *  revoking every minted object URL — so "erased" never leaves a readable
+   *  copy held by an open lease. */
+  private readonly liveResolvers = new Map<string, Set<EncryptedMediaResolver>>()
   private readonly fillOwners = new Map<string, object>()
+  /** Cover fills join in flight and attempt once per entry per session — a
+   *  dead remote or a full vault is answered by the preview, not retries. */
+  private readonly coverFills = new Map<string, Promise<void>>()
+  private readonly coverAttempts = new Set<string>()
+  /** Bytes reserved by in-flight cover writes — priced into every later
+   *  cap check so concurrent fills cannot overdraw the vault together. */
+  private coverReservedBytes = 0
 
   constructor(options: {
     vault: OfflineVault
     fetchImage?: OfflineImageFetch
-    objectUrls?: OfflineObjectUrlProvider
     openEncryptedSession?: (selection: GallerySelection) => Promise<EncryptedClientSession>
   }) {
     this.vault = options.vault
     this.fetchImage = options.fetchImage ?? defaultFetch
-    this.objectUrls = options.objectUrls ?? defaultObjectUrls
     this.openEncrypted = options.openEncryptedSession
   }
 
@@ -342,31 +351,31 @@ export class EncryptedOfflineGalleryStore implements OfflineGalleryStore {
     return openNativeEncryptedSession(selection)
   }
 
-  private trackUrl(galleryId: string, url: string): void {
-    let urls = this.liveUrls.get(galleryId)
-    if (!urls) this.liveUrls.set(galleryId, (urls = new Set()))
-    urls.add(url)
+  private trackResolver(galleryId: string, resolver: EncryptedMediaResolver): void {
+    let resolvers = this.liveResolvers.get(galleryId)
+    if (!resolvers) this.liveResolvers.set(galleryId, (resolvers = new Set()))
+    resolvers.add(resolver)
   }
 
-  private releaseUrls(galleryId?: string): void {
-    const release = (urls: Set<string>) => { for (const url of urls) this.objectUrls.revoke(url) }
+  private untrackResolver(galleryId: string, resolver: EncryptedMediaResolver): void {
+    const resolvers = this.liveResolvers.get(galleryId)
+    if (!resolvers) return
+    resolvers.delete(resolver)
+    if (resolvers.size === 0) this.liveResolvers.delete(galleryId)
+  }
+
+  private releaseResolvers(galleryId?: string): void {
+    const release = (resolvers: Set<EncryptedMediaResolver>) => { for (const resolver of [...resolvers]) resolver.dispose() }
     if (galleryId === undefined) {
-      for (const urls of this.liveUrls.values()) release(urls)
-      this.liveUrls.clear()
+      for (const resolvers of this.liveResolvers.values()) release(resolvers)
+      this.liveResolvers.clear()
       return
     }
-    const urls = this.liveUrls.get(galleryId)
-    if (urls) {
-      release(urls)
-      this.liveUrls.delete(galleryId)
+    const resolvers = this.liveResolvers.get(galleryId)
+    if (resolvers) {
+      release(resolvers)
+      this.liveResolvers.delete(galleryId)
     }
-  }
-
-  private untrackUrl(galleryId: string, url: string): void {
-    const urls = this.liveUrls.get(galleryId)
-    if (!urls) return
-    urls.delete(url)
-    if (urls.size === 0) this.liveUrls.delete(galleryId)
   }
 
   private async readMetadata(selection: GallerySelection, galleryId: string, touch = true): Promise<MetadataRead> {
@@ -763,7 +772,7 @@ export class EncryptedOfflineGalleryStore implements OfflineGalleryStore {
     const selection = requireSelection(rawSelection)
     const galleryId = await offlineGalleryId(selection)
     await this.vault.clearGallery(galleryId)
-    this.releaseUrls(galleryId)
+    this.releaseResolvers(galleryId)
   }
 
   async open(rawSelection: GallerySelection): Promise<OfflineGalleryLease | undefined> {
@@ -772,70 +781,85 @@ export class EncryptedOfflineGalleryStore implements OfflineGalleryStore {
     const metadata = await this.readMetadata(selection, galleryId)
     if (metadata.status !== 'ready') return undefined
 
-    const urls: string[] = []
-    const localById = new Map<string, string>()
-    const videoById = new Map<string, string>()
-    try {
-      // One serialized slot, batched decrypts: a whole gallery's ciphertext
-      // comes back in parallel windows instead of one entry at a time. A
-      // video item contributes both its still entry and its MP4 entry.
-      // Every plaintext is live simultaneously — a full-cap vault can reach
-      // ~1.7x its bytes in heap and blob storage at open. Tracked in #265.
-      const entryIds = metadata.value.images.flatMap((image) => image.videoEntryId ? [image.entryId, image.videoEntryId] : [image.entryId])
-      const results = await this.vault.readMany(galleryId, entryIds)
-      if (results.some((bytes) => !bytes)) {
-        for (const bytes of results) bytes?.fill(0)
-        await this.vault.remove(galleryId, METADATA_ENTRY_ID)
-        throw new Error('Offline gallery cache is incomplete')
-      }
-      let cursor = 0
-      for (const image of metadata.value.images) {
-        const bytes = results[cursor++]!
-        const videoBytes = image.videoEntryId ? results[cursor++] : undefined
-        try {
-          const url = this.objectUrls.create(bytes, image.mimeType)
-          urls.push(url)
-          this.trackUrl(galleryId, url)
-          localById.set(image.id, url)
-        } finally {
-          bytes.fill(0)
-        }
-        if (videoBytes) {
-          try {
-            const url = this.objectUrls.create(videoBytes, image.videoMimeType ?? 'video/mp4')
-            urls.push(url)
-            this.trackUrl(galleryId, url)
-            videoById.set(image.id, url)
-          } finally {
-            videoBytes.fill(0)
-          }
-        }
-      }
+    // Completeness without a decrypt: `touch` probes index membership and,
+    // when the storage provider can list, the files themselves — one walk
+    // answers every entry. The plaintext itself only materializes later,
+    // inside the viewer's preload window.
+    const entryIds = metadata.value.images.flatMap((image) => image.videoEntryId ? [image.entryId, image.videoEntryId] : [image.entryId])
+    if ((await this.vault.touch(galleryId, entryIds)).length > 0) {
+      await this.vault.remove(galleryId, METADATA_ENTRY_ID)
+      return undefined
+    }
 
+    // Media resolves on demand through the same bounded, ref-counted
+    // resolver online encrypted galleries use — the stage holds only its
+    // preload window of decrypted bytes rather than the whole gallery's
+    // plaintext at once, the ~1.7x-of-vault heap spike the eager
+    // readMany+mint path produced (#265). A frame away from the window
+    // keeps its placeholder geometry until it is approached; opening a
+    // gallery now costs only its metadata read.
+    const resolver = new EncryptedMediaResolver({
+      materialize: async (reference, _preview, signal) => {
+        if (reference.kind !== 'encrypted' || reference.provider !== 'vault') throw new Error('Unsupported media reference')
+        if (signal?.aborted) throw new DOMException('Aborted', 'AbortError')
+        const bytes = await this.vault.read(galleryId, reference.entryId)
+        if (!bytes) throw new Error('Vault entry is missing')
+        if (signal?.aborted) {
+          bytes.fill(0)
+          throw new DOMException('Aborted', 'AbortError')
+        }
+        return { bytes, mimeType: reference.mimeType }
+      },
+      dispose: () => this.untrackResolver(galleryId, resolver),
+    })
+    this.trackResolver(galleryId, resolver)
+
+    const mimeByEntry = new Map<string, string>()
+    for (const image of metadata.value.images) {
+      mimeByEntry.set(image.entryId, image.mimeType)
+      if (image.videoEntryId) mimeByEntry.set(image.videoEntryId, image.videoMimeType ?? 'video/mp4')
+    }
+    const vaultRef = (entryId: string): MediaReference => {
+      const mimeType = mimeByEntry.get(entryId)
+      if (!mimeType) throw new Error('Offline gallery cache is incomplete')
+      return { kind: 'encrypted', provider: 'vault', entryId, mimeType }
+    }
+
+    try {
       const manifest: GalleryManifest = {
         ...metadata.value.manifest,
-        images: metadata.value.manifest.images.map((image) => {
-          const stillSrc = localById.get(image.id)
-          if (!stillSrc) throw new Error('Offline gallery cache is incomplete')
-          // Provider media refs must not survive into the lease: any resolver
-          // that sees one materializes it over the network, which a saved
-          // copy promised not to need. The stored manifest keeps its refs
-          // verbatim — fills compare unchangedness against it.
+        images: metadata.value.manifest.images.map((image, index) => {
+          const cached = metadata.value.images[index]
+          if (!cached || cached.id !== image.id) throw new Error('Offline gallery cache is incomplete')
+          const stillRef = vaultRef(cached.entryId)
+          // Provider media refs must not survive into the lease: the vault
+          // resolver rejects them, and any resolver that honoured one would
+          // materialize it over the network — which a saved copy promised
+          // not to need. Image-bound srcs take the item's own placeholder
+          // so an unresolved frame shows its stand-in, never a dead URL.
           const { media: _media, ...rest } = image as GalleryMediaItem & { media?: unknown }
           const variants = image.variants?.map((variant) => {
             const { media: _variantMedia, ...vrest } = variant
-            return { ...vrest, src: stillSrc }
+            // A still's variants all resolve to the original — the vault
+            // stores no rendition — while a video's variants keep no media:
+            // its poster is the only still, resolved through poster.media.
+            return { ...vrest, src: image.placeholder, ...(isVideoItem(image) ? {} : { media: stillRef }) }
           })
           if (isVideoItem(image)) {
-            const videoSrc = videoById.get(image.id)
-            if (!videoSrc) throw new Error('Offline gallery cache is incomplete')
-            return { ...rest, src: videoSrc, poster: { ...image.poster, src: stillSrc }, variants }
+            if (!cached.videoEntryId) throw new Error('Offline gallery cache is incomplete')
+            const { media: _posterMedia, ...posterRest } = image.poster
+            return {
+              ...rest,
+              // The <video> element only mounts inside the stage's mount
+              // radius; an empty src errors instantly and recovers the
+              // moment the resolver hands the MP4 over.
+              src: '',
+              media: vaultRef(cached.videoEntryId),
+              poster: { ...posterRest, src: image.placeholder, media: stillRef },
+              variants,
+            }
           }
-          return {
-            ...rest,
-            src: stillSrc,
-            variants,
-          }
+          return { ...rest, src: image.placeholder, media: stillRef, variants }
         }),
       }
       let disposed = false
@@ -844,20 +868,15 @@ export class EncryptedOfflineGalleryStore implements OfflineGalleryStore {
         manifest,
         committedManifest: metadata.value.manifest,
         settings: metadata.value.settings,
+        encryptedResolver: resolver,
         dispose: () => {
           if (disposed) return
           disposed = true
-          for (const url of urls) {
-            this.objectUrls.revoke(url)
-            this.untrackUrl(galleryId, url)
-          }
+          resolver.dispose()
         },
       }
     } catch {
-      for (const url of urls) {
-        this.objectUrls.revoke(url)
-        this.untrackUrl(galleryId, url)
-      }
+      resolver.dispose()
       return undefined
     }
   }
@@ -866,18 +885,22 @@ export class EncryptedOfflineGalleryStore implements OfflineGalleryStore {
     const summaries: OfflineGallerySummary[] = []
     for (const galleryId of await this.vault.listGalleryIds()) {
       const metadata = await this.readMetadataById(galleryId)
-      summaries.push(
-        metadata.status === 'ready'
-          ? {
-              status: 'cached',
-              galleryId,
-              owner: metadata.value.owner,
-              slug: metadata.value.slug,
-              title: metadata.value.manifest.title,
-              images: metadata.value.images.length,
-            }
-          : { status: 'corrupt', galleryId },
-      )
+      if (metadata.status !== 'ready') {
+        // A scope of covers is a cache, not a damaged gallery — skip it
+        // silently; anything else without metadata is genuinely corrupt.
+        if ((await this.vault.touch(galleryId, [COVER_ENTRY_ID])).length > 0) {
+          summaries.push({ status: 'corrupt', galleryId })
+        }
+        continue
+      }
+      summaries.push({
+        status: 'cached',
+        galleryId,
+        owner: metadata.value.owner,
+        slug: metadata.value.slug,
+        title: metadata.value.manifest.title,
+        images: metadata.value.images.length,
+      })
     }
     return summaries
   }
@@ -916,16 +939,76 @@ export class EncryptedOfflineGalleryStore implements OfflineGalleryStore {
     return this.vault.read(galleryId, entryId, { touch: false })
   }
 
+  async ensureCover(options: { galleryId: string; entryId: string; remote?: string; mimeType: string; itemId?: string; signal?: AbortSignal }): Promise<void> {
+    const { galleryId, entryId, remote } = options
+    if (!galleryId || !entryId || !remote || remote.startsWith('data:')) return
+    const key = `${galleryId}${entryId}`
+    const prior = this.coverFills.get(key)
+    if (prior) return prior
+    if (this.coverAttempts.has(key)) return
+    this.coverAttempts.add(key)
+    const task = this.ensureCoverInner(options).catch(() => {})
+    this.coverFills.set(key, task)
+    try {
+      await task
+    } finally {
+      this.coverFills.delete(key)
+    }
+  }
+
+  /** One remote fetch buys every later Library visit an offline render. The
+   *  write is gated on headroom: a capped vault close to full must not let a
+   *  cover LRU-evict a kept gallery's entries — covers degrade to their
+   *  remote preview until space frees. */
+  private async ensureCoverInner(options: { galleryId: string; entryId: string; remote?: string; mimeType: string; itemId?: string; signal?: AbortSignal }): Promise<void> {
+    const { galleryId, entryId, remote, mimeType, itemId, signal } = options
+    // A purge or fill starting mid-work must not let this commit behind it.
+    const guard = { since: this.vault.epoch() }
+    // An existing entry — a cover from an earlier session — skips the fetch
+    // entirely; the attempt set only dedupes inside one session.
+    if ((await this.vault.touch(galleryId, [entryId])).length === 0) return
+    const response = await this.fetchImage(remote!, { signal })
+    if (!response.ok) return
+    const bytes = await this.readBoundedBody(response, signal)
+    const marker = encoder.encode(JSON.stringify({ v: 1, entryId }))
+    try {
+      throwIfAborted(signal)
+      if (bytes.length === 0) return
+      // Capacity for the marker and the cover is reserved the moment the
+      // usage check passes — before either write starts — so two fills for
+      // different entry IDs can never race past the cap together: each
+      // later check prices in every outstanding reservation.
+      const needed = marker.length + bytes.length + VAULT_RECORD_OVERHEAD_BYTES * 2
+      if (this.vault.cap !== null) {
+        const usage = await this.vault.usage().catch(() => undefined)
+        if (!usage || usage.indexedBytes + this.coverReservedBytes + needed > this.vault.cap) return
+        this.coverReservedBytes += needed
+      }
+      try {
+        // The marker lands first: a scope that ever holds covers can never be
+        // mistaken for a corrupt kept gallery while the bytes are in flight.
+        await this.vault.write(galleryId, COVER_ENTRY_ID, marker, guard)
+        await this.vault.write(galleryId, entryId, bytes, guard)
+      } finally {
+        if (this.vault.cap !== null) this.coverReservedBytes -= needed
+        marker.fill(0)
+      }
+      cacheFillRegistry.publish({ galleryId, item: { id: itemId ?? entryId, entryId, mimeType, index: 0 } })
+    } finally {
+      bytes.fill(0)
+    }
+  }
+
   async purgeGallery(galleryId: string): Promise<void> {
-    // The vault's deletion checks run first: live URLs are released only after
-    // the purge is confirmed, so a failed erase never blanks a healthy view.
+    // The vault's deletion checks run first: live resolvers are released only
+    // after the purge is confirmed, so a failed erase never blanks a healthy view.
     await this.vault.clearGallery(galleryId)
-    this.releaseUrls(galleryId)
+    this.releaseResolvers(galleryId)
   }
 
   async purgeAll(): Promise<void> {
     await this.vault.clear()
-    this.releaseUrls()
+    this.releaseResolvers()
   }
 }
 

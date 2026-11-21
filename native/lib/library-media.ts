@@ -1,4 +1,6 @@
+import { cacheFillRegistry, type CacheFillRegistry } from './cache-fill'
 import type { OfflineObjectUrlProvider } from './offline-gallery'
+import { isCoverEntryId } from './thumbs'
 
 export const LIBRARY_MEDIA_MAX_LIVE_URLS = 24
 export const LIBRARY_MEDIA_MAX_BLOB_BYTES = 64 * 1024 * 1024
@@ -12,6 +14,10 @@ export type LibraryMediaCell = {
   entryId: string
   mimeType: string
   remote?: string
+  /** A second vault address probed after `entryId` misses — the `cover:`
+   *  entry a lazy cover fill may have written. Kept originals are probed
+   *  first so a saved copy can never be shadowed by its cover. */
+  coverId?: string
 }
 
 export type LibraryMediaLease = {
@@ -34,6 +40,10 @@ type LiveEntry = {
   bytes: number
   pins: number
   oversized: boolean
+  /** Populated from the cell's coverId after its entryId missed — a cover
+   *  stands in until the kept thumbnail lands, then must be invalidated so
+   *  the next read promotes the real entry. */
+  coverBacked: boolean
 }
 
 /** The still every non-playing rail surface shows: the provider's own first
@@ -90,11 +100,19 @@ export const mimeTypeForItem = (item: {
 export class LibraryMediaLoader {
   private readonly read: (galleryId: string, entryId: string) => Promise<Uint8Array | undefined>
   private readonly objectUrls: OfflineObjectUrlProvider
+  private readonly onRemoteFallback?: (cell: LibraryMediaCell) => void
+  private readonly fillRegistry: CacheFillRegistry
   private readonly maxLiveUrls: number
   private readonly maxBlobBytes: number
   private readonly maxConcurrent: number
   private readonly live = new Map<string, LiveEntry>()
   private readonly inflight = new Map<string, Promise<CellOutcome | undefined>>()
+  /** Per-gallery fill subscriptions, opened lazily the first time a cell
+   *  resolves through its coverId so a thumbnail fill can displace it. */
+  private readonly fillListeners = new Map<string, () => void>()
+  /** Thumbnail fills observed while a cover read was in flight — the late
+   *  read loops and re-reads rather than pooling bytes it knows are stale. */
+  private readonly thumbnailFills = new Set<string>()
   private readonly waiting: Array<() => void> = []
   private readonly budgetWaiters: Array<() => void> = []
   private readonly generations = new Map<string, number>()
@@ -105,12 +123,20 @@ export class LibraryMediaLoader {
   constructor(options: {
     read: (galleryId: string, entryId: string) => Promise<Uint8Array | undefined>
     objectUrls: OfflineObjectUrlProvider
+    /** Fires when a cell falls back to its remote preview — the seam a cover
+     *  cache uses to vault what the vault was missing. */
+    onRemoteFallback?: (cell: LibraryMediaCell) => void
+    /** Fill events a cover-backed entry listens for — injectable so a test
+     *  can drive arrivals without touching the shared singleton. */
+    fillRegistry?: CacheFillRegistry
     maxLiveUrls?: number
     maxBlobBytes?: number
     maxConcurrent?: number
   }) {
     this.read = options.read
     this.objectUrls = options.objectUrls
+    this.onRemoteFallback = options.onRemoteFallback
+    this.fillRegistry = options.fillRegistry ?? cacheFillRegistry
     this.maxLiveUrls = options.maxLiveUrls ?? LIBRARY_MEDIA_MAX_LIVE_URLS
     this.maxBlobBytes = options.maxBlobBytes ?? LIBRARY_MEDIA_MAX_BLOB_BYTES
     this.maxConcurrent = options.maxConcurrent ?? LIBRARY_MEDIA_MAX_CONCURRENT
@@ -168,6 +194,9 @@ export class LibraryMediaLoader {
    *  late reads are revoked on arrival, parked jobs settle as misses. */
   release(): void {
     this.released = true
+    for (const unsubscribe of this.fillListeners.values()) unsubscribe()
+    this.fillListeners.clear()
+    this.thumbnailFills.clear()
     for (const [key, entry] of [...this.live.entries()]) this.evict(key, entry)
     this.wakeBudgetWaiters()
   }
@@ -177,7 +206,12 @@ export class LibraryMediaLoader {
     const url = await this.vaultUrl(cell, key, generation)
     if (url === undefined) {
       if (this.released || this.stale(cell, generation)) return undefined
-      if (cell.remote !== undefined) return { kind: 'remote', src: cell.remote }
+      if (cell.remote !== undefined) {
+        // The hook is informational: a listener that throws must never
+        // turn a recoverable remote preview into a failed resolve.
+        try { this.onRemoteFallback?.(cell) } catch {}
+        return { kind: 'remote', src: cell.remote }
+      }
       return { kind: 'none', src: undefined }
     }
     return { kind: 'vault' }
@@ -187,9 +221,16 @@ export class LibraryMediaLoader {
     for (;;) {
       // A vault read error is a miss, not a failure — the cell falls back to
       // its remote preview rather than stranding every acquirer on the job.
-      const bytes = await this.read(cell.galleryId, cell.entryId).catch(() => undefined)
+      const kept = await this.read(cell.galleryId, cell.entryId).catch(() => undefined)
+      const bytes = kept ?? (cell.coverId !== undefined ? await this.read(cell.galleryId, cell.coverId).catch(() => undefined) : undefined)
       if (this.released || this.stale(cell, generation)) { bytes?.fill(0); return undefined }
       if (!bytes) return undefined
+      // A thumbnail fill can land while the cover read is in flight — the
+      // bytes in hand are already outranked, so loop and re-read rather
+      // than pool a cover the vault has since outgrown.
+      if (this.thumbnailFills.delete(key)) { bytes.fill(0); continue }
+      const coverBacked = kept === undefined
+      if (coverBacked) this.ensureFillListener(cell.galleryId)
       // A frame bigger than the entire budget is still shown — alone. It is
       // marked so release revokes it instead of pooling it for later.
       const oversized = bytes.length > this.maxBlobBytes
@@ -197,7 +238,7 @@ export class LibraryMediaLoader {
       if (oversized || this.evictUntilFits(bytes.length)) {
         try {
           const url = this.objectUrls.create(bytes, cell.mimeType)
-          const entry: LiveEntry = { galleryId: cell.galleryId, url, bytes: bytes.length, pins: 0, oversized }
+          const entry: LiveEntry = { galleryId: cell.galleryId, url, bytes: bytes.length, pins: 0, oversized, coverBacked }
           this.liveBytes += entry.bytes
           this.live.set(key, entry)
           return url
@@ -255,6 +296,26 @@ export class LibraryMediaLoader {
         this.wakeBudgetWaiters()
       },
     }
+  }
+
+  /** A thumbnail landing under an entryId outranks any cover pooled beneath
+   *  it: the cover-backed entry is invalidated so the next acquire re-reads
+   *  the kept bytes, while an entry filled by ordinary reads keeps its
+   *  cache hit. A fill arriving mid-read is recorded for the loop. */
+  private ensureFillListener(galleryId: string): void {
+    if (this.fillListeners.has(galleryId) || this.released) return
+    const prefix = `${galleryId}${CELL_KEY_SEPARATOR}`
+    this.fillListeners.set(galleryId, this.fillRegistry.subscribe(galleryId, (item) => {
+      if (isCoverEntryId(item.entryId)) return
+      const key = `${prefix}${item.entryId}`
+      const entry = this.live.get(key)
+      if (entry?.coverBacked) {
+        this.evict(key, entry)
+        this.wakeBudgetWaiters()
+      } else if (this.inflight.has(key)) {
+        this.thumbnailFills.add(key)
+      }
+    }))
   }
 
   private stale(cell: LibraryMediaCell, generation: number): boolean {

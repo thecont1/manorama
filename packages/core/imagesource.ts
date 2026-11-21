@@ -71,6 +71,9 @@ export type GalleryImage = {
  *  provider derivative (iCloud ships one per video) — never generated. */
 export type VideoPoster = {
   src: string
+  /** A vaulted copy's still behind a media reference — materializes lazily
+   *  through the local vault resolver instead of holding a blob URL. */
+  media?: MediaReference
   width: number
   height: number
 }
@@ -102,6 +105,9 @@ export type VideoItem = {
   contentVersion?: string
   /** Proxy URL for the H.264 MP4 derivative — Range-capable. */
   src: string
+  /** The MP4 itself behind a media reference — present on a vaulted lease,
+   *  where the clip materializes through the local vault resolver. */
+  media?: MediaReference
   fidelity?: 'original' | 'full-resolution-render' | 'display-derivative' | 'unknown'
   thumbnailFidelity?: 'original' | 'full-resolution-render' | 'display-derivative' | 'unknown'
   mimeType: 'video/mp4'

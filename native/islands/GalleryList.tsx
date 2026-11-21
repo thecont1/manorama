@@ -48,7 +48,7 @@ import {
   type OfflineGalleryStore,
 } from '../lib/offline-gallery'
 import { computeCachedGallery, OnDeviceLocalCompute, readImageFeatures } from '../lib/local-compute'
-import { thumbnailEntryId } from '../lib/thumbs'
+import { isCoverEntryId, thumbnailEntryId } from '../lib/thumbs'
 import { mimeTypeForItem, LibraryMediaLoader } from '../lib/library-media'
 import { cacheFillRegistry } from '../lib/cache-fill'
 import { copyText, type GallerySharePayload } from '../../app/lib/gallery-share'
@@ -160,6 +160,9 @@ export const LibraryDeviceStatus = ({
   useEffect(() => {
     if (!galleryId) return
     return cacheFillRegistry.subscribe(galleryId, (item) => {
+      // Cover caches publish on the same registry — a cover landing is not
+      // saved progress and must never light the meter.
+      if (isCoverEntryId(item.entryId)) return
       fillingRef.current = true
       setLiveSaved((saved) => Math.max(saved, item.index + 1))
     })
@@ -461,6 +464,17 @@ export default function GalleryList({ apiBase, owner, slug, deepLinkSelection, o
     objectUrls: {
       create: (bytes, mimeType) => URL.createObjectURL(new Blob([bytes.slice().buffer], { type: mimeType })),
       revoke: (url) => URL.revokeObjectURL(url),
+    },
+    // A cover miss is a one-time fetch: the vault keeps it so every later
+    // Library render resolves locally instead of paying the network again.
+    onRemoteFallback: (cell) => {
+      if (!cell.galleryId || !cell.coverId || !cell.remote) return
+      void offlineStore.ensureCover({
+        galleryId: cell.galleryId,
+        entryId: cell.coverId,
+        remote: cell.remote,
+        mimeType: cell.mimeType,
+      }).catch(() => {})
     },
   }), [offlineStore])
   const vaultSettingsController = useMemo(() => createVaultSettingsController({

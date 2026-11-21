@@ -75,6 +75,51 @@ describe('HeicImg encrypted media', () => {
     }
   })
 
+  test('a vault still resolves through its lease resolver and decodes only once the original lands', async () => {
+    const prevFetch = globals.fetch
+    const prevCreate = URL.createObjectURL
+    const fetched: string[] = []
+    globals.fetch = (async (input: unknown) => {
+      fetched.push(String(input))
+      return new Response(new Uint8Array([0xff, 0xd8, 0xff, 0xe0]))
+    }) as unknown as typeof fetch
+    let minted = 0
+    URL.createObjectURL = (() => `blob:decoded-${++minted}`) as typeof URL.createObjectURL
+    const acquired: Array<{ reference: MediaReference; preview: boolean }> = []
+    let released = 0
+    const resolver = {
+      acquire: async (reference: MediaReference, preview = false) => {
+        acquired.push({ reference, preview })
+        return 'blob:vault-original'
+      },
+      release: () => { released += 1 },
+    }
+    // A vault lease carries one entry per still: previewMedia and media are
+    // the same reference, never a rendition of their own.
+    const media: MediaReference = { kind: 'encrypted', provider: 'vault', entryId: 'thumb:still', mimeType: 'image/heic' }
+    const placeholder = 'data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 4 3"/>'
+    try {
+      const { HeicImg } = await import('./HeicImg')
+      const container = dom.document.createElement('div') as unknown as HTMLElement
+      mounts.mount(<HeicImg src={placeholder} preview={placeholder} media={media} previewMedia={media} encryptedResolver={resolver as never} filename="a.heic" alt="" />, container)
+      await new Promise((resolve) => setTimeout(resolve, 10))
+      // Acquisition ran through the lease resolver — never the mocked
+      // key-store path, whose 'blob:decrypted' would expose the bypass.
+      expect(acquired).toHaveLength(1)
+      // The placeholder is display furniture, not media: the only bytes ever
+      // fetched for decoding are the materialized original's.
+      expect(fetched).toEqual(['blob:vault-original'])
+      expect(container.querySelector('img')?.getAttribute('src')).toBe('blob:decoded-1')
+      // The decoded rendition frees the multi-MB original back to the bounded set.
+      expect(released).toBe(1)
+    } finally {
+      globals.fetch = prevFetch
+      URL.createObjectURL = prevCreate
+      const { clearHeicUrlCache } = await import('../../lib/heic')
+      clearHeicUrlCache()
+    }
+  })
+
   test('a failed rendition falls back to the original src', async () => {
     const { HeicImg } = await import('./HeicImg')
     const container = dom.document.createElement('div') as unknown as HTMLElement

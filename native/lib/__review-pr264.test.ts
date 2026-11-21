@@ -9,9 +9,8 @@ import { mkdtemp, writeFile, rm, symlink } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { defaultGallerySettings } from '../../app/lib/gallery-settings'
-import type { GalleryManifest, VideoItem } from '../../app/lib/imagesource'
+import { isVideoItem, type GalleryManifest, type VideoItem } from '../../app/lib/imagesource'
 import { EncryptedOfflineGalleryStore, offlineManifestMatches, openGalleryNetworkFirst } from './offline-gallery'
-import type { OfflineObjectUrlProvider } from './offline-gallery'
 import type { VaultKeyProvider, VaultStorageProvider } from './vault'
 import { EncryptedVault, webCryptoProvider } from './vault'
 import { scanLocalFolder, serveLocalMedia } from '../../app/lib/local-source'
@@ -39,16 +38,6 @@ class MemoryKeys implements VaultKeyProvider {
   async set(key: string, value: string) { this.values.set(key, value) }
   async remove(key: string) { this.values.delete(key) }
 }
-class FakeObjectUrls implements OfflineObjectUrlProvider {
-  readonly created: { url: string; bytes: Uint8Array; mimeType: string }[] = []
-  create(bytes: Uint8Array, mimeType: string) {
-    const url = `blob:probe-${this.created.length + 1}`
-    this.created.push({ url, bytes: bytes.slice(), mimeType })
-    return url
-  }
-  revoke() {}
-}
-
 const MP4 = new TextEncoder().encode('MP4-PLAINTEXT-MARKER-0123456789')
 const POSTER = new TextEncoder().encode('POSTER-PLAINTEXT-MARKER')
 
@@ -77,7 +66,6 @@ const harness = (maxBytes?: number) => {
     maxBytes,
     crypto: { ...webCryptoProvider, randomBytes: (n: number) => new Uint8Array(n).fill(3) },
   })
-  const urls = new FakeObjectUrls()
   const requested: string[] = []
   const responses = new Map<string, Uint8Array>([
     ['https://provider.test/poster.jpg', POSTER],
@@ -87,7 +75,6 @@ const harness = (maxBytes?: number) => {
   ])
   const store = new EncryptedOfflineGalleryStore({
     vault,
-    objectUrls: urls,
     fetchImage: async (url) => {
       requested.push(url)
       const bytes = responses.get(url)
@@ -96,7 +83,7 @@ const harness = (maxBytes?: number) => {
       return new Response(bytes.slice(), { headers: { 'content-type': type } })
     },
   })
-  return { storage, vault, urls, requested, store }
+  return { storage, vault, requested, store }
 }
 
 const manifestWith = (item: VideoItem): GalleryManifest => ({
@@ -116,20 +103,39 @@ const contains = (storage: MemoryStorage, needle: Uint8Array): boolean =>
   })
 
 describe('PR #264 probe: vaulted video bytes', () => {
-  test('the MP4 and its poster are ciphertext at rest and decrypt on open', async () => {
-    const { store, storage, urls } = harness()
+  test('the MP4 and its poster are ciphertext at rest and decrypt on demand', async () => {
+    const { store, storage } = harness()
     const manifest = manifestWith(video('https://provider.test/clip-a.mp4'))
     expect(await store.cache(selection, { manifest, settings: defaultGallerySettings(manifest) })).toEqual({ status: 'complete', images: 1 })
 
     expect(contains(storage, MP4)).toBe(false)
     expect(contains(storage, POSTER)).toBe(false)
 
-    const opened = await store.open(selection)
-    expect(opened?.manifest.images[0]?.src).toMatch(/^blob:/)
-    const videoBlob = urls.created.find((entry) => entry.mimeType === 'video/mp4')
-    console.log('[probe] video blob mime/bytes:', videoBlob?.mimeType, videoBlob?.bytes.length)
-    expect(videoBlob?.bytes).toEqual(MP4)
-    opened?.dispose()
+    const created: { url: string; blob: Blob }[] = []
+    const realCreate = URL.createObjectURL
+    URL.createObjectURL = ((blob: Blob) => {
+      const url = `blob:probe-${created.length + 1}`
+      created.push({ url, blob })
+      return url
+    }) as typeof URL.createObjectURL
+    try {
+      const opened = await store.open(selection)
+      const item = opened?.manifest.images[0]
+      expect(item && isVideoItem(item)).toBe(true)
+      if (!item || !isVideoItem(item)) return
+      // The lease carries vault media refs — the MP4 materializes through
+      // the resolver, not up front.
+      expect(item.src).toBe('')
+      expect(item.media).toMatchObject({ provider: 'vault' })
+      const url = await opened!.encryptedResolver!.acquire(item.media!, false)
+      const videoBlob = created.find((entry) => entry.url === url)
+      console.log('[probe] video blob mime/bytes:', videoBlob?.blob.type, videoBlob?.blob.size)
+      expect(videoBlob?.blob.type).toBe('video/mp4')
+      expect(new Uint8Array(await videoBlob!.blob.arrayBuffer())).toEqual(MP4)
+      opened?.dispose()
+    } finally {
+      URL.createObjectURL = realCreate
+    }
   })
 
   test('an oversize MP4 fails before it is buffered whole and leaves no commit record', async () => {
@@ -262,14 +268,13 @@ describe('PR #264 probe: revalidation drift predicate', () => {
 })
 
 describe('PR #264 probe: memory profile of a vault-first open', () => {
-  test('opening a kept gallery materialises the whole gallery in memory', async () => {
+  test('opening a kept gallery no longer materialises the whole gallery in memory', async () => {
     const CHUNK = 4 * 1024 * 1024
     const COUNT = 16
     const storage = new MemoryStorage()
     const vault = new EncryptedVault({ storage, keys: new MemoryKeys(), crypto: webCryptoProvider })
     const store = new EncryptedOfflineGalleryStore({
       vault,
-      objectUrls: new FakeObjectUrls(),
       fetchImage: async (url) => {
         const index = Number(/(\d+)\.jpg$/.exec(url)?.[1] ?? 0)
         const bytes = new Uint8Array(CHUNK)
@@ -295,12 +300,18 @@ describe('PR #264 probe: memory profile of a vault-first open', () => {
     const before = process.memoryUsage().heapUsed
     const opened = await store.open({ owner: 'owner', slug: 'big' })
     const peak = process.memoryUsage().heapUsed
+    const heapDelta = peak - before
     console.log('[probe] open() memory:', {
       galleryMiB: (CHUNK * COUNT) / 1024 / 1024,
-      heapDeltaMiB: +((peak - before) / 1024 / 1024).toFixed(1),
-      urls: opened?.manifest.images.length,
+      heapDeltaMiB: +(heapDelta / 1024 / 1024).toFixed(1),
+      resolver: Boolean(opened?.encryptedResolver),
     })
+    // #265's regression bound: the eager readMany+mint path held ~1.6x the
+    // gallery's bytes at open; the lazy lease holds metadata only — media
+    // materializes inside the viewer's preload window instead.
+    expect(heapDelta).toBeLessThan((CHUNK * COUNT) / 4)
     expect(opened?.manifest.images.length).toBe(COUNT)
+    expect(opened?.encryptedResolver).toBeDefined()
     opened?.dispose()
   })
 })

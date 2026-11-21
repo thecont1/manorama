@@ -2352,6 +2352,7 @@ export default function Catalogue({ apiBase }: { apiBase: string }) {
             gallery,
             galleryId: gallery.id,
             edit,
+            ...(lease.encryptedResolver ? { encryptedResolver: lease.encryptedResolver } : {}),
           })
           return
         }
@@ -2497,7 +2498,12 @@ export default function Catalogue({ apiBase }: { apiBase: string }) {
       disposeOpenLease()
       openLeaseRef.current = lease
       setNotice('Opened from your encrypted vault.')
-      setAccountViewer({ manifest: lease.manifest, settings: lease.settings, index: 0 })
+      setAccountViewer({
+        manifest: lease.manifest,
+        settings: lease.settings,
+        index: 0,
+        ...(lease.encryptedResolver ? { encryptedResolver: lease.encryptedResolver } : {}),
+      })
     } catch {
       setNotice('That saved copy could not be opened — remove it from Settings')
     }

@@ -14,6 +14,14 @@ test('marketing homepage and its embedded viewer never acquire the app canvas', 
   }
 })
 
+test('flat-authored pages — ops console, 404, policy — never acquire the app canvas', async ({ page }) => {
+  await page.goto(base, { waitUntil: 'domcontentloaded' })
+  for (const pageClass of ['ops-page', 'not-found', 'policy-page']) {
+    await page.setContent(`<html class="app-page"><head><link rel="stylesheet" href="${base}/app/styles.css"><link rel="stylesheet" href="${base}/app/styles/canvas.css"></head><body><main class="${pageClass}"></main></body></html>`)
+    expect(await page.locator('body').evaluate(el => getComputedStyle(el).backgroundImage), pageClass).not.toContain('app-canvas-')
+  }
+})
+
 /* CSS integration fixtures, not actual native UI or shell screenshots. Each
    shell loads its real stylesheet so later shorthand/theme rules are covered. */
 for (const shell of ['native', 'desktop'] as const) {

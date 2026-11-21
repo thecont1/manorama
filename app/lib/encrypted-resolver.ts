@@ -3,6 +3,9 @@ import type { GalleryImage } from './imagesource'
 
 export type MaterializedMedia = { bytes: Uint8Array; mimeType: string }
 export type EncryptedListing = { title: string; images: GalleryImage[]; truncated?: number }
+/** The slice of a client session the resolver actually drives — a provider
+ *  session satisfies it, and so does the local vault's materialize hook. */
+export type MaterializeSession = Pick<EncryptedClientSession, 'materialize' | 'dispose'>
 export type EncryptedClientSession = {
   provider: 'mega' | 'ente' | 'proton'
   sourceUrl: string
@@ -53,7 +56,7 @@ export class EncryptedMediaResolver {
   private bytes = 0
   private disposed = false
 
-  constructor(private readonly session: EncryptedClientSession, private readonly options: { maxBytes?: number } = {}) {}
+  constructor(private readonly session: EncryptedClientSession | MaterializeSession, private readonly options: { maxBytes?: number } = {}) {}
 
   private get maxBytes() { return this.options.maxBytes ?? 64 * 1024 * 1024 }
 

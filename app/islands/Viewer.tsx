@@ -332,7 +332,7 @@ export default function Viewer({ slug, galleryTitle, images: sourceImages, encry
   const viewPrefs = useMemo(() => (embedded || typeof localStorage === 'undefined' ? {} : readViewPrefs(slug)), [slug, embedded])
   const [mode, setMode] = useState<Mode>(viewPrefs.mode ?? initialSettings.defaultMode)
   const [index, setIndex] = useState(() => clamp(initialIndex, 0, Math.max(0, sourceImages.length - 1)))
-  const [resolvedMedia, setResolvedMedia] = useState<Record<string, { src?: string; previews: Record<number, string> }>>({})
+  const [resolvedMedia, setResolvedMedia] = useState<Record<string, { src?: string; previews: Record<number, string>; poster?: string }>>({})
   // The acquire window is incremental: only items entering the ±2/±8 frame
   // are fetched, only items leaving it are released. Aborting the whole
   // window on every step used to restart in-flight megabyte downloads for
@@ -343,54 +343,20 @@ export default function Viewer({ slug, galleryTitle, images: sourceImages, encry
   // selection existed — distinguished so the prefs write does not freeze
   // it into a saved selection.
   const galleryDefaultModeRef = useRef<Mode | null>(null)
-  useEffect(() => {
-    if (!encryptedResolver) return
-    const desired = new Map<string, { image: GalleryMediaItem; reference: MediaReference; preview: boolean; variantIndex: number }>()
-    for (const [imageIndex, image] of sourceImages.entries()) {
-      if (isVideoItem(image) || !image.media) continue
-      if (Math.abs(imageIndex - index) <= 2) desired.set(`original:${JSON.stringify(image.media)}`, { image, reference: image.media, preview: false, variantIndex: -1 })
-      if (Math.abs(imageIndex - index) <= 8) {
-        image.variants?.forEach((variant, variantIndex) => {
-          if (variant.media) desired.set(`preview:${JSON.stringify(variant.media)}`, { image, reference: variant.media, preview: true, variantIndex })
-        })
-      }
-    }
-    const held = resolvedWindowRef.current
-    for (const [key, request] of held) {
-      if (!desired.has(key)) {
-        encryptedResolver.release(request.reference, request.preview)
-        held.delete(key)
-      }
-    }
-    for (const [key, request] of desired) {
-      if (held.has(key)) continue
-      held.set(key, { reference: request.reference, preview: request.preview })
-      void encryptedResolver.acquire(request.reference, request.preview).then((url) => {
-        if (unmountedRef.current) return
-        const { image, variantIndex } = request
-        setResolvedMedia((previous) => {
-          const current = previous[image.id] ?? { previews: {} }
-          const previews = request.preview ? { ...current.previews } : current.previews
-          if (request.preview && variantIndex >= 0) previews[variantIndex] = url
-          return { ...previous, [image.id]: { src: request.preview ? current.src : url, previews } }
-        })
-      }).catch(() => {
-        // Drop the held mark so a later pass over the same frame retries —
-        // corrupt or transient items stay on their SSR geometry, never a
-        // server decryptor.
-        held.delete(key)
-      })
-    }
-  }, [sourceImages, index, encryptedResolver])
-  useEffect(() => () => {
-    // Unmount or resolver swap: every held ref returns to the working set.
-    const held = resolvedWindowRef.current
-    for (const [, request] of held) encryptedResolver?.release(request.reference, request.preview)
-    held.clear()
-  }, [encryptedResolver])
   const resolvedSourceImages = useMemo(() => sourceImages.map((image) => {
     const resolved = resolvedMedia[image.id]
-    if (!resolved || isVideoItem(image)) return image
+    if (!resolved) return image
+    if (isVideoItem(image)) {
+      // The poster is the clip's only still — the frame-ph <img>, the rail
+      // thumb (variants[0]) and every preview surface all read it.
+      const posterSrc = resolved.poster ?? image.poster.src
+      return {
+        ...image,
+        src: resolved.src ?? image.src,
+        poster: { ...image.poster, src: posterSrc },
+        variants: image.variants?.map((variant) => ({ ...variant, src: posterSrc })),
+      }
+    }
     return {
       ...image,
       src: resolved.src ?? image.src,
@@ -776,6 +742,81 @@ export default function Viewer({ slug, galleryTitle, images: sourceImages, encry
   const verticalMruRef = useRef<number[]>([])
   const [stripActive, setStripActive] = useState<ReadonlySet<number>>(() => new Set([0, 1, 2, 3]))
   const stripMruRef = useRef<number[]>([])
+  useEffect(() => {
+    if (!encryptedResolver) return
+    // In vertical mode frames stack in document flow and the observer's
+    // visibility set is the true original window — index proximity says
+    // nothing about what is on screen. Previews get an eight-frame halo
+    // past either end of the visible span; other modes keep the
+    // index-centred windows.
+    const verticalBounds = effectiveMode === 'vertical' && verticalActive.size > 0
+      ? { min: Math.min(...verticalActive), max: Math.max(...verticalActive) }
+      : null
+    const nearOriginal = (imageIndex: number) =>
+      verticalBounds ? verticalActive.has(imageIndex) : Math.abs(imageIndex - index) <= 2
+    const nearPreview = (imageIndex: number) =>
+      verticalBounds ? imageIndex >= verticalBounds.min - 8 && imageIndex <= verticalBounds.max + 8 : Math.abs(imageIndex - index) <= 8
+    const desired = new Map<string, { image: GalleryMediaItem; reference: MediaReference; preview: boolean; variantIndex: number; target: 'src' | 'poster' | 'variant' }>()
+    for (const [imageIndex, image] of sourceImages.entries()) {
+      // A video's MP4 is an original-window item — the clip only mounts
+      // inside the stage's mount radius anyway — while its poster is a
+      // still, prefetched on the preview window like every other thumb.
+      if (isVideoItem(image)) {
+        if (image.media && nearOriginal(imageIndex)) desired.set(`original:${JSON.stringify(image.media)}`, { image, reference: image.media, preview: false, variantIndex: -1, target: 'src' })
+        if (image.poster.media && nearPreview(imageIndex)) desired.set(`preview:${JSON.stringify(image.poster.media)}`, { image, reference: image.poster.media, preview: true, variantIndex: -1, target: 'poster' })
+        continue
+      }
+      if (!image.media) continue
+      if (nearOriginal(imageIndex)) desired.set(`original:${JSON.stringify(image.media)}`, { image, reference: image.media, preview: false, variantIndex: -1, target: 'src' })
+      if (nearPreview(imageIndex)) {
+        image.variants?.forEach((variant, variantIndex) => {
+          if (variant.media) desired.set(`preview:${JSON.stringify(variant.media)}`, { image, reference: variant.media, preview: true, variantIndex, target: 'variant' })
+        })
+      }
+    }
+    const held = resolvedWindowRef.current
+    for (const [key, request] of held) {
+      if (!desired.has(key)) {
+        encryptedResolver.release(request.reference, request.preview)
+        held.delete(key)
+      }
+    }
+    for (const [key, request] of desired) {
+      if (held.has(key)) continue
+      held.set(key, { reference: request.reference, preview: request.preview })
+      void encryptedResolver.acquire(request.reference, request.preview).then((url) => {
+        if (unmountedRef.current) return
+        const { image, target } = request
+        setResolvedMedia((previous) => {
+          const current = previous[image.id] ?? { previews: {} }
+          if (target === 'poster') return { ...previous, [image.id]: { ...current, poster: url } }
+          // Several variants may share one media reference — a vaulted
+          // lease points every rendition at the same entry — so a resolved
+          // preview fills every slot whose ref matches, not just the one
+          // the desired-map entry happened to record.
+          const previews = { ...current.previews }
+          if (target === 'variant') {
+            const refJson = JSON.stringify(request.reference)
+            image.variants?.forEach((variant, index) => {
+              if (variant.media && JSON.stringify(variant.media) === refJson) previews[index] = url
+            })
+          }
+          return { ...previous, [image.id]: { ...current, src: target === 'src' ? url : current.src, previews } }
+        })
+      }).catch(() => {
+        // Drop the held mark so a later pass over the same frame retries —
+        // corrupt or transient items stay on their SSR geometry, never a
+        // server decryptor.
+        held.delete(key)
+      })
+    }
+  }, [sourceImages, index, effectiveMode, verticalActive, encryptedResolver])
+  useEffect(() => () => {
+    // Unmount or resolver swap: every held ref returns to the working set.
+    const held = resolvedWindowRef.current
+    for (const [, request] of held) encryptedResolver?.release(request.reference, request.preview)
+    held.clear()
+  }, [encryptedResolver])
   const positionFrameRef = useRef<number | null>(null)
   const viewportFrameRef = useRef<number | null>(null)
   const stageMeasurementsRef = useRef({ width: 0, height: 0, dpr: 0 })
@@ -3104,9 +3145,10 @@ export default function Viewer({ slug, galleryTitle, images: sourceImages, encry
       if (!isFrameActive(imageIndex)) return
       keep.add(image.id)
       // Encrypted entries hold an empty src until the resolver materializes
-      // bytes — decoding earlier fetches the page itself and caches the HTML
-      // as this frame's "decoded" image permanently.
-      if (isHeic(image) && image.src && !heicSrc[image.id]) void decodeHeic(image)
+      // bytes, and a vaulted lease holds the placeholder — either way
+      // decoding early fetches something that is not the photograph and
+      // caches it as this frame's "decoded" image permanently.
+      if (isHeic(image) && image.src && image.src !== image.placeholder && !heicSrc[image.id]) void decodeHeic(image)
     })
     // Decoded blobs are megabytes each — drop entries that leave the
     // window and revoke their object URLs.
@@ -3283,7 +3325,7 @@ export default function Viewer({ slug, galleryTitle, images: sourceImages, encry
             return current?.src === src && current.width === width && current.height === height
               ? previous : { ...previous, [id]: { src, width, height } }
           }),
-          renderVideo: (video, { width, height, active }) => isVideoSlideActive(index) ? (
+          renderVideo: (video, { width, height, active }) => isVideoSlideActive(index) && video.src ? (
             <VideoSlide
               item={video}
               isActive={active}
@@ -3407,7 +3449,11 @@ export default function Viewer({ slug, galleryTitle, images: sourceImages, encry
                         modal) keeps its poster exposed with video.alt so
                         the slide is never left without a name. */}
                     {(() => {
-                    const videoMounted = isVideoSlideActive(imageIndex)
+                    // A vaulted clip mounts only once the MP4 is material —
+                    // src='' resolves to the page URL and errors before the
+                    // resolver lands, so the poster carries the frame until
+                    // then.
+                    const videoMounted = isVideoSlideActive(imageIndex) && Boolean(video.src)
                     return <>
                     <img
                       class="frame-ph"
@@ -3814,7 +3860,7 @@ export default function Viewer({ slug, galleryTitle, images: sourceImages, encry
                   onClick={() => selectFilmstripImage(imageIndex)}
                 >
                   {!video && (image.media || heicNoRendition)
-                    ? <HeicImg src={image.src} preview={heicNoRendition ? null : thumb} media={image.media} previewMedia={image.variants?.[0]?.media} galleryId={galleryId} filename={image.filename} loading="lazy" alt="" draggable={false} style={{ aspectRatio: `${image.width} / ${image.height}` }} onLoad={(event: Event) => (event.currentTarget as HTMLImageElement).classList.add('is-loaded')} />
+                    ? <HeicImg src={image.src} preview={heicNoRendition ? null : thumb} media={image.media} previewMedia={image.variants?.[0]?.media} encryptedResolver={encryptedResolver} galleryId={galleryId} filename={image.filename} loading="lazy" alt="" draggable={false} style={{ aspectRatio: `${image.width} / ${image.height}` }} onLoad={(event: Event) => (event.currentTarget as HTMLImageElement).classList.add('is-loaded')} />
                     : <img src={thumb} loading="lazy" alt="" draggable={false} style={{ aspectRatio: `${image.width} / ${image.height}` }} onLoad={(event: Event) => (event.currentTarget as HTMLImageElement).classList.add('is-loaded')} />}
                   {video ? <span class="viewer-filmstrip-badge">▶{formatDuration(image.durationSeconds) ? ` ${formatDuration(image.durationSeconds)}` : ''}</span> : null}
                 </button>

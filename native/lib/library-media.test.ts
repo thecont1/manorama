@@ -13,6 +13,7 @@ import type { OfflineObjectUrlProvider } from './offline-gallery'
 const cell = (input: Partial<LibraryMediaCell> & Pick<LibraryMediaCell, 'entryId'>): LibraryMediaCell => ({
   galleryId: input.galleryId ?? 'gallery-a',
   entryId: input.entryId,
+  coverId: input.coverId,
   mimeType: input.mimeType ?? 'image/jpeg',
   remote: input.remote,
 })
@@ -272,6 +273,65 @@ describe('LibraryMediaLoader', () => {
     gate.resolve(new Uint8Array([7]))
     expect(await pending).toBeUndefined()
     expect(objectUrls.created).toEqual([])
+  })
+
+  test('a stored cover resolves a gallery the vault never kept', async () => {
+    const objectUrls = countingUrls()
+    // The original entry misses; only the cover entry holds bytes — the
+    // cover-only scope still answers locally.
+    const { read, reads } = byteStore({ 'gallery-a:cover:one': new Uint8Array([1, 2, 3]) })
+    const loader = new LibraryMediaLoader({ read, objectUrls })
+    const lease = await loader.acquire(cell({ entryId: 'thumb:one', coverId: 'cover:one', remote: 'https://provider.test/preview.jpg' }))
+    expect(lease?.kind).toBe('vault')
+    expect(lease?.src).toBe('blob:lib-0')
+    expect(reads).toEqual(['gallery-a:thumb:one', 'gallery-a:cover:one'])
+    lease?.release()
+  })
+
+  test('a total vault miss emits onRemoteFallback once the remote lease lands', async () => {
+    const { read } = byteStore({})
+    const fallbacks: string[] = []
+    const loader = new LibraryMediaLoader({
+      read,
+      objectUrls: countingUrls(),
+      onRemoteFallback: (target) => { fallbacks.push(target.coverId ?? target.entryId) },
+    })
+    const lease = await loader.acquire(cell({ entryId: 'thumb:one', coverId: 'cover:one', remote: 'https://provider.test/preview.jpg' }))
+    expect(lease?.kind).toBe('remote')
+    expect(fallbacks).toEqual(['cover:one'])
+    lease?.release()
+  })
+
+  test('a thumbnail fill invalidates the pooled cover so the next read promotes it', async () => {
+    const registry = new CacheFillRegistry()
+    const objectUrls = countingUrls()
+    const entries: Record<string, Uint8Array> = { 'gallery-a:cover:one': new Uint8Array([1, 2, 3]) }
+    const { read, reads } = byteStore(entries)
+    const loader = new LibraryMediaLoader({ read, objectUrls, fillRegistry: registry })
+    const target = cell({ entryId: 'thumb:one', coverId: 'cover:one' })
+    const first = await loader.acquire(target)
+    expect(first?.src).toBe('blob:lib-0')
+    first?.release()
+    // The kept thumbnail lands: the pooled cover entry must be invalidated
+    // before the reacquire, or the cell keeps the cover URL forever.
+    entries['gallery-a:thumb:one'] = new Uint8Array([9, 9, 9])
+    registry.publish({ galleryId: 'gallery-a', item: { id: 'one', entryId: 'thumb:one', mimeType: 'image/jpeg', index: 0 } })
+    const second = await loader.acquire(target)
+    expect(second?.src).toBe('blob:lib-1')
+    expect(objectUrls.revoked).toEqual(['blob:lib-0'])
+    second?.release()
+  })
+
+  test('a cover-backed entry keeps its cache hit while no thumbnail exists', async () => {
+    const { read, reads } = byteStore({ 'gallery-a:cover:one': new Uint8Array([1]) })
+    const loader = new LibraryMediaLoader({ read, objectUrls: countingUrls(), fillRegistry: new CacheFillRegistry() })
+    const target = cell({ entryId: 'thumb:one', coverId: 'cover:one' })
+    const first = await loader.acquire(target)
+    const second = await loader.acquire(target)
+    expect(second?.src).toBe(first?.src)
+    expect(reads).toEqual(['gallery-a:thumb:one', 'gallery-a:cover:one'])
+    first?.release()
+    second?.release()
   })
 })
 
