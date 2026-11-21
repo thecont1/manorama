@@ -148,6 +148,14 @@ export const attachMagnifier = (stage: HTMLElement | null): MagnifierHandle | nu
       '--viewer-stage-height',
       stage.style.getPropertyValue('--viewer-stage-height') || `${rect.height}px`,
     )
+    // --viewer-arrows-bar is defined on .viewer-stage in CSS, not inline,
+    // but vertical mode's doodle offset and image max-heights subtract it.
+    // Read the computed value so the clone lays out against the same
+    // stage height the live stage uses.
+    world.style.setProperty(
+      '--viewer-arrows-bar',
+      stage.ownerDocument.defaultView?.getComputedStyle(stage).getPropertyValue('--viewer-arrows-bar') ?? '',
+    )
     const track = stage.querySelector<HTMLElement>('[data-track]')
     const clonedTrack = world.querySelector<HTMLElement>('[data-track]')
     if (track && clonedTrack) clonedTrack.style.transform = track.style.transform

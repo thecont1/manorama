@@ -907,34 +907,27 @@ for (const vp of viewports) {
       await expect(page.locator("[data-stage]")).toHaveClass(/mode-vertical/);
       await page.keyboard.press("Escape");
       const stage = page.locator("[data-stage]");
-      // Dock the lead frame the way the viewer does — its top edge one
-      // track-padding below the stage top — then measure the gaps. The
-      // scroll origin sits above the feed (the sticky backdrop owns the
-      // first screenful), so scrollTop 0 is not the resting position.
-      const gaps = await stage.evaluate((el) =>
-        new Promise((resolve) => {
-          const pad = parseFloat(
-            getComputedStyle(el.querySelector("[data-track]")!).paddingTop,
-          );
-          const first = el.querySelector<HTMLElement>('[data-index="1"]')!;
-          const drop =
-            first.getBoundingClientRect().top -
-            el.getBoundingClientRect().top;
-          el.scrollTo({ top: el.scrollTop + drop - pad });
-          requestAnimationFrame(() => {
-            const stageTop = el.getBoundingClientRect().top;
-            const frames = [
-              ...el.querySelectorAll<HTMLElement>("[data-index]"),
-            ];
-            resolve({
-              lead: frames[0].getBoundingClientRect().top - stageTop,
-              between:
-                frames[1].getBoundingClientRect().top -
-                frames[0].getBoundingClientRect().bottom,
-            });
-          });
-        }),
-      );
+      // Scroll origin is the first frame: the sticky backdrop pins to the
+      // scrollport without owning scroll space, so scrollTop 0 already
+      // rests the lead photograph one track-padding below the stage top.
+      await stage.evaluate((el) => {
+        el.scrollTo({ top: 0 });
+      });
+      await expect
+        .poll(() => stage.evaluate((el) => el.scrollTop))
+        .toBe(0);
+      const gaps = await stage.evaluate((el) => {
+        const stageTop = el.getBoundingClientRect().top;
+        const frames = [
+          ...el.querySelectorAll<HTMLElement>("[data-index]"),
+        ];
+        return {
+          lead: frames[0].getBoundingClientRect().top - stageTop,
+          between:
+            frames[1].getBoundingClientRect().top -
+            frames[0].getBoundingClientRect().bottom,
+        };
+      });
       expect(gaps.lead).toBeGreaterThan(4);
       expect(Math.abs(gaps.lead - gaps.between)).toBeLessThanOrEqual(2);
     });

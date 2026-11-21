@@ -1655,8 +1655,21 @@ body.magnifier-paused * { cursor: auto !important; }
    headroom is 2x the viewport — the track can be twenty times taller).
    A sticky layer stays pinned in the scrollport at every depth while
    remaining inside the stage's isolated stacking context, beneath the
-   photographs. */
-:is(.viewer-stage, .magnifier-world).mode-vertical .doodle-bg { position: sticky; top: 0; }
+   photographs. Sticky still needs flow space, so the layer gives its
+   own height back as a negative margin: without it scroll offset 0 is a
+   full viewport of bare canvas and the first photograph starts a screen
+   down. The margin mirrors the stage's own height formula — the layer is
+   100% of the content box, which is var(--viewer-stage-height) less
+   var(--viewer-arrows-bar). */
+:is(.viewer-stage, .magnifier-world).mode-vertical .doodle-bg {
+  position: sticky;
+  top: 0;
+  /* Block, not the svg's default inline box: an inline-level layer sits
+     in a line box whose strut keeps a few px of dead space under it that
+     the cancelling margin cannot reach. */
+  display: block;
+  margin-bottom: calc(var(--viewer-arrows-bar, 0px) - var(--viewer-stage-height, 100dvh));
+}
 
 /* Private master operations surface. It is deliberately visually distinct
    from the public gallery and never shares its controls with the photograph
