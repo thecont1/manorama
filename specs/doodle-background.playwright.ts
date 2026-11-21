@@ -561,3 +561,59 @@ test('canvas controls remain available and the field never leaves the gallery', 
   await clickUntil(page, () => page.getByRole('radio', { name: 'Dark' }).click(), '.viewer-stage.bg-dark')
   await expect(page.locator('[data-doodle-bg]')).toHaveCount(1)
 })
+
+/* Owner polish round (2026-11-21): the artwork is the gallery's first
+   reveal, not the wait for it; the bottom controls rest as one blob and
+   only separate under the pointer; no photograph box or end card carries
+   a film of its own over the field; and every image wears a hair of
+   corner rounding (a display mask only — source bytes are untouched). */
+test('the curtain opens on a bare veil and the gallery keeps the field clear', async ({ page }) => {
+  await seedBackground(page)
+  await page.goto(ALBUM_A, { waitUntil: 'domcontentloaded' })
+  const curtain = page.locator('[data-curtain]')
+  await curtain.first().waitFor({ state: 'attached', timeout: 60000 })
+  await expect(curtain.first()).not.toHaveCSS('background-image', /app-canvas/)
+  await expect(curtain.first()).toHaveCSS('background-image', /linear-gradient/)
+  await curtain.first().click({ force: true }).catch(() => {})
+  await curtain.first().waitFor({ state: 'hidden', timeout: 15000 }).catch(() => {})
+  await page.locator('.viewer-frame img').first().waitFor({ state: 'attached', timeout: 30000 })
+  await page.waitForTimeout(600)
+
+  await expect(page.locator('.viewer-frame').first()).toHaveCSS('background-color', 'rgba(0, 0, 0, 0)')
+  await expect(page.locator('.viewer-frame img').first()).toHaveCSS('border-radius', '4px')
+  await expect(page.locator('.viewer-endcap').first()).toHaveCSS('background-color', 'rgba(0, 0, 0, 0)')
+
+  /* The chrome blob: flush pills at rest, ten pixels apart once the
+     pointer (or focus) is on the bar. */
+  await showChrome(page)
+  const bar = page.locator('.m-chrome--bottom')
+  await expect(bar).toHaveCSS('gap', '0px')
+  await bar.locator('.m-chrome-pill').first().hover()
+  await expect(bar).toHaveCSS('gap', '10px')
+
+  /* The one-by-one end card: no background of its own, and the last
+     photograph fades out beneath it so "The End." lands on the artwork.
+     The classes are driven directly here — the CSS contract is the unit
+     under test, not the step-past-the-end gesture, which qa owns. */
+  const single = await page.evaluate(async () => {
+    const track = document.querySelector('.viewer-track')
+    const cap = document.querySelector('.viewer-endcap')
+    const frame = document.querySelector('.viewer-frame')
+    if (!track || !cap || !frame) return null
+    track.classList.add('viewer-track--single')
+    cap.classList.add('viewer-endcap--single', 'is-open')
+    await new Promise((resolve) => setTimeout(resolve, 900))
+    const report = {
+      capBg: getComputedStyle(cap).backgroundColor,
+      capOpacity: getComputedStyle(cap).opacity,
+      frameOpacity: getComputedStyle(frame).opacity,
+    }
+    track.classList.remove('viewer-track--single')
+    cap.classList.remove('viewer-endcap--single', 'is-open')
+    return report
+  })
+  expect(single).not.toBeNull()
+  expect(single!.capBg).toBe('rgba(0, 0, 0, 0)')
+  expect(single!.capOpacity).toBe('1')
+  expect(single!.frameOpacity).toBe('0')
+})

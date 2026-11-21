@@ -16,7 +16,7 @@ The stronger Dark pairing uses canvas `#101010`, ink `#484848`; Light uses canva
 
 ## App-wide canvas — owner-authorized 21 November 2026
 
-`app/styles/canvas.css` applies the same fixed 256px vectors as CSS backgrounds to app walls: opening/loading screens, Library/dashboard, account drawers, Settings, sheets, curtain, picker, Global View and editor. The scope requires the web `app-page` marker or the existing native/desktop body marker. Marketing pages retain `home-page` and do not load this stylesheet. Native and desktop entries import it after their own styles. App walls follow the owner theme; dark viewer sheets, curtain and picker retain their dark presentation. Buttons, cards, photographs, ad plates, endcards and the viewer stage are not selected. The embedded marketing home-demo stage remains opaque and texture-free even though app walls and their Settings sheet have the texture; it is the only surface that still renders the internal bare ("none") canvas state.
+`app/styles/canvas.css` applies the same fixed 256px vectors as CSS backgrounds to app walls: opening/loading screens, Library/dashboard, account drawers, Settings, sheets, filmstrip, picker, Global View and editor. The gallery's entry curtain is deliberately **not** a wall (owner, 21 November): it keeps its own gradient veil and frosted blur so the artwork remains the gallery's first reveal. The scope requires the web `app-page` marker or the existing native/desktop body marker. Marketing pages retain `home-page` and do not load this stylesheet. Native and desktop entries import it after their own styles. App walls follow the owner theme; dark viewer sheets, curtain and picker retain their dark presentation. Buttons, cards, photographs, ad plates, endcards and the viewer stage are not selected. The embedded marketing home-demo stage remains opaque and texture-free even though app walls and their Settings sheet have the texture; it is the only surface that still renders the internal bare ("none") canvas state.
 
 `app/lib/app-canvas.ts` exports the two stronger ink values and a deterministic tile serialization. `bun scripts/export-app-canvas.ts` writes `public/app-canvas-{dark,light}.svg`, included by the existing public-directory build in all three bundles. They preserve all 92 groups, 258 paths, original source-unit strokes and the single quarter-scale transform. These are static decorative vector artwork, not provider image bytes or device thumbnails. No procedural generator, source repacking, bitmap conversion, new persistence or runtime DOM decoration is involved. CSS backgrounds add no hit targets or accessibility elements and no decorative animation.
 
@@ -25,6 +25,38 @@ The stronger Dark pairing uses canvas `#101010`, ink `#484848`; Light uses canva
 Previously transparent app controls and content containers now use an **82% fill**: dark `rgba(22,22,22,.82)` or warm-paper `rgba(233,229,220,.82)`. Coverage includes text/Cancel buttons, quiet and destructive controls, Settings, drawer and menu actions, switches/inactive segmented options, fields, account-ad containers, gallery cards and preview strips. This is `background-color` only: no element opacity, blur, filter, extra layer, layout or hit-box change. Existing primary buttons, selected controls, disabled behavior and focus rings are retained. The account slot uses the existing `[data-account-ad]` styling hook, keeping native ad classes and rented-ad implementation out of app sources.
 
 The backings follow the owner theme, while `.m-dark`, curtains and viewer picker surfaces retain dark fills. The existing `data-reduced-transparency` root stamp and browser `prefers-reduced-transparency: reduce` or `prefers-contrast: more` make the fill opaque. Photograph elements, photograph buttons, stage frames, in-gallery ad plates and endcards remain outside the backing selector. The gallery default is Dark, and the marketing homepage remains excluded. The approved source JSON, vector geometry, texture density and ink palette did not change in this follow-up.
+
+## Gallery polish - owner round, 21 November 2026
+
+Five presentation changes inside the gallery, all pure paint; no source byte,
+ad plate, tier rule or provider boundary is involved:
+
+1. **The curtain shows no artwork.** `.curtain` was removed from the app-wall
+   selector in `canvas.css`; the entry veil stays its own gradient and blur.
+2. **The bottom controls rest as one blob.** `.m-chrome--bottom` and the side
+   rails carry zero gap at rest so the identically-filled pills read as a
+   single mass, and expand to a 10px gap only under hover or keyboard focus
+   (200ms `gap` transition). The top bar is unchanged.
+3. **No film over the field.** The frame's base background became
+   `transparent` (it previously re-painted the canvas colour *over* the
+   artwork layer wherever a photograph letterboxed inside its frame), the
+   short-plate 2.8% white mount lift was deleted, and the portrait-video
+   frame dropped its slab. Plates remain defined by the hairline outline at
+   the photograph's own edge.
+4. **"The End." has no background of its own.** The one-by-one end card lost
+   its opaque canvas veil; instead the photograph beneath it fades out on the
+   card's own 450ms curve, so the closing beat lands on bare artwork. The
+   in-strip and feed cards were already transparent and are unchanged.
+5. **A hair of rounding.** Every image and video inside a gallery frame now
+   renders with a 4px `border-radius` - a mask on the display box only.
+   Source bytes are never re-encoded, cropped or resized (invariants 2/13);
+   the owner explicitly requested the rounding, superseding the earlier
+   "no rounding" note in the plate comment for display purposes.
+
+Contracts live in `specs/doodle-background.playwright.ts` (curtain veil,
+transparent frames/end card, blob gap 0 -> 10 on hover, 4px radius, single
+mode fade) and the exclusion list in `app/lib/app-canvas.test.ts` now pins
+`.curtain` out of the app-wall selector.
 
 ## Verification contract
 
