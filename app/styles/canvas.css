@@ -66,6 +66,7 @@ html:root:is(.app-page, :has(body.manorama-native), :has(body.manorama-desktop))
   .lib-menu [role="menuitem"],
   .admin-drawer-close,
   .admin-drawer-action,
+  .admin-rail,
   .desktop-signin-icon,
   .desktop-paste :is(input, button),
   .native-list-card input,
@@ -93,6 +94,13 @@ html:root:is(.app-page, :has(body.manorama-native), :has(body.manorama-desktop))
   .native-settings .native-vault-card
 ) {
   background-color: var(--app-translucent-surface);
+}
+
+/* The rail is a column of small type — version, tier line, device legend,
+   copyright — so beside the shared fill it wears the same corner the
+   cards and sponsored slot do. */
+html:root:is(.app-page, :has(body.manorama-native), :has(body.manorama-desktop)) .admin-rail {
+  border-radius: var(--m-radius-card, 14px);
 }
 
 /* Honor the shell accessibility stamp as well as browser preferences. The
