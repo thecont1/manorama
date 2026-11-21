@@ -2060,6 +2060,12 @@ html.light .lib-quiet-toggle[aria-pressed="true"] { color: #e9e5dc; }
 :root:is([data-macos-glass], [data-ios-glass]) [data-chrome-bottom] .m-chrome-pill { visibility: hidden; }
 .m-chrome--top { top: calc(env(safe-area-inset-top, 0px) + 8px + var(--shell-top-inset, 0px)); justify-content: space-between; transform: translateY(-8px); }
 .m-chrome--bottom { bottom: calc(env(safe-area-inset-bottom, 0px) + 16px); justify-content: center; transform: translateY(8px); }
+/* Picker, Settings and Info rest as one blob: the identically-filled pills
+   sit flush so the bar reads as a single mass, and it only separates into
+   its parts under the pointer or keyboard focus. The bar is pointer-inert
+   except over the pills, so hovering anywhere on the blob counts. */
+.m-chrome--bottom { gap: 0; transition: opacity 200ms var(--m-ease, ease), transform 200ms var(--m-ease, ease), gap 200ms var(--m-ease, ease); }
+.m-chrome--bottom:is(:hover, :focus-within) { gap: 10px; }
 /* With the arrow bar reserved, the temporary bottom chrome rides just
    above it rather than inside the controls' strip. */
 body:has(.viewer-stage.has-arrow-bar) .m-chrome--bottom { bottom: calc(env(safe-area-inset-bottom, 0px) + 64px + 10px); }
@@ -2078,7 +2084,8 @@ body:has(.viewer-stage.has-arrow-bar) .m-chrome--bottom { bottom: calc(env(safe-
 .m-chrome--side-leading { left: 0; transform: translateX(-8px); }
 .m-chrome--side-trailing { left: auto; right: 0; transform: translateX(8px); }
 .m-chrome--side-leading.is-visible, .m-chrome--side-trailing.is-visible { transform: translateX(0); }
-.m-chrome--side { width: 60px; padding-inline: 8px; gap: 8px; }
+.m-chrome--side { width: 60px; padding-inline: 8px; gap: 0; transition: opacity 200ms var(--m-ease, ease), transform 200ms var(--m-ease, ease), gap 200ms var(--m-ease, ease); }
+.m-chrome--side:is(:hover, :focus-within) { gap: 10px; }
 .m-chrome--side-leading { left: env(safe-area-inset-left, 0px); }
 .m-chrome--side-trailing { right: env(safe-area-inset-right, 0px); }
 .m-chrome--side .m-chrome-pill { width: 44px; min-width: 44px; height: 44px; flex-shrink: 0; padding: 0; background: rgba(10, 10, 10, .92); }
