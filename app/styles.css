@@ -1541,7 +1541,14 @@ body.magnifier-paused * { cursor: auto !important; }
   margin: 10px 10px 10px 0;
   height: calc(100% - 20px);
 }
-:is(.viewer-stage, .magnifier-world):is(.bg-light, .bg-dark) .viewer-track--vertical { padding: 0 10px; }
+/* Every frame keeps 10px toward its successor but none on its leading
+   edge, so without this the first photograph would abut the screen's
+   left edge while its trailing side sits a gutter off the second. The
+   lead frame wears the same 10px on the side facing the screen. */
+:is(.viewer-stage, .magnifier-world):is(.bg-light, .bg-dark) .viewer-track:not(.viewer-track--vertical):not(.viewer-track--single) > .viewer-frame:first-of-type {
+  margin-left: 10px;
+}
+:is(.viewer-stage, .magnifier-world):is(.bg-light, .bg-dark) .viewer-track--vertical { padding: 10px 10px 0; }
 :is(.viewer-stage, .magnifier-world):is(.bg-light, .bg-dark) .viewer-track--vertical .viewer-frame { margin-bottom: 10px; }
 
 /* The strip's terminal card: a borderless faux frame that the last

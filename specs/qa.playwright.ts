@@ -831,6 +831,29 @@ for (const vp of viewports) {
       expect(xAfterRelease - xDuringDrag).toBeGreaterThanOrEqual(-160);
     });
 
+    test("the first photograph keeps the gutter off the screen's left edge", async ({
+      page,
+    }) => {
+      await dismissCurtain(page);
+      await ensureStripSettled(page);
+      const gaps = await page.evaluate(() => {
+        const stage = document.querySelector("[data-stage]")!.getBoundingClientRect();
+        const frames = [
+          ...document.querySelectorAll<HTMLElement>(
+            "[data-stage] [data-track] [data-index]",
+          ),
+        ];
+        const first = frames[0].getBoundingClientRect();
+        const second = frames[1].getBoundingClientRect();
+        return {
+          lead: first.left - stage.left,
+          between: second.left - first.right,
+        };
+      });
+      expect(gaps.lead).toBeGreaterThan(4);
+      expect(Math.abs(gaps.lead - gaps.between)).toBeLessThanOrEqual(2);
+    });
+
     test("vertical scroll answers a mouse drag", async ({ page }) => {
       await dismissCurtain(page);
       await showChrome(page);
@@ -870,6 +893,50 @@ for (const vp of viewports) {
         await page.waitForTimeout(250);
       }
       expect(await top()).toBeLessThan(60);
+    });
+
+    test("the first photograph keeps the foot off the screen's top edge", async ({
+      page,
+    }) => {
+      await dismissCurtain(page);
+      await showChrome(page);
+      await page
+        .getByRole("button", { name: "Gallery Settings", exact: true })
+        .click();
+      await page.getByRole("radio", { name: "Scroll" }).click();
+      await expect(page.locator("[data-stage]")).toHaveClass(/mode-vertical/);
+      await page.keyboard.press("Escape");
+      const stage = page.locator("[data-stage]");
+      // Dock the lead frame the way the viewer does — its top edge one
+      // track-padding below the stage top — then measure the gaps. The
+      // scroll origin sits above the feed (the sticky backdrop owns the
+      // first screenful), so scrollTop 0 is not the resting position.
+      const gaps = await stage.evaluate((el) =>
+        new Promise((resolve) => {
+          const pad = parseFloat(
+            getComputedStyle(el.querySelector("[data-track]")!).paddingTop,
+          );
+          const first = el.querySelector<HTMLElement>('[data-index="1"]')!;
+          const drop =
+            first.getBoundingClientRect().top -
+            el.getBoundingClientRect().top;
+          el.scrollTo({ top: el.scrollTop + drop - pad });
+          requestAnimationFrame(() => {
+            const stageTop = el.getBoundingClientRect().top;
+            const frames = [
+              ...el.querySelectorAll<HTMLElement>("[data-index]"),
+            ];
+            resolve({
+              lead: frames[0].getBoundingClientRect().top - stageTop,
+              between:
+                frames[1].getBoundingClientRect().top -
+                frames[0].getBoundingClientRect().bottom,
+            });
+          });
+        }),
+      );
+      expect(gaps.lead).toBeGreaterThan(4);
+      expect(Math.abs(gaps.lead - gaps.between)).toBeLessThanOrEqual(2);
     });
 
     test("touch swipe moves directly and floats farther without snapping", async ({

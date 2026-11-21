@@ -1514,10 +1514,21 @@ export default function Viewer({ slug, galleryTitle, images: sourceImages, encry
     return trackRef.current?.querySelector<HTMLElement>(`[data-index="${imageIndex + 1}"]`)?.offsetLeft ?? 0
   }
 
+  // How far below the stage top a frame's docked edge sits: the lead row
+  // alone carries the feed's top margin, so its dock line sits one image
+  // margin lower. 'none' backgrounds carry no margins — offset stays 0.
+  const verticalDockOffset = (frame: HTMLElement) =>
+    frame.dataset.index === '1' ? imageMarginPxRef.current : 0
+
   const dockVerticalFrame = (target: HTMLElement, behavior: ScrollBehavior) => {
-    if (embedded) {
-      // scrollIntoView also moves the homepage document; only the device stage may scroll.
-      stageRef.current?.scrollTo({ top: target.offsetTop, behavior })
+    const stage = stageRef.current
+    // scrollIntoView also moves the homepage document; only the device
+    // stage may scroll. Measure against the stage so the lead row can
+    // dock one margin below the top — a flush align would scroll the
+    // lead space away.
+    if (stage && (embedded || verticalDockOffset(target) > 0)) {
+      const drop = target.getBoundingClientRect().top - stage.getBoundingClientRect().top
+      stage.scrollTo({ top: stage.scrollTop + drop - verticalDockOffset(target), behavior })
       return
     }
     target.scrollIntoView({ block: 'start', behavior })
@@ -1593,7 +1604,7 @@ export default function Viewer({ slug, galleryTitle, images: sourceImages, encry
     // scrolls it into view rather than stopping at the photo.
     const frames = [...(trackRef.current?.querySelectorAll<HTMLElement>('[data-index], [data-endcard]') ?? [])]
     if (direction === 1) {
-      const next = frames.find((f) => f.getBoundingClientRect().top > stageTop + 8)
+      const next = frames.find((f) => f.getBoundingClientRect().top > stageTop + 8 + verticalDockOffset(f))
       if (!next) return
       if (next.dataset.endcard !== undefined) { dockVerticalFrame(next, 'smooth'); return }
       goTo(Number(next.dataset.index) - 1)
@@ -1701,7 +1712,7 @@ export default function Viewer({ slug, galleryTitle, images: sourceImages, encry
       // it again would loop forever, so finish on the last frame instead.
       const target = atScrollLimit
         ? frames[frames.length - 1]
-        : frames.find((frame) => frame.getBoundingClientRect().top > stageTop + 8)
+        : frames.find((frame) => frame.getBoundingClientRect().top > stageTop + 8 + verticalDockOffset(frame))
       if (!target) { onComplete('end'); return }
       step(direction)
       const docked = () => {
@@ -1716,7 +1727,7 @@ export default function Viewer({ slug, galleryTitle, images: sourceImages, encry
         const limitDock = stage !== null &&
           stage.scrollTop + stage.clientHeight >= stage.scrollHeight - 1 &&
           top < currentStageTop + stage.clientHeight
-        if (Math.abs(top - currentStageTop) <= 8 || limitDock) {
+        if (Math.abs(top - (currentStageTop + verticalDockOffset(target))) <= 8 || limitDock) {
           onComplete(target.dataset.endcard !== undefined ? 'end' : 'photo')
           return
         }
