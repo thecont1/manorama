@@ -42,6 +42,8 @@ import { probeImageDimensions } from '../packages/core/image-dims'
 
 const ROOT = new URL('../native/dist/', import.meta.url).pathname
 const PORT = Number(process.env.CAPTURE_PORT ?? 4181)
+const CAPTURE_CANVAS = process.env.CAPTURE_BACKGROUND === 'dark' || process.env.CAPTURE_BACKGROUND === 'light'
+  ? process.env.CAPTURE_BACKGROUND : 'none'
 
 /** The owner's public gallery, which stands in for the private list. */
 const PUBLIC_MANIFEST = 'https://manorama.xyz/api/gallery/thecontrarian/italy'
@@ -517,11 +519,11 @@ const DRIVER = (which: number) => `
     // being the first button.
     await new Promise((r) => setTimeout(r, 2200))
     const settings = [...document.querySelectorAll('[data-chrome-bottom] button')]
-      .find((b) => b.textContent.includes('Gallery Settings'))
+      .find((b) => b.textContent.includes('Settings'))
     log('opening settings:', click(settings))
     const modal = await waitFor('.m-sheet-host .m-sheet')
     await new Promise((r) => setTimeout(r, 1000))
-    await report(Boolean(modal && modal.querySelector('.m-sheet-body') && modal.querySelector('.m-sheet-title')?.textContent === 'Gallery Settings'))
+    await report(Boolean(modal && modal.querySelector('.m-sheet-body') && ['Settings', 'Gallery Settings'].includes(modal.querySelector('.m-sheet-title')?.textContent)))
   })().catch(async (error) => {
     window.__captureErrors.push(String(error))
     await report(false)
@@ -939,6 +941,9 @@ const server = Bun.serve({
 async function html(source: string) {
   const setup = `<script>
     window.__captureGeneration = ${generation};
+    // A capture-only selection, equivalent to choosing Canvas in the UI; the
+    // unmodified plain opening-screen bundle still starts with Blank.
+    localStorage.setItem('manorama:view:italy', JSON.stringify({ background: ${JSON.stringify(CAPTURE_CANVAS)} }));
     ${requestTier ? `window.__demoBilling = { tier: '${requestTier}', isPro: ${requestTier === 'pro'}, customerInfo: { entitlements: { active: {} } } };` : ''}
     window.__captureErrors = [];
     window.addEventListener('error', (event) => window.__captureErrors.push(event.message));

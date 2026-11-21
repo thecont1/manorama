@@ -1,10 +1,63 @@
 # macOS evidence notes
 
-Six-state matrix (`01`–`06`) predates the G3 desktop-frost pass. The four
-captures below are the interactive evidence for the `.desktop-paste` selector
-change in this branch: the form frosted as a standalone card, and flat when it
-lives inside the share sheet — in the normal state and again with macOS
-"Reduce transparency" on (Tier 0).
+## Density revision — 21 November 2026
+
+The owner selected a 256 CSS-pixel repeat of the unchanged 1024-unit vector
+artwork. The matrix below shows the earlier 1024 CSS-pixel presentation and is
+retained as historical evidence, not current proof of the denser texture.
+Fresh six-state native captures are required for the 256px revision before commit.
+No old screenshot is being resized or altered to simulate that revision.
+
+## Historical gallery-ground matrix — 20 November 2026, 1024px repeat
+
+The six-state `01`–`06` matrix has been refreshed from a freshly built native
+macOS app, with the Dark set here and Light counterparts under `light/`.
+All twelve PNGs are 2880×1800, captured from a 1440×900 logical window and
+reviewed. They are actual native pixels, not browser mockups or reconstructed
+layouts. Promotion and preview copies were checked byte-for-byte; no screenshot
+or original photograph was cropped, resized, re-encoded or annotated.
+
+| File | Current surface |
+| --- | --- |
+| `01-opening-screen.png` | Genuine Blank sign-in opening |
+| `02-gallery-curtain.png` | Local Italy gallery curtain |
+| `03-first-image-hover.png` | First photograph, native Library and position/Settings/Info controls visibly present |
+| `04-controls-popover.png` | Gallery Settings with the matching Dark/Light Canvas radio selected |
+| `05-account-admin.png` | Genuine signed-in Visionary account surface |
+| `06-folder-grid.png` | Native picker: 28 originals, aspect-ratio matrix, fixed row height, zero gaps, shocking-pink active photograph |
+
+Opening and account are independent of gallery palette; the same genuine
+`01` and `05` captures are byte-copied into each set. Dark `03` comes from
+`macos-resume-captures/03-first-image-hover.png`; Light `03` uses the first
+full-window burst candidate, whose actual pixels show the native controls.
+An earlier working note incorrectly marked those saved files control-less;
+direct final file review supersedes that note. Later burst frames are not used.
+
+The app is the distinct `in.thecontrarian.manorama.galleryground.resume`
+bundle built through `scripts/build-macos.sh` into
+`.work/gallery-ground-integration/macos-resume-build/` (SDK27.0, minimum macOS15).
+It includes the working gallery-ground integration on base HEAD `3aff26ac`,
+not only the committed tree. Both `--store` and `--config` point to isolated
+container storage. Finder copied only the owner-authorized session fixture;
+token contents were never read or displayed. The existing isolated-config
+forwarding guard blocked non-GET/HEAD/OPTIONS API requests. The supported native
+folder picker legitimately granted access to the owner's Italy originals;
+no protected-file CLI cloning or shell workaround was used.
+
+Capture used `screencapture -x -o -l <actual Library windowID>` while the native
+window was active. The subsequent device restart interrupted further native UI
+automation, but the twelve selected captures were already complete. The isolated
+app is stopped, Computer Use control is released, and the owner removed the copied
+session in Finder after macOS blocked CLI deletion; absence was checked. The
+installed application, original session/catalogue and original photographs were
+not modified by this task. Full viewer browser acceptance is still red/incomplete;
+these native screenshots are visual evidence, not a substitute for that gate.
+
+## Historical frost evidence
+
+The four captures below are the earlier interactive evidence for the
+`.desktop-paste` selector change: the form frosted as a standalone card, and flat
+inside the share sheet — normally and with "Reduce transparency" on (Tier 0).
 
 | File | Surface | Mode |
 | --- | --- | --- |
