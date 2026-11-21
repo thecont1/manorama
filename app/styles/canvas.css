@@ -1,0 +1,101 @@
+/* Same approved 256px artwork across app walls and sheets. CSS backgrounds
+   cannot intercept input or enter the accessibility tree. Gallery stages
+   retain their independent Canvas; UI backings never dim their contents. */
+:root { --app-canvas-image: url('/app-canvas-dark.svg'); }
+html.light { --app-canvas-image: url('/app-canvas-light.svg'); }
+/* Viewer sheets stay dark even when the owner's Library is Light. */
+.m-dark { --app-canvas-image: url('/app-canvas-dark.svg'); }
+.curtain, .viewer-filmstrip { --app-canvas-image: url('/app-canvas-dark.svg'); }
+
+/* Native markers are present before first paint. The web renderer stamps
+   app-page only outside the public marketing pages and embedded demo.
+   Match the html.light body.shell .surface shorthands' specificity so
+   switching themes cannot reset this later background-image to none. */
+html:root:is(.app-page, :has(body.manorama-native), :has(body.manorama-desktop)) :is(
+  body,
+  .admin-page,
+  .admin-drawer-panel,
+  .m-screen,
+  .m-sheet,
+  .curtain,
+  .viewer-filmstrip,
+  .native-list-shell,
+  .native-settings,
+  .native-welcome,
+  .native-global-view,
+  .native-editor,
+  .desktop-shell,
+  .desktop-welcome
+) {
+  background-image: var(--app-canvas-image);
+  background-size: 256px 256px;
+  background-repeat: repeat;
+  background-position: 0 0;
+}
+
+/* Quiet controls and content containers need a backing now that app walls
+   carry ink. Alpha belongs to the fill, never the element: photographs and
+   text remain crisp, with no backdrop sampling or extra hit-test layer. */
+:root {
+  --app-surface-alpha: .82;
+  --app-translucent-surface: rgba(22, 22, 22, var(--app-surface-alpha));
+}
+html.light { --app-translucent-surface: rgba(233, 229, 220, var(--app-surface-alpha)); }
+.m-dark, .curtain, .viewer-filmstrip {
+  --app-translucent-surface: rgba(22, 22, 22, var(--app-surface-alpha));
+}
+
+html:root:is(.app-page, :has(body.manorama-native), :has(body.manorama-desktop)) :is(
+  .text-button,
+  .admin-button:not(.admin-button--solid):not(.lib-quiet-toggle[aria-pressed="true"]),
+  .m-btn--quiet:not([aria-pressed="true"]):not([aria-checked="true"]),
+  .m-btn--destructive,
+  .m-actionrow,
+  .m-switch,
+  .m-segmented-option:not([aria-checked="true"]),
+  .lib-card-menu,
+  .lib-card-action,
+  .lib-hidden-toggle,
+  .lib-device-open,
+  .lib-devices-legend-forget,
+  .lib-temp-flag,
+  .lib-remove-confirm button,
+  .lib-menu > :is(button, a),
+  .lib-menu [role="menuitem"],
+  .admin-drawer-close,
+  .admin-drawer-action,
+  .desktop-signin-icon,
+  .desktop-paste :is(input, button),
+  .native-list-card input,
+  .native-list-card button:not(.m-btn):not(:has(img)):not([aria-pressed="true"]):not([aria-checked="true"]),
+  .native-gallery-caption,
+  .native-global-close,
+  .native-lib-foot-open,
+  .site-footer button,
+  .site-footer-link,
+  .app-update-dismiss,
+  .ops-sort,
+  .ops-action,
+  :is(.native-settings, .web-settings) .m-settings-address input,
+  :is(.viewer-picker-header, .viewer-picker-top) button,
+  .account-ad,
+  [data-account-ad],
+  .admin-gallery-strip-frame,
+  .lib-rail,
+  .lib-card,
+  .lib-compact-card,
+  .native-library-compact-card,
+  .lib-device-card,
+  .desktop-share--sheet,
+  .web-settings--pane .m-actiongroup > .m-panel,
+  .native-settings .native-vault-card
+) {
+  background-color: var(--app-translucent-surface);
+}
+
+/* Honor the shell accessibility stamp as well as browser preferences. The
+   same fill becomes solid; no geometry, selected-state or photo changes. */
+:root[data-reduced-transparency] { --app-surface-alpha: 1; }
+@media (prefers-reduced-transparency: reduce), (prefers-contrast: more) {
+  :root { --app-surface-alpha: 1; }
+}

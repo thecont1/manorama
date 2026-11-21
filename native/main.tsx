@@ -8,6 +8,7 @@ import { authErrorMessage, beginProviderSignIn, getSessionAppUserId, installNati
 import { applyTheme, readStoredTheme, storeTheme, type Theme } from '../app/lib/owner-theme'
 import { initGlassBend } from './lib/glass-bend'
 import './styles.css'
+import '../app/styles/canvas.css'
 
 const root = document.getElementById('app')
 if (!root) throw new Error('Native app root is missing')
