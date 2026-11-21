@@ -41,11 +41,10 @@
   font-weight: 100 900;
   font-display: swap;
 }
-
 :root {
   --ink: 243, 240, 232;
-  /* Doodle field ink: light on the dark canvas, flipped under html.light. */
-  --doodle-ink: rgba(255, 255, 255, 0.2);
+  /* The gallery canvas chooses the field's ink independently of app chrome. */
+  --doodle-ink: #484848;
   --gallery-canvas: #0a0a0a;
   color-scheme: dark;
   font-family: 'Manrope', ui-sans-serif, system-ui, sans-serif;
@@ -1482,8 +1481,8 @@ body.magnifier-paused * { cursor: auto !important; }
 @media (prefers-reduced-motion: reduce) { .quickadd-spinner { animation: none; } }
 
 /* ---------------------------------------------------------------------
-   Seeded doodle background
-   A deterministic scatter of photography glyphs derived from the URL.
+   Approved photographic gallery ground
+   The owner's fixed seamless tile, shared by every gallery.
    The layer is absolute behind the gallery content and completely inert: it must
    never eat a tap meant for a photograph or a control.
    --------------------------------------------------------------------- */
@@ -1495,21 +1494,11 @@ body.magnifier-paused * { cursor: auto !important; }
   height: 100%;
   pointer-events: none;
   user-select: none;
-  /* Contrast token, not a hardcoded colour: the glyphs stroke in
-     currentColor, so one variable tints the whole field. Deliberately
-     more present than the near-invisible first cut — legible at normal
-     viewing distance while photos stay unquestionably dominant. The
-     light theme (html.light, the app's real theme switch — it does NOT
-     use prefers-color-scheme) flips to dark ink at slightly lower
-     weight, as light-on-light tolerance is lower. */
-  color: var(--doodle-ink, rgba(255, 255, 255, 0.2));
-  /* The canvas is twice the viewport height for scroll headroom; the
-     SVG's own preserveAspectRatio="…slice" crops it to the box.
-     (object-fit does not apply to inline SVG, only to replaced
-     elements, so it would be a no-op here.) */
+  /* The approved 1024-unit vector tile repeats at the owner's chosen 256px:
+     3-unit strokes become 0.75px. Viewport changes never repack or rescale it. */
+  color: var(--doodle-ink, #484848);
   contain: strict;
-  /* Painting 200 glyphs once into a layer beats repainting them on
-     every scroll of the track above. */
+  /* Only the one-time fade animates; gallery travel never repacks the field. */
   will-change: opacity;
 }
 /* Fade the field in on first paint, but never for a visitor who
@@ -1531,20 +1520,23 @@ body.magnifier-paused * { cursor: auto !important; }
 :is(.viewer-stage, .magnifier-world) .viewer-frame,
 :is(.viewer-stage, .magnifier-world) .viewer-track--vertical .viewer-frame--video.viewer-frame--portrait { background: transparent; }
 
-/* Background pairing: Dark (default) is the near-black canvas with
-   light-ink doodles; Light flips the stage's ground to the app's
-   warm paper tone and inks the field dark. The overlay chrome
+/* Dark is the default gallery canvas; Light repaints the same approved
+   field with its warm-paper palette. (The Blank canvas was retired by the
+   owner — every gallery paints the field; 'bg-none' survives only on the
+   embedded marketing home-demo stage, which mounts no field at all.)
+   The overlay chrome
    (arrows, logo pill, curtain) keeps its own dark surfaces and stays
-   readable over both. The html.light override below is the admin
-   app's theme switch — the viewer manages its ink independently. */
-html.light .doodle-bg { --doodle-ink: rgba(0, 0, 0, 0.16); }
-:is(.viewer-stage, .magnifier-world).bg-light { --gallery-canvas: #e9e5dc; --doodle-ink: rgba(0, 0, 0, 0.16); }
+   readable over both. The viewer manages its ink independently of html.light. */
+:is(.viewer-stage, .magnifier-world).bg-dark { --gallery-canvas: #101010; --doodle-ink: #484848; }
+:is(.viewer-stage, .magnifier-world).bg-light { --gallery-canvas: #e9e5dc; --doodle-ink: #aaa59b; }
 /* The endcap card and ad plate paint their copy in --ink over the canvas —
    on the Light canvas that must be dark ink, or "The End." and the plate
    copy go light-on-light. Scoped to the cards themselves: the arrow and
    video chips carry their own dark surface and keep the light ink. */
 :is(.viewer-stage, .magnifier-world).bg-light :is(.viewer-endcap, .viewer-ad-frame) { --ink: 22, 24, 23; }
-/* Light and Dark give every image a 10px margin ('none' abuts). The
+/* Light and Dark give every image a 10px margin — the default, since
+   galleries always land on one of the two pairings; only the embedded
+   home demo's 'bg-none' stage abuts. The
    frame carries the margin, the staged image inside it is already
    shrunk to fit: strip frames get top/bottom/right so neighbours keep a
    10px gutter; vertical rows sit on a 10px-railed track with a 10px
