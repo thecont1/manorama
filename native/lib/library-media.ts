@@ -187,7 +187,9 @@ export class LibraryMediaLoader {
     if (url === undefined) {
       if (this.released || this.stale(cell, generation)) return undefined
       if (cell.remote !== undefined) {
-        this.onRemoteFallback?.(cell)
+        // The hook is informational: a listener that throws must never
+        // turn a recoverable remote preview into a failed resolve.
+        try { this.onRemoteFallback?.(cell) } catch {}
         return { kind: 'remote', src: cell.remote }
       }
       return { kind: 'none', src: undefined }
