@@ -584,12 +584,34 @@ test('the curtain opens on a bare veil and the gallery keeps the field clear', a
   await expect(page.locator('.viewer-endcap').first()).toHaveCSS('background-color', 'rgba(0, 0, 0, 0)')
 
   /* The chrome blob: flush pills at rest, ten pixels apart once the
-     pointer (or focus) is on the bar. */
+     pointer (or focus) is on the bar. Junction corners square off at
+     rest so the flush pills silhouette as one mass; they round back as
+     the gap opens. */
   await showChrome(page)
   const bar = page.locator('.m-chrome--bottom')
   await expect(bar).toHaveCSS('gap', '0px')
+  const cornerRadii = () =>
+    bar.locator('.m-chrome-pill').evaluateAll((pills) =>
+      pills.map((pill) => {
+        const cs = getComputedStyle(pill)
+        return [
+          cs.borderTopLeftRadius,
+          cs.borderTopRightRadius,
+          cs.borderBottomRightRadius,
+          cs.borderBottomLeftRadius,
+        ]
+      }),
+    )
+  const restRadii = await cornerRadii()
+  expect(restRadii[0][1]).toBe('0px')
+  expect(restRadii[0][2]).toBe('0px')
+  expect(restRadii[1].every((r) => r === '0px')).toBe(true)
+  expect(restRadii[2][0]).toBe('0px')
+  expect(restRadii[2][3]).toBe('0px')
   await bar.locator('.m-chrome-pill').first().hover()
   await expect(bar).toHaveCSS('gap', '10px')
+  const openRadii = await cornerRadii()
+  expect(openRadii.every((radii) => radii.every((r) => r !== '0px'))).toBe(true)
 
   /* The one-by-one end card: no background of its own, and the last
      photograph fades out beneath it so "The End." lands on the artwork.

@@ -2143,6 +2143,19 @@ body:has(.viewer-stage.has-arrow-bar) .m-chrome--bottom { bottom: calc(env(safe-
 }
 @supports not (backdrop-filter: blur(12px)) { .m-chrome-pill { background: rgba(10, 10, 10, .85); } }
 .m-chrome-pill:focus-visible { outline: 2px solid var(--m-focus, rgba(243, 240, 232, .85)); outline-offset: 2px; }
+/* Flush capsule pills only tangent-touch at their crowns — a dumbbell,
+   not a blob. Squaring the junction corners makes the union silhouette
+   one stadium (or one vertical lozenge in the side rail); the same 200ms
+   ease that opens the gap rounds the corners back into separate
+   capsules, so the mass appears to flow apart rather than pop. */
+.m-chrome--bottom .m-chrome-pill,
+.m-chrome--side .m-chrome-pill { border-radius: 0; transition: border-radius 200ms var(--m-ease, ease); }
+.m-chrome--bottom .m-chrome-pill:first-child { border-top-left-radius: var(--m-pill, 999px); border-bottom-left-radius: var(--m-pill, 999px); }
+.m-chrome--bottom .m-chrome-pill:last-child { border-top-right-radius: var(--m-pill, 999px); border-bottom-right-radius: var(--m-pill, 999px); }
+.m-chrome--bottom:is(:hover, :focus-within) .m-chrome-pill { border-radius: var(--m-pill, 999px); }
+.m-chrome--side .m-chrome-pill:first-child { border-top-left-radius: var(--m-pill, 999px); border-top-right-radius: var(--m-pill, 999px); }
+.m-chrome--side .m-chrome-pill:last-child { border-bottom-left-radius: var(--m-pill, 999px); border-bottom-right-radius: var(--m-pill, 999px); }
+.m-chrome--side:is(:hover, :focus-within) .m-chrome-pill { border-radius: var(--m-pill, 999px); }
 .m-chrome-skip {
   opacity: 0;
   pointer-events: none;
@@ -2180,6 +2193,10 @@ body:has(.viewer-stage.has-arrow-bar) .m-chrome--bottom { bottom: calc(env(safe-
 }
 @media (prefers-reduced-motion: reduce) {
   .m-chrome { transition: opacity 200ms ease; transform: none !important; }
+  /* The blob's gap snaps instantly here, so its corner morph must too —
+     a rounding trail over already-separated pills would read as lag. */
+  .m-chrome--bottom .m-chrome-pill,
+  .m-chrome--side .m-chrome-pill { transition: none; }
 }
 
 /* Owner Add / Details / Share surfaces (P7). These stay inside .m-owner so
