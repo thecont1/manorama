@@ -35,7 +35,8 @@ import { invoke } from '@tauri-apps/api/core'
 import { removeDeviceGallery, syncDeviceGalleries } from '../lib/sync'
 import { copyText } from '../../app/lib/gallery-share'
 import { AccountApiError, createAccountGallery, deleteAccount, deleteDeviceGalleryRecord, fetchAccountGalleries, fetchAccountGallery, fetchAccountIdentities, fetchAccountProfile, fetchDeviceGalleries, fetchDevices, forgetDevice, mintLinkHandoff, patchAccountOwnerSlug, probeAccountGallery, refreshAccountGallery, registerDevice, scanGalleryLink, setAccountGalleryHidden, setAccountGalleryPin, setAccountGalleryPositions, setDeviceGalleryHidden, standaloneDeviceGalleries, unlinkAccountIdentity } from '../lib/account'
-import { previewSrcFor, sourceLabelFor } from '../../native/lib/library-media'
+import { previewSrcFor, sourceLabelFor, LibraryMediaLoader } from '../../native/lib/library-media'
+import { AccountCellImg } from './LibraryCoverCell'
 import { postToXPhotos, type PostToXPhoto } from '../../native/lib/post-to-x'
 import { cloudPhotoReader, localPhotoReader, localPostPhotos, type PostPhotoReader } from '../lib/post-to-x'
 import PostToX from './PostToX'
@@ -68,7 +69,7 @@ import { desktopKeyStore } from '../lib/key-store'
 import { desktopOfflineStore, desktopVaultPersistence, openDesktopEncryptedSession, createDesktopVaultSettings } from '../lib/offline-gallery'
 import { desktopVault } from '../lib/vault'
 import { EncryptedSourceLockedError, EncryptedSourceMismatchError } from '../../native/lib/encrypted-gallery'
-import { openGalleryNetworkFirst, OfflineGalleryUnavailableError, type OfflineGallerySummary, type OfflineGridGallery } from '../../native/lib/offline-gallery'
+import { openGalleryNetworkFirst, offlineGalleryId, OfflineGalleryUnavailableError, type OfflineGallerySummary, type OfflineGridGallery } from '../../native/lib/offline-gallery'
 import { applyVaultCap, galleryPolicyKey, loadGalleryStreamOnly, loadVaultCapPreference, loadVaultLoadPolicy, saveGalleryStreamOnly, type GalleryLoadOverride, type VaultLoadPolicy } from '../../native/lib/vault-settings'
 import VaultSettings, { formatBytes } from '../../native/islands/VaultSettings'
 import { Meter } from '../../app/components/ui/Meter'
@@ -763,6 +764,44 @@ export default function Catalogue({ apiBase }: { apiBase: string }) {
     ;(window as unknown as { __manoramaSeedRequested?: boolean }).__manoramaSeedRequested = false
     void addFolder()
   }, [catalogue, accountTier, session])
+
+  // One loader per mounted Library — its queue and budgets are the whole
+  // surface's media ceiling, shared by every account cover and strip cell.
+  // A cover miss is a one-time fetch: the vault keeps it so every later
+  // Library render resolves locally instead of paying the network again.
+  const libraryLoader = useMemo(() => new LibraryMediaLoader({
+    read: (galleryId, entryId) => desktopOfflineStore.readThumbnail(galleryId, entryId),
+    objectUrls: {
+      create: (bytes, mimeType) => URL.createObjectURL(new Blob([bytes.slice().buffer], { type: mimeType })),
+      revoke: (url) => URL.revokeObjectURL(url),
+    },
+    onRemoteFallback: (cell) => {
+      if (!cell.galleryId || !cell.coverId || !cell.remote) return
+      void desktopOfflineStore.ensureCover({
+        galleryId: cell.galleryId,
+        entryId: cell.coverId,
+        remote: cell.remote,
+        mimeType: cell.mimeType,
+      }).catch(() => {})
+    },
+  }), [])
+  useEffect(() => () => libraryLoader.release(), [libraryLoader])
+  // Each card's vault identity is a digest of owner+slug — computed once per
+  // list revision so cover cells can ask for saved bytes by their real key.
+  const [galleryIds, setGalleryIds] = useState<Record<string, string>>({})
+  useEffect(() => {
+    if (!session || !accountGalleries?.length) {
+      setGalleryIds({})
+      return
+    }
+    let active = true
+    void (async () => {
+      const entries = await Promise.all(accountGalleries.map(async (gallery) =>
+        [gallery.slug, await offlineGalleryId({ owner: session.ownerSlug, slug: gallery.slug })] as const))
+      if (active) setGalleryIds(Object.fromEntries(entries))
+    })().catch(() => {})
+    return () => { active = false }
+  }, [session, accountGalleries])
 
   // The vault's persisted preferences and saved index load once; the cap
   // re-applies on every tier change because Free and Visionary resolve
@@ -2555,6 +2594,7 @@ export default function Catalogue({ apiBase }: { apiBase: string }) {
     const pending = (async () => {
       try {
         await desktopOfflineStore.purgeGallery(galleryId)
+        libraryLoader.invalidate(galleryId)
         const fresh = await refreshSavedGalleries()
         setNotice('Saved copy removed from this Mac')
         return fresh
@@ -2608,6 +2648,7 @@ export default function Catalogue({ apiBase }: { apiBase: string }) {
         // No saved record yet — the aborted fill may still have committed
         // partial ciphertext, so the purge runs anyway.
         await desktopOfflineStore.purgeGallery(gallery.id).catch(() => {})
+        libraryLoader.invalidate(gallery.id)
         await refreshSavedGalleries()
       }
     } else {
@@ -3272,7 +3313,9 @@ export default function Catalogue({ apiBase }: { apiBase: string }) {
     const cover = gallery.images.find((image) => !image.hidden)
     return <li key={`account-${gallery.slug}`} class="lib-compact-card" data-gallery-card={gallery.slug} data-retention={gallery.retention}>
       <a class="lib-compact-cover" href={galleryUrl} onClick={openCard} draggable={false} aria-label={`${title} cover`}>
-        {cover ? <CompactCoverImg src={cover.src || previewSrcFor(cover)} preview={previewSrcFor(cover)} media={cover.media} previewMedia={cover.variants?.[0]?.media} galleryId={gallery.id} filename={cover.filename} storedWidth={cover.width} storedHeight={cover.height} onError={stripImgRetry} /> : null}
+        {cover ? <AccountCellImg loader={libraryLoader} vaultGalleryId={galleryIds[gallery.slug]} image={cover} remote={cover.src || previewSrcFor(cover)} render={(vaulted, isVaulted) => (
+          <CompactCoverImg src={isVaulted ? vaulted! : (cover.src || previewSrcFor(cover))} preview={isVaulted ? vaulted : previewSrcFor(cover)} media={cover.media} previewMedia={cover.variants?.[0]?.media} galleryId={gallery.id} filename={cover.filename} storedWidth={cover.width} storedHeight={cover.height} onError={stripImgRetry} />
+        )} /> : null}
       </a>
       <div class="lib-compact-body">
         <div class="lib-compact-main">
@@ -3445,26 +3488,28 @@ export default function Catalogue({ apiBase }: { apiBase: string }) {
                                 draggable={false}
                                 aria-label={`${title}, ${image.hidden ? 'hidden ' : ''}${itemKind(image)} ${index + 1} of ${gallery.imageCount}`}
                               >
-                                <HeicImg
-                                  src={image.src || previewSrcFor(image)}
-                                  preview={previewSrcFor(image)}
-                                  media={image.media}
-                                  previewMedia={image.variants?.[0]?.media}
-                                  galleryId={gallery.id}
-                                  filename={image.filename}
-                                  alt=""
-                                  loading="lazy"
-                                  draggable={false}
-                                  style={{ aspectRatio: `${Math.max(1, image.width)} / ${Math.max(1, image.height)}` }}
-                                  onLoad={(event: Event) => {
-                                    const img = event.currentTarget as HTMLImageElement
-                                    // Stored dims are the placeholder's shape — the
-                                    // decoded frame owns the real ratio once it lands.
-                                    if (img.naturalWidth && img.naturalHeight) img.style.aspectRatio = `${img.naturalWidth} / ${img.naturalHeight}`
-                                    img.classList.add('is-loaded')
-                                  }}
-                                  onError={stripImgRetry}
-                                />
+                                <AccountCellImg loader={libraryLoader} vaultGalleryId={galleryIds[gallery.slug]} image={image} remote={previewSrcFor(image)} render={(vaulted, isVaulted) => (
+                                  <HeicImg
+                                    src={isVaulted ? vaulted! : (image.src || previewSrcFor(image))}
+                                    preview={isVaulted ? vaulted : previewSrcFor(image)}
+                                    media={image.media}
+                                    previewMedia={image.variants?.[0]?.media}
+                                    galleryId={gallery.id}
+                                    filename={image.filename}
+                                    alt=""
+                                    loading="lazy"
+                                    draggable={false}
+                                    style={{ aspectRatio: `${Math.max(1, image.width)} / ${Math.max(1, image.height)}` }}
+                                    onLoad={(event: Event) => {
+                                      const img = event.currentTarget as HTMLImageElement
+                                      // Stored dims are the placeholder's shape — the
+                                      // decoded frame owns the real ratio once it lands.
+                                      if (img.naturalWidth && img.naturalHeight) img.style.aspectRatio = `${img.naturalWidth} / ${img.naturalHeight}`
+                                      img.classList.add('is-loaded')
+                                    }}
+                                    onError={stripImgRetry}
+                                  />
+                                )} />
                                 {isVideoPreview(image) ? <span class="admin-strip-badge" aria-hidden="true">{videoBadge(image)}</span> : null}
                                 {image.hidden
                                   ? <span class="admin-strip-badge admin-strip-badge--hidden" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7-10-7-10-7z"/><circle cx="12" cy="12" r="3"/><path d="m4 4 16 16"/></svg></span>

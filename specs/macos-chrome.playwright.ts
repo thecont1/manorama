@@ -336,6 +336,28 @@ for (const engine of ['chromium', 'webkit'] as const) {
       expect(await paint(publish)).toEqual({ backdrop: 'none', background: 'rgba(16, 16, 18, 0.94)' })
     })
 
+    // Account covers paint the provider preview once, then ensureCover vaults
+    // those bytes and the cell re-acquires them as an object URL — later
+    // visits render the Library without touching the network. The bridge's
+    // in-memory vault answers the same IPC the shell does.
+    test('account covers vault their preview so the Library needs no network', async ({ page }) => {
+      const coverSrc = `${BASE}/cover-fixture.gif`
+      await page.route(coverSrc, (route) => route.fulfill({
+        contentType: 'image/gif',
+        body: Buffer.from(PIXEL.split(',')[1], 'base64'),
+      }))
+      await page.route('https://manorama.xyz/api/galleries', (route) => route.fulfill({ json: { galleries: [{
+        ...cloudGallery,
+        images: [{ ...cloudGallery.images[0], src: coverSrc, filename: 'cover.gif' }],
+      }] } }))
+      await page.goto(`${BASE}/.macos-chrome-fixture`)
+      const cover = page.locator('[data-gallery-card="cloud-album"] .lib-compact-cover img')
+      await expect(cover).toBeVisible()
+      await expect(cover).toHaveAttribute('src', /^blob:/)
+      const writes = await page.evaluate(() => (window as unknown as { __vaultWrites: string[] }).__vaultWrites.length)
+      expect(writes).toBeGreaterThan(0)
+    })
+
     test('native handle owns sheet focus, picker return and resized dock geometry', async ({ page }) => {
       const errors: string[] = []
       page.on('pageerror', (error) => errors.push(error.message))

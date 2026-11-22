@@ -4,6 +4,7 @@ import { Window } from 'happy-dom'
 import { unmountTracker } from '../../test/unmount'
 import { releaseAllOverlays } from '../../app/lib/overlay-stack'
 import { hashPassword } from '../lib/library-prefs'
+import { vaultFilePathIdentity } from '../../native/lib/vault'
 import Catalogue from './Catalogue'
 
 /**
@@ -514,8 +515,12 @@ describe('desktop catalogue workbench', () => {
 
       const card = accountSection.querySelector<HTMLElement>('.lib-compact-card')!
       expect(card.querySelector('.lib-card-sub')?.textContent).toBe('1 photograph from Dropbox')
-      // Server-relative previews arrive rewritten against the API origin.
-      expect(card.querySelector('img')?.getAttribute('src')).toBe('https://manorama.xyz/img/a-sm.jpg')
+      // The preview is painted from the provider once, vaulted under a
+      // `cover:` entry, and the cell re-acquires the same bytes locally —
+      // the img settles on the vault object URL, not the remote one.
+      expect(card.querySelector('img')?.getAttribute('src')).toMatch(/^blob:/)
+      const coverEntries = [...vaultFiles.keys()].filter((path) => vaultFilePathIdentity(path).entryId === 'cover:a')
+      expect(coverEntries.length).toBe(1)
       // Common actions live directly in the card menu; source and removal
       // stay in the final Gallery Settings panel.
       card.querySelector<HTMLButtonElement>(`[aria-label="kashmir, in winter actions"]`)!.click()
