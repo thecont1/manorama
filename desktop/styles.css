@@ -546,6 +546,12 @@ body.manorama-desktop .app-update-dismiss:hover { color: rgba(var(--ink), 1); }
 :root[data-macos-shell] .m-sheet .lib-menu > * + :is(button, a) {
   border-top: 1px solid rgba(var(--ink), .08);
 }
+/* The provider rows' Connect buttons already bound each option — the
+   baseline rule's 1px separator is clutter over glass, so the publish
+   sheet's rows go lineless like the menu's tiles did. */
+:root[data-macos-shell] .m-sheet .desktop-share-provider {
+  border-bottom: 0;
+}
 /* The chain length is specificity load-bearing: the canvas fill on
    .desktop-share--sheet sits inside an :is() whose :not() arms push it to
    (0,6,4), so the override needs seven class-levels to clear it. */

@@ -329,6 +329,7 @@ for (const engine of ['chromium', 'webkit'] as const) {
       const publish = page.getByRole('dialog', { name: 'Publish “Bangkok Rain”', exact: true })
       await expect(publish).toBeVisible()
       expect(await paint(publish.locator('.desktop-share--sheet'))).toEqual({ backdrop: 'none', background: 'rgba(0, 0, 0, 0)' })
+      expect(await publish.locator('.desktop-share-provider').first().evaluate((el) => getComputedStyle(el).borderBottomStyle)).toBe('none')
       await page.evaluate(() => document.documentElement.setAttribute('data-reduced-transparency', ''))
       expect(await paint(publish)).toEqual({ backdrop: 'none', background: 'rgba(16, 16, 18, 0.94)' })
     })
