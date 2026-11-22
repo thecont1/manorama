@@ -22,7 +22,32 @@ jobs:
 
       - run: bun install --frozen-lockfile
 
+      # The publish-provider OAuth client ids are public app identifiers
+      # baked into the bundle through process.env -> import.meta.env. A
+      # missing one silently ships that provider as "Not configured in this
+      # build", so the check fails before tauri build starts.
+      - name: Require the publish-provider client identifiers
+        shell: bash
+        env:
+          MANORAMA_DESKTOP_DROPBOX_CLIENT_ID: ${{ vars.MANORAMA_DESKTOP_DROPBOX_CLIENT_ID }}
+          MANORAMA_DESKTOP_GOOGLE_CLIENT_ID: ${{ vars.MANORAMA_DESKTOP_GOOGLE_CLIENT_ID }}
+          MANORAMA_DESKTOP_GOOGLE_CLIENT_SECRET: ${{ vars.MANORAMA_DESKTOP_GOOGLE_CLIENT_SECRET }}
+        run: |
+          set -uo pipefail
+          missing=0
+          for name in MANORAMA_DESKTOP_DROPBOX_CLIENT_ID MANORAMA_DESKTOP_GOOGLE_CLIENT_ID MANORAMA_DESKTOP_GOOGLE_CLIENT_SECRET; do
+            if [ -z "${!name:-}" ]; then
+              echo "::error::$name is not set for this repository. The desktop share lane bakes it into the bundle; without it that provider renders 'Not configured in this build'. Set it under Settings -> Secrets and variables -> Actions -> Variables."
+              missing=1
+            fi
+          done
+          exit "$missing"
+
       - name: Build desktop bundles
+        env:
+          MANORAMA_DESKTOP_DROPBOX_CLIENT_ID: ${{ vars.MANORAMA_DESKTOP_DROPBOX_CLIENT_ID }}
+          MANORAMA_DESKTOP_GOOGLE_CLIENT_ID: ${{ vars.MANORAMA_DESKTOP_GOOGLE_CLIENT_ID }}
+          MANORAMA_DESKTOP_GOOGLE_CLIENT_SECRET: ${{ vars.MANORAMA_DESKTOP_GOOGLE_CLIENT_SECRET }}
         run: bunx tauri build
 
       - uses: actions/upload-artifact@v7
