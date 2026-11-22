@@ -1,4 +1,4 @@
-import { expect, test as base, type BrowserType, type Route } from '@playwright/test'
+import { expect, test as base, type BrowserType, type Locator, type Route } from '@playwright/test'
 import { readFileSync } from 'node:fs'
 import { blockProductionApi, bridgePayload, catalogue, GALLERY_ID, installBridge, PIXEL } from './desktop-admin-fixture'
 
@@ -229,7 +229,7 @@ for (const engine of ['chromium', 'webkit'] as const) {
         publicGallerySlug: 'bangkok-rain', updatedAt: new Date().toISOString(),
       }] } }))
       await page.goto(`${BASE}/.macos-chrome-fixture`)
-      const trigger = page.getByRole('button', { name: 'Bangkok Rain actions', exact: true })
+      const trigger = page.getByRole('button', { name: 'Bangkok Rain actions', exact: true }).first()
       const menu = page.getByRole('dialog', { name: 'Bangkok Rain', exact: true })
       await trigger.click()
       await expect(menu.getByRole('button', { name: 'Publish this gallery', exact: true })).toHaveCount(0)
@@ -263,7 +263,7 @@ for (const engine of ['chromium', 'webkit'] as const) {
 
     test('unpublished local menus publish explicitly and refresh can recover a missing source', async ({ page }) => {
       await page.goto(`${BASE}/.macos-chrome-fixture`)
-      const trigger = page.getByRole('button', { name: 'Bangkok Rain actions', exact: true })
+      const trigger = page.getByRole('button', { name: 'Bangkok Rain actions', exact: true }).first()
       const menu = page.getByRole('dialog', { name: 'Bangkok Rain', exact: true })
       await trigger.click()
       await expect(menu.getByRole('button', { name: 'Copy link', exact: true })).toHaveCount(0)
@@ -296,11 +296,45 @@ for (const engine of ['chromium', 'webkit'] as const) {
       await expect(menu.getByRole('button', { name: 'Reorder photos', exact: true })).toBeEnabled()
     })
 
+    // Every catalogue dialog is the shared Sheet, so the card menu, the
+    // settings sheet and the publish sheet pin the whole class: frost fill
+    // + 24px blur + rim over the wall, raised groups flat, the sheet
+    // panel's canvas fill cleared, the scrim a dim-only veil — and a
+    // shell-stamped reduced transparency drops the material to the Tier-0
+    // solid, same as the other lanes.
+    test('catalogue sheets float as frost and drop to the Tier-0 solid', async ({ page }) => {
+      const paint = (locator: Locator) => locator.evaluate((el) => {
+        const style = getComputedStyle(el) as CSSStyleDeclaration & { webkitBackdropFilter?: string }
+        return { backdrop: style.backdropFilter || style.webkitBackdropFilter || 'none', background: style.backgroundColor }
+      })
+      await page.goto(`${BASE}/.macos-chrome-fixture`)
+      // A pinned card renders in the strip and its home section, so the ···
+      // trigger exists twice — either opens the same sheet.
+      const trigger = page.getByRole('button', { name: 'Bangkok Rain actions', exact: true }).first()
+      await trigger.click()
+      const menu = page.getByRole('dialog', { name: 'Bangkok Rain', exact: true })
+      await expect(menu).toBeVisible()
+      expect(await paint(menu)).toEqual({ backdrop: 'blur(24px) saturate(1.4)', background: 'rgba(18, 18, 24, 0.4)' })
+      expect(await paint(page.locator('.m-scrim:not(.m-scrim--ghost)'))).toEqual({ backdrop: 'none', background: 'rgba(0, 0, 0, 0.45)' })
+      await menu.getByRole('button', { name: 'More settings…', exact: true }).click()
+      const settings = page.getByRole('dialog', { name: 'Gallery Settings', exact: true })
+      await expect(settings).toBeVisible()
+      expect(await paint(settings.locator('.m-actiongroup').first())).toEqual({ backdrop: 'none', background: 'rgba(255, 255, 255, 0.1)' })
+      await page.keyboard.press('Escape')
+      await trigger.click()
+      await menu.getByRole('button', { name: 'Publish this gallery', exact: true }).click()
+      const publish = page.getByRole('dialog', { name: 'Publish “Bangkok Rain”', exact: true })
+      await expect(publish).toBeVisible()
+      expect(await paint(publish.locator('.desktop-share--sheet'))).toEqual({ backdrop: 'none', background: 'rgba(0, 0, 0, 0)' })
+      await page.evaluate(() => document.documentElement.setAttribute('data-reduced-transparency', ''))
+      expect(await paint(publish)).toEqual({ backdrop: 'none', background: 'rgba(16, 16, 18, 0.94)' })
+    })
+
     test('native handle owns sheet focus, picker return and resized dock geometry', async ({ page }) => {
       const errors: string[] = []
       page.on('pageerror', (error) => errors.push(error.message))
       await page.goto(`${BASE}/.macos-chrome-fixture`)
-      await page.getByRole('button', { name: 'Bangkok Rain', exact: true }).click()
+      await page.getByRole('button', { name: 'Bangkok Rain', exact: true }).first().click()
       const curtain = page.locator('[data-curtain]')
       await expect(curtain).toBeVisible()
       await curtain.click()

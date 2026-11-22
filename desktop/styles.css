@@ -513,6 +513,34 @@ body.manorama-desktop .app-update-dismiss:hover { color: rgba(var(--ink), 1); }
   }
 }
 
+/* Every floating dialog the catalogue mounts is the shared Sheet
+   (role=dialog) — Publish, Gallery Settings, the ··· menus, confirms and
+   the add chooser, popover presentation included. They take the same
+   sheet-depth frost the viewer and library lanes use, so a popover reads
+   as glass floating over the wall instead of a slab of the surface
+   colour. Raised groups inside stay flat — never a second lens — and the
+   publish panel clears the canvas fill it wears on the wall, or an
+   .82-alpha dark box would hide the material. The scrim keeps its
+   dim-only veil; the ghost stays transparent and tap-only. */
+:root[data-macos-shell] .m-sheet {
+  background: var(--glass-fill-frost);
+  backdrop-filter: blur(24px) saturate(1.4);
+  -webkit-backdrop-filter: blur(24px) saturate(1.4);
+  box-shadow: var(--glass-rim), var(--glass-shadow);
+}
+:root[data-macos-shell] .m-sheet .m-actiongroup {
+  background: var(--glass-flat-child);
+}
+/* The chain length is specificity load-bearing: the canvas fill on
+   .desktop-share--sheet sits inside an :is() whose :not() arms push it to
+   (0,6,4), so the override needs seven class-levels to clear it. */
+:root[data-macos-shell] body.manorama-desktop .admin-page .m-sheet-host .m-sheet .desktop-share--sheet {
+  background: transparent;
+}
+:root[data-macos-shell] .m-scrim:not(.m-scrim--ghost) {
+  background: var(--glass-dim);
+}
+
 /* Tier 0 — reduced transparency/contrast, a shell-stamped attribute, or
    a webview with no backdrop-filter all land on the same solid + edge.
    The scrim keeps its dim; it was only ever a veil. Under html.light
@@ -525,6 +553,7 @@ body.manorama-desktop .app-update-dismiss:hover { color: rgba(var(--ink), 1); }
   :root[data-macos-shell] .desktop-paste:not(.desktop-share--sheet .desktop-paste),
   :root[data-macos-shell] body.manorama-desktop .stage-arrows > button,
   :root[data-macos-shell] body.manorama-desktop .stage-arrows > button:hover,
+  :root[data-macos-shell] .m-sheet,
   :root[data-macos-shell] section.web-settings--pane {
     background: var(--glass-solid);
     backdrop-filter: none;
@@ -540,6 +569,7 @@ body.manorama-desktop .app-update-dismiss:hover { color: rgba(var(--ink), 1); }
 :root[data-macos-shell][data-reduced-transparency] .desktop-paste:not(.desktop-share--sheet .desktop-paste),
 :root[data-macos-shell][data-reduced-transparency] body.manorama-desktop .stage-arrows > button,
 :root[data-macos-shell][data-reduced-transparency] body.manorama-desktop .stage-arrows > button:hover,
+:root[data-macos-shell][data-reduced-transparency] .m-sheet,
 :root[data-macos-shell][data-reduced-transparency] section.web-settings--pane {
   background: var(--glass-solid);
   backdrop-filter: none;
@@ -555,6 +585,7 @@ body.manorama-desktop .app-update-dismiss:hover { color: rgba(var(--ink), 1); }
   :root[data-macos-shell] .desktop-paste:not(.desktop-share--sheet .desktop-paste),
   :root[data-macos-shell] body.manorama-desktop .stage-arrows > button,
   :root[data-macos-shell] body.manorama-desktop .stage-arrows > button:hover,
+  :root[data-macos-shell] .m-sheet,
   :root[data-macos-shell] section.web-settings--pane {
     background: var(--glass-solid);
     box-shadow: inset 0 0 0 1px var(--glass-edge);
