@@ -28,7 +28,7 @@ for (const shell of ['native', 'desktop'] as const) {
   test(`${shell} app walls and sheets share fixed themed vectors without painting photo/control surfaces`, async ({ page }) => {
     const surfaces = shell === 'native'
       ? ['native-welcome m-owner', 'native-list-shell m-owner', 'native-settings m-owner', 'native-global-view', 'native-editor', 'm-screen m-owner']
-      : ['desktop-welcome landing-page', 'desktop-shell', 'admin-page', 'admin-drawer-panel']
+      : ['desktop-welcome landing-page', 'desktop-shell', 'admin-page']
     await page.goto(base, { waitUntil: 'domcontentloaded' })
     await page.setContent(`<html><head><link rel="stylesheet" href="${base}/${shell}/styles.css"><link rel="stylesheet" href="${base}/app/styles/canvas.css"></head><body class="manorama-${shell}">${surfaces.map((surface, i) => `<section class="${surface}" data-wall="${i}"></section>`).join('')}<section class="m-sheet m-owner m-dark" data-sheet><button class="m-btn m-btn--primary">Action</button></section><section class="viewer-stage bg-none"><div class="viewer-frame"><img width="1" height="1"></div><div class="viewer-ad-frame"></div></section></body></html>`)
     await expect(page.locator('[data-wall]').first()).toHaveCSS('background-image', /app-canvas-dark\.svg/)
@@ -51,7 +51,9 @@ for (const shell of ['native', 'desktop'] as const) {
         await expect(wall).toHaveCSS('background-image', new RegExp(`app-canvas-${palette}\\.svg`))
         await expect(wall).toHaveCSS('background-size', '256px 256px')
       }
-      await expect(page.locator('[data-sheet]')).toHaveCSS('background-image', /app-canvas-dark\.svg/)
+      /* Floating surfaces stay flat: a sheet or popover overlays content,
+         so the artwork never competes with the controls it frames. */
+      await expect(page.locator('[data-sheet]')).not.toHaveCSS('background-image', /app-canvas/)
       for (const selector of ['.viewer-stage', '.viewer-frame', '.viewer-ad-frame', 'img', 'button']) {
         expect(await page.locator(selector).evaluate(el => getComputedStyle(el).backgroundImage)).not.toContain('app-canvas-')
       }

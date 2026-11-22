@@ -557,7 +557,7 @@ test('canvas controls remain available and the field never leaves the gallery', 
   await expect(page.locator('[data-doodle-bg]')).toHaveCount(1)
   await expect(page.getByRole('dialog', { name: 'Gallery Settings' })).toBeVisible()
   await expect(page.locator('.viewer-stage')).toHaveCSS('background-image', 'none')
-  await expect(page.getByRole('dialog', { name: 'Gallery Settings' })).toHaveCSS('background-image', /app-canvas-dark\.svg/)
+  await expect(page.getByRole('dialog', { name: 'Gallery Settings' })).not.toHaveCSS('background-image', /app-canvas/)
   await clickUntil(page, () => page.getByRole('radio', { name: 'Dark' }).click(), '.viewer-stage.bg-dark')
   await expect(page.locator('[data-doodle-bg]')).toHaveCount(1)
 })
