@@ -178,6 +178,13 @@ export const thumbnailEntryId = (providerImageId: string): string => `thumb:${pr
  *  original, and so a kept original always wins the cell's probe order. */
 export const coverEntryId = (providerImageId: string): string => `cover:${providerImageId}`
 
+/** A cover entry's source stamp — the identity (contentVersion or ref
+ *  coordinates for encrypted refs, src otherwise) the vaulted bytes were
+ *  fetched for. A same-id source replacement must not paint last session's
+ *  bytes. */
+export const coverSourceEntryId = (coverEntry: string): string =>
+  `coversrc:${coverEntry.startsWith('cover:') ? coverEntry.slice('cover:'.length) : coverEntry}`
+
 /** Cover entries are display cache, never kept-gallery bytes — progress
  *  meters and completeness checks must not count them as saved media. */
 export const isCoverEntryId = (entryId: string): boolean => entryId.startsWith('cover:')

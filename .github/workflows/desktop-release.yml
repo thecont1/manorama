@@ -87,6 +87,9 @@ jobs:
           APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
           APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+          MANORAMA_DESKTOP_DROPBOX_CLIENT_ID: ${{ vars.MANORAMA_DESKTOP_DROPBOX_CLIENT_ID }}
+          MANORAMA_DESKTOP_GOOGLE_CLIENT_ID: ${{ vars.MANORAMA_DESKTOP_GOOGLE_CLIENT_ID }}
+          MANORAMA_DESKTOP_GOOGLE_CLIENT_SECRET: ${{ vars.MANORAMA_DESKTOP_GOOGLE_CLIENT_SECRET }}
         run: |
           set -uo pipefail
           # APPLE_APP_SPECIFIC_PASSWORD is the long name the same credential is
@@ -98,6 +101,19 @@ jobs:
             else
               printf '%-28s MISSING\n' "$name"
               echo "::warning::$name is not set for this repository. The macOS leg requires the full APPLE_* set — it fails at the credential check before building — while the Windows and Linux legs do not use it."
+            fi
+          done
+          # The publish-provider client ids live on the Variables tab — they
+          # are public app identifiers baked into the bundle, not secrets.
+          # The Google client secret is optional (installed-app PKCE flows
+          # attach it only when present), so it is not reported here.
+          for name in MANORAMA_DESKTOP_DROPBOX_CLIENT_ID MANORAMA_DESKTOP_GOOGLE_CLIENT_ID; do
+            value="${!name:-}"
+            if [ -n "$value" ]; then
+              printf '%-28s set (%s characters)\n' "$name" "${#value}"
+            else
+              printf '%-28s MISSING\n' "$name"
+              echo "::warning::$name is not set for this repository. Every leg bakes it into the bundle — a missing one ships that provider as 'Not configured in this build'. Set it under Settings -> Secrets and variables -> Actions -> Variables."
             fi
           done
 
@@ -130,6 +146,28 @@ jobs:
             "https://api.github.com/repos/${{ github.repository }}/contents/scripts/require-env.sh?ref=${{ github.workflow_sha }}" \
             -o "$RUNNER_TEMP/require-env.sh"
           bash "$RUNNER_TEMP/require-env.sh" APPLE_CERTIFICATE APPLE_CERTIFICATE_PASSWORD APPLE_ID APPLE_PASSWORD APPLE_TEAM_ID
+
+      # The publish-provider OAuth client ids are public app identifiers
+      # baked into the bundle at build time — they live as repository
+      # variables, not secrets. A missing one does not fail the build; it
+      # silently ships that provider as "Not configured in this build", so
+      # the gate runs on every leg before any bundle exists.
+      - name: Require the publish-provider client identifiers
+        shell: bash
+        env:
+          MANORAMA_DESKTOP_DROPBOX_CLIENT_ID: ${{ vars.MANORAMA_DESKTOP_DROPBOX_CLIENT_ID }}
+          MANORAMA_DESKTOP_GOOGLE_CLIENT_ID: ${{ vars.MANORAMA_DESKTOP_GOOGLE_CLIENT_ID }}
+          MANORAMA_DESKTOP_GOOGLE_CLIENT_SECRET: ${{ vars.MANORAMA_DESKTOP_GOOGLE_CLIENT_SECRET }}
+        run: |
+          set -uo pipefail
+          missing=0
+          for name in MANORAMA_DESKTOP_DROPBOX_CLIENT_ID MANORAMA_DESKTOP_GOOGLE_CLIENT_ID; do
+            if [ -z "${!name:-}" ]; then
+              echo "::error::$name is not set for this repository. The desktop share lane bakes it into the bundle; without it that provider renders 'Not configured in this build'. Set it under Settings -> Secrets and variables -> Actions -> Variables."
+              missing=1
+            fi
+          done
+          exit "$missing"
 
       # The toolchain is validated before any credential is touched: a
       # runner that cannot supply the reviewed Xcode fails here, cheaply,
@@ -205,6 +243,12 @@ jobs:
           # needs, and APPLE_APP_SPECIFIC_PASSWORD is the other common spelling.
           APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD || secrets.APPLE_APP_SPECIFIC_PASSWORD }}
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          # build-macos.sh runs vite; these public client ids reach the
+          # bundle through process.env -> import.meta.env (envPrefix
+          # MANORAMA_DESKTOP_), exactly as .env.local does on a dev machine.
+          MANORAMA_DESKTOP_DROPBOX_CLIENT_ID: ${{ vars.MANORAMA_DESKTOP_DROPBOX_CLIENT_ID }}
+          MANORAMA_DESKTOP_GOOGLE_CLIENT_ID: ${{ vars.MANORAMA_DESKTOP_GOOGLE_CLIENT_ID }}
+          MANORAMA_DESKTOP_GOOGLE_CLIENT_SECRET: ${{ vars.MANORAMA_DESKTOP_GOOGLE_CLIENT_SECRET }}
         run: |
           scripts/build-macos.sh release
           APP_BUNDLE=macos/ManoramaMac/build/manorama.app
@@ -225,6 +269,12 @@ jobs:
 
       - name: Build desktop bundles
         if: runner.os != 'macOS'
+        env:
+          # tauri build -> bun run build:desktop -> vite; the same public
+          # client ids bake in through process.env -> import.meta.env.
+          MANORAMA_DESKTOP_DROPBOX_CLIENT_ID: ${{ vars.MANORAMA_DESKTOP_DROPBOX_CLIENT_ID }}
+          MANORAMA_DESKTOP_GOOGLE_CLIENT_ID: ${{ vars.MANORAMA_DESKTOP_GOOGLE_CLIENT_ID }}
+          MANORAMA_DESKTOP_GOOGLE_CLIENT_SECRET: ${{ vars.MANORAMA_DESKTOP_GOOGLE_CLIENT_SECRET }}
         run: bunx tauri build
 
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7

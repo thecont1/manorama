@@ -16,13 +16,13 @@ html.light { --app-canvas-image: url('/app-canvas-light.svg'); }
    switching themes cannot reset this later background-image to none. */
 /* The wall is a Library and Gallery privilege: pages authored flat —
    * the ops console, 404, policy — keep their explicit solid body fills
-   * instead of wearing the tile. */
+   * instead of wearing the tile. Floating surfaces stay flat too — a
+   * sheet, popover or the account drawer overlays content, and artwork
+   * behind it would fight the controls it frames. */
 html:root:is(.app-page, :has(body.manorama-native), :has(body.manorama-desktop)) :is(
   body:not(:has(.ops-page, .not-found, .policy-page)),
   .admin-page,
-  .admin-drawer-panel,
   .m-screen,
-  .m-sheet,
   .viewer-filmstrip,
   .native-list-shell,
   .native-settings,

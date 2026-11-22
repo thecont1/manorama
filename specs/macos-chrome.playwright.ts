@@ -1,4 +1,4 @@
-import { expect, test as base, type BrowserType, type Route } from '@playwright/test'
+import { expect, test as base, type BrowserType, type Locator, type Route } from '@playwright/test'
 import { readFileSync } from 'node:fs'
 import { blockProductionApi, bridgePayload, catalogue, GALLERY_ID, installBridge, PIXEL } from './desktop-admin-fixture'
 
@@ -88,6 +88,23 @@ for (const engine of ['chromium', 'webkit'] as const) {
           await page.evaluate(() => document.fonts.ready)
           expect(await page.locator('.desktop-welcome h1').evaluate((element) => element.scrollWidth <= element.clientWidth)).toBe(true)
           await page.screenshot({ path: testInfo.outputPath(`welcome-${width}.png`) })
+        }
+      })
+
+      // The privacy link and copyright line sit bare on the artwork —
+      // contrast, not a container, lifts them off the tile.
+      test('the welcome footer reads off the artwork at a stronger alpha', async ({ page }) => {
+        await page.goto(`${BASE}/.macos-chrome-fixture`)
+        for (const sel of ['.site-footer-link', '.site-footer-copy']) {
+          const chip = page.locator(`.desktop-welcome .site-footer ${sel}`)
+          await expect(chip).toBeVisible()
+          const { alpha, background } = await chip.evaluate((el) => {
+            const s = getComputedStyle(el)
+            const match = s.color.match(/rgba\((\d+), (\d+), (\d+), ([\d.]+)\)/)
+            return { alpha: match ? Number(match[4]) : 1, background: s.backgroundColor }
+          })
+          expect(alpha).toBeGreaterThanOrEqual(0.6)
+          expect(background).toBe('rgba(0, 0, 0, 0)')
         }
       })
     })
@@ -229,7 +246,7 @@ for (const engine of ['chromium', 'webkit'] as const) {
         publicGallerySlug: 'bangkok-rain', updatedAt: new Date().toISOString(),
       }] } }))
       await page.goto(`${BASE}/.macos-chrome-fixture`)
-      const trigger = page.getByRole('button', { name: 'Bangkok Rain actions', exact: true })
+      const trigger = page.getByRole('button', { name: 'Bangkok Rain actions', exact: true }).first()
       const menu = page.getByRole('dialog', { name: 'Bangkok Rain', exact: true })
       await trigger.click()
       await expect(menu.getByRole('button', { name: 'Publish this gallery', exact: true })).toHaveCount(0)
@@ -263,7 +280,7 @@ for (const engine of ['chromium', 'webkit'] as const) {
 
     test('unpublished local menus publish explicitly and refresh can recover a missing source', async ({ page }) => {
       await page.goto(`${BASE}/.macos-chrome-fixture`)
-      const trigger = page.getByRole('button', { name: 'Bangkok Rain actions', exact: true })
+      const trigger = page.getByRole('button', { name: 'Bangkok Rain actions', exact: true }).first()
       const menu = page.getByRole('dialog', { name: 'Bangkok Rain', exact: true })
       await trigger.click()
       await expect(menu.getByRole('button', { name: 'Copy link', exact: true })).toHaveCount(0)
@@ -296,11 +313,100 @@ for (const engine of ['chromium', 'webkit'] as const) {
       await expect(menu.getByRole('button', { name: 'Reorder photos', exact: true })).toBeEnabled()
     })
 
+    // Every catalogue dialog is the shared Sheet, so the card menu, the
+    // settings sheet and the publish sheet pin the whole class: frost fill
+    // + 24px blur + rim over the wall, raised groups flat, the sheet
+    // panel's canvas fill cleared, the scrim a dim-only veil — and a
+    // shell-stamped reduced transparency drops the material to the Tier-0
+    // solid, same as the other lanes.
+    test('catalogue sheets float as frost and drop to the Tier-0 solid', async ({ page }) => {
+      const paint = (locator: Locator) => locator.evaluate((el) => {
+        const style = getComputedStyle(el) as CSSStyleDeclaration & { webkitBackdropFilter?: string }
+        return { backdrop: style.backdropFilter || style.webkitBackdropFilter || 'none', background: style.backgroundColor }
+      })
+      await page.goto(`${BASE}/.macos-chrome-fixture`)
+      expect(await paint(page.locator('.lib-section-title.lib-hidden-toggle').first())).toEqual({ backdrop: 'none', background: 'rgba(0, 0, 0, 0)' })
+      // A pinned card renders in the strip and its home section, so the ···
+      // trigger exists twice — either opens the same sheet.
+      const trigger = page.getByRole('button', { name: 'Bangkok Rain actions', exact: true }).first()
+      await trigger.click()
+      const menu = page.getByRole('dialog', { name: 'Bangkok Rain', exact: true })
+      await expect(menu).toBeVisible()
+      expect(await paint(menu)).toEqual({ backdrop: 'blur(24px) saturate(1.4)', background: 'rgba(18, 18, 24, 0.4)' })
+      expect(await paint(page.locator('.m-scrim:not(.m-scrim--ghost)'))).toEqual({ backdrop: 'none', background: 'rgba(0, 0, 0, 0.45)' })
+      await expect(menu.locator('.lib-menu')).toHaveCSS('row-gap', '0px')
+      expect(await paint(menu.locator('.lib-menu > button').nth(1))).toEqual({ backdrop: 'none', background: 'rgba(0, 0, 0, 0)' })
+      expect(await menu.locator('.lib-menu > button').nth(1).evaluate((el) => getComputedStyle(el).borderTopStyle)).toBe('solid')
+      await menu.getByRole('button', { name: 'More settings…', exact: true }).click()
+      const settings = page.getByRole('dialog', { name: 'Gallery Settings', exact: true })
+      await expect(settings).toBeVisible()
+      // The owner-panel scrim keeps the dim-only veil like every other
+      // catalogue dialog — no blur of the wall behind the sheet.
+      expect(await paint(page.locator('.m-scrim:not(.m-scrim--ghost)'))).toEqual({ backdrop: 'none', background: 'rgba(0, 0, 0, 0.45)' })
+      expect(await paint(settings.locator('.m-actiongroup').first())).toEqual({ backdrop: 'none', background: 'rgba(255, 255, 255, 0.1)' })
+      expect(await paint(settings.locator('.m-actionrow').first())).toEqual({ backdrop: 'none', background: 'rgba(0, 0, 0, 0)' })
+      // The body still scrolls — the chrome track is what goes.
+      await expect(settings.locator('.m-sheet-body')).toHaveCSS('scrollbar-width', 'none')
+      const webkitScrollbar = await page.evaluate(() => {
+        for (const sheet of document.styleSheets) {
+          try {
+            for (const rule of sheet.cssRules) {
+              if ((rule as CSSStyleRule).selectorText?.includes('.m-sheet-body::-webkit-scrollbar')) {
+                return `${(rule as CSSStyleRule).style.width} ${(rule as CSSStyleRule).style.height}`
+              }
+            }
+          } catch { /* opaque sheet */ }
+        }
+        return null
+      })
+      expect(webkitScrollbar).toBe('0px 0px')
+      await page.keyboard.press('Escape')
+      // The keep-copy switch is a canvas-filled button — over glass its
+      // tile is a dark slab behind the track, so it goes transparent too.
+      await page.getByRole('button', { name: 'Cloud Album actions', exact: true }).click()
+      const cloudMenu = page.getByRole('dialog', { name: 'Cloud Album', exact: true })
+      await cloudMenu.getByRole('button', { name: 'More settings…', exact: true }).click()
+      const cloudSettings = page.getByRole('dialog', { name: 'Gallery Settings', exact: true })
+      await expect(cloudSettings.getByRole('switch', { name: 'Keep a copy on this Mac' })).toBeVisible()
+      expect(await paint(cloudSettings.locator('.m-switch').first())).toEqual({ backdrop: 'none', background: 'rgba(0, 0, 0, 0)' })
+      await page.keyboard.press('Escape')
+      await trigger.click()
+      await menu.getByRole('button', { name: 'Publish this gallery', exact: true }).click()
+      const publish = page.getByRole('dialog', { name: 'Publish “Bangkok Rain”', exact: true })
+      await expect(publish).toBeVisible()
+      expect(await paint(publish.locator('.desktop-share--sheet'))).toEqual({ backdrop: 'none', background: 'rgba(0, 0, 0, 0)' })
+      expect(await publish.locator('.desktop-share-provider').first().evaluate((el) => getComputedStyle(el).borderBottomStyle)).toBe('none')
+      await page.evaluate(() => document.documentElement.setAttribute('data-reduced-transparency', ''))
+      expect(await paint(publish)).toEqual({ backdrop: 'none', background: 'rgba(16, 16, 18, 0.94)' })
+    })
+
+    // Account covers paint the provider preview once, then ensureCover vaults
+    // those bytes and the cell re-acquires them as an object URL — later
+    // visits render the Library without touching the network. The bridge's
+    // in-memory vault answers the same IPC the shell does.
+    test('account covers vault their preview so the Library needs no network', async ({ page }) => {
+      const coverSrc = `${BASE}/cover-fixture.gif`
+      await page.route(coverSrc, (route) => route.fulfill({
+        contentType: 'image/gif',
+        body: Buffer.from(PIXEL.split(',')[1], 'base64'),
+      }))
+      await page.route('https://manorama.xyz/api/galleries', (route) => route.fulfill({ json: { galleries: [{
+        ...cloudGallery,
+        images: [{ ...cloudGallery.images[0], src: coverSrc, filename: 'cover.gif' }],
+      }] } }))
+      await page.goto(`${BASE}/.macos-chrome-fixture`)
+      const cover = page.locator('[data-gallery-card="cloud-album"] .lib-compact-cover img')
+      await expect(cover).toBeVisible()
+      await expect(cover).toHaveAttribute('src', /^blob:/)
+      const writes = await page.evaluate(() => (window as unknown as { __vaultWrites: string[] }).__vaultWrites.length)
+      expect(writes).toBeGreaterThan(0)
+    })
+
     test('native handle owns sheet focus, picker return and resized dock geometry', async ({ page }) => {
       const errors: string[] = []
       page.on('pageerror', (error) => errors.push(error.message))
       await page.goto(`${BASE}/.macos-chrome-fixture`)
-      await page.getByRole('button', { name: 'Bangkok Rain', exact: true }).click()
+      await page.getByRole('button', { name: 'Bangkok Rain', exact: true }).first().click()
       const curtain = page.locator('[data-curtain]')
       await expect(curtain).toBeVisible()
       await curtain.click()

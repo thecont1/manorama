@@ -76,6 +76,9 @@ type BridgePayload = { catalogue: string; session: string; pixel: string; photos
  *  argument because an init script is serialized, not called: anything it
  *  closes over would be missing in the browser. */
 export const installBridge = (payload: BridgePayload) => {
+  const vaultFiles = new Map<string, Uint8Array>()
+  const vaultKeys = new Map<string, string>()
+  ;(window as unknown as Record<string, unknown>).__vaultWrites = []
   const internals = {
     transformCallback: (callback: unknown) => {
       const id = 1
@@ -87,7 +90,37 @@ export const installBridge = (payload: BridgePayload) => {
     convertFileSrc: (path: string) => (payload.photos
       ? `/photos/${encodeURIComponent(String(path).split('/').pop() ?? '')}`
       : payload.pixel),
-    invoke: async (cmd: string, args?: Record<string, unknown>) => {
+    invoke: async (cmd: string, args?: Record<string, unknown>, options?: { headers?: Record<string, string> }) => {
+      // The Rust vault seam, replicated in memory: writes carry their path
+      // in a header and their ciphertext as the raw body; reads return the
+      // stored bytes or null when absent.
+      if (cmd === 'vault_write') {
+        const path = String(options?.headers?.['x-vault-path'] ?? '')
+        vaultFiles.set(path, args instanceof Uint8Array ? args : new Uint8Array(args as ArrayBuffer))
+        ;((window as unknown as Record<string, unknown>).__vaultWrites as string[]).push(path)
+        return null
+      }
+      if (cmd === 'vault_read') {
+        const bytes = vaultFiles.get(String((args as Record<string, unknown>)?.path))
+        return bytes ?? null
+      }
+      if (cmd === 'vault_move') {
+        const { from, to } = (args ?? {}) as { from?: string; to?: string }
+        const bytes = vaultFiles.get(String(from))
+        if (bytes) { vaultFiles.set(String(to), bytes); vaultFiles.delete(String(from)) }
+        return null
+      }
+      if (cmd === 'vault_remove') {
+        vaultFiles.delete(String((args as Record<string, unknown>)?.path))
+        return null
+      }
+      if (cmd === 'vault_list') {
+        return [...vaultFiles.entries()].map(([path, bytes]) => ({ path, bytes: bytes.length }))
+      }
+      if (cmd === 'vault_key_get') return vaultKeys.get(String((args as Record<string, unknown>)?.name)) ?? null
+      if (cmd === 'vault_key_set') { vaultKeys.set(String((args as Record<string, unknown>)?.name), String((args as Record<string, unknown>)?.value)); return null }
+      if (cmd === 'vault_key_remove') { vaultKeys.delete(String((args as Record<string, unknown>)?.name)); return null }
+      if (cmd === 'vault_log') return null
       if (cmd === 'read_private_file') {
         const name = String(args?.name ?? '')
         if (name === 'catalogue.json') return payload.catalogue
@@ -119,6 +152,11 @@ export const blockProductionApi = async (page: Pick<Page, 'route'>): Promise<{ c
     calls += 1
     return route.fulfill({ status: 200, contentType: 'application/json', body: '{"ok":true}' })
   })
+  // The app-freshness check would otherwise hit the live release feed and
+  // insert the update banner mid-test — a real release once published
+  // every Library fixture mid-flow.
+  await page.route('https://downloads.manorama.xyz/latest.json', (route) =>
+    route.fulfill({ status: 200, contentType: 'application/json', body: '{}' }))
   return { calls: () => calls }
 }
 

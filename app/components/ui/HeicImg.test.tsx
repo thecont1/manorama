@@ -3,6 +3,8 @@ import { Window } from 'happy-dom'
 import { unmountTracker } from '../../../test/unmount'
 import { HeicImg } from './HeicImg'
 import { clearHeicUrlCache } from '../../lib/heic'
+import type { MediaReference } from '../../../packages/core/encrypted-source'
+import type { EncryptedMediaResolver } from '../../lib/encrypted-resolver'
 
 const globals = globalThis as Record<string, unknown>
 let dom: Window
@@ -76,6 +78,57 @@ describe('HeicImg', () => {
     for (let i = 0; i < 40 && img.getAttribute('src') !== 'blob:decoded'; i++) await tick()
     expect(img.getAttribute('src')).toBe('blob:decoded')
     expect(fetches).toEqual(['/api/mega/file?x'])
+  })
+
+  test('leaving the view releases the pin but keeps the resolved frame painted', async () => {
+    // The stub observer hands the test control of `inView`: flipping it
+    // crosses the acquire↔release boundary that blanked the frame and
+    // collapsed the card — the layout loop behind the library flicker.
+    let notify: ((intersecting: boolean) => void) | null = null
+    class Observer {
+      constructor(cb: IntersectionObserverCallback) {
+        notify = (intersecting) => cb([{ isIntersecting: intersecting } as IntersectionObserverEntry], this as unknown as IntersectionObserver)
+      }
+      observe() {}
+      unobserve() {}
+      disconnect() {}
+    }
+    const prevIO = globals.IntersectionObserver
+    globals.IntersectionObserver = Observer
+    try {
+      let acquires = 0
+      let releases = 0
+      const resolver = {
+        acquire: () => { acquires += 1; return Promise.resolve('blob:preview-frame') },
+        release: () => { releases += 1 },
+      } as unknown as EncryptedMediaResolver
+      const media: MediaReference = { kind: 'encrypted', provider: 'proton', sourceKind: 'urls', sourceId: 's', nodeId: 'n' }
+      const previewMedia: MediaReference = { ...media, previewId: 'p' }
+      const container = mount()
+      mounts.mount(
+        <HeicImg src="https://x/orig.jpg" preview="https://x/prev.jpg" media={media} previewMedia={previewMedia} encryptedResolver={resolver} filename="a.jpg" alt="" />,
+        container,
+      )
+      const img = container.querySelector('img')!
+      // Out of view the remote preview paints; entering resolves the frame.
+      expect(img.getAttribute('src')).toBe('https://x/prev.jpg')
+      notify!(true)
+      for (let i = 0; i < 40 && img.getAttribute('src') !== 'blob:preview-frame'; i++) await tick()
+      expect(acquires).toBe(1)
+      notify!(false)
+      for (let i = 0; i < 40 && releases < 1; i++) await tick()
+      expect(releases).toBe(1)
+      // The pin is freed but the paint survives — no collapse back to the
+      // placeholder, which is what re-triggered the layout loop.
+      expect(img.getAttribute('src')).toBe('blob:preview-frame')
+      // Re-entering re-acquires the entry and the frame stays put through it.
+      notify!(true)
+      for (let i = 0; i < 40 && acquires < 2; i++) await tick()
+      expect(acquires).toBe(2)
+      expect(img.getAttribute('src')).toBe('blob:preview-frame')
+    } finally {
+      globals.IntersectionObserver = prevIO
+    }
   })
 
   test('a failed fetch retries once before falling back to the source URL', async () => {

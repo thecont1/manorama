@@ -44,12 +44,13 @@ describe('approved app canvas', () => {
 
   test('canvas selectors cover app screens but never photograph boxes, buttons or ad plates', () => {
     const selector = css.slice(css.indexOf(':root:is('), css.indexOf(') {', css.indexOf(':root:is(')))
-    for (const surface of ['.admin-page', '.m-sheet', '.m-screen', '.native-welcome', '.native-global-view', '.native-editor', '.desktop-welcome']) {
+    for (const surface of ['.admin-page', '.m-screen', '.native-welcome', '.native-global-view', '.native-editor', '.desktop-welcome']) {
       expect(selector).toContain(surface)
     }
     /* The curtain opens the gallery and stays a plain veil: the artwork is
-       the first reveal, so it never wears the app wall either. */
-    for (const excluded of ['.viewer-stage', '.viewer-frame', '.viewer-ad-frame', '.viewer-endcap', '.curtain', 'img', 'button', '.lib-card']) {
+       the first reveal, so it never wears the app wall either. Sheets and
+       drawers float over content, so they keep their own flat surfaces. */
+    for (const excluded of ['.viewer-stage', '.viewer-frame', '.viewer-ad-frame', '.viewer-endcap', '.curtain', 'img', 'button', '.lib-card', '.m-sheet', '.admin-drawer-panel']) {
       expect(selector).not.toContain(excluded)
     }
     expect(css).not.toContain('backdrop-filter:')

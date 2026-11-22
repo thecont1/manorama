@@ -1,6 +1,9 @@
 import { cacheFillRegistry, type CacheFillRegistry } from './cache-fill'
 import type { OfflineObjectUrlProvider } from './offline-gallery'
-import { isCoverEntryId } from './thumbs'
+import { coverSourceEntryId, isCoverEntryId } from './thumbs'
+import type { MediaReference } from '../../packages/core/encrypted-source'
+
+const textDecoder = new TextDecoder()
 
 export const LIBRARY_MEDIA_MAX_LIVE_URLS = 24
 export const LIBRARY_MEDIA_MAX_BLOB_BYTES = 64 * 1024 * 1024
@@ -18,6 +21,12 @@ export type LibraryMediaCell = {
    *  entry a lazy cover fill may have written. Kept originals are probed
    *  first so a saved copy can never be shadowed by its cover. */
   coverId?: string
+  /** The source the cover bytes must have been fetched for (contentVersion
+   *  or ref coordinates for encrypted refs, the fetched rendition URL
+   *  otherwise). A `cover:` hit is used only when its stored stamp
+   *  matches — a replaced source under the same image id refills rather
+   *  than paints last session's bytes. */
+  identity?: string
 }
 
 export type LibraryMediaLease = {
@@ -71,6 +80,22 @@ export const railPreviewSrcFor = (item: Parameters<typeof previewSrcFor>[0]): st
 /** The provider word moved to packages/core (the gallery route labels the
  *  owner panel with it too); re-exported so existing imports hold. */
 export { sourceLabelFor } from '../../packages/core/source-label'
+
+/** The source a `cover:` entry was vaulted for — `contentVersion` for an
+ *  encrypted reference when the manifest carries one, otherwise the ref's
+ *  own coordinates; `src` for plain references. Cells stamp it into the
+ *  probe and the fill stamps it into the vault, so a same-id source
+ *  replacement never paints last session's bytes. An encrypted item's
+ *  `src` is a dead rendition URL normalized to the app origin — it can
+ *  never name a source, so it must not stand in as one. */
+export const coverSourceIdentity = (item: { src?: string; contentVersion?: string; media?: MediaReference }): string | undefined => {
+  const media = item.media
+  if (media?.kind !== 'encrypted') return item.src ? `src:${item.src}` : undefined
+  if (typeof item.contentVersion === 'string') return `enc:${item.contentVersion}`
+  if ('nodeId' in media) return `enc:${media.provider}:${media.sourceId}:${media.nodeId}:${media.previewId ?? ''}`
+  if ('entryId' in media) return `enc:vault:${media.entryId}`
+  return undefined
+}
 
 export const mimeTypeForItem = (item: {
   filename: string
@@ -221,8 +246,22 @@ export class LibraryMediaLoader {
     for (;;) {
       // A vault read error is a miss, not a failure — the cell falls back to
       // its remote preview rather than stranding every acquirer on the job.
-      const kept = await this.read(cell.galleryId, cell.entryId).catch(() => undefined)
-      const bytes = kept ?? (cell.coverId !== undefined ? await this.read(cell.galleryId, cell.coverId).catch(() => undefined) : undefined)
+      // A lazy `cover:` entry outlives the session that wrote it — the
+      // stamp says which source it holds, so a same-id replacement reads
+      // as a miss and the next entry in line stands in rather than the
+      // cell painting the old source's bytes.
+      const readFresh = async (entryId: string): Promise<Uint8Array | undefined> => {
+        const bytes = await this.read(cell.galleryId, entryId).catch(() => undefined)
+        if (!bytes || !cell.identity || !isCoverEntryId(entryId)) return bytes
+        const stamp = await this.read(cell.galleryId, coverSourceEntryId(entryId)).catch(() => undefined)
+        const stored = stamp ? textDecoder.decode(stamp) : undefined
+        stamp?.fill(0)
+        if (stored === cell.identity) return bytes
+        bytes.fill(0)
+        return undefined
+      }
+      const kept = await readFresh(cell.entryId)
+      const bytes = kept ?? (cell.coverId !== undefined ? await readFresh(cell.coverId) : undefined)
       if (this.released || this.stale(cell, generation)) { bytes?.fill(0); return undefined }
       if (!bytes) return undefined
       // A thumbnail fill can land while the cover read is in flight — the

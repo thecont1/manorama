@@ -95,6 +95,13 @@ renders the provider row disabled.
 | `MANORAMA_DESKTOP_GOOGLE_CLIENT_ID` | Google Cloud OAuth client id (Desktop type) |
 | `MANORAMA_DESKTOP_GOOGLE_CLIENT_SECRET` | Optional — the desktop client's public-by-design secret if your client type requires it at exchange time; most desktop clients do not |
 
+Local builds read them from `.env.local`. Release builds have no env file —
+the desktop workflows inject them from same-named repository **variables**
+(Settings → Secrets and variables → Actions → Variables) into the build
+step's environment, where `process.env` reaches `import.meta.env` through the
+same `MANORAMA_DESKTOP_` prefix. A missing variable now fails the release
+before bundling rather than shipping a provider disabled.
+
 ## Owner console setup (required before a live upload)
 
 **Dropbox** — https://www.dropbox.com/developers/apps: create an app

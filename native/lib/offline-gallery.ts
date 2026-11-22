@@ -3,7 +3,7 @@ import { isVideoItem } from '../../app/lib/imagesource'
 import type { GallerySettings } from '../../app/lib/gallery-settings'
 import { NativeGalleryHttpError, type NativeGalleryResponse } from './api'
 import type { VaultLoadPolicy } from './vault-settings'
-import { thumbnailEntryId, videoEntryId } from './thumbs'
+import { coverSourceEntryId, thumbnailEntryId, videoEntryId } from './thumbs'
 import { localComputeEntryId } from './local-compute'
 import type { EncryptedVault, VaultEpoch } from './vault'
 import { productionVault } from './vault'
@@ -105,7 +105,11 @@ export interface OfflineGalleryStore {
    *  fetch can buy every later visit an offline render. Opportunistic:
    *  skipped silently when the entry exists, the vault has no headroom, or
    *  the remote cannot be read — the cell's remote preview carries on. */
-  ensureCover(options: { galleryId: string; entryId: string; remote?: string; mimeType: string; itemId?: string; signal?: AbortSignal }): Promise<void>
+  ensureCover(options: { galleryId: string; entryId: string; remote?: string; mimeType: string; itemId?: string; identity?: string; signal?: AbortSignal }): Promise<void>
+  /** The same bargain for bytes already in hand — an encrypted rendition a
+   *  cell resolved and painted. Without it, encrypted-source covers pay the
+   *  network+decrypt materialize on every session. */
+  ensureCoverBytes?(options: { galleryId: string; entryId: string; load: () => Promise<Uint8Array | null>; mimeType: string; itemId?: string; identity?: string; signal?: AbortSignal }): Promise<void>
   /** Purge one gallery by vault identity and release its live object URLs. */
   purgeGallery(galleryId: string): Promise<void>
   /** Cryptographic erasure of every cached gallery and every live object URL. */
@@ -939,37 +943,56 @@ export class EncryptedOfflineGalleryStore implements OfflineGalleryStore {
     return this.vault.read(galleryId, entryId, { touch: false })
   }
 
-  async ensureCover(options: { galleryId: string; entryId: string; remote?: string; mimeType: string; itemId?: string; signal?: AbortSignal }): Promise<void> {
-    const { galleryId, entryId, remote } = options
+  async ensureCover(options: { galleryId: string; entryId: string; remote?: string; mimeType: string; itemId?: string; identity?: string; signal?: AbortSignal }): Promise<void> {
+    const { galleryId, entryId, remote, identity, signal } = options
     if (!galleryId || !entryId || !remote || remote.startsWith('data:')) return
-    const key = `${galleryId}${entryId}`
-    const prior = this.coverFills.get(key)
-    if (prior) return prior
-    if (this.coverAttempts.has(key)) return
-    this.coverAttempts.add(key)
-    const task = this.ensureCoverInner(options).catch(() => {})
-    this.coverFills.set(key, task)
-    try {
-      await task
-    } finally {
-      this.coverFills.delete(key)
-    }
+    return this.runCoverFill(`${galleryId} ${entryId} ${identity ?? ''}`, options, async () => {
+      const response = await this.fetchImage(remote, { signal })
+      if (!response.ok) return null
+      return this.readBoundedBody(response, signal)
+    })
   }
 
-  /** One remote fetch buys every later Library visit an offline render. The
-   *  write is gated on headroom: a capped vault close to full must not let a
-   *  cover LRU-evict a kept gallery's entries — covers degrade to their
-   *  remote preview until space frees. */
-  private async ensureCoverInner(options: { galleryId: string; entryId: string; remote?: string; mimeType: string; itemId?: string; signal?: AbortSignal }): Promise<void> {
-    const { galleryId, entryId, remote, mimeType, itemId, signal } = options
+  async ensureCoverBytes(options: { galleryId: string; entryId: string; load: () => Promise<Uint8Array | null>; mimeType: string; itemId?: string; identity?: string; signal?: AbortSignal }): Promise<void> {
+    const { galleryId, entryId, identity } = options
+    if (!galleryId || !entryId) return
+    return this.runCoverFill(`${galleryId} ${entryId} ${identity ?? ''}`, options, options.load)
+  }
+
+  /** One fill in flight and one attempt per session per entry id — shared by
+   *  remote-fetched and already-decrypted cover writes. */
+  private runCoverFill(key: string, options: { galleryId: string; entryId: string; mimeType: string; itemId?: string; signal?: AbortSignal }, load: () => Promise<Uint8Array | null>): Promise<void> {
+    const prior = this.coverFills.get(key)
+    if (prior) return prior
+    if (this.coverAttempts.has(key)) return Promise.resolve()
+    this.coverAttempts.add(key)
+    const task = this.ensureCoverInner(options, load).catch(() => {})
+    this.coverFills.set(key, task)
+    return task.finally(() => { this.coverFills.delete(key) })
+  }
+
+  /** One fetch buys every later Library visit an offline render. The write
+   *  is gated on headroom: a capped vault close to full must not let a cover
+   *  LRU-evict a kept gallery's entries — covers degrade to their remote
+   *  preview until space frees. */
+  private async ensureCoverInner(options: { galleryId: string; entryId: string; mimeType: string; itemId?: string; identity?: string; signal?: AbortSignal }, load: () => Promise<Uint8Array | null>): Promise<void> {
+    const { galleryId, entryId, mimeType, itemId, identity, signal } = options
     // A purge or fill starting mid-work must not let this commit behind it.
     const guard = { since: this.vault.epoch() }
-    // An existing entry — a cover from an earlier session — skips the fetch
-    // entirely; the attempt set only dedupes inside one session.
-    if ((await this.vault.touch(galleryId, [entryId])).length === 0) return
-    const response = await this.fetchImage(remote!, { signal })
-    if (!response.ok) return
-    const bytes = await this.readBoundedBody(response, signal)
+    // An existing entry — a cover from an earlier session — skips the load
+    // entirely; the attempt set only dedupes inside one session. When the
+    // caller names the current source identity, the stored stamp must match
+    // it — a replaced source under the same image id refills rather than
+    // leaving last session's bytes painting.
+    if ((await this.vault.touch(galleryId, [entryId])).length === 0) {
+      if (!identity) return
+      const stamp = await this.vault.read(galleryId, coverSourceEntryId(entryId), { touch: false }).catch(() => undefined)
+      const stored = stamp ? decoder.decode(stamp) : undefined
+      stamp?.fill(0)
+      if (stored === identity) return
+    }
+    const bytes = await load()
+    if (!bytes) return
     const marker = encoder.encode(JSON.stringify({ v: 1, entryId }))
     try {
       throwIfAborted(signal)
@@ -989,6 +1012,9 @@ export class EncryptedOfflineGalleryStore implements OfflineGalleryStore {
         // mistaken for a corrupt kept gallery while the bytes are in flight.
         await this.vault.write(galleryId, COVER_ENTRY_ID, marker, guard)
         await this.vault.write(galleryId, entryId, bytes, guard)
+        // The stamp lands after the bytes — an identity must never claim a
+        // source whose bytes never committed.
+        if (identity) await this.vault.write(galleryId, coverSourceEntryId(entryId), encoder.encode(identity), guard)
       } finally {
         if (this.vault.cap !== null) this.coverReservedBytes -= needed
         marker.fill(0)

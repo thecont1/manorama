@@ -4,6 +4,11 @@ import { Window } from 'happy-dom'
 import { unmountTracker } from '../../test/unmount'
 import { releaseAllOverlays } from '../../app/lib/overlay-stack'
 import { hashPassword } from '../lib/library-prefs'
+import { vaultFilePathIdentity } from '../../native/lib/vault'
+import { offlineGalleryId } from '../../native/lib/offline-gallery'
+import { coverEntryId } from '../../native/lib/thumbs'
+import { coverSourceIdentity } from '../../native/lib/library-media'
+import { desktopOfflineStore } from '../lib/offline-gallery'
 import Catalogue from './Catalogue'
 
 /**
@@ -28,8 +33,25 @@ let previousLocalStorage: unknown
 let previousFetch: unknown
 let previousHTMLElement: unknown
 let previousMutationObserver: unknown
+let previousIntersectionObserver: unknown
 let previousDropboxClientId: string | undefined
 let previousGoogleClientId: string | undefined
+
+/** happy-dom's IntersectionObserver is a stub that never notifies; the real
+ *  API delivers an initial record on observe, so the bench stub fires
+ *  intersecting once — mounted cells read as in-view. */
+class BenchIntersectionObserver {
+  constructor(private callback: IntersectionObserverCallback) {}
+  observe(el: Element) {
+    queueMicrotask(() => this.callback(
+      [{ isIntersecting: true } as IntersectionObserverEntry],
+      this as unknown as IntersectionObserver,
+    ))
+  }
+  disconnect() {}
+  unobserve(_el: Element) {}
+  takeRecords(): IntersectionObserverEntry[] { return [] }
+}
 
 type Frame = { id: number; callback: FrameRequestCallback }
 let frames: Frame[] = []
@@ -274,6 +296,7 @@ beforeAll(() => {
   previousFetch = globals.fetch
   previousHTMLElement = globals.HTMLElement
   previousMutationObserver = globals.MutationObserver
+  previousIntersectionObserver = globals.IntersectionObserver
   previousDropboxClientId = process.env.MANORAMA_DESKTOP_DROPBOX_CLIENT_ID
   previousGoogleClientId = process.env.MANORAMA_DESKTOP_GOOGLE_CLIENT_ID
   globals.window = dom
@@ -282,6 +305,7 @@ beforeAll(() => {
   globals.SVGElement = dom.SVGElement
   globals.HTMLElement = dom.HTMLElement
   globals.MutationObserver = dom.MutationObserver
+  globals.IntersectionObserver = BenchIntersectionObserver
   // The island reads the shared theme key from bare `localStorage`.
   globals.localStorage = dom.localStorage
   // Provider OAuth client ids make the share sheet's providers "configured",
@@ -320,6 +344,7 @@ afterAll(() => {
   globals.fetch = previousFetch
   globals.HTMLElement = previousHTMLElement
   globals.MutationObserver = previousMutationObserver
+  globals.IntersectionObserver = previousIntersectionObserver
   if (previousDropboxClientId === undefined) delete process.env.MANORAMA_DESKTOP_DROPBOX_CLIENT_ID
   else process.env.MANORAMA_DESKTOP_DROPBOX_CLIENT_ID = previousDropboxClientId
   if (previousGoogleClientId === undefined) delete process.env.MANORAMA_DESKTOP_GOOGLE_CLIENT_ID
@@ -514,8 +539,12 @@ describe('desktop catalogue workbench', () => {
 
       const card = accountSection.querySelector<HTMLElement>('.lib-compact-card')!
       expect(card.querySelector('.lib-card-sub')?.textContent).toBe('1 photograph from Dropbox')
-      // Server-relative previews arrive rewritten against the API origin.
-      expect(card.querySelector('img')?.getAttribute('src')).toBe('https://manorama.xyz/img/a-sm.jpg')
+      // The preview is painted from the provider once, vaulted under a
+      // `cover:` entry, and the cell re-acquires the same bytes locally —
+      // the img settles on the vault object URL, not the remote one.
+      expect(card.querySelector('img')?.getAttribute('src')).toMatch(/^blob:/)
+      const coverEntries = [...vaultFiles.keys()].filter((path) => vaultFilePathIdentity(path).entryId === 'cover:a')
+      expect(coverEntries.length).toBe(1)
       // Common actions live directly in the card menu; source and removal
       // stay in the final Gallery Settings panel.
       card.querySelector<HTMLButtonElement>(`[aria-label="kashmir, in winter actions"]`)!.click()
@@ -539,6 +568,102 @@ describe('desktop catalogue workbench', () => {
       await settle()
       const opener = invokeCalls.find((call) => call.command === 'plugin:opener|open_url')
       expect(opener?.args?.url).toBe('https://manorama.xyz/fresh-name/kashmir')
+    } finally {
+      globals.fetch = defaultFetch
+    }
+  })
+
+  test('an encrypted cover paints its vaulted cover entry — no materialize, no remote', async () => {
+    const defaultFetch = globals.fetch
+    globals.fetch = (async (url: string) => {
+      const path = String(url)
+      if (path.endsWith('/api/device-galleries')) return new Response(JSON.stringify({ galleries: [] }), { status: 200 })
+      if (path.endsWith('/api/account')) return new Response(JSON.stringify({ ownerSlug: 'thecontrarian' }), { status: 200 })
+      if (path.endsWith('/api/galleries')) {
+        return new Response(JSON.stringify({
+          galleries: [{
+            slug: 'nagaland',
+            title: 'welcome to naglund',
+            caption: '',
+            date: '',
+            imageCount: 1,
+            sourceUrl: 'https://mega.nz/folder/x',
+            createdAt: '2026-10-01T00:00:00.000Z',
+            retention: 'retained',
+            expiresAt: null,
+            images: [
+              // A MEGA-style manifest item: rendition URLs are dead by
+              // design; the media refs are the only route to bytes.
+              { id: 'mega-node1', ref: undefined, filename: 'IMG_001.jpg', src: '', width: 4000, height: 3000, alt: '', placeholder: '', media: { kind: 'encrypted', provider: 'mega', sourceKind: 'folder', sourceId: 'folder-x', nodeId: 'node-1' }, variants: [{ src: '', width: 400, format: 'image/jpeg', media: { kind: 'encrypted', provider: 'mega', sourceKind: 'folder', sourceId: 'folder-x', nodeId: 'node-1', previewId: 'prev-1' } }] },
+            ],
+          }],
+        }), { status: 200 })
+      }
+      return new Response(JSON.stringify({}), { status: 200 })
+    }) as unknown as typeof fetch
+    try {
+      installTauri(true)
+      // A previous session vaulted the rendition it already paid to decrypt
+      // — the seed runs the same encrypted write path the cell itself uses.
+      const vaultGalleryId = await offlineGalleryId({ owner: 'thecontrarian', slug: 'nagaland' })
+      await desktopOfflineStore.ensureCoverBytes?.({
+        galleryId: vaultGalleryId,
+        entryId: coverEntryId('mega-node1'),
+        mimeType: 'image/jpeg',
+        itemId: 'mega-node1',
+        // The write carries the same source stamp the resolving path writes
+        // — an un-stamped cover entry reads as stale and never paints.
+        identity: coverSourceIdentity({ media: { kind: 'encrypted', provider: 'mega', sourceKind: 'folder', sourceId: 'folder-x', nodeId: 'node-1' } }),
+        load: async () => new TextEncoder().encode('jpeg bytes'),
+      })
+      const container = dom.document.createElement('div') as unknown as HTMLElement
+      dom.document.body.appendChild(container as unknown as Parameters<typeof dom.document.body.appendChild>[0])
+      mounts.mount(<Catalogue apiBase="https://manorama.xyz" />, container)
+      await settle()
+      const card = container.querySelector<HTMLElement>('.lib-compact-card[data-gallery-card="nagaland"]')!
+      await settle()
+      // The probe hits the cover entry and the img paints vault bytes. Before
+      // the fix, media-carrying cells skipped the vault probe entirely: the
+      // only route was a materialize that needs the gallery key — which this
+      // bench deliberately does not hold — so the cover could never appear.
+      expect(card.querySelector('img')?.getAttribute('src')).toMatch(/^blob:/)
+      expect(invokeLog.filter((command) => command.startsWith('plugin:http'))).toEqual([])
+    } finally {
+      globals.fetch = defaultFetch
+    }
+  })
+
+  test('section labels count the whole category — hidden galleries included', async () => {
+    const hiddenRecord = { ...record, id: 'bbbbbbbb-cccc-dddd-eeee-ffffffffffff', title: 'secret album', hiddenAt: '2026-11-01T00:00:00.000Z' }
+    const defaultFetch = globals.fetch
+    globals.fetch = (async (url: string) => {
+      const path = String(url)
+      if (path.endsWith('/api/device-galleries')) return new Response(JSON.stringify({ galleries: [] }), { status: 200 })
+      if (path.endsWith('/api/account')) return new Response(JSON.stringify({ ownerSlug: 'thecontrarian' }), { status: 200 })
+      if (path.endsWith('/api/galleries')) {
+        return new Response(JSON.stringify({
+          galleries: [
+            { slug: 'kashmir', title: 'kashmir, in winter', caption: '', date: '', imageCount: 1, sourceUrl: 'https://www.dropbox.com/scl/fo/x', createdAt: '2026-10-01T00:00:00.000Z', retention: 'retained', expiresAt: null, hiddenAt: null, images: [{ id: 'a', ref: undefined, filename: 'a.jpg', src: '/img/a.jpg', width: 4000, height: 3000, alt: '', placeholder: '', variants: [{ src: '/img/a-sm.jpg', width: 400, format: 'image/jpeg' }] }] },
+            { slug: 'meadow', title: 'meadow, kept quiet', caption: '', date: '', imageCount: 1, sourceUrl: 'https://www.dropbox.com/scl/fo/y', createdAt: '2026-10-01T00:00:00.000Z', retention: 'retained', expiresAt: null, hiddenAt: '2026-11-05T00:00:00.000Z', images: [{ id: 'b', ref: undefined, filename: 'b.jpg', src: '/img/b.jpg', width: 4000, height: 3000, alt: '', placeholder: '', variants: [{ src: '/img/b-sm.jpg', width: 400, format: 'image/jpeg' }] }] },
+          ],
+        }), { status: 200 })
+      }
+      return new Response(JSON.stringify({}), { status: 200 })
+    }) as unknown as typeof fetch
+    try {
+      const container = await mount(true, undefined, 'pro', {
+        'catalogue.json': JSON.stringify({ version: 1, deviceId: DEVICE_ID, deviceLabel: 'This Mac', galleries: [record, hiddenRecord] }),
+      })
+      // The rail's "hosting N" line counts the category; the section label
+      // now reads the same number — the grid alone shows only what is not
+      // parked under Hidden galleries.
+      const localSection = container.querySelector<HTMLElement>('[aria-labelledby="local-galleries-title"]')!
+      expect(localSection.querySelector('.lib-hidden-count')?.textContent).toBe('(2)')
+      expect(localSection.querySelectorAll('[data-gallery-card]')).toHaveLength(1)
+      const cloudSection = container.querySelector<HTMLElement>('[aria-labelledby="lib-compact-title"]')!
+      expect(cloudSection.querySelector('.lib-hidden-count')?.textContent).toBe('(2)')
+      expect(cloudSection.querySelectorAll('[data-gallery-card]')).toHaveLength(1)
+      expect(container.querySelector('.lib-hidden-section .lib-hidden-count')?.textContent).toBe('(2)')
     } finally {
       globals.fetch = defaultFetch
     }
@@ -2548,6 +2673,10 @@ describe('the Library quiet view', () => {
     // Hover and keyboard focus both restore the rail — a tabbed-in user
     // must never aim at a nearly invisible surface.
     expect(css).toContain('.lib-quiet-rail:hover, .lib-quiet-rail:focus-within { opacity: .5; }')
+    // The card under the pointer reads at full alpha — its words and its
+    // chrome both — while the rest of the quiet view stays sunk.
+    expect(css).toContain('.lib-quiet :is(.lib-card, .lib-compact-card):is(:hover, :focus-within) :not(img)')
+    expect(css).toContain('.lib-quiet :is(.lib-card, .lib-compact-card):is(:hover, :focus-within) :where(svg, .device-pill')
     expect(css).toContain('.lib-quiet-toggle')
   })
 })
