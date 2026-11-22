@@ -552,6 +552,14 @@ body.manorama-desktop .app-update-dismiss:hover { color: rgba(var(--ink), 1); }
 :root[data-macos-shell] .m-sheet .desktop-share-provider {
   border-bottom: 0;
 }
+/* Action rows inside a sheet's flat-child group keep the canvas tile
+   fill too — the Add-a-gallery chooser, Gallery Settings and the vault
+   all read as dark slabs on the light group. Transparent rows plus the
+   sibling hairline .m-actionrow already carries are the same contiguous
+   shape the menu rows took. */
+:root[data-macos-shell] body.manorama-desktop .admin-page .m-sheet-host .m-sheet .m-actionrow {
+  background: transparent;
+}
 /* The chain length is specificity load-bearing: the canvas fill on
    .desktop-share--sheet sits inside an :is() whose :not() arms push it to
    (0,6,4), so the override needs seven class-levels to clear it. */

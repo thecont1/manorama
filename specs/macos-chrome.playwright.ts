@@ -323,6 +323,7 @@ for (const engine of ['chromium', 'webkit'] as const) {
       const settings = page.getByRole('dialog', { name: 'Gallery Settings', exact: true })
       await expect(settings).toBeVisible()
       expect(await paint(settings.locator('.m-actiongroup').first())).toEqual({ backdrop: 'none', background: 'rgba(255, 255, 255, 0.1)' })
+      expect(await paint(settings.locator('.m-actionrow').first())).toEqual({ backdrop: 'none', background: 'rgba(0, 0, 0, 0)' })
       await page.keyboard.press('Escape')
       await trigger.click()
       await menu.getByRole('button', { name: 'Publish this gallery', exact: true }).click()
