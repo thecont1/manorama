@@ -560,6 +560,21 @@ body.manorama-desktop .app-update-dismiss:hover { color: rgba(var(--ink), 1); }
 :root[data-macos-shell] body.manorama-desktop .admin-page .m-sheet-host .m-sheet .m-actionrow {
   background: transparent;
 }
+/* The canvas fill paints the whole .m-switch button — the track's own
+   --m-control pill already reads as the control, so the backing tile is
+   a dark slab behind it. Same chain as the rows it sits inside. */
+:root[data-macos-shell] body.manorama-desktop .admin-page .m-sheet-host .m-sheet .m-switch {
+  background: transparent;
+}
+/* A classic scrollbar inside the sheet body draws a chrome track over
+   the glass. Wheel/trackpad/keys still scroll — the iOS sheets this
+   mirrors never show one either. */
+:root[data-macos-shell] .m-sheet-body {
+  scrollbar-width: none;
+}
+:root[data-macos-shell] .m-sheet-body::-webkit-scrollbar {
+  display: none;
+}
 
 /* The section-title toggles carry the wall's translucent fill as a
    backing strip behind each heading — over the artwork the strip reads
@@ -577,6 +592,13 @@ body.manorama-desktop .app-update-dismiss:hover { color: rgba(var(--ink), 1); }
 }
 :root[data-macos-shell] .m-scrim:not(.m-scrim--ghost) {
   background: var(--glass-dim);
+}
+/* The owner-panel scrim also blurs the wall — borrowed from the iOS
+   settings presentation, but here it disagrees with every other
+   catalogue dialog, which keeps a dim-only veil. */
+:root[data-macos-shell] .m-sheet-host:has(.m-owner-panel) .m-scrim:not(.m-scrim--ghost) {
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
 }
 
 /* Tier 0 — reduced transparency/contrast, a shell-stamped attribute, or

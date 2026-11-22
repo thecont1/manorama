@@ -323,8 +323,35 @@ for (const engine of ['chromium', 'webkit'] as const) {
       await menu.getByRole('button', { name: 'More settings…', exact: true }).click()
       const settings = page.getByRole('dialog', { name: 'Gallery Settings', exact: true })
       await expect(settings).toBeVisible()
+      // The owner-panel scrim keeps the dim-only veil like every other
+      // catalogue dialog — no blur of the wall behind the sheet.
+      expect(await paint(page.locator('.m-scrim:not(.m-scrim--ghost)'))).toEqual({ backdrop: 'none', background: 'rgba(0, 0, 0, 0.45)' })
       expect(await paint(settings.locator('.m-actiongroup').first())).toEqual({ backdrop: 'none', background: 'rgba(255, 255, 255, 0.1)' })
       expect(await paint(settings.locator('.m-actionrow').first())).toEqual({ backdrop: 'none', background: 'rgba(0, 0, 0, 0)' })
+      // The body still scrolls — the chrome track is what goes.
+      await expect(settings.locator('.m-sheet-body')).toHaveCSS('scrollbar-width', 'none')
+      const webkitScrollbar = await page.evaluate(() => {
+        for (const sheet of document.styleSheets) {
+          try {
+            for (const rule of sheet.cssRules) {
+              if ((rule as CSSStyleRule).selectorText?.includes('.m-sheet-body::-webkit-scrollbar')) {
+                return (rule as CSSStyleRule).style.display
+              }
+            }
+          } catch { /* opaque sheet */ }
+        }
+        return null
+      })
+      expect(webkitScrollbar).toBe('none')
+      await page.keyboard.press('Escape')
+      // The keep-copy switch is a canvas-filled button — over glass its
+      // tile is a dark slab behind the track, so it goes transparent too.
+      await page.getByRole('button', { name: 'Cloud Album actions', exact: true }).click()
+      const cloudMenu = page.getByRole('dialog', { name: 'Cloud Album', exact: true })
+      await cloudMenu.getByRole('button', { name: 'More settings…', exact: true }).click()
+      const cloudSettings = page.getByRole('dialog', { name: 'Gallery Settings', exact: true })
+      await expect(cloudSettings.getByRole('switch', { name: 'Keep a copy on this Mac' })).toBeVisible()
+      expect(await paint(cloudSettings.locator('.m-switch').first())).toEqual({ backdrop: 'none', background: 'rgba(0, 0, 0, 0)' })
       await page.keyboard.press('Escape')
       await trigger.click()
       await menu.getByRole('button', { name: 'Publish this gallery', exact: true }).click()
