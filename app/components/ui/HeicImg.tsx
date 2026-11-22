@@ -25,9 +25,15 @@ type Props = JSX.HTMLAttributes & {
   galleryId?: string
   /** Manifest filename; the .heic/.heif suffix selects the decode path. */
   filename?: string | null
+  /** The painted resolved frame's object URL — a decrypted rendition or a
+   *  decoded HEIC JPEG — reported once per URL. A host that can persist it
+   *  (a cover cell vaulting the bytes it already paid to decrypt) learns of
+   *  it here. `preview` is false for original-grade sources so the host can
+   *  skip bytes too large — or too unrenderable — to serve as a cover. */
+  onResolvedUrl?: (url: string, preview: boolean) => void
 }
 
-export function HeicImg({ src, preview, media, previewMedia, encryptedResolver = null, galleryId, filename, onError, ...rest }: Props) {
+export function HeicImg({ src, preview, media, previewMedia, encryptedResolver = null, galleryId, filename, onError, onResolvedUrl, ...rest }: Props) {
   const hasPreview = Boolean(preview || previewMedia)
   // A `preview` string can carry a placeholder-grade stand-in (MEGA writes an
   // SVG data URL into `placeholder`) — never a real rendition when `media`
@@ -108,6 +114,17 @@ export function HeicImg({ src, preview, media, previewMedia, encryptedResolver =
     ? encrypted.url
     : undefined
   const source = encryptedRef && !liveUrl ? '' : liveUrl ?? src
+
+  // The frame the <img> is actually painting, reported once per URL. A
+  // decoded HEIC JPEG is a preview-grade rendition; the raw src stand-in
+  // (decode failed, browser can't read the bytes) is not.
+  const resolvedUrl = decoded ?? liveUrl
+  const reportedResolvedUrl = useRef<string | null>(null)
+  useEffect(() => {
+    if (!resolvedUrl || resolvedUrl === reportedResolvedUrl.current) return
+    reportedResolvedUrl.current = resolvedUrl
+    onResolvedUrl?.(resolvedUrl, decoded ? decoded !== src : Boolean(encrypted?.preview))
+  }, [resolvedUrl, decoded, src, encrypted, onResolvedUrl])
   useEffect(() => {
     if (!needsDecode || !source) return
     let cancelled = false

@@ -15,6 +15,9 @@ type Props = {
   storedHeight?: number | null
   onError?: (event: Event) => void
   onNaturalSize?: (width: number, height: number) => void
+  /** Forwarded to HeicImg — the painted resolved frame's object URL, for a
+   *  host that can persist it (a cover cell vaulting decrypted bytes). */
+  onResolvedUrl?: (url: string, preview: boolean) => void
 }
 
 /**
@@ -40,6 +43,7 @@ export function CompactCoverImg({
   storedHeight,
   onError,
   onNaturalSize,
+  onResolvedUrl,
 }: Props) {
   const [natural, setNatural] = useState<{ width: number; height: number } | null>(null)
   /** Adopts the decoded frame's pixel size — honouring EXIF rotation —
@@ -73,6 +77,7 @@ export function CompactCoverImg({
       style={style}
       onLoad={handleLoad}
       onError={onError}
+      onResolvedUrl={onResolvedUrl}
     />
   )
 }

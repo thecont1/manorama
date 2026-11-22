@@ -35,7 +35,8 @@ import { invoke } from '@tauri-apps/api/core'
 import { removeDeviceGallery, syncDeviceGalleries } from '../lib/sync'
 import { copyText } from '../../app/lib/gallery-share'
 import { AccountApiError, createAccountGallery, deleteAccount, deleteDeviceGalleryRecord, fetchAccountGalleries, fetchAccountGallery, fetchAccountIdentities, fetchAccountProfile, fetchDeviceGalleries, fetchDevices, forgetDevice, mintLinkHandoff, patchAccountOwnerSlug, probeAccountGallery, refreshAccountGallery, registerDevice, scanGalleryLink, setAccountGalleryHidden, setAccountGalleryPin, setAccountGalleryPositions, setDeviceGalleryHidden, standaloneDeviceGalleries, unlinkAccountIdentity } from '../lib/account'
-import { previewSrcFor, sourceLabelFor, LibraryMediaLoader } from '../../native/lib/library-media'
+import { previewSrcFor, sourceLabelFor, LibraryMediaLoader, mimeTypeForItem } from '../../native/lib/library-media'
+import { coverEntryId } from '../../native/lib/thumbs'
 import { AccountCellImg } from './LibraryCoverCell'
 import { postToXPhotos, type PostToXPhoto } from '../../native/lib/post-to-x'
 import { cloudPhotoReader, localPhotoReader, localPostPhotos, type PostPhotoReader } from '../lib/post-to-x'
@@ -272,6 +273,42 @@ const stripImgRetry = (event: Event) => {
       img.src = `${failed}${failed.includes('?') ? '&' : '?'}mreload=1`
     }
   }, 1500)
+}
+
+/** An encrypted-manifest item ships dead rendition URLs by design — media
+ *  refs are its only route to bytes. Its `remote` must never reach the
+ *  loader's fallback fetch: the dead URL resolves to the site shell and
+ *  would vault an HTML page as cover bytes. */
+const carriesEncryptedRefs = (image: SummaryImage) =>
+  Boolean(image.media || image.variants?.[0]?.media)
+
+/** A vaulted entry is handed to <img> only when the item's own filename
+ *  names a renderable format — `thumb:` entries hold the materialized
+ *  original, and a HEIC one must keep the materialize-then-decode path
+ *  instead of being painted as raw bytes. */
+const RENDERABLE_VAULT_NAME = /\.(jpe?g|png|webp|avif|gif)$/i
+
+/** The encrypted rendition a cell already paid to decrypt is kept as the
+ *  gallery's `cover:` entry — the same bargain `ensureCover` runs for
+ *  remote previews, except the bytes are already in hand. Next visit the
+ *  probe hits and the materialize — the encrypted cover's only slow step —
+ *  never runs. */
+const vaultCoverFromResolved = (vaultGalleryId: string, image: SummaryImage, url: string) => {
+  // A HEIC-named item's read gate would never take the vault path — a cover
+  // entry for it could only sit unused, so the write is skipped too.
+  if (!RENDERABLE_VAULT_NAME.test(image.filename ?? '')) return
+  const mimeType = mimeTypeForItem({ filename: image.filename ?? '', variants: image.variants })
+  void desktopOfflineStore.ensureCoverBytes?.({
+    galleryId: vaultGalleryId,
+    entryId: coverEntryId(image.id),
+    mimeType,
+    itemId: image.id,
+    load: async () => {
+      const response = await fetch(url).catch(() => null)
+      if (!response?.ok) return null
+      return new Uint8Array(await response.arrayBuffer())
+    },
+  })
 }
 
 /** The Gallery Settings sheet's preview strip — the same filmstrip anatomy
@@ -3313,9 +3350,13 @@ export default function Catalogue({ apiBase }: { apiBase: string }) {
     const cover = gallery.images.find((image) => !image.hidden)
     return <li key={`account-${gallery.slug}`} class="lib-compact-card" data-gallery-card={gallery.slug} data-retention={gallery.retention}>
       <a class="lib-compact-cover" href={galleryUrl} onClick={openCard} draggable={false} aria-label={`${title} cover`}>
-        {cover ? <AccountCellImg loader={libraryLoader} vaultGalleryId={galleryIds[gallery.slug]} image={cover} remote={cover.src || previewSrcFor(cover)} render={(vaulted, isVaulted) => (
-          <CompactCoverImg src={isVaulted ? vaulted! : (cover.src || previewSrcFor(cover))} preview={isVaulted ? vaulted : previewSrcFor(cover)} media={cover.media} previewMedia={cover.variants?.[0]?.media} galleryId={gallery.id} filename={cover.filename} storedWidth={cover.width} storedHeight={cover.height} onError={stripImgRetry} />
-        )} /> : null}
+        {cover ? <AccountCellImg loader={libraryLoader} vaultGalleryId={galleryIds[gallery.slug]} image={cover} remote={carriesEncryptedRefs(cover) ? '' : (cover.src || previewSrcFor(cover))} render={(vaulted, isVaulted) => {
+          const useVault = isVaulted && RENDERABLE_VAULT_NAME.test(cover.filename ?? '')
+          return <CompactCoverImg src={useVault ? vaulted! : (cover.src || previewSrcFor(cover))} preview={useVault ? vaulted : previewSrcFor(cover)} media={useVault ? undefined : cover.media} previewMedia={useVault ? undefined : cover.variants?.[0]?.media} galleryId={gallery.id} filename={cover.filename} storedWidth={cover.width} storedHeight={cover.height} onError={stripImgRetry} onResolvedUrl={(url, isPreview) => {
+            const vaultGalleryId = galleryIds[gallery.slug]
+            if (isPreview && vaultGalleryId) vaultCoverFromResolved(vaultGalleryId, cover, url)
+          }} />
+        }} /> : null}
       </a>
       <div class="lib-compact-body">
         <div class="lib-compact-main">
@@ -3488,12 +3529,13 @@ export default function Catalogue({ apiBase }: { apiBase: string }) {
                                 draggable={false}
                                 aria-label={`${title}, ${image.hidden ? 'hidden ' : ''}${itemKind(image)} ${index + 1} of ${gallery.imageCount}`}
                               >
-                                <AccountCellImg loader={libraryLoader} vaultGalleryId={galleryIds[gallery.slug]} image={image} remote={previewSrcFor(image)} render={(vaulted, isVaulted) => (
-                                  <HeicImg
-                                    src={isVaulted ? vaulted! : (image.src || previewSrcFor(image))}
-                                    preview={isVaulted ? vaulted : previewSrcFor(image)}
-                                    media={image.media}
-                                    previewMedia={image.variants?.[0]?.media}
+                                <AccountCellImg loader={libraryLoader} vaultGalleryId={galleryIds[gallery.slug]} image={image} remote={carriesEncryptedRefs(image) ? '' : previewSrcFor(image)} render={(vaulted, isVaulted) => {
+                                  const useVault = isVaulted && RENDERABLE_VAULT_NAME.test(image.filename ?? '')
+                                  return <HeicImg
+                                    src={useVault ? vaulted! : (image.src || previewSrcFor(image))}
+                                    preview={useVault ? vaulted : previewSrcFor(image)}
+                                    media={useVault ? undefined : image.media}
+                                    previewMedia={useVault ? undefined : image.variants?.[0]?.media}
                                     galleryId={gallery.id}
                                     filename={image.filename}
                                     alt=""
@@ -3509,7 +3551,7 @@ export default function Catalogue({ apiBase }: { apiBase: string }) {
                                     }}
                                     onError={stripImgRetry}
                                   />
-                                )} />
+                                }} />
                                 {isVideoPreview(image) ? <span class="admin-strip-badge" aria-hidden="true">{videoBadge(image)}</span> : null}
                                 {image.hidden
                                   ? <span class="admin-strip-badge admin-strip-badge--hidden" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7-10-7-10-7z"/><circle cx="12" cy="12" r="3"/><path d="m4 4 16 16"/></svg></span>

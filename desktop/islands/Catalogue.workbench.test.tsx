@@ -5,6 +5,9 @@ import { unmountTracker } from '../../test/unmount'
 import { releaseAllOverlays } from '../../app/lib/overlay-stack'
 import { hashPassword } from '../lib/library-prefs'
 import { vaultFilePathIdentity } from '../../native/lib/vault'
+import { offlineGalleryId } from '../../native/lib/offline-gallery'
+import { coverEntryId } from '../../native/lib/thumbs'
+import { desktopOfflineStore } from '../lib/offline-gallery'
 import Catalogue from './Catalogue'
 
 /**
@@ -544,6 +547,63 @@ describe('desktop catalogue workbench', () => {
       await settle()
       const opener = invokeCalls.find((call) => call.command === 'plugin:opener|open_url')
       expect(opener?.args?.url).toBe('https://manorama.xyz/fresh-name/kashmir')
+    } finally {
+      globals.fetch = defaultFetch
+    }
+  })
+
+  test('an encrypted cover paints its vaulted cover entry — no materialize, no remote', async () => {
+    const defaultFetch = globals.fetch
+    globals.fetch = (async (url: string) => {
+      const path = String(url)
+      if (path.endsWith('/api/device-galleries')) return new Response(JSON.stringify({ galleries: [] }), { status: 200 })
+      if (path.endsWith('/api/account')) return new Response(JSON.stringify({ ownerSlug: 'thecontrarian' }), { status: 200 })
+      if (path.endsWith('/api/galleries')) {
+        return new Response(JSON.stringify({
+          galleries: [{
+            slug: 'nagaland',
+            title: 'welcome to naglund',
+            caption: '',
+            date: '',
+            imageCount: 1,
+            sourceUrl: 'https://mega.nz/folder/x',
+            createdAt: '2026-10-01T00:00:00.000Z',
+            retention: 'retained',
+            expiresAt: null,
+            images: [
+              // A MEGA-style manifest item: rendition URLs are dead by
+              // design; the media refs are the only route to bytes.
+              { id: 'mega-node1', ref: undefined, filename: 'IMG_001.jpg', src: '', width: 4000, height: 3000, alt: '', placeholder: '', media: { kind: 'encrypted', provider: 'mega', sourceKind: 'folder', sourceId: 'folder-x', nodeId: 'node-1' }, variants: [{ src: '', width: 400, format: 'image/jpeg', media: { kind: 'encrypted', provider: 'mega', sourceKind: 'folder', sourceId: 'folder-x', nodeId: 'node-1', previewId: 'prev-1' } }] },
+            ],
+          }],
+        }), { status: 200 })
+      }
+      return new Response(JSON.stringify({}), { status: 200 })
+    }) as unknown as typeof fetch
+    try {
+      installTauri(true)
+      // A previous session vaulted the rendition it already paid to decrypt
+      // — the seed runs the same encrypted write path the cell itself uses.
+      const vaultGalleryId = await offlineGalleryId({ owner: 'thecontrarian', slug: 'nagaland' })
+      await desktopOfflineStore.ensureCoverBytes?.({
+        galleryId: vaultGalleryId,
+        entryId: coverEntryId('mega-node1'),
+        mimeType: 'image/jpeg',
+        itemId: 'mega-node1',
+        load: async () => new TextEncoder().encode('jpeg bytes'),
+      })
+      const container = dom.document.createElement('div') as unknown as HTMLElement
+      dom.document.body.appendChild(container as unknown as Parameters<typeof dom.document.body.appendChild>[0])
+      mounts.mount(<Catalogue apiBase="https://manorama.xyz" />, container)
+      await settle()
+      const card = container.querySelector<HTMLElement>('.lib-compact-card[data-gallery-card="nagaland"]')!
+      await settle()
+      // The probe hits the cover entry and the img paints vault bytes. Before
+      // the fix, media-carrying cells skipped the vault probe entirely: the
+      // only route was a materialize that needs the gallery key — which this
+      // bench deliberately does not hold — so the cover could never appear.
+      expect(card.querySelector('img')?.getAttribute('src')).toMatch(/^blob:/)
+      expect(invokeLog.filter((command) => command.startsWith('plugin:http'))).toEqual([])
     } finally {
       globals.fetch = defaultFetch
     }

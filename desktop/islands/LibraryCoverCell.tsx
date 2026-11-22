@@ -18,8 +18,10 @@ type CellImage = {
  * frame. The vault is probed first; a miss paints the provider preview while
  * the loader's `onRemoteFallback` vaults those bytes once, so every later
  * visit reads locally — the same bargain the native rail runs. Encrypted
- * manifests already resolve through the key/vault path in HeicImg, so cells
- * skip them entirely.
+ * manifests probe too: a kept gallery's `thumb:` entries — and `cover:`
+ * entries left by a previous visit — already hold renderable bytes, so a
+ * hit skips the materialize entirely. Their `remote` is a dead URL by
+ * design, so callers pass '' and no remote fetch ever runs.
  *
  * `render` receives the vaulted object URL when the probe hits (and `true`),
  * so the caller can hand it to the img's preview slot; on a miss it gets
@@ -41,11 +43,15 @@ export function AccountCellImg({
   render: (src: string | undefined, vaulted: boolean) => JSX.Element
 }) {
   const cell = useMemo<LibraryMediaCell | null>(() => {
-    if (!vaultGalleryId || image.media) return null
+    if (!vaultGalleryId) return null
     return {
       galleryId: vaultGalleryId,
-      entryId: thumbnailEntryId(image.id),
-      coverId: coverEntryId(image.id),
+      // Encrypted items probe cover first: a `cover:` entry is a preview-sized
+      // rendition (remote-fetched, or vaulted from a resolved frame), while
+      // `thumb:` holds the materialized original — the heavier fallback a
+      // saved gallery resolves when no preview was ever kept.
+      entryId: image.media ? coverEntryId(image.id) : thumbnailEntryId(image.id),
+      coverId: image.media ? thumbnailEntryId(image.id) : coverEntryId(image.id),
       // Manifests guarantee a filename, but sync-built records may omit it —
       // '' degrades to application/octet-stream rather than throwing.
       mimeType: mimeTypeForItem({ filename: image.filename ?? '', variants: image.variants }),

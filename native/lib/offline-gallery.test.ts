@@ -1246,4 +1246,47 @@ describe('vault gallery covers', () => {
     first?.fill(0)
     second?.fill(0)
   })
+
+  test('ensureCoverBytes stores already-decrypted bytes and never fetches', async () => {
+    const { store, vault, requested } = makeHarness()
+    const galleryId = await offlineGalleryId(selection)
+    const events: string[] = []
+    const unsubscribe = cacheFillRegistry.subscribe(galleryId, (item) => { events.push(item.entryId) })
+    try {
+      await store.ensureCoverBytes({
+        galleryId,
+        entryId: 'cover:decrypted-one',
+        mimeType: 'image/jpeg',
+        itemId: 'decrypted-one',
+        load: async () => secondBytes.slice(),
+      })
+      const stored = await store.readThumbnail(galleryId, 'cover:decrypted-one')
+      expect(stored).toEqual(secondBytes)
+      stored?.fill(0)
+      // The bytes were already in hand — no remote ever ran.
+      expect(requested).toEqual([])
+      expect(events).toEqual(['cover:decrypted-one'])
+      expect((await vault.touch(galleryId, ['offline-gallery:cover:v1'])).length).toBe(0)
+    } finally {
+      unsubscribe()
+    }
+  })
+
+  test('a cover vaulted from resolved bytes answers the next session without a fetch', async () => {
+    // The encrypted cover's slow step is the materialize — the rendition the
+    // cell already decrypted is kept so a later visit paints from the vault.
+    const { store, vault } = makeHarness()
+    const galleryId = await offlineGalleryId(selection)
+    await store.ensureCoverBytes({
+      galleryId,
+      entryId: 'cover:stable-one',
+      mimeType: 'image/jpeg',
+      load: async () => firstBytes.slice(),
+    })
+    const secondStore = new EncryptedOfflineGalleryStore({ vault, fetchImage: async () => new Response('never', { status: 500 }) })
+    await secondStore.ensureCover({ galleryId, entryId: 'cover:stable-one', remote: coverRemote, mimeType: 'image/jpeg' })
+    const stored = await secondStore.readThumbnail(galleryId, 'cover:stable-one')
+    expect(stored).toEqual(firstBytes)
+    stored?.fill(0)
+  })
 })

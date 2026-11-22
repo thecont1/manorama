@@ -120,6 +120,29 @@ describe('HeicImg encrypted media', () => {
     }
   })
 
+  test('the painted resolved frame reports once per URL with its rendition flag', async () => {
+    const { HeicImg } = await import('./HeicImg')
+    const media: MediaReference = { kind: 'encrypted', provider: 'mega', sourceKind: 'folder', sourceId: 'source', nodeId: 'node' }
+    const previewMedia: MediaReference = { kind: 'encrypted', provider: 'mega', sourceKind: 'folder', sourceId: 'source', nodeId: 'node', previewId: 'rendition' }
+    const reported: Array<{ url: string; preview: boolean }> = []
+    const Harness = () => {
+      const [count, setCount] = useState(0)
+      return <><button type="button" onClick={() => setCount((value) => value + 1)}>tick {count}</button><HeicImg src="" preview="data:image/svg+xml,placeholder" previewMedia={previewMedia} media={media} galleryId="0123456789abcdef" filename="a.jpg" alt="" onResolvedUrl={(url, preview) => { reported.push({ url, preview }) }} /></>
+    }
+    const container = dom.document.createElement('div') as unknown as HTMLElement
+    mounts.mount(<Harness />, container)
+    await new Promise((resolve) => setTimeout(resolve, 10))
+    expect(container.querySelector('img')?.getAttribute('src')).toBe('blob:decrypted')
+    // A preview-grade resolution reports preview: a host can vault it as
+    // cover bytes; an original-grade one must not be asked to.
+    expect(reported).toEqual([{ url: 'blob:decrypted', preview: true }])
+    // A re-render re-runs the effect — the already-reported URL must not
+    // fire again or the host writes duplicate vault entries.
+    container.querySelector('button')!.dispatchEvent(new dom.Event('click', { bubbles: true }) as unknown as Event)
+    await new Promise((resolve) => setTimeout(resolve, 10))
+    expect(reported).toEqual([{ url: 'blob:decrypted', preview: true }])
+  })
+
   test('a failed rendition falls back to the original src', async () => {
     const { HeicImg } = await import('./HeicImg')
     const container = dom.document.createElement('div') as unknown as HTMLElement
