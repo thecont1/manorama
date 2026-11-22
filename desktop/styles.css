@@ -531,6 +531,21 @@ body.manorama-desktop .app-update-dismiss:hover { color: rgba(var(--ink), 1); }
 :root[data-macos-shell] .m-sheet .m-actiongroup {
   background: var(--glass-flat-child);
 }
+/* Menu rows are translucent tiles over a 2px gap — over glass each tile
+   is a dark slab and the gaps read as slits showing the wall through the
+   surface. Dropping the tile fill and the gap leaves plain text rows on
+   the glass, iOS-menu style, with a hairline keeping the list structure.
+   The row rule repeats the .m-sheet-host chain for the same specificity
+   reason as the publish panel's fill above. */
+:root[data-macos-shell] .m-sheet .lib-menu {
+  gap: 0;
+}
+:root[data-macos-shell] body.manorama-desktop .admin-page .m-sheet-host .m-sheet .lib-menu > :is(button, a) {
+  background: transparent;
+}
+:root[data-macos-shell] .m-sheet .lib-menu > * + :is(button, a) {
+  border-top: 1px solid rgba(var(--ink), .08);
+}
 /* The chain length is specificity load-bearing: the canvas fill on
    .desktop-share--sheet sits inside an :is() whose :not() arms push it to
    (0,6,4), so the override needs seven class-levels to clear it. */
