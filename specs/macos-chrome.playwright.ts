@@ -91,18 +91,20 @@ for (const engine of ['chromium', 'webkit'] as const) {
         }
       })
 
-      // The privacy link and copyright line float as small glass chips
-      // over the artwork — deep toast fill so the muted ink stays
-      // readable, and the canvas tile on the link loses to the chip.
-      test('the welcome footer floats as glass chips', async ({ page }) => {
+      // The privacy link and copyright line sit bare on the artwork —
+      // contrast, not a container, lifts them off the tile.
+      test('the welcome footer reads off the artwork at a stronger alpha', async ({ page }) => {
         await page.goto(`${BASE}/.macos-chrome-fixture`)
         for (const sel of ['.site-footer-link', '.site-footer-copy']) {
           const chip = page.locator(`.desktop-welcome .site-footer ${sel}`)
           await expect(chip).toBeVisible()
-          expect(await chip.evaluate((el) => {
-            const s = getComputedStyle(el) as CSSStyleDeclaration & { webkitBackdropFilter?: string }
-            return { backdrop: s.backdropFilter || s.webkitBackdropFilter || 'none', background: s.backgroundColor, radius: s.borderRadius, pad: s.paddingLeft }
-          })).toEqual({ backdrop: 'blur(16px) saturate(1.4)', background: 'rgba(18, 18, 24, 0.72)', radius: '999px', pad: '14px' })
+          const { alpha, background } = await chip.evaluate((el) => {
+            const s = getComputedStyle(el)
+            const match = s.color.match(/rgba\((\d+), (\d+), (\d+), ([\d.]+)\)/)
+            return { alpha: match ? Number(match[4]) : 1, background: s.backgroundColor }
+          })
+          expect(alpha).toBeGreaterThanOrEqual(0.6)
+          expect(background).toBe('rgba(0, 0, 0, 0)')
         }
       })
     })

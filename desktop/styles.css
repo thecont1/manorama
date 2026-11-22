@@ -454,18 +454,17 @@ body.manorama-desktop .app-update-dismiss:hover { color: rgba(var(--ink), 1); }
   box-shadow: var(--glass-rim), var(--glass-shadow);
 }
 
-/* The welcome footer's two quiet lines sit directly on the artwork —
-   small floating chips lift them like the toast: the deep toast fill
-   keeps the .3-alpha ink readable over the tile. The compound
-   .landing-page.desktop-welcome chain repeats the canvas-fill override
-   trick because .site-footer-link is in the same (0,6,4) :is() list. */
-:root[data-macos-shell] body.manorama-desktop .landing-page.desktop-welcome .site-footer :is(.site-footer-link, .site-footer-copy) {
-  background: var(--glass-fill-toast);
-  backdrop-filter: blur(16px) saturate(1.4);
-  -webkit-backdrop-filter: blur(16px) saturate(1.4);
-  box-shadow: var(--glass-rim), var(--glass-shadow);
-  border-radius: var(--m-pill);
-  padding: 8px 14px;
+/* The welcome footer's quiet ink sinks into the artwork — a stronger
+   alpha lifts both lines off the tile with no backing surface, and the
+   link's canvas tile goes so the text truly sits bare. */
+:root[data-macos-shell] body.manorama-desktop .landing-page.desktop-welcome .site-footer :is(.site-footer-link, .site-footer-copy, .site-footer-copy a) {
+  color: rgba(var(--ink), .62);
+}
+:root[data-macos-shell] body.manorama-desktop .landing-page.desktop-welcome .site-footer .site-footer-link {
+  background: transparent;
+}
+:root[data-macos-shell] body.manorama-desktop .landing-page.desktop-welcome .site-footer :is(.site-footer-link:hover, .site-footer-link:focus-visible, .site-footer-copy a:hover, .site-footer-copy a:focus-visible) {
+  color: rgb(var(--ink));
 }
 
 /* The share and paste panels are card-level surfaces inside the
@@ -628,7 +627,6 @@ body.manorama-desktop .app-update-dismiss:hover { color: rgba(var(--ink), 1); }
   :root[data-macos-shell] body.manorama-desktop .stage-arrows > button,
   :root[data-macos-shell] body.manorama-desktop .stage-arrows > button:hover,
   :root[data-macos-shell] .m-sheet,
-  :root[data-macos-shell] body.manorama-desktop .landing-page.desktop-welcome .site-footer :is(.site-footer-link, .site-footer-copy),
   :root[data-macos-shell] section.web-settings--pane {
     background: var(--glass-solid);
     backdrop-filter: none;
@@ -645,7 +643,6 @@ body.manorama-desktop .app-update-dismiss:hover { color: rgba(var(--ink), 1); }
 :root[data-macos-shell][data-reduced-transparency] body.manorama-desktop .stage-arrows > button,
 :root[data-macos-shell][data-reduced-transparency] body.manorama-desktop .stage-arrows > button:hover,
 :root[data-macos-shell][data-reduced-transparency] .m-sheet,
-:root[data-macos-shell][data-reduced-transparency] body.manorama-desktop .landing-page.desktop-welcome .site-footer :is(.site-footer-link, .site-footer-copy),
 :root[data-macos-shell][data-reduced-transparency] section.web-settings--pane {
   background: var(--glass-solid);
   backdrop-filter: none;
@@ -662,7 +659,6 @@ body.manorama-desktop .app-update-dismiss:hover { color: rgba(var(--ink), 1); }
   :root[data-macos-shell] body.manorama-desktop .stage-arrows > button,
   :root[data-macos-shell] body.manorama-desktop .stage-arrows > button:hover,
   :root[data-macos-shell] .m-sheet,
-  :root[data-macos-shell] body.manorama-desktop .landing-page.desktop-welcome .site-footer :is(.site-footer-link, .site-footer-copy),
   :root[data-macos-shell] section.web-settings--pane {
     background: var(--glass-solid);
     box-shadow: inset 0 0 0 1px var(--glass-edge);
