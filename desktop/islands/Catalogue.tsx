@@ -3592,7 +3592,10 @@ export default function Catalogue({ apiBase }: { apiBase: string }) {
                 onClick={() => setLocalOpen((open) => !open)}
               >
                 <SectionChevron open={localOpen} />
-                Local galleries <span class="lib-hidden-count">({visibleDeviceGalleries.length + compactLocalGalleries.length})</span>
+                {/* The count reads the whole category — hidden rows
+                    included — so it reconciles with the rail's "hosting N"
+                    line instead of naming only what this grid shows. */}
+                Local galleries <span class="lib-hidden-count">({visibleDeviceGalleries.length + hiddenDeviceGalleries.length + compactLocalGalleries.length + hiddenLocalGalleries.length})</span>
               </button>
               {localOpen ? (
                 <>
@@ -3624,7 +3627,7 @@ export default function Catalogue({ apiBase }: { apiBase: string }) {
                 onClick={() => setCloudOpen((open) => !open)}
               >
                 <SectionChevron open={cloudOpen} />
-                Cloud galleries <span class="lib-hidden-count">({compactAccountGalleries.length})</span>
+                Cloud galleries <span class="lib-hidden-count">({compactAccountGalleries.length + hiddenAccountGalleries.length})</span>
               </button>
               {cloudOpen ? (
                 <ul class="lib-compact-grid" ref={accountGridRef} onPointerDown={beginCardDrag('cloud')}>

@@ -609,6 +609,42 @@ describe('desktop catalogue workbench', () => {
     }
   })
 
+  test('section labels count the whole category — hidden galleries included', async () => {
+    const hiddenRecord = { ...record, id: 'bbbbbbbb-cccc-dddd-eeee-ffffffffffff', title: 'secret album', hiddenAt: '2026-11-01T00:00:00.000Z' }
+    const defaultFetch = globals.fetch
+    globals.fetch = (async (url: string) => {
+      const path = String(url)
+      if (path.endsWith('/api/device-galleries')) return new Response(JSON.stringify({ galleries: [] }), { status: 200 })
+      if (path.endsWith('/api/account')) return new Response(JSON.stringify({ ownerSlug: 'thecontrarian' }), { status: 200 })
+      if (path.endsWith('/api/galleries')) {
+        return new Response(JSON.stringify({
+          galleries: [
+            { slug: 'kashmir', title: 'kashmir, in winter', caption: '', date: '', imageCount: 1, sourceUrl: 'https://www.dropbox.com/scl/fo/x', createdAt: '2026-10-01T00:00:00.000Z', retention: 'retained', expiresAt: null, hiddenAt: null, images: [{ id: 'a', ref: undefined, filename: 'a.jpg', src: '/img/a.jpg', width: 4000, height: 3000, alt: '', placeholder: '', variants: [{ src: '/img/a-sm.jpg', width: 400, format: 'image/jpeg' }] }] },
+            { slug: 'meadow', title: 'meadow, kept quiet', caption: '', date: '', imageCount: 1, sourceUrl: 'https://www.dropbox.com/scl/fo/y', createdAt: '2026-10-01T00:00:00.000Z', retention: 'retained', expiresAt: null, hiddenAt: '2026-11-05T00:00:00.000Z', images: [{ id: 'b', ref: undefined, filename: 'b.jpg', src: '/img/b.jpg', width: 4000, height: 3000, alt: '', placeholder: '', variants: [{ src: '/img/b-sm.jpg', width: 400, format: 'image/jpeg' }] }] },
+          ],
+        }), { status: 200 })
+      }
+      return new Response(JSON.stringify({}), { status: 200 })
+    }) as unknown as typeof fetch
+    try {
+      const container = await mount(true, undefined, 'pro', {
+        'catalogue.json': JSON.stringify({ version: 1, deviceId: DEVICE_ID, deviceLabel: 'This Mac', galleries: [record, hiddenRecord] }),
+      })
+      // The rail's "hosting N" line counts the category; the section label
+      // now reads the same number — the grid alone shows only what is not
+      // parked under Hidden galleries.
+      const localSection = container.querySelector<HTMLElement>('[aria-labelledby="local-galleries-title"]')!
+      expect(localSection.querySelector('.lib-hidden-count')?.textContent).toBe('(2)')
+      expect(localSection.querySelectorAll('[data-gallery-card]')).toHaveLength(1)
+      const cloudSection = container.querySelector<HTMLElement>('[aria-labelledby="lib-compact-title"]')!
+      expect(cloudSection.querySelector('.lib-hidden-count')?.textContent).toBe('(2)')
+      expect(cloudSection.querySelectorAll('[data-gallery-card]')).toHaveLength(1)
+      expect(container.querySelector('.lib-hidden-section .lib-hidden-count')?.textContent).toBe('(2)')
+    } finally {
+      globals.fetch = defaultFetch
+    }
+  })
+
   test('a failed device feed still shows the cloud galleries', async () => {
     const defaultFetch = globals.fetch
     globals.fetch = (async (url: string) => {
