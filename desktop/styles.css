@@ -560,6 +560,15 @@ body.manorama-desktop .app-update-dismiss:hover { color: rgba(var(--ink), 1); }
 :root[data-macos-shell] body.manorama-desktop .admin-page .m-sheet-host .m-sheet .m-actionrow {
   background: transparent;
 }
+
+/* The section-title toggles carry the wall's translucent fill as a
+   backing strip behind each heading — over the artwork the strip reads
+   as a taped-on band. Bare titles sit on the wall like the headings they
+   are; the chevron stays. Compound target + catalogue chain clear the
+   :is() fill's (0,6,4). */
+:root[data-macos-shell] body.manorama-desktop .admin-page.desktop-catalogue .lib-section-title.lib-hidden-toggle {
+  background: transparent;
+}
 /* The chain length is specificity load-bearing: the canvas fill on
    .desktop-share--sheet sits inside an :is() whose :not() arms push it to
    (0,6,4), so the override needs seven class-levels to clear it. */

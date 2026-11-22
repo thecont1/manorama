@@ -308,6 +308,7 @@ for (const engine of ['chromium', 'webkit'] as const) {
         return { backdrop: style.backdropFilter || style.webkitBackdropFilter || 'none', background: style.backgroundColor }
       })
       await page.goto(`${BASE}/.macos-chrome-fixture`)
+      expect(await paint(page.locator('.lib-section-title.lib-hidden-toggle').first())).toEqual({ backdrop: 'none', background: 'rgba(0, 0, 0, 0)' })
       // A pinned card renders in the strip and its home section, so the ···
       // trigger exists twice — either opens the same sheet.
       const trigger = page.getByRole('button', { name: 'Bangkok Rain actions', exact: true }).first()
