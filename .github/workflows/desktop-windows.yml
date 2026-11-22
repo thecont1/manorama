@@ -35,7 +35,7 @@ jobs:
         run: |
           set -uo pipefail
           missing=0
-          for name in MANORAMA_DESKTOP_DROPBOX_CLIENT_ID MANORAMA_DESKTOP_GOOGLE_CLIENT_ID MANORAMA_DESKTOP_GOOGLE_CLIENT_SECRET; do
+          for name in MANORAMA_DESKTOP_DROPBOX_CLIENT_ID MANORAMA_DESKTOP_GOOGLE_CLIENT_ID; do
             if [ -z "${!name:-}" ]; then
               echo "::error::$name is not set for this repository. The desktop share lane bakes it into the bundle; without it that provider renders 'Not configured in this build'. Set it under Settings -> Secrets and variables -> Actions -> Variables."
               missing=1

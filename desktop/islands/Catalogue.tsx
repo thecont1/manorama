@@ -35,7 +35,7 @@ import { invoke } from '@tauri-apps/api/core'
 import { removeDeviceGallery, syncDeviceGalleries } from '../lib/sync'
 import { copyText } from '../../app/lib/gallery-share'
 import { AccountApiError, createAccountGallery, deleteAccount, deleteDeviceGalleryRecord, fetchAccountGalleries, fetchAccountGallery, fetchAccountIdentities, fetchAccountProfile, fetchDeviceGalleries, fetchDevices, forgetDevice, mintLinkHandoff, patchAccountOwnerSlug, probeAccountGallery, refreshAccountGallery, registerDevice, scanGalleryLink, setAccountGalleryHidden, setAccountGalleryPin, setAccountGalleryPositions, setDeviceGalleryHidden, standaloneDeviceGalleries, unlinkAccountIdentity } from '../lib/account'
-import { previewSrcFor, sourceLabelFor, LibraryMediaLoader, mimeTypeForItem } from '../../native/lib/library-media'
+import { previewSrcFor, sourceLabelFor, LibraryMediaLoader, mimeTypeForItem, coverSourceIdentity } from '../../native/lib/library-media'
 import { coverEntryId } from '../../native/lib/thumbs'
 import { AccountCellImg } from './LibraryCoverCell'
 import { postToXPhotos, type PostToXPhoto } from '../../native/lib/post-to-x'
@@ -303,6 +303,7 @@ const vaultCoverFromResolved = (vaultGalleryId: string, image: SummaryImage, url
     entryId: coverEntryId(image.id),
     mimeType,
     itemId: image.id,
+    identity: coverSourceIdentity(image),
     load: async () => {
       const response = await fetch(url).catch(() => null)
       if (!response?.ok) return null
@@ -819,6 +820,7 @@ export default function Catalogue({ apiBase }: { apiBase: string }) {
         entryId: cell.coverId,
         remote: cell.remote,
         mimeType: cell.mimeType,
+        identity: cell.identity,
       }).catch(() => {})
     },
   }), [])
@@ -834,11 +836,11 @@ export default function Catalogue({ apiBase }: { apiBase: string }) {
     let active = true
     void (async () => {
       const entries = await Promise.all(accountGalleries.map(async (gallery) =>
-        [gallery.slug, await offlineGalleryId({ owner: session.ownerSlug, slug: gallery.slug })] as const))
+        [gallery.slug, await offlineGalleryId({ owner: ownerSlug ?? session.ownerSlug, slug: gallery.slug })] as const))
       if (active) setGalleryIds(Object.fromEntries(entries))
     })().catch(() => {})
     return () => { active = false }
-  }, [session, accountGalleries])
+  }, [session, ownerSlug, accountGalleries])
 
   // The vault's persisted preferences and saved index load once; the cap
   // re-applies on every tier change because Free and Visionary resolve
@@ -2681,11 +2683,13 @@ export default function Catalogue({ apiBase }: { apiBase: string }) {
       fill?.abort()
       const saved = savedGalleryFor(gallery)
       if (saved) await removeSavedCopy(saved.galleryId)
-      else if (fill && gallery.id) {
+      else if (fill) {
         // No saved record yet — the aborted fill may still have committed
-        // partial ciphertext, so the purge runs anyway.
-        await desktopOfflineStore.purgeGallery(gallery.id).catch(() => {})
-        libraryLoader.invalidate(gallery.id)
+        // partial ciphertext, so the purge runs anyway. The vault keys by
+        // the owner+slug digest, not the row id.
+        const vaultId = await offlineGalleryId({ owner, slug: gallery.slug })
+        await desktopOfflineStore.purgeGallery(vaultId).catch(() => {})
+        libraryLoader.invalidate(vaultId)
         await refreshSavedGalleries()
       }
     } else {
@@ -3350,7 +3354,7 @@ export default function Catalogue({ apiBase }: { apiBase: string }) {
     const cover = gallery.images.find((image) => !image.hidden)
     return <li key={`account-${gallery.slug}`} class="lib-compact-card" data-gallery-card={gallery.slug} data-retention={gallery.retention}>
       <a class="lib-compact-cover" href={galleryUrl} onClick={openCard} draggable={false} aria-label={`${title} cover`}>
-        {cover ? <AccountCellImg loader={libraryLoader} vaultGalleryId={galleryIds[gallery.slug]} image={cover} remote={carriesEncryptedRefs(cover) ? '' : (cover.src || previewSrcFor(cover))} render={(vaulted, isVaulted) => {
+        {cover ? <AccountCellImg loader={libraryLoader} vaultGalleryId={galleryIds[gallery.slug]} image={cover} remote={carriesEncryptedRefs(cover) ? '' : previewSrcFor(cover)} render={(vaulted, isVaulted) => {
           const useVault = isVaulted && RENDERABLE_VAULT_NAME.test(cover.filename ?? '')
           return <CompactCoverImg src={useVault ? vaulted! : (cover.src || previewSrcFor(cover))} preview={useVault ? vaulted : previewSrcFor(cover)} media={useVault ? undefined : cover.media} previewMedia={useVault ? undefined : cover.variants?.[0]?.media} galleryId={gallery.id} filename={cover.filename} storedWidth={cover.width} storedHeight={cover.height} onError={stripImgRetry} onResolvedUrl={(url, isPreview) => {
             const vaultGalleryId = galleryIds[gallery.slug]
@@ -3799,7 +3803,7 @@ export default function Catalogue({ apiBase }: { apiBase: string }) {
                       load policy, per-gallery purge, Forget everything. The
                       controller resolves the live tier on every call. */}
                   <VaultSettings
-                    controller={createDesktopVaultSettings(() => accountTier)}
+                    controller={createDesktopVaultSettings(() => accountTier, libraryLoader)}
                     tier={accountTier}
                     embedded
                     usageBreakdown={false}

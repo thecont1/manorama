@@ -16,6 +16,7 @@ const cell = (input: Partial<LibraryMediaCell> & Pick<LibraryMediaCell, 'entryId
   coverId: input.coverId,
   mimeType: input.mimeType ?? 'image/jpeg',
   remote: input.remote,
+  identity: input.identity,
 })
 
 const countingUrls = (): OfflineObjectUrlProvider & { created: string[]; revoked: string[] } => {
@@ -332,6 +333,53 @@ describe('LibraryMediaLoader', () => {
     expect(reads).toEqual(['gallery-a:thumb:one', 'gallery-a:cover:one'])
     first?.release()
     second?.release()
+  })
+
+  test('a stamped cover paints only while the stamp names the current source', async () => {
+    const objectUrls = countingUrls()
+    const { read } = byteStore({
+      'gallery-a:cover:one': new Uint8Array([1, 2, 3]),
+      'gallery-a:coversrc:one': new TextEncoder().encode('src:https://provider.test/a.jpg'),
+    })
+    const loader = new LibraryMediaLoader({ read, objectUrls })
+    const fresh = await loader.acquire(cell({
+      entryId: 'cover:one', identity: 'src:https://provider.test/a.jpg', remote: 'https://provider.test/a.jpg',
+    }))
+    expect(fresh?.kind).toBe('vault')
+    expect(fresh?.src).toBe('blob:lib-0')
+    fresh?.release()
+    // The provider replaced the image under the same id — the stamp from the
+    // old source must not let those bytes paint.
+    const stale = await loader.acquire(cell({
+      entryId: 'cover:one', galleryId: 'gallery-b', identity: 'src:https://provider.test/b.jpg', remote: 'https://provider.test/b.jpg',
+    }))
+    expect(stale?.kind).toBe('remote')
+    stale?.release()
+  })
+
+  test('an un-stamped cover entry reads as stale once the cell carries an identity', async () => {
+    const { read } = byteStore({ 'gallery-a:cover:one': new Uint8Array([1, 2, 3]) })
+    const loader = new LibraryMediaLoader({ read, objectUrls: countingUrls() })
+    const lease = await loader.acquire(cell({
+      entryId: 'cover:one', identity: 'src:https://provider.test/a.jpg', remote: 'https://provider.test/a.jpg',
+    }))
+    expect(lease?.kind).toBe('remote')
+    lease?.release()
+  })
+
+  test('a stale cover hit falls through to the fallback entry rather than remote', async () => {
+    const objectUrls = countingUrls()
+    const { read } = byteStore({
+      'gallery-a:cover:one': new Uint8Array([1, 1, 1]),
+      'gallery-a:thumb:one': new Uint8Array([9, 9, 9]),
+    })
+    const loader = new LibraryMediaLoader({ read, objectUrls })
+    const lease = await loader.acquire(cell({
+      entryId: 'cover:one', coverId: 'thumb:one', identity: 'src:https://provider.test/b.jpg', remote: 'https://provider.test/b.jpg',
+    }))
+    expect(lease?.kind).toBe('vault')
+    expect(lease?.src).toBe('blob:lib-0')
+    lease?.release()
   })
 })
 

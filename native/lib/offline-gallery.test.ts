@@ -1289,4 +1289,41 @@ describe('vault gallery covers', () => {
     expect(stored).toEqual(firstBytes)
     stored?.fill(0)
   })
+
+  test('a matching source stamp still skips the refill across sessions', async () => {
+    const { store, vault, requested } = makeHarness()
+    const galleryId = await offlineGalleryId(selection)
+    await store.ensureCover({ galleryId, entryId: 'cover:stable-one', remote: coverRemote, mimeType: 'image/jpeg', identity: 'src:https://provider.test/original-one.jpg' })
+    expect(requested).toEqual([coverRemote])
+
+    const secondStore = new EncryptedOfflineGalleryStore({ vault, fetchImage: async () => new Response('never', { status: 500 }) })
+    await secondStore.ensureCover({ galleryId, entryId: 'cover:stable-one', remote: coverRemote, mimeType: 'image/jpeg', identity: 'src:https://provider.test/original-one.jpg' })
+    const stored = await secondStore.readThumbnail(galleryId, 'cover:stable-one')
+    expect(stored).toEqual(firstBytes)
+    stored?.fill(0)
+  })
+
+  test('a mismatched source stamp refills the cover with the new source', async () => {
+    const { store, vault, requested } = makeHarness()
+    const galleryId = await offlineGalleryId(selection)
+    await store.ensureCover({ galleryId, entryId: 'cover:stable-one', remote: coverRemote, mimeType: 'image/jpeg', identity: 'src:old-source' })
+    expect(requested).toEqual([coverRemote])
+
+    // The provider swapped the bytes under the same id: the stored stamp
+    // names the old source, so the entry is refilled rather than skipped.
+    const secondStore = new EncryptedOfflineGalleryStore({
+      vault,
+      fetchImage: async () => new Response(secondBytes.slice(), { status: 200 }),
+    })
+    await secondStore.ensureCover({ galleryId, entryId: 'cover:stable-one', remote: 'https://provider.test/replaced.png', mimeType: 'image/png', identity: 'src:new-source' })
+    const stored = await store.readThumbnail(galleryId, 'cover:stable-one')
+    expect(stored).toEqual(secondBytes)
+    stored?.fill(0)
+    // And the new stamp landed — a third session on the new source skips.
+    const thirdStore = new EncryptedOfflineGalleryStore({ vault, fetchImage: async () => new Response('never', { status: 500 }) })
+    await thirdStore.ensureCover({ galleryId, entryId: 'cover:stable-one', remote: 'https://provider.test/replaced.png', mimeType: 'image/png', identity: 'src:new-source' })
+    const again = await thirdStore.readThumbnail(galleryId, 'cover:stable-one')
+    expect(again).toEqual(secondBytes)
+    again?.fill(0)
+  })
 })

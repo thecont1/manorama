@@ -105,7 +105,9 @@ jobs:
           done
           # The publish-provider client ids live on the Variables tab — they
           # are public app identifiers baked into the bundle, not secrets.
-          for name in MANORAMA_DESKTOP_DROPBOX_CLIENT_ID MANORAMA_DESKTOP_GOOGLE_CLIENT_ID MANORAMA_DESKTOP_GOOGLE_CLIENT_SECRET; do
+          # The Google client secret is optional (installed-app PKCE flows
+          # attach it only when present), so it is not reported here.
+          for name in MANORAMA_DESKTOP_DROPBOX_CLIENT_ID MANORAMA_DESKTOP_GOOGLE_CLIENT_ID; do
             value="${!name:-}"
             if [ -n "$value" ]; then
               printf '%-28s set (%s characters)\n' "$name" "${#value}"
@@ -159,7 +161,7 @@ jobs:
         run: |
           set -uo pipefail
           missing=0
-          for name in MANORAMA_DESKTOP_DROPBOX_CLIENT_ID MANORAMA_DESKTOP_GOOGLE_CLIENT_ID MANORAMA_DESKTOP_GOOGLE_CLIENT_SECRET; do
+          for name in MANORAMA_DESKTOP_DROPBOX_CLIENT_ID MANORAMA_DESKTOP_GOOGLE_CLIENT_ID; do
             if [ -z "${!name:-}" ]; then
               echo "::error::$name is not set for this repository. The desktop share lane bakes it into the bundle; without it that provider renders 'Not configured in this build'. Set it under Settings -> Secrets and variables -> Actions -> Variables."
               missing=1

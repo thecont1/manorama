@@ -7,6 +7,7 @@ import { hashPassword } from '../lib/library-prefs'
 import { vaultFilePathIdentity } from '../../native/lib/vault'
 import { offlineGalleryId } from '../../native/lib/offline-gallery'
 import { coverEntryId } from '../../native/lib/thumbs'
+import { coverSourceIdentity } from '../../native/lib/library-media'
 import { desktopOfflineStore } from '../lib/offline-gallery'
 import Catalogue from './Catalogue'
 
@@ -32,8 +33,25 @@ let previousLocalStorage: unknown
 let previousFetch: unknown
 let previousHTMLElement: unknown
 let previousMutationObserver: unknown
+let previousIntersectionObserver: unknown
 let previousDropboxClientId: string | undefined
 let previousGoogleClientId: string | undefined
+
+/** happy-dom's IntersectionObserver is a stub that never notifies; the real
+ *  API delivers an initial record on observe, so the bench stub fires
+ *  intersecting once — mounted cells read as in-view. */
+class BenchIntersectionObserver {
+  constructor(private callback: IntersectionObserverCallback) {}
+  observe(el: Element) {
+    queueMicrotask(() => this.callback(
+      [{ isIntersecting: true } as IntersectionObserverEntry],
+      this as unknown as IntersectionObserver,
+    ))
+  }
+  disconnect() {}
+  unobserve(_el: Element) {}
+  takeRecords(): IntersectionObserverEntry[] { return [] }
+}
 
 type Frame = { id: number; callback: FrameRequestCallback }
 let frames: Frame[] = []
@@ -278,6 +296,7 @@ beforeAll(() => {
   previousFetch = globals.fetch
   previousHTMLElement = globals.HTMLElement
   previousMutationObserver = globals.MutationObserver
+  previousIntersectionObserver = globals.IntersectionObserver
   previousDropboxClientId = process.env.MANORAMA_DESKTOP_DROPBOX_CLIENT_ID
   previousGoogleClientId = process.env.MANORAMA_DESKTOP_GOOGLE_CLIENT_ID
   globals.window = dom
@@ -286,6 +305,7 @@ beforeAll(() => {
   globals.SVGElement = dom.SVGElement
   globals.HTMLElement = dom.HTMLElement
   globals.MutationObserver = dom.MutationObserver
+  globals.IntersectionObserver = BenchIntersectionObserver
   // The island reads the shared theme key from bare `localStorage`.
   globals.localStorage = dom.localStorage
   // Provider OAuth client ids make the share sheet's providers "configured",
@@ -324,6 +344,7 @@ afterAll(() => {
   globals.fetch = previousFetch
   globals.HTMLElement = previousHTMLElement
   globals.MutationObserver = previousMutationObserver
+  globals.IntersectionObserver = previousIntersectionObserver
   if (previousDropboxClientId === undefined) delete process.env.MANORAMA_DESKTOP_DROPBOX_CLIENT_ID
   else process.env.MANORAMA_DESKTOP_DROPBOX_CLIENT_ID = previousDropboxClientId
   if (previousGoogleClientId === undefined) delete process.env.MANORAMA_DESKTOP_GOOGLE_CLIENT_ID
@@ -590,6 +611,9 @@ describe('desktop catalogue workbench', () => {
         entryId: coverEntryId('mega-node1'),
         mimeType: 'image/jpeg',
         itemId: 'mega-node1',
+        // The write carries the same source stamp the resolving path writes
+        // — an un-stamped cover entry reads as stale and never paints.
+        identity: coverSourceIdentity({ media: { kind: 'encrypted', provider: 'mega', sourceKind: 'folder', sourceId: 'folder-x', nodeId: 'node-1' } }),
         load: async () => new TextEncoder().encode('jpeg bytes'),
       })
       const container = dom.document.createElement('div') as unknown as HTMLElement

@@ -57,11 +57,29 @@ export const desktopOfflineStore = new EncryptedOfflineGalleryStore({
 })
 
 /** Vault settings bound to the live account tier at call time — a tier
- *  change on the web takes effect without relaunching. */
-export const createDesktopVaultSettings = (tier: () => 'free' | 'pro' | undefined) =>
-  createVaultSettingsController({
+ *  change on the web takes effect without relaunching. The mounted Library
+ *  loader is handed in so a purge drops its resolved entry too — a
+ *  confirmed erase must not leave the card's vaulted URL alive — and a
+ *  forget-everything tears every lease down the same way. */
+export const createDesktopVaultSettings = (
+  tier: () => 'free' | 'pro' | undefined,
+  loader?: { invalidate(galleryId: string): void; release(): void },
+) => {
+  const base = createVaultSettingsController({
     vault: desktopVault,
     store: desktopOfflineStore,
     tier,
     persistence: desktopVaultPersistence,
   })
+  return {
+    ...base,
+    async purgeGallery(galleryId: string) {
+      await base.purgeGallery(galleryId)
+      loader?.invalidate(galleryId)
+    },
+    async forgetEverything() {
+      await base.forgetEverything()
+      loader?.release()
+    },
+  }
+}
