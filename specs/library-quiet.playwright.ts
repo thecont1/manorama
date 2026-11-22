@@ -115,6 +115,29 @@ for (const browserName of ['chromium', 'webkit'] as const) {
           await page.screenshot({ path: testInfo.outputPath('restored.png') })
         })
       }
+
+      engineTest(`${surface} lifts the hovered card's details to full alpha`, async ({ page }) => {
+        await page.setViewportSize(surface === 'native' ? { width: 951, height: 669 } : { width: 1440, height: 900 })
+        await openLibrary(page, surface)
+        await page.evaluate(() => document.querySelector<HTMLButtonElement>('.lib-quiet-toggle')!.click())
+        await finishTransitions(page)
+        const root = surface === 'native' ? '.native-list-card' : '.gallery-list'
+        const card = page.locator(`${root} :is(.lib-card, .lib-compact-card)`).first()
+        const word = card.locator('.lib-card-title, .lib-card-sub').first()
+        await expect(word).toBeVisible()
+        const dim = await word.evaluate(el => getComputedStyle(el).webkitTextFillColor)
+        expect(dim).toMatch(/, 0\.05\)$/)
+
+        await card.hover()
+        await finishTransitions(page)
+        const lifted = await word.evaluate(el => ({
+          fill: getComputedStyle(el).webkitTextFillColor,
+          color: getComputedStyle(el).color,
+        }))
+        // Full alpha means the quieted fill gives way to the card's own
+        // color — the same reading as an un-quieted card.
+        expect(lifted.fill).toBe(lifted.color)
+      })
     }
   })
 }

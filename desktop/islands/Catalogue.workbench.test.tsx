@@ -2649,6 +2649,10 @@ describe('the Library quiet view', () => {
     // Hover and keyboard focus both restore the rail — a tabbed-in user
     // must never aim at a nearly invisible surface.
     expect(css).toContain('.lib-quiet-rail:hover, .lib-quiet-rail:focus-within { opacity: .5; }')
+    // The card under the pointer reads at full alpha — its words and its
+    // chrome both — while the rest of the quiet view stays sunk.
+    expect(css).toContain('.lib-quiet :is(.lib-card, .lib-compact-card):is(:hover, :focus-within) :not(img)')
+    expect(css).toContain('.lib-quiet :is(.lib-card, .lib-compact-card):is(:hover, :focus-within) :where(svg, .device-pill')
     expect(css).toContain('.lib-quiet-toggle')
   })
 })

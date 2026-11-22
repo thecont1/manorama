@@ -1947,6 +1947,16 @@ html.light .lib-quiet-toggle[aria-pressed="true"] { color: #e9e5dc; }
    left aiming at a nearly invisible rail. */
 .lib-quiet-rail { opacity: .05; }
 .lib-quiet-rail:hover, .lib-quiet-rail:focus-within { opacity: .5; }
+/* Hover — or keyboard focus landing inside — a card lifts its details
+   back to full alpha: the quiet view stays quiet except exactly where
+   the pointer is reading, and a tabbed-in user reads the card they are
+   on. Chrome inside the card rises with its words. */
+.lib-quiet :is(.lib-card, .lib-compact-card):is(:hover, :focus-within) :not(img) {
+  -webkit-text-fill-color: currentColor !important;
+}
+.lib-quiet :is(.lib-card, .lib-compact-card):is(:hover, :focus-within) :where(svg, .device-pill, .lib-temp-flag, .admin-strip-badge, .app-update-banner, .m-btn--primary, [data-account-ad]) {
+  opacity: 1;
+}
 /* And the photographs step a touch forward while the words step back. */
 .lib-quiet img { filter: brightness(1.12); }
 

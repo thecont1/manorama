@@ -152,6 +152,11 @@ export const blockProductionApi = async (page: Pick<Page, 'route'>): Promise<{ c
     calls += 1
     return route.fulfill({ status: 200, contentType: 'application/json', body: '{"ok":true}' })
   })
+  // The app-freshness check would otherwise hit the live release feed and
+  // insert the update banner mid-test — a real release once published
+  // every Library fixture mid-flow.
+  await page.route('https://downloads.manorama.xyz/latest.json', (route) =>
+    route.fulfill({ status: 200, contentType: 'application/json', body: '{}' }))
   return { calls: () => calls }
 }
 
