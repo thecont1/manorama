@@ -48,7 +48,7 @@ export function HeicImg({ src, preview, media, previewMedia, encryptedResolver =
   // blank-retry path.
   const [previewFailed, setPreviewFailed] = useState(false)
   const canFallBack = Boolean(src && !/\.(mp4|m4v|mov|webm|avi|mkv)$/i.test(filename ?? ''))
-  const [encrypted, setEncrypted] = useState<{ url: string; preview: boolean } | null>(null)
+  const [encrypted, setEncrypted] = useState<{ url: string; preview: boolean; ref: MediaReference } | null>(null)
   const hostRef = useRef<HTMLImageElement | null>(null)
   const encryptedRelease = useRef<(() => void) | null>(null)
   const encryptedRef = hasPreview && previewMedia ? previewMedia : media
@@ -83,7 +83,7 @@ export function HeicImg({ src, preview, media, previewMedia, encryptedResolver =
     void acquire().then(({ url, release }) => {
       if (cancelled) { release(); return }
       encryptedRelease.current = release
-      setEncrypted({ url, preview: previewRequest })
+      setEncrypted({ url, preview: previewRequest, ref: reference })
     }).catch(() => {
       // A keyless rail keeps its dimensions and stays blank. It must never
       // fall back to a legacy keyed URL or server-side decryptor.
@@ -92,13 +92,22 @@ export function HeicImg({ src, preview, media, previewMedia, encryptedResolver =
       cancelled = true
       encryptedRelease.current?.()
       encryptedRelease.current = null
-      // The pin is gone: fall back to the placeholder rather than keep a
-      // revoked URL painted on screen.
-      setEncrypted(null)
+      // The pin is freed, but the frame stays painted: release only makes
+      // the entry evictable, and an already-decoded <img> survives object-URL
+      // revocation. Blanking the src here collapsed the card's box, moved the
+      // element across the observer margin, and re-entering re-acquired —
+      // the self-sustaining layout loop behind the library-cover flicker.
     }
   }, [encryptedRef, galleryId, encryptedResolver, inView])
 
-  const source = encryptedRef && !encrypted ? '' : encrypted?.url ?? src
+  // A retained frame belongs to its own reference — a media/previewMedia
+  // change must not paint the previous item's bytes. Serialized compare:
+  // a data refetch hands a fresh-but-identical reference object, and
+  // dropping the paint there would restart the collapse it exists to stop.
+  const liveUrl = encrypted && encryptedRef && JSON.stringify(encrypted.ref) === JSON.stringify(encryptedRef)
+    ? encrypted.url
+    : undefined
+  const source = encryptedRef && !liveUrl ? '' : liveUrl ?? src
   useEffect(() => {
     if (!needsDecode || !source) return
     let cancelled = false
@@ -142,7 +151,7 @@ export function HeicImg({ src, preview, media, previewMedia, encryptedResolver =
   // revoke on replacement or unmount.
   useEffect(() => () => { if (decoded) URL.revokeObjectURL(decoded) }, [decoded])
 
-  return <img ref={hostRef} src={decoded ?? (needsDecode ? undefined : encrypted?.url ?? (previewFailed ? src : (preview ?? src)))} onError={(event: Event) => {
+  return <img ref={hostRef} src={decoded ?? (needsDecode ? undefined : liveUrl ?? (previewFailed ? src : (preview ?? src)))} onError={(event: Event) => {
     if (!previewFailed && preview && canFallBack) { setPreviewFailed(true); return }
     onError?.(event)
   }} {...rest} />

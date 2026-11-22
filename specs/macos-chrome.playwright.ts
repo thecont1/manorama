@@ -352,14 +352,14 @@ for (const engine of ['chromium', 'webkit'] as const) {
           try {
             for (const rule of sheet.cssRules) {
               if ((rule as CSSStyleRule).selectorText?.includes('.m-sheet-body::-webkit-scrollbar')) {
-                return (rule as CSSStyleRule).style.display
+                return `${(rule as CSSStyleRule).style.width} ${(rule as CSSStyleRule).style.height}`
               }
             }
           } catch { /* opaque sheet */ }
         }
         return null
       })
-      expect(webkitScrollbar).toBe('none')
+      expect(webkitScrollbar).toBe('0px 0px')
       await page.keyboard.press('Escape')
       // The keep-copy switch is a canvas-filled button — over glass its
       // tile is a dark slab behind the track, so it goes transparent too.
