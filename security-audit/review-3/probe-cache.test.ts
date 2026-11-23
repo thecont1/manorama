@@ -44,10 +44,12 @@ describe('owner-only JSON responses', () => {
   })
 
   for (const path of ['/api/galleries', '/api/library', '/api/account', '/api/galleries/private-links']) {
-    test(`${path} declares no cache policy (recorded, not asserted)`, async () => {
+    test(`${path} declares private, no-store`, async () => {
       const headers = await headersOf(path)
       console.log(`HEADERS ${path} status=${headers.status} cache-control=${headers.cache ?? '(none)'} vary=${headers.vary ?? '(none)'} etag=${headers.etag ?? '(none)'}`)
       expect(headers.status).toBe(200)
+      expect(headers.cache).toContain('private')
+      expect(headers.cache).toContain('no-store')
     })
   }
 

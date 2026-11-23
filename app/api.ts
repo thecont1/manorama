@@ -10,7 +10,7 @@ import { canonicalSourceMatches, detectSource, scanSource, UNRECOGNIZED_LINK_MES
 import { localSourcesEnabled, serveLocalMedia } from './lib/local-source'
 import { createGalleryWithinLimit, deleteGallery, getGallery, getStoredGallery, listGalleries, markGallerySourceChecked, setGalleryHidden, setGalleryPinned, setGalleryPositions, setGalleryRetained, swapGalleryRetention, toLibrarySummaries, toSummary, updateGalleryHidden, updateGalleryImages, updateGalleryMetadata, updateGalleryOrder, updateGalleryRecord, updateGallerySlug, type GalleryEnv, type GalleryRecord } from './lib/gallery-repository'
 import { assertGalleryEditable, FREE_RETAINED_LIMIT, GalleryPolicyError, isGalleryExpired, PAID_RETAINED_LIMIT, paidGalleryLimitError, pinLimitError, pipelineGalleryLimitError } from './lib/gallery-policy'
-import { createLinkHandoffToken, createSessionToken, requireMasterSession, requireSession, resolveManoramaSession, SESSION_COOKIE, type HonoSessionEnv, verifyNativeHandoffToken } from './lib/session'
+import { createLinkHandoffToken, createSessionToken, privateNoStore, requireMasterSession, requireSession, resolveManoramaSession, SESSION_COOKIE, type HonoSessionEnv, verifyNativeHandoffToken } from './lib/session'
 import { deleteAccount, getUserByAccountId, listUsersForAdmin, OwnerSlugError, setUserDisabled, setUserTier, updateOwnerSlug, getUserByOwnerSlug } from './lib/user-repository'
 import { configuredMasterAccountId, grantMasterAccount, isMasterAccountId, revokeMasterAccount } from './lib/master-accounts'
 import { ogCardResponse, ogItemKey } from './lib/og-card'
@@ -286,7 +286,7 @@ export const createManoramaApi = () => {
   /** Exchanges the one-minute deep-link handoff for the normal seven-day
    * bearer session. The handoff is purpose-bound and never accepted as an API
    * bearer token itself. */
-  api.post('/api/auth/native/exchange', async (c) => {
+  api.post('/api/auth/native/exchange', bodyLimit({ maxSize: 8 * 1024 }), async (c) => {
     c.header('Cache-Control', 'no-store')
     const payload: unknown = await c.req.json().catch(() => null)
     const rawToken = payload !== null && typeof payload === 'object' ? (payload as Record<string, unknown>).handoffToken : undefined
@@ -493,11 +493,13 @@ export const createManoramaApi = () => {
       return c.json({ error: 'That account could not be deleted' }, 503)
     }
   })
-  api.use('/api/galleries', requireSession())
-  api.use('/api/galleries/*', requireSession())
-  api.use('/api/library', requireSession())
-  api.use('/api/account', requireSession())
-  api.use('/api/account/*', requireSession())
+  // Session-gated JSON is owner-private: it must declare a cache policy or a
+  // shared browser profile is free to reuse one account's answer for the next.
+  api.use('/api/galleries', privateNoStore, requireSession())
+  api.use('/api/galleries/*', privateNoStore, requireSession())
+  api.use('/api/library', privateNoStore, requireSession())
+  api.use('/api/account', privateNoStore, requireSession())
+  api.use('/api/account/*', privateNoStore, requireSession())
 
   /** Mints the one-minute link handoff a client browser needs to open
    * `/auth/{provider}?link={token}` — the in-app browser holds no manorama
@@ -661,7 +663,7 @@ export const createManoramaApi = () => {
     }
   })
 
-  api.post('/api/galleries/scan', async (c) => {
+  api.post('/api/galleries/scan', bodyLimit({ maxSize: 8 * 1024 }), async (c) => {
     const payload = await c.req.json<RequestBody>().catch((): RequestBody => ({}))
     if (!payload.url?.trim()) return c.json({ error: UNRECOGNIZED_LINK_MESSAGE }, 400)
     if (isEncryptedSourceUrl(payload.url)) return c.json({ code: 'CLIENT_SCAN_REQUIRED', error: 'Encrypted sources are scanned on your device, never by the server' }, 422)

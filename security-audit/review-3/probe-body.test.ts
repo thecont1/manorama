@@ -38,17 +38,19 @@ describe('body limits', () => {
     expect(response.status).toBe(413)
   })
 
-  test('the native exchange has no bound', async () => {
-    const body = JSON.stringify({ handoffToken: pad(4 * 1024 * 1024) })
-    const response = await post('/api/auth/native/exchange', body)
-    // Parsed and refused on the token's merits, not on size.
-    expect(response.status).toBe(401)
-    expect(body.length).toBeGreaterThan(4 * 1024 * 1024)
+  test('the native exchange is bounded (R3-04)', async () => {
+    const response = await post('/api/auth/native/exchange', JSON.stringify({ handoffToken: pad(4 * 1024 * 1024) }))
+    expect(response.status).toBe(413)
+    // A body inside the bound still reaches the handler and is refused on
+    // the token's merits, not on size.
+    const inside = await post('/api/auth/native/exchange', JSON.stringify({ handoffToken: pad(4 * 1024) }))
+    expect(inside.status).toBe(401)
   })
 
-  test('the scan endpoint has no bound', async () => {
-    const body = JSON.stringify({ url: pad(2 * 1024 * 1024) })
-    const response = await post('/api/galleries/scan', body, true)
-    expect([400, 422]).toContain(response.status)
+  test('the scan endpoint is bounded (R3-04)', async () => {
+    const response = await post('/api/galleries/scan', JSON.stringify({ url: pad(2 * 1024 * 1024) }), true)
+    expect(response.status).toBe(413)
+    const inside = await post('/api/galleries/scan', JSON.stringify({ url: 'not-a-provider-link' }), true)
+    expect([400, 422]).toContain(inside.status)
   })
 })
