@@ -41,6 +41,10 @@ export default defineConfig({
           '**/desktop-admin.playwright.ts',
           '**/desktop-catalogue.playwright.ts',
           '**/desktop-folder-drop.playwright.ts',
+          // Not evidence, but it needs the same desktop fixture: the
+          // vite.config.desktop.ts server and real photographs under the
+          // source folder.
+          '**/viewer-frame-ph.playwright.ts',
           '**/native-vault-controls.playwright.ts',
         ]),
   ],
