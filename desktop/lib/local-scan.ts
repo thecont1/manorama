@@ -99,19 +99,12 @@ const entryDims = (entry: LocalScanEntry): { width?: number; height?: number } =
     ? { width: entry.width, height: entry.height }
     : {}
 
-const collectImages = async (dir: string, prefix: string, readDir: ReadDir, out: LocalGalleryItem[]) => {
-  const entries = await readDir(dir)
-  for (const entry of entries) {
-    if (!entry.isFile || !isDesktopImageName(entry.name)) continue
-    const id = prefix ? `${prefix}/${entry.name}` : entry.name
-    out.push({ id, name: entry.name, path: joinPath(dir, entry.name), ...entryDims(entry) })
-  }
-}
-
 /**
- * Reads the root and exactly one level of subdirectories — deep enough for
- * DCIM/<camera>/ layouts on cards, shallow enough that picking a large
- * tree (Pictures, a drive root) never becomes a filesystem crawl.
+ * Reads the folder root only — subdirectories are never descended. That is
+ * the contract the operations runbook documents and every cloud provider
+ * scanner already follows (a shared folder's children, nothing more), so a
+ * dropped tree can never surprise its owner with nested content, and
+ * picking a large tree is a single directory read, never a crawl.
  */
 export const scanLocalDirectory = async (root: string, readDir: ReadDir): Promise<LocalScan> => {
   const entries = await readDir(root)
@@ -120,15 +113,6 @@ export const scanLocalDirectory = async (root: string, readDir: ReadDir): Promis
     if (entry.isFile && isDesktopImageName(entry.name)) {
       collected.push({ id: entry.name, name: entry.name, path: joinPath(root, entry.name), ...entryDims(entry) })
     }
-  }
-  const subdirs = entries
-    .filter((entry) => entry.isDirectory && !entry.name.startsWith('.'))
-    .map((entry) => entry.name)
-    .sort((a, b) => a.localeCompare(b, undefined, { numeric: true }))
-  for (const subdir of subdirs) {
-    // A subdir that vanished mid-scan (ejected card) contributes nothing —
-    // the rescan treats it as absent rather than fatal.
-    await collectImages(joinPath(root, subdir), subdir, readDir, collected).catch(() => {})
   }
   // One deterministic order: relative path, natural collation, so IMG_2
   // precedes IMG_10 and a rescan preserves positions for surviving files.

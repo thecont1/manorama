@@ -46,7 +46,7 @@ scripts/build-macos.sh  vite build → stage Resources/ViewerBundle → swiftc
                         → generated Info.plist (URL scheme + document types)
                         → Developer ID codesign
 desktop/                vite SPA root (mirrors native/)
-  lib/local-scan.ts     pure scan: image extensions, one subdir level, sort, cap
+  lib/local-scan.ts     pure scan: image extensions, folder root only, sort, cap
   lib/folder-drop.ts    drop-side scan/classify/select/record logic, injected readDir
   lib/catalogue.ts      local catalogue model + the metadata-only sync projection
   lib/session.ts        PKCE, desktop auth URL, deep-link parse, exchange, token store

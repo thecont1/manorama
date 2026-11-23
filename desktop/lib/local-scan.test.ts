@@ -62,27 +62,26 @@ describe('path helpers', () => {
 })
 
 describe('scanLocalDirectory', () => {
-  test('collects top-level images and exactly one subdir level', async () => {
-    const entries = tree({
-      '/card': [
-        file('b.jpg'),
-        file('a.png'),
-        file('notes.txt'),
-        subdir('DCIM'),
-        subdir('deep'),
-      ],
-      '/card/DCIM': [file('IMG_10.jpg'), file('IMG_2.jpg'), subdir('nested')],
-      '/card/DCIM/nested': [file('too-deep.jpg')],
-      '/card/deep': [file('c.webp'), subdir('level2')],
-      '/card/deep/level2': [file('too-deep-2.jpg')],
-    })
-    const scan = await scanLocalDirectory('/card', entries)
-    expect(scan.items.map((item) => item.id)).toEqual(['a.png', 'b.jpg', 'DCIM/IMG_2.jpg', 'DCIM/IMG_10.jpg', 'deep/c.webp'])
+  test('collects top-level images only — subdirectories are never read', async () => {
+    const calls: string[] = []
+    const readDir: ReadDir = async (path) => {
+      calls.push(path)
+      return tree({
+        '/card': [file('b.jpg'), file('a.png'), file('notes.txt'), subdir('DCIM'), subdir('deep')],
+        '/card/DCIM': [file('IMG_10.jpg'), file('IMG_2.jpg')],
+        '/card/deep': [file('c.webp')],
+      })(path)
+    }
+    const scan = await scanLocalDirectory('/card', readDir)
+    expect(scan.items.map((item) => item.id)).toEqual(['a.png', 'b.jpg'])
+    expect(scan.items[0]!.path).toBe('/card/a.png')
     expect(scan.truncated).toBeUndefined()
-    expect(scan.items.find((item) => item.id === 'DCIM/IMG_2.jpg')?.path).toBe('/card/DCIM/IMG_2.jpg')
+    // The scanner never asks for a subdir's contents at all — root-only is
+    // structural, not a filter applied after the fact.
+    expect(calls).toEqual(['/card'])
   })
 
-  test('carries shell-probed dims onto items, at root and in subdirs', async () => {
+  test('carries shell-probed dims onto root items', async () => {
     const entries = tree({
       '/card': [
         { name: 'a.jpg', isFile: true, isDirectory: false, width: 3000, height: 2000 },
@@ -97,29 +96,32 @@ describe('scanLocalDirectory', () => {
     // Real dims ride the item into the catalogue, so the picker's matrix
     // cells match each photograph's aspect instead of the 1200×800 guess.
     expect(byId.get('a.jpg')).toMatchObject({ width: 3000, height: 2000 })
-    expect(byId.get('DCIM/rotated.heic')).toMatchObject({ width: 3024, height: 4032 })
+    // A subdir's dims never leak into the record — its contents are not scanned.
+    expect(byId.has('DCIM/rotated.heic')).toBe(false)
     // Absent or zero dims stay absent — the placeholder guess only fills
     // the render box downstream, never the record.
     expect(byId.get('no-dims.png')?.width).toBeUndefined()
     expect(byId.get('zero.webp')?.width).toBeUndefined()
   })
 
-  test('sorts with natural collation across files and subdirs', async () => {
+  test('sorts with natural collation across root files', async () => {
     const entries = tree({
       '/root': [file('IMG_10.jpg'), file('IMG_2.jpg'), file('IMG_1.jpg'), subdir('roll2')],
       '/root/roll2': [file('IMG_3.jpg')],
     })
     const scan = await scanLocalDirectory('/root', entries)
-    expect(scan.items.map((item) => item.id)).toEqual(['IMG_1.jpg', 'IMG_2.jpg', 'IMG_10.jpg', 'roll2/IMG_3.jpg'])
+    expect(scan.items.map((item) => item.id)).toEqual(['IMG_1.jpg', 'IMG_2.jpg', 'IMG_10.jpg'])
   })
 
-  test('a subdirectory that vanishes mid-scan contributes nothing', async () => {
-    const flaky: ReadDir = async (path) => {
-      if (path === '/card/ejected') throw new Error('ENOENT')
-      return path === '/card' ? [file('top.jpg'), subdir('ejected')] : []
-    }
-    const scan = await scanLocalDirectory('/card', flaky)
-    expect(scan.items.map((item) => item.id)).toEqual(['top.jpg'])
+  test('a folder holding only subdirectories scans as empty', async () => {
+    const entries = tree({
+      '/card': [subdir('DCIM'), subdir('exports')],
+      '/card/DCIM': [file('IMG_1.jpg')],
+      '/card/exports': [file('a.png')],
+    })
+    const scan = await scanLocalDirectory('/card', entries)
+    expect(scan.items).toEqual([])
+    expect(scan.truncated).toBeUndefined()
   })
 
   test('caps at MAX_GALLERY_ITEMS and reports the uncapped count', async () => {

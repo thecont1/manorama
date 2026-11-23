@@ -114,15 +114,17 @@ describe('scanDroppedFolders', () => {
     const candidates = await scanDroppedFolders(['/drop/one', '/drop/two', '/drop/empty', '/drop/broken'], {
       readDir: fakeReadDir(tree),
     })
-    expect(candidates.map((c) => c.state)).toEqual(['new', 'new', 'empty', 'unreadable'])
+    expect(candidates.map((c) => c.state)).toEqual(['new', 'empty', 'empty', 'unreadable'])
     const one = candidates[0]
     expect(one.title).toBe('one')
-    expect(one.itemCount).toBe(3) // a.jpg, b.png, sub/c.webp — notes.txt ignored
-    expect(one.items.map((i) => i.id)).toEqual(['a.jpg', 'b.png', 'sub/c.webp'])
+    expect(one.itemCount).toBe(2) // a.jpg, b.png — notes.txt and sub/ ignored
+    expect(one.items.map((i) => i.id)).toEqual(['a.jpg', 'b.png'])
     expect(one.items[0].path).toBe('/drop/one/a.jpg')
     const two = candidates[1]
     expect(two.sourceKind).toBe('folder')
-    expect(two.items[0].path).toBe('/drop/two/DCIM/IMG_1.HEIC')
+    // Its only content is the DCIM subdirectory — never descended, so the
+    // folder reads as empty.
+    expect(two.items).toHaveLength(0)
     expect(candidates[2].title).toBe('empty')
     expect(candidates[3].title).toBe('broken')
   })
@@ -242,8 +244,9 @@ describe('buildLocalRecord / recordForCandidate', () => {
     expect(built.rootPath).toBe('/drop/one') // normalized
     expect(built.title).toBe('one')
     expect(built.sourceKind).toBe('folder')
-    expect(built.itemCount).toBe(2)
-    expect(built.items).toHaveLength(2)
+    // Only the root file lands — the sub/ fixture is never scanned.
+    expect(built.itemCount).toBe(1)
+    expect(built.items).toHaveLength(1)
     expect(built.addedAt).toBe('2026-02-02T00:00:00.000Z')
     expect(built.lastSeenAt).toBe(built.addedAt)
     expect(built.id).toMatch(/^[0-9a-f-]{36}$/)
