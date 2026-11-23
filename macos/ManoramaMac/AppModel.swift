@@ -98,13 +98,25 @@ final class AppModel {
             guard let index = arguments.firstIndex(of: "--config"), index + 1 < arguments.count else { return nil }
             return URL(fileURLWithPath: arguments[index + 1], isDirectory: true)
         }()
+        // `--seed-raw-dump <path>` answers the events page's dump picker
+        // headlessly, the same seam `--seed-folder` is for the gallery
+        // picker. The bridge still reads the flag itself when this is not
+        // passed, so a hand-typed `manorama --seed-raw-dump …` keeps
+        // working; passing it here is what makes the seam visible in the
+        // one place the app's command-line surface is described.
+        let seededRawDump: String? = {
+            let arguments = CommandLine.arguments
+            guard let index = arguments.firstIndex(of: "--seed-raw-dump"), index + 1 < arguments.count else { return nil }
+            return arguments[index + 1]
+        }()
         self.folderStore = FolderStore(fileURL: storeURL, configDir: configDir)
         self.schemeHandler = LocalSchemeHandler(bundleRoot: bundleRoot)
         let roots = grantedRoots
         self.bridge = NativeBridge(
             folderStore: folderStore,
             grantedRoots: roots,
-            configDir: configDir
+            configDir: configDir,
+            seededRawDumpPath: seededRawDump
         )
         coordinator.bridge = bridge
         // The media handler answers an absolute path only when it really is
@@ -161,6 +173,13 @@ final class AppModel {
             if self?.bridge.hasSeededFolder == true {
                 Trace.log("seeding the folder")
                 self?.webViewRef?.evaluateJavaScript("window.__manoramaSeedRequested = true;")
+            }
+            // A dump seed is raised as a flag, not acted on here: the
+            // events page owns its own configure-and-scan flow, and the
+            // shell's job is to answer the picker without a human.
+            if self?.bridge.hasSeededRawDump == true {
+                Trace.log("seeding the raw dump")
+                self?.webViewRef?.evaluateJavaScript("window.__manoramaSeedRawDumpRequested = true;")
             }
             // `--seed-drop` replays a real drop through the same pipeline —
             // pending scopes, the page's events, commit and discard all run.

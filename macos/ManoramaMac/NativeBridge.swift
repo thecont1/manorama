@@ -79,6 +79,28 @@ final class NativeBridge {
     /// The directories a `--seed-drop` run drops once the page is ready.
     private var seededDropPaths: [String]?
 
+    /// The dump's cached timeline — the shell owns this file, the page does
+    /// not get to read it. See `RawDumpEventStore`.
+    private let rawDumpStore: RawDumpEventStore
+    /// The filesystem watch on the dump root. A nudge, never a scan.
+    private let rawDumpWatcher = RawDumpWatcher()
+    /// The folder a test run hands back instead of asking for a dump root,
+    /// consumed once — the same seam `seededPickPath` is for the gallery
+    /// picker, kept separate because a launch can be seeded with both.
+    private var seededRawDumpPickPath: String?
+    /// Whether this launch was seeded with `--seed-raw-dump`.
+    let hasSeededRawDump: Bool
+    /// How many live listeners the page has under each event name.
+    ///
+    /// The raw-dump nudge needs this and the folder events do not, and the
+    /// difference is worth the field: a drop that lands before the page has
+    /// subscribed is a drop nobody will ever see, so the drop events wait
+    /// for the flag its subscription sets. A nudge is not a handoff — the
+    /// page can ask `get_raw_dump_status` at any moment — so waiting for
+    /// the *drop* flag instead would strand every nudge on a page that has
+    /// no reason to ever set it.
+    private var pageListeners: [String: Int] = [:]
+
     /// A dropped directory held for the page's commit or discard. `url`
     /// is the path the page names — the lookup key; `scoped` is the URL
     /// the security scope was actually started on (the dragged URL for a
@@ -148,13 +170,29 @@ final class NativeBridge {
     private var storedHttpResponses: [Int: StoredHttpResponse] = [:]
     private static let httpChunkBytes = 256 * 1024
 
-    init(folderStore: FolderStore, grantedRoots: GrantedRoots, configDir: URL? = nil, seededFolder: String? = nil) {
+    init(
+        folderStore: FolderStore,
+        grantedRoots: GrantedRoots,
+        configDir: URL? = nil,
+        seededFolder: String? = nil,
+        seededRawDumpPath: String? = nil
+    ) {
         self.folderStore = folderStore
         self.grantedRoots = grantedRoots
         let resolved = configDir ?? Self.defaultConfigDir()
         self.configDir = resolved
         self.vaultRoot = resolved.appendingPathComponent(Self.vaultDirName, isDirectory: true)
         self.deviceLabel = Self.resolveDeviceLabel()
+        self.rawDumpStore = RawDumpEventStore(configDir: resolved)
+
+        // `--seed-raw-dump <path>` answers the dump picker the way
+        // `--seed-folder` answers the gallery picker. Assigned here, before
+        // any instance method is called, because Swift requires every
+        // stored property to be settled first — the grant that uses these
+        // values happens further down, beside the seed-folder one.
+        let seededRawDump = seededRawDumpPath ?? Self.seededRawDump
+        self.seededRawDumpPickPath = seededRawDump
+        self.hasSeededRawDump = seededRawDump != nil
 
         // `--seed-drop <a,b,c>` replays a folder drop once the page is
         // ready — the same pending/commit pipeline a real drag runs,
@@ -185,6 +223,19 @@ final class NativeBridge {
             recordGalleryRoot(url.path)
         } else {
             hasSeededFolder = false
+        }
+
+        // The seeded dump is granted exactly as a picked one is — bookmark,
+        // scope, `roots.json` — and then marked, which is the only thing
+        // that makes it the events page's source rather than another
+        // folder in the library.
+        if let seeded = seededRawDump {
+            let url = URL(fileURLWithPath: seeded)
+            if let entry = folderStore.add(folder: url) {
+                folderStore.markRawDump(entry.id)
+                _ = folderStore.startAccess(entry)
+                recordGalleryRoot(url.path)
+            }
         }
     }
 
@@ -238,6 +289,17 @@ final class NativeBridge {
         guard let index = arguments.firstIndex(of: "--seed-drop"), index + 1 < arguments.count else { return nil }
         let paths = arguments[index + 1].split(separator: ",").map(String.init).filter { !$0.isEmpty }
         return paths.isEmpty ? nil : paths
+    }
+
+    /// The raw dump folder a test run asked to be configured, if any.
+    ///
+    /// `--seed-raw-dump <path>`, read the same way `--seed-folder` is, so
+    /// the events page's whole flow — grant, walk, cache, cluster, answer —
+    /// can be exercised from a script without a human at the file dialog.
+    static var seededRawDump: String? {
+        let arguments = CommandLine.arguments
+        guard let index = arguments.firstIndex(of: "--seed-raw-dump"), index + 1 < arguments.count else { return nil }
+        return arguments[index + 1]
     }
 
     /// The app's private directory — the Tauri build's, so the two shells
@@ -382,6 +444,16 @@ final class NativeBridge {
             try discardDroppedRoots(args)
             return nil
 
+        case "pick_raw_dump_root":
+            return try await pickRawDumpRoot()
+        case "get_raw_dump_status":
+            return await rawDumpStatus()
+        case "scan_raw_dump_events":
+            return try await scanRawDumpEvents(args)
+        case "clear_raw_dump_root":
+            clearRawDumpRoot()
+            return nil
+
         case "plugin:opener|open_url":
             guard let raw = args["url"] as? String,
                   let url = NativeCapabilities.isAllowedOpenerURL(raw) else {
@@ -415,8 +487,19 @@ final class NativeBridge {
             return buffered.isEmpty ? NSNull() : buffered
 
         case "plugin:event|listen":
+            if let event = args["event"] as? String {
+                pageListeners[event, default: 0] += 1
+            }
             return args["handler"] as? Int ?? 0
         case "plugin:event|unlisten":
+            // The web layer's `listen` hands back one event id per event
+            // however many handlers hide behind it, so an unlisten retires
+            // the name. That is the conservative direction: a nudge sent to
+            // nobody is one wasted poll, while a nudge skipped because a
+            // listener was retired early is an event nobody mentions.
+            if let event = args["event"] as? String {
+                pageListeners.removeValue(forKey: event)
+            }
             return nil
         case "plugin:event|emit", "plugin:event|emit_to":
             return nil
@@ -733,6 +816,7 @@ final class NativeBridge {
     /// half and silently drop the pending one.
     func rebuildGrantedRoots() {
         grantedRoots.replace(folderStore.grantedRoots() + pendingDrops.map(\.scoped))
+        syncRawDumpWatch()
     }
 
     /// A file drag is hovering the window — counts only, nothing scoped.
@@ -914,6 +998,19 @@ final class NativeBridge {
     /// `__manoramaFolderDropArmed` (set by the drop subscription) or the
     /// retries run out.
     private func emitFolderEvent(_ event: String, _ payload: [String: Any]) {
+        emitShellEvent(event, payload, armed: "window.__manoramaFolderDropArmed === true")
+    }
+
+    /// The shape every shell-originated event shares: hand the payload to
+    /// the page's emitter, and retry twice a second until the page is ready
+    /// for it or the retries run out.
+    ///
+    /// `armed` is the JS that says the page can take this event *now*. The
+    /// drop events test the flag their own subscription sets, because a
+    /// dropped folder that lands before the page is listening is a drop
+    /// nobody ever sees. An event the page can always ask again about needs
+    /// a weaker gate, and passes `true`.
+    private func emitShellEvent(_ event: String, _ payload: [String: Any], armed: String) {
         guard let webView,
               let data = try? JSONSerialization.data(withJSONObject: payload),
               let json = String(data: data, encoding: .utf8) else { return }
@@ -921,7 +1018,7 @@ final class NativeBridge {
         (function(){
           var payload = \(json);
           var deliver = function(){
-            if (window.__manoramaFolderDropArmed === true && window.__manoramaShellEmit) {
+            if (window.__manoramaShellEmit && \(armed)) {
               window.__manoramaShellEmit("\(event)", payload);
               return true;
             }
@@ -933,6 +1030,225 @@ final class NativeBridge {
         })();
         """
         webView.evaluateJavaScript(script, completionHandler: nil)
+    }
+
+    // MARK: - Raw dump event clustering
+
+    /// The event name the page subscribes to for "the dump changed".
+    /// Emitted by the filesystem watcher; nothing else emits it.
+    static let rawDumpChangedEvent = "manorama://raw-dump-changed"
+
+    /*
+     * The four commands the events page is built on.
+     *
+     * The grant reuses the gallery's own machinery — bookmark,
+     * `roots.json`, `rebuildGrantedRoots` — so `LocalSchemeHandler` serves
+     * an event's photographs with no changes and a dump is never a second
+     * kind of access. The scan reuses the shell's own off-main helper,
+     * because walking a camera backup is exactly the work a window must
+     * not do. What is new is only the walk and its cache, and neither
+     * leaves this machine: no path, timestamp, coordinate or thumbnail in
+     * this section is ever handed to anything that could put it on a
+     * network.
+     */
+
+    /// Ask for the dump folder.
+    ///
+    /// The count comes back with the grant because the page shows it in
+    /// the same breath — "Found 41,902 photographs" — and a page that had
+    /// to scan to know what it had just picked would have to show a
+    /// spinner in the middle of a picker's own confirmation.
+    private func pickRawDumpRoot() async throws -> [String: Any]? {
+        let picked: URL?
+        if let seeded = seededRawDumpPickPath {
+            // A test hook, answered once, exactly as `--seed-folder`
+            // answers the gallery picker: the grant below is made the same
+            // way a picked folder's is, so the flow under test is the real
+            // one with the panel removed.
+            seededRawDumpPickPath = nil
+            picked = URL(fileURLWithPath: seeded)
+        } else {
+            let panel = NSOpenPanel()
+            panel.canChooseFiles = false
+            panel.canChooseDirectories = true
+            panel.allowsMultipleSelection = false
+            panel.prompt = "Choose"
+            panel.message = "Choose the folder your camera roll backs up into. Manorama groups it into events on this Mac only: nothing is uploaded, and no photograph is copied or re-encoded."
+            picked = panel.runModal() == .OK ? panel.url : nil
+        }
+        guard let url = picked else { return nil }   // null = the user cancelled
+        guard let entry = folderStore.add(folder: url) else {
+            throw BridgeError.failed("that folder could not be remembered for access")
+        }
+        let replacedAnotherDump = folderStore.rawDumpEntry.map { $0.id != entry.id } ?? false
+        folderStore.markRawDump(entry.id)
+        _ = folderStore.startAccess(entry)
+        // The path is the catalogue's record of what the user chose; the
+        // grant itself is the bookmark, which only this binary can resolve.
+        recordGalleryRoot(url.path)
+        // Replacing a *different* dump retires its cache immediately. The
+        // fingerprint would refuse to reuse it at the next scan anyway,
+        // but leaving it on disk would let `get_raw_dump_status` answer
+        // with the previous folder's event count.
+        if replacedAnotherDump {
+            rawDumpStore.deleteIndex()
+        }
+        // Enumerating a whole backup is filesystem work with a directory
+        // walk's appetite, and it has no business on the main actor.
+        let count = try await offMain { try FolderDumpScanner.countImages(root: url) }
+        startRawDumpWatch(root: url)
+        return RawDumpWire.pick(label: entry.name, itemCount: count, rootPath: url.path)
+    }
+
+    /// The cheap question: does a dump exist, can it be reached, and what
+    /// was last learned about it.
+    ///
+    /// It never throws for "not configured" — that is a state the page has
+    /// to render, not a failure — and it opens no photograph, so it is
+    /// safe to call on every mount. The summary is memoised against the
+    /// index file's size and date; the read that could take a frame is the
+    /// one that decodes a multi-megabyte cache, and it happens once.
+    private func rawDumpStatus() async -> [String: Any] {
+        guard let entry = folderStore.rawDumpEntry else {
+            return RawDumpWire.status(.notConfigured)
+        }
+        // `startAccess` is idempotent per entry — the store keeps the set
+        // of scopes it has already taken — so a poll the page runs on
+        // every mount cannot stack kernel resources.
+        let root = folderStore.startAccess(entry)
+        let reachable = root.map { Self.presentDirectory($0) } ?? false
+        let summary = try? await offMain { self.rawDumpSummary() }
+        let status = RawDumpStatus(
+            configured: true,
+            label: entry.name,
+            isAvailable: reachable,
+            lastIndexedAt: summary?.lastIndexedAt,
+            eventCount: summary?.eventCount ?? 0
+        )
+        return RawDumpWire.status(status)
+    }
+
+    /// Group the dump into events.
+    ///
+    /// The identity that fingerprints the cache is resolved *before* the
+    /// walk, on the main actor, in front of the user's Keychain: a denied
+    /// keychain must fail the command plainly rather than write a cache
+    /// under an identity the next launch cannot reproduce.
+    private func scanRawDumpEvents(_ args: [String: Any]) async throws -> [String: Any] {
+        guard let entry = folderStore.rawDumpEntry else {
+            throw BridgeError.failed("no raw dump folder is configured")
+        }
+        guard let root = folderStore.startAccess(entry), Self.presentDirectory(root) else {
+            throw BridgeError.failed("the raw dump folder could not be reached")
+        }
+        let deviceId = try stableDeviceId()
+        let sourceId = entry.id.uuidString
+        let label = entry.name
+        let force = (args["force"] as? Bool) ?? false
+        let outcome = try await offMain {
+            try self.rawDumpScan(root: root, deviceId: deviceId, sourceId: sourceId, label: label, force: force)
+        }
+        // A scan run without a pick — a relaunch, a folder re-mounted — is
+        // the second chance the shell gets to notice it should be watching.
+        startRawDumpWatch(root: root)
+        return RawDumpWire.scan(outcome)
+    }
+
+    /// Stop using a dump as the events source.
+    ///
+    /// The folder's grant is left in place on purpose: un-granting a folder
+    /// is that folder's own action, and a user who clears the events page
+    /// should not find their library card gone with it. The cache goes,
+    /// because a timeline of someone's old dump is nothing this user asked
+    /// to keep.
+    private func clearRawDumpRoot() {
+        folderStore.clearRawDumpMark()
+        rawDumpStore.deleteIndex()
+        rawDumpWatcher.stop()
+    }
+
+    /// The store call, out of the main actor's way.
+    nonisolated private func rawDumpScan(
+        root: URL,
+        deviceId: String,
+        sourceId: String,
+        label: String,
+        force: Bool
+    ) throws -> RawDumpScanOutcome {
+        try rawDumpStore.scan(root: root, deviceId: deviceId, sourceId: sourceId, label: label, force: force)
+    }
+
+    /// The status read, out of the main actor's way.
+    nonisolated private func rawDumpSummary() -> RawDumpIndexSummary {
+        rawDumpStore.summary()
+    }
+
+    /// Whether a resolved root is a directory on this machine right now.
+    ///
+    /// A bookmark can resolve for a drive that is not mounted, and the
+    /// answer the page needs is about the disk rather than the token: an
+    /// unmounted dump is configured and not available, and offering a scan
+    /// of it would fail a command the user believed they had set up.
+    nonisolated private static func presentDirectory(_ url: URL) -> Bool {
+        var isDir: ObjCBool = false
+        guard FileManager.default.fileExists(atPath: url.path, isDirectory: &isDir) else { return false }
+        return isDir.boolValue
+    }
+
+    /// Point the watch at `root`, if it is not already there.
+    ///
+    /// Called wherever the shell learns the dump is in use — a pick, a
+    /// scan, the root list settling at launch — and stopped only by a
+    /// clear. An unmounted root keeps its stream: watching a path that is
+    /// not there costs nothing, and it is how the page hears the drive come
+    /// back without the user reopening anything.
+    private func startRawDumpWatch(root: URL) {
+        rawDumpWatcher.start(root: root) { [weak self] in
+            MainActor.assumeIsolated { self?.rawDumpChanged() }
+        }
+    }
+
+    /// Bring the watch in line with what the store says, from the one
+    /// place the shell notices its roots changed: launch, a pick, a drop
+    /// committed, a folder refreshed. Going through here rather than only
+    /// through the dump's own commands means a root that left the library
+    /// cannot leave a stream running against it behind.
+    private func syncRawDumpWatch() {
+        guard let entry = folderStore.rawDumpEntry, let root = folderStore.startAccess(entry) else {
+            rawDumpWatcher.stop()
+            return
+        }
+        startRawDumpWatch(root: root)
+    }
+
+    /// The watcher's nudge. It scans nothing and decides nothing: it says
+    /// the folder is no longer what the cache describes, and the page
+    /// chooses whether to offer a re-scan.
+    ///
+    /// The retry shape is the drop events', and what it waits for is not.
+    /// `emitFolderEvent` polls a flag the drop subscription sets; an events
+    /// page has no reason ever to set that flag, so a nudge gated on it
+    /// would time out on exactly the page that needs it. This one waits for
+    /// a listener under the event's own name, which the page's `listen`
+    /// call reports.
+    private func rawDumpChanged() {
+        guard webView != nil else { return }
+        guard pageListeners[Self.rawDumpChangedEvent, default: 0] > 0 else {
+            Trace.log("raw dump changed, page not subscribed — dropped")
+            return
+        }
+        // The gate above is the readiness test, so the emitter is all that
+        // is left to wait for.
+        emitShellEvent(Self.rawDumpChangedEvent, ["reason": "filesystem"], armed: "true")
+    }
+
+    /// The root the dump watch is armed on, or nil.
+    ///
+    /// Not used by the app: it exists so the boundary suite can prove a
+    /// `clear_raw_dump_root` stopped watching, which is a promise this file
+    /// makes and nothing else can check.
+    var rawDumpWatchedRoot: String? {
+        rawDumpWatcher.watchedRoot
     }
 
     /// Open a granted root in Finder ("Open folder" on a gallery card).

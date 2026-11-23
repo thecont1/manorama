@@ -19,11 +19,16 @@ import WebKit
 ///  4. **Error recovery** — after the folder is deleted, the bookmark
 ///     stops resolving and the gallery is reported unavailable rather than
 ///     crashing.
+///  5. **Raw dump events** — the recursive, header-only walk; the cached
+///     timeline it maintains; the `0600` file it lives in; the wire shape
+///     the page reads; and the watch that nudges when the folder changes.
 ///
 /// Run:
-///   swiftc -O macos/ManoramaMac/{LocalGallery,FolderStore,LocalSchemeHandler,Trace,OAuthLoopback,NativeBridge,InvokeReply}.swift \
+///   swiftc -O macos/ManoramaMac/{LocalGallery,FolderStore,LocalSchemeHandler,Trace,OAuthLoopback,NativeBridge,InvokeReply,FolderDumpScanner,RawDumpEvents}.swift \
+///     native/EventClustering/Sources/ManoramaEventClustering/*.swift \
 ///     macos/BoundaryTests/{BoundaryTests,main}.swift \
-///     -framework AppKit -framework WebKit -framework Security -o /tmp/boundary && /tmp/boundary
+///     -framework AppKit -framework WebKit -framework Security -framework Vision -framework CoreServices \
+///     -o /tmp/boundary && /tmp/boundary
 final class BoundaryTests {
     /// The entry point — `main` has to be a top-level symbol for the
     /// linker, so the work lives in `run()`.
@@ -516,9 +521,381 @@ final class BoundaryTests {
         try? FileManager.default.removeItem(at: testConfigDir)
         try? FileManager.default.removeItem(at: tauriPickedDir)
 
+        // --- 8. Raw dump events -----------------------------------------
+        //
+        // A camera backup built out of nothing but ImageIO and numbers this
+        // suite chose. Real photographs would make the expected event
+        // boundaries a matter of interpretation; these are arithmetic. The
+        // tree is deliberately nested two ways at once — `YYYY-MM-DD` and
+        // `YYYY/MM` — because the walk's whole point is that it does not
+        // care what shape the backup is in.
+        let dumpRoot = URL(fileURLWithPath: NSTemporaryDirectory())
+            .appendingPathComponent("manorama-dump-\(UUID().uuidString)", isDirectory: true)
+        let dumpConfig = URL(fileURLWithPath: NSTemporaryDirectory())
+            .appendingPathComponent("manorama-dump-config-\(UUID().uuidString)", isDirectory: true)
+        try? FileManager.default.createDirectory(at: dumpConfig, withIntermediateDirectories: true)
+
+        let pune = (18.5158, 73.8566)
+        let lagos = (6.5244, 3.3792)
+        // Eight frames the walk must find, in three nesting shapes, one of
+        // them a screenshot and one with no EXIF at all.
+        let fixtures: [(path: String, captured: String?, offset: String?, gps: (Double, Double)?, camera: Bool, png: Bool)] = [
+            ("2026-03-14/IMG_0001.jpg", "2026:03:14 18:30:00", "+05:30", pune, true, false),
+            ("2026-03-14/IMG_0002.jpg", "2026:03:14 18:35:00", "+05:30", pune, true, false),
+            ("2026-03-14/IMG_0003.jpg", "2026:03:14 18:40:00", "+05:30", pune, true, false),
+            ("2026-03-15/IMG_0004.jpg", "2026:03:15 10:00:00", "+05:30", pune, true, false),
+            ("2026/04/IMG_0005.jpg", "2026:04:02 16:00:00", "+01:00", lagos, true, false),
+            ("2026/06/IMG_TZ_A.jpg", "2026:06:01 12:00:00", "+05:30", nil, true, false),
+            ("2026/06/IMG_TZ_B.jpg", "2026:06:01 12:00:00", "+01:00", nil, true, false),
+            ("2026/07/Screenshot_2026-07-01_at_09.00.00.png", nil, nil, nil, false, true),
+        ]
+        var written = 0
+        for fixture in fixtures {
+            if BoundaryTests.writeDumpPhoto(
+                in: dumpRoot, at: fixture.path, captured: fixture.captured, offset: fixture.offset,
+                gps: fixture.gps, camera: fixture.camera, png: fixture.png
+            ) { written += 1 }
+        }
+        // The things a backup folder always has beside the photographs, and
+        // the walk must not.
+        _ = BoundaryTests.writeDumpPhoto(in: dumpRoot, at: ".hidden/IMG_9999.jpg",
+                                         captured: "2026:03:14 18:30:00", offset: "+05:30", gps: pune, camera: true, png: false)
+        _ = BoundaryTests.writeDumpPhoto(in: dumpRoot, at: "2026-03-14/.IMG_dot.jpg",
+                                         captured: "2026:03:14 18:31:00", offset: "+05:30", gps: pune, camera: true, png: false)
+        try? "not a photograph".write(
+            to: dumpRoot.appendingPathComponent("notes.txt"), atomically: true, encoding: .utf8)
+        check("raw dump fixtures were written", written == fixtures.count, "written=\(written)/\(fixtures.count)")
+
+        // 8a. The walk itself: recursive, uncapped, hidden-free.
+        let walked = try? FolderDumpScanner.enumerate(root: dumpRoot)
+        check("the walk finds every visible frame at any depth", walked?.count == fixtures.count,
+              "count=\(walked?.count ?? -1)")
+        check("a dated directory and a nested year/month directory are both walked",
+              walked?.contains { $0.relativePath == "2026-03-14/IMG_0001.jpg" } == true
+                  && walked?.contains { $0.relativePath == "2026/04/IMG_0005.jpg" } == true)
+        check("dot files and dot directories are skipped",
+              walked?.contains { $0.relativePath.contains("hidden") || $0.url.lastPathComponent.hasPrefix(".") } != true)
+        check("a non-image beside the photographs is not an item",
+              walked?.contains { $0.relativePath.hasSuffix(".txt") } != true)
+
+        // 8b. Header-only ingestion, and the two timestamp rules.
+        if let walked,
+           let zoneA = walked.first(where: { $0.relativePath == "2026/06/IMG_TZ_A.jpg" }),
+           let zoneB = walked.first(where: { $0.relativePath == "2026/06/IMG_TZ_B.jpg" }),
+           let itemA = FolderDumpScanner.ingest(zoneA).item,
+           let itemB = FolderDumpScanner.ingest(zoneB).item {
+            // The same wall clock written in two zones is four and a half
+            // hours apart in fact. Read it as local time and a trip in two
+            // countries becomes one afternoon.
+            /* Sign matters: A carries +05:30 and B +01:00, so noon in Pune
+             * is 06:30 UTC while noon in Lagos is 11:00 UTC. A therefore
+             * happened EARLIER and A minus B is negative. Asserting the
+             * positive difference here would have failed a correct parser. */
+            let apart = itemA.timestamp.timeIntervalSince(itemB.timestamp)
+            check("OffsetTimeOriginal moves the instant, not the machine's zone",
+                  abs(apart + 16_200) < 1, "apart=\(apart)")
+        } else {
+            check("OffsetTimeOriginal moves the instant, not the machine's zone", false, "fixtures unreadable")
+        }
+        if let walked,
+           let shot = walked.first(where: { $0.relativePath.hasSuffix(".png") }),
+           let item = FolderDumpScanner.ingest(shot).item {
+            check("a frame with no EXIF falls back to the file's own date",
+                  item.timestamp == (shot.creationDate ?? shot.modificationDate))
+            check("a PNG with no camera make is a screenshot, not a photograph", item.isScreenshot)
+        } else {
+            check("a frame with no EXIF falls back to the file's own date", false, "fixture unreadable")
+            check("a PNG with no camera make is a screenshot, not a photograph", false)
+        }
+        let allIngested = (walked ?? []).map { FolderDumpScanner.ingest($0) }
+        check("ingestion opens a header for every file whose bytes are on this disk",
+              allIngested.count == fixtures.count
+                  && allIngested.allSatisfy { $0.headerWasOpened && $0.item != nil })
+
+        // 8c. The store: incremental, private, self-correcting.
+        let dumpStore = RawDumpEventStore(configDir: dumpConfig)
+        let firstScan = try? dumpStore.scan(root: dumpRoot, deviceId: "boundary-device",
+                                       sourceId: "boundary-source", label: "Boundary Dump", force: false)
+        check("a first scan opens every header", firstScan?.report.metadataReadCount == fixtures.count,
+              "read=\(firstScan?.report.metadataReadCount ?? -1)")
+        check("a first scan produces events", (firstScan?.report.eventCount ?? 0) >= 2,
+              "events=\(firstScan?.report.eventCount ?? -1)")
+        let indexPerms = ((try? FileManager.default.attributesOfItem(atPath: dumpStore.indexURL.path))?[.posixPermissions] as? Int) ?? 0
+        check("events-index.json is written at mode 0600", (indexPerms & 0o777) == 0o600,
+              "perms=\(String(indexPerms, radix: 8))")
+        check("the index lands in the config directory it was given",
+              dumpStore.indexURL.deletingLastPathComponent() == dumpConfig
+                  && FileManager.default.fileExists(atPath: dumpStore.indexURL.path))
+        let secondScan = try? dumpStore.scan(root: dumpRoot, deviceId: "boundary-device",
+                                        sourceId: "boundary-source", label: "Boundary Dump", force: false)
+        check("an unchanged rescan opens no header at all", secondScan?.report.metadataReadCount == 0,
+              "read=\(secondScan?.report.metadataReadCount ?? -1)")
+        // Touch one frame: its mod time moves, so its row alone is stale.
+        let touchedFile = dumpRoot.appendingPathComponent("2026-03-14/IMG_0002.jpg")
+        try? FileManager.default.setAttributes(
+            [.modificationDate: Date().addingTimeInterval(5)], ofItemAtPath: touchedFile.path)
+        let thirdScan = try? dumpStore.scan(root: dumpRoot, deviceId: "boundary-device",
+                                       sourceId: "boundary-source", label: "Boundary Dump", force: false)
+        check("a touched file is re-read and nothing else is", thirdScan?.report.metadataReadCount == 1,
+              "read=\(thirdScan?.report.metadataReadCount ?? -1)")
+        let clusters = firstScan.map { RawDumpWire.scan($0) }
+        let clusterList = clusters?["clusters"] as? [[String: Any]] ?? []
+        let memberIds = clusterList.flatMap { ($0["itemIds"] as? [String]) ?? [] }
+        check("event membership is carried as relative-path item ids",
+              !memberIds.isEmpty
+                  && memberIds.allSatisfy { id in !id.hasPrefix("/") && !id.hasPrefix(dumpRoot.path) }
+                  && memberIds.contains("2026-03-14/IMG_0001.jpg"),
+              "ids=\(memberIds.prefix(3).map { $0 }.joined(separator: ","))")
+        check("the wire carries milliseconds, not seconds",
+              clusterList.allSatisfy { (($0["startDate"] as? Int64) ?? (($0["startDate"] as? Int).map(Int64.init)) ?? 0) > 1_000_000_000_000 })
+        let screenshotId = "2026/07/Screenshot_2026-07-01_at_09.00.00.png"
+        check("the screenshot left the events", !memberIds.contains(screenshotId))
+        check("the screenshot was counted", (clusters?["screenshotCount"] as? Int) == 1,
+              "count=\(String(describing: clusters?["screenshotCount"]))")
+        check("three frames ten minutes apart at one place are one event",
+              clusterList.contains { cluster in
+                  let ids = (cluster["itemIds"] as? [String]) ?? []
+                  return ids.filter { $0.hasPrefix("2026-03-14/") }.count == 3
+              })
+        // A different device is a different source: the cache cannot be
+        // reused, and the count of headers read proves it rebuilt.
+        let foreignScan = try? dumpStore.scan(root: dumpRoot, deviceId: "another-device",
+                                         sourceId: "boundary-source", label: "Boundary Dump", force: false)
+        check("a fingerprint mismatch forces a rebuild, not a merge",
+              foreignScan?.report.metadataReadCount == fixtures.count,
+              "read=\(foreignScan?.report.metadataReadCount ?? -1)")
+        _ = try? dumpStore.scan(root: dumpRoot, deviceId: "boundary-device", sourceId: "boundary-source",
+                            label: "Boundary Dump", force: false)
+        // A frame the user deleted must leave the cache.
+        try? FileManager.default.removeItem(at: dumpRoot.appendingPathComponent("2026-03-14/IMG_0003.jpg"))
+        let afterLoss = try? dumpStore.scan(root: dumpRoot, deviceId: "boundary-device",
+                                       sourceId: "boundary-source", label: "Boundary Dump", force: false)
+        check("a vanished file is pruned from the cache",
+              dumpStore.readIndex()?.itemCache["2026-03-14/IMG_0003.jpg"] == nil
+                  && (afterLoss?.report.metadataReadCount ?? 1) == 0,
+              "read=\(afterLoss?.report.metadataReadCount ?? -1)")
+        // Status is a `stat` after the first read, whichever store asks.
+        let coldStore = RawDumpEventStore(configDir: dumpConfig)
+        _ = coldStore.summary()
+        _ = coldStore.summary()
+        _ = coldStore.summary()
+        check("three status polls decode the cache once", coldStore.summaryDecodes == 1,
+              "decodes=\(coldStore.summaryDecodes)")
+        check("status knows what the cache knows", coldStore.summary().eventCount == (afterLoss?.report.eventCount ?? -2)
+              && coldStore.summary().lastIndexedAt != nil)
+
+        // 8d. The bridge: the seeded pick, the nudge, and the clear.
+        //
+        // The real Keychain is refused by this unsigned test binary, so the
+        // scan command itself is proved through the store above — the same
+        // call the command makes once the device id is in hand. What is
+        // proved here is the command surface that does not need it.
+        let legacyFolders = dumpConfig.appendingPathComponent("folders.json")
+        try? BoundaryTests.legacyFoldersJSON(for: dumpRoot).write(to: legacyFolders, atomically: true, encoding: .utf8)
+        MainActor.assumeIsolated {
+            let bridgeStore = FolderStore(fileURL: legacyFolders, configDir: dumpConfig)
+            check("a legacy folders.json without isRawDump still loads", bridgeStore.entries.count == 1
+                  && bridgeStore.rawDumpEntry == nil, "entries=\(bridgeStore.entries.count)")
+            // `--config` isolation, measured rather than assumed: the real
+            // Application Support directory is whatever the machine running
+            // this suite happens to have, and the claim is only that a test
+            // run leaves it exactly as it found it.
+            let realIndex = NativeBridge.defaultConfigDir().appendingPathComponent("events-index.json")
+            let realIndexWasThere = FileManager.default.fileExists(atPath: realIndex.path)
+            let realIndexDate = (try? FileManager.default.attributesOfItem(atPath: realIndex.path)[.modificationDate] as? Date) ?? nil
+            let granted = GrantedRoots()
+            let bridge = NativeBridge(folderStore: bridgeStore, grantedRoots: granted,
+                                      configDir: dumpConfig, seededRawDumpPath: dumpRoot.path)
+            var page = RecordingBridgeWebView()
+            bridge.webView = page
+            var commandID = 0
+            @MainActor func invoke(_ cmd: String, _ args: [String: Any] = [:]) -> Any? {
+                commandID += 1
+                let id = commandID
+                bridge.handle(["type": "invoke", "id": id, "cmd": cmd, "args": args])
+                let deadline = Date().addingTimeInterval(5)
+                while page.replies[id] == nil && Date() < deadline {
+                    RunLoop.main.run(until: Date().addingTimeInterval(0.01))
+                }
+                return page.replies[id]?["value"]
+            }
+            @MainActor func invokeError(_ cmd: String, _ args: [String: Any] = [:]) -> String? {
+                commandID += 1
+                let id = commandID
+                bridge.handle(["type": "invoke", "id": id, "cmd": cmd, "args": args])
+                let deadline = Date().addingTimeInterval(5)
+                while page.replies[id] == nil && Date() < deadline {
+                    RunLoop.main.run(until: Date().addingTimeInterval(0.01))
+                }
+                let reply = page.replies[id]
+                return reply?["ok"] as? Bool == false ? (reply?["error"] as? String) : nil
+            }
+            _ = invoke("plugin:event|listen", ["event": NativeBridge.rawDumpChangedEvent, "handler": 7])
+            let pick = invoke("pick_raw_dump_root") as? [String: Any]
+            check("the seeded seam answers the dump picker without a panel",
+                  pick?["rootPath"] as? String == dumpRoot.path
+                      || pick?["rootPath"] as? String == dumpRoot.standardizedFileURL.path,
+                  "rootPath=\(String(describing: pick?["rootPath"]))")
+            check("the pick reports the frames it found, without scanning them",
+                  (pick?["itemCount"] as? Int) == 7, "itemCount=\(String(describing: pick?["itemCount"]))")
+            check("the pick names the dump for the page",
+                  (pick?["label"] as? String) == dumpRoot.lastPathComponent)
+            check("the dump root enters the media handler's own grants",
+                  granted.all().contains { $0.resolvingExistingSymlinksInPath().path == dumpRoot.path },
+                  "grants=\(granted.all().count)")
+            let rootsFile = dumpConfig.appendingPathComponent("roots.json")
+            /* Decode the file instead of searching its text: JSON
+             * serialisation escapes every path separator, so the stored
+             * entry reads `\/var\/folders\/…` and a substring match on a
+             * real path can never hit. The value is what the shell wrote;
+             * the escaping is what a string does on the way there. */
+            let recordedRoots: [String] = ((try? Data(contentsOf: rootsFile)).flatMap {
+                (try? JSONSerialization.jsonObject(with: $0)) as? [String]
+            }) ?? []
+            check("the dump is recorded in roots.json",
+                  recordedRoots.contains {
+                      $0 == dumpRoot.path || $0 == dumpRoot.standardizedFileURL.path
+                  }, "roots=\(recordedRoots)")
+            let status = invoke("get_raw_dump_status") as? [String: Any]
+            check("status reports the dump configured and reachable",
+                  status?["configured"] as? Bool == true && status?["isAvailable"] as? Bool == true,
+                  "status=\(String(describing: status))")
+            check("status answers the index it found, in milliseconds or null",
+                  status?["lastIndexedAt"] is NSNull
+                      || ((status?["lastIndexedAt"] as? NSNumber)?.int64Value ?? 0) > 1_000_000_000_000,
+                  "lastIndexedAt=\(String(describing: status?["lastIndexedAt"]))")
+            check("status answers no path", (status?["rootPath"] as? String) == nil)
+            // The nudge: touch a file and wait for the watch to say so.
+            try? FileManager.default.setAttributes(
+                [.modificationDate: Date()],
+                ofItemAtPath: dumpRoot.appendingPathComponent("2026-03-15/IMG_0004.jpg").path)
+            var waited = 0.0
+            while !page.emissions.contains { $0.contains(NativeBridge.rawDumpChangedEvent) }, waited < 15 {
+                RunLoop.main.run(until: Date().addingTimeInterval(0.1))
+                waited += 0.1
+            }
+            check("the filesystem watch nudges the page",
+                  page.emissions.contains { $0.contains(NativeBridge.rawDumpChangedEvent) },
+                  "waited=\(String(format: "%.1f", waited))s")
+            check("the nudge carries no path, timestamp or coordinate",
+                  !page.emissions.contains { $0.contains(dumpRoot.path) })
+            check("the watch is armed on the dump root",
+                  bridge.rawDumpWatchedRoot == dumpRoot.path,
+                  "watched=\(String(describing: bridge.rawDumpWatchedRoot))")
+            let cleared = invoke("clear_raw_dump_root")
+            /* The reply contract says `value` is PRESENT on every success
+             * and carries NSNull when the command returned nothing — an
+             * omitted key would reach the page as `undefined`, which the
+             * vault's own checks read as a surviving value. So the honest
+             * form of "answers null" is the null the page actually gets,
+             * the same shape the status assertions two lines below accept. */
+            check("clear answers null", cleared == nil || cleared is NSNull,
+                  "cleared=\(String(describing: cleared))")
+            check("clear deletes the index", !FileManager.default.fileExists(atPath: dumpStore.indexURL.path))
+            check("clear stops the watch", bridge.rawDumpWatchedRoot == nil,
+                  "watched=\(String(describing: bridge.rawDumpWatchedRoot))")
+            check("clear leaves the folder grant alone",
+                  bridgeStore.entries.count == 1 && bridgeStore.rawDumpEntry == nil)
+            let afterClear = invoke("get_raw_dump_status") as? [String: Any]
+            check("after a clear the page is told it is not configured",
+                  afterClear?["configured"] as? Bool == false
+                      && afterClear?["eventCount"] as? Int == 0
+                      && afterClear?["lastIndexedAt"] is NSNull,
+                  "status=\(String(describing: afterClear))")
+            let refused = invokeError("scan_raw_dump_events")
+            check("a scan with no dump configured is an error, not an empty timeline",
+                  refused?.contains("no raw dump folder is configured") == true,
+                  "error=\(String(describing: refused))")
+            check("events-index.json is not a private file the page may read",
+                  invokeError("read_private_file", ["name": "events-index.json"]) != nil)
+            let realIndexNow = FileManager.default.fileExists(atPath: realIndex.path)
+            let realIndexDateNow = (try? FileManager.default.attributesOfItem(atPath: realIndex.path)[.modificationDate] as? Date) ?? nil
+            check("a config-scoped run leaves the real config directory untouched",
+                  realIndexWasThere == realIndexNow && realIndexDate == realIndexDateNow,
+                  "before=\(realIndexWasThere) after=\(realIndexNow)")
+        }
+
+        try? FileManager.default.removeItem(at: dumpRoot)
+        try? FileManager.default.removeItem(at: dumpConfig)
+
         // --- Summary ----------------------------------------------------
         print(failures == 0 ? "\nALL PASS" : "\n\(failures) FAILURE(S)")
         exit(failures == 0 ? 0 : 1)
+    }
+
+    // MARK: - Raw dump fixtures
+
+    /// One fixture photograph, with a header this suite wrote on purpose.
+    ///
+    /// `CGImageDestination` rather than a copied file because the expected
+    /// answers are then numbers the test chose: `DateTimeOriginal` with its
+    /// `OffsetTimeOriginal`, and a GPS fix. The pixels are flat grey and
+    /// 64x48 because the walk must not look at them — if a fixture's pixels
+    /// ever mattered, that would be the invariant broken.
+    static func writeDumpPhoto(
+        in root: URL,
+        at relativePath: String,
+        captured: String?,
+        offset: String?,
+        gps: (Double, Double)?,
+        camera: Bool,
+        png: Bool = false
+    ) -> Bool {
+        let url = root.appendingPathComponent(relativePath)
+        try? FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+        let width = 64, height = 48
+        guard let space = CGColorSpace(name: CGColorSpace.sRGB),
+              let context = CGContext(data: nil, width: width, height: height, bitsPerComponent: 8,
+                                      bytesPerRow: 0, space: space,
+                                      bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) else { return false }
+        context.setFillColor(CGColor(red: 0.5, green: 0.5, blue: 0.5, alpha: 1))
+        context.fill(CGRect(x: 0, y: 0, width: width, height: height))
+        guard let image = context.makeImage() else { return false }
+        var properties: [String: Any] = [:]
+        var tiff: [String: Any] = [:]
+        if camera {
+            tiff[kCGImagePropertyTIFFMake as String] = "BoundaryCam"
+            tiff[kCGImagePropertyTIFFModel as String] = "B-1"
+        }
+        properties[kCGImagePropertyTIFFDictionary as String] = tiff
+        var exif: [String: Any] = [:]
+        if let captured { exif[kCGImagePropertyExifDateTimeOriginal as String] = captured }
+        // Exif 2.31, and not a named constant in every SDK this compiles
+        // against; the parser reads the same key ImageIO writes back.
+        if let offset { exif["OffsetTimeOriginal"] = offset }
+        if !exif.isEmpty { properties[kCGImagePropertyExifDictionary as String] = exif }
+        if let gps {
+            properties[kCGImagePropertyGPSDictionary as String] = [
+                kCGImagePropertyGPSLatitude as String: gps.0,
+                kCGImagePropertyGPSLatitudeRef as String: gps.0 < 0 ? "S" : "N",
+                kCGImagePropertyGPSLongitude as String: gps.1,
+                kCGImagePropertyGPSLongitudeRef as String: gps.1 < 0 ? "W" : "E",
+            ]
+        }
+        guard let destination = CGImageDestinationCreateWithURL(
+            url as CFURL, (png ? "public.png" : "public.jpeg") as CFString, 1, nil
+        ) else { return false }
+        CGImageDestinationAddImage(destination, image, properties as CFDictionary)
+        return CGImageDestinationFinalize(destination)
+    }
+
+    /// A `folders.json` in the shape a previous build wrote it: every key
+    /// except `isRawDump`, which did not exist. Hand-written rather than
+    /// produced by `FolderStore`, because the point of the file is the key
+    /// this build's encoder would always emit.
+    static func legacyFoldersJSON(for url: URL) -> String {
+        let bookmark = (try? ScopedFolder.makeBookmark(for: url.standardizedFileURL)) ?? Data()
+        return """
+        [
+          {
+            "id" : "8E6F3A51-5E2B-4F3F-9F0A-1B2C3D4E5F60",
+            "name" : "\(url.lastPathComponent)",
+            "bookmark" : "\(bookmark.base64EncodedString())",
+            "isAvailable" : true,
+            "sourceKind" : "folder"
+          }
+        ]
+        """
     }
 
     static func isRefusal(_ resolution: LocalMediaResolver.Resolution) -> Bool {

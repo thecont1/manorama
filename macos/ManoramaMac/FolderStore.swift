@@ -51,6 +51,58 @@ final class FolderStore: ObservableObject {
         var isAvailable: Bool = true
         /// The source kind, kept so the UI can label it without re-stat'ing.
         var sourceKind: String = "folder"
+        /// Whether this folder is the raw dump the events page groups into
+        /// events. At most one entry carries it: one dump per device is the
+        /// rule the bridge contract sets, and a second one would make
+        /// "which camera roll is this event from" unanswerable.
+        var isRawDump: Bool = false
+
+        /// The memberwise initialiser, written out because the custom
+        /// `init(from:)` below takes the synthesised one away, and
+        /// `add(folder:)` needs it.
+        init(
+            id: UUID,
+            name: String,
+            bookmark: String,
+            isAvailable: Bool = true,
+            sourceKind: String = "folder",
+            isRawDump: Bool = false
+        ) {
+            self.id = id
+            self.name = name
+            self.bookmark = bookmark
+            self.isAvailable = isAvailable
+            self.sourceKind = sourceKind
+            self.isRawDump = isRawDump
+        }
+
+        private enum CodingKeys: String, CodingKey {
+            case id, name, bookmark, isAvailable, sourceKind, isRawDump
+        }
+
+        /*
+         * Explicit decoding, and it is not a style choice.
+         *
+         * `load()` decodes with `try?`, so a single missing key is not an
+         * error the user can be shown — it is every folder grant in the
+         * file vanishing on launch, with the library empty and nothing
+         * said about why. `isRawDump` is exactly such a key: the
+         * `folders.json` written before this feature has no such field,
+         * and the synthesised decoder asks for a non-optional property by
+         * name whatever default it carries. So every field that has a
+         * default is read with `decodeIfPresent` and answered with its own
+         * default, and the boundary suite proves it against a hand-written
+         * legacy file rather than against this type's encoder.
+         */
+        init(from decoder: Decoder) throws {
+            let container = try decoder.container(keyedBy: CodingKeys.self)
+            id = try container.decode(UUID.self, forKey: .id)
+            name = try container.decode(String.self, forKey: .name)
+            bookmark = try container.decode(String.self, forKey: .bookmark)
+            isAvailable = try container.decodeIfPresent(Bool.self, forKey: .isAvailable) ?? true
+            sourceKind = try container.decodeIfPresent(String.self, forKey: .sourceKind) ?? "folder"
+            isRawDump = try container.decodeIfPresent(Bool.self, forKey: .isRawDump) ?? false
+        }
     }
 
     @Published private(set) var entries: [Entry] = []
@@ -232,5 +284,46 @@ final class FolderStore: ObservableObject {
             return url
         }
         return nil
+    }
+
+    // MARK: - The raw dump
+
+    /// The folder declared as this device's raw dump, if there is one.
+    var rawDumpEntry: Entry? {
+        entries.first(where: \.isRawDump)
+    }
+
+    /// Declare one folder the raw dump, clearing the flag on every other.
+    ///
+    /// The clear is the point of the method rather than an incidental
+    /// detail, and it is done here instead of at the call site so that no
+    /// caller can mark a second dump by accident. Returns false when the
+    /// entry is not in the store — a mark on an unknown folder is a bug in
+    /// the caller, not a state to write to disk.
+    @discardableResult
+    func markRawDump(_ id: UUID) -> Bool {
+        guard let index = entries.firstIndex(where: { $0.id == id }) else { return false }
+        var changed = !entries[index].isRawDump
+        entries[index].isRawDump = true
+        for other in entries.indices where other != index {
+            guard entries[other].isRawDump else { continue }
+            entries[other].isRawDump = false
+            changed = true
+        }
+        if changed { save() }
+        return true
+    }
+
+    /// Un-mark the raw dump, leaving the grant itself alone.
+    ///
+    /// Clearing the events page's source and un-granting a folder are two
+    /// decisions, and the contract keeps them in two places: a folder the
+    /// user also added as a normal gallery stays a gallery.
+    func clearRawDumpMark() {
+        guard entries.contains(where: \.isRawDump) else { return }
+        for index in entries.indices {
+            entries[index].isRawDump = false
+        }
+        save()
     }
 }

@@ -24,6 +24,13 @@ case "$CONFIG" in
   *) echo "usage: scripts/build-macos.sh [debug|release]" >&2; exit 2 ;;
 esac
 APP="macos/ManoramaMac"
+# The shared event-clustering core, compiled straight into this binary.
+# It is a SwiftPM package for the iOS app and for the core's own tests, but
+# the shell and the engine must not be able to drift into two builds of the
+# same clustering decision — and the core has no dependencies to link,
+# which is what makes taking its sources here cheap rather than a packaging
+# problem. Nothing is added to the bundle: these are eight Swift files.
+CORE="native/EventClustering/Sources/ManoramaEventClustering"
 # Test builds may override the bundle id and output directory — a suite
 # that must coexist with an installed copy needs a REAL distinct
 # CFBundleIdentifier, since AX probes and `tell application id` resolve
@@ -80,8 +87,9 @@ mkdir -p "$BUILD_DIR"
   -framework SwiftUI \
   -framework WebKit \
   -framework Security \
+  -framework Vision \
   -o "$BUILD_DIR/manorama" \
-  "$APP"/*.swift
+  "$APP"/*.swift "$CORE"/*.swift
 
 # The Mach-O headers are the truth about what the compiler emitted: the
 # build fails if the minimum-OS version or the SDK it linked against does
