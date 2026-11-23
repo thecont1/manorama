@@ -69,10 +69,14 @@ fn register_saved_gallery_roots(app: AppHandle) -> Result<(), String> {
 // touched only by commit, so an uncommitted drop can never become durable.
 
 /// Directories the OS delivered on a drop that the page has not yet
-/// committed or discarded. The set is the provenance boundary: the commit
-/// and discard commands only act on paths already held here, so a path the
-/// renderer merely names is a lookup key and can never invent a grant.
-struct PendingDrops(Mutex<Vec<PathBuf>>);
+/// committed or discarded, plus the sequence that identifies this drop.
+/// The set is the provenance boundary: the commit and discard commands
+/// only act on paths already held here, so a path the renderer merely
+/// names is a lookup key and can never invent a grant. The sequence is
+/// the epoch a commit echoes back — a commit naming a superseded drop is
+/// rejected, so an in-flight stale commit cannot spend the newer drop's
+/// pending set.
+struct PendingDrops(Mutex<(u64, Vec<PathBuf>)>);
 
 /// Component-wise path equality, with a canonicalised fallback — the page
 /// echoes back the strings the drop emitted after normalising separators,
@@ -117,15 +121,18 @@ fn handle_folder_drag(app: &AppHandle, event: &tauri::DragDropEvent) {
                 .cloned()
                 .collect();
             let files = paths.len() - dirs.len();
-            {
+            let drop = {
                 let pending = app.state::<PendingDrops>();
                 let Ok(mut pending) = pending.0.lock() else {
                     return;
                 };
                 // A fresh drop replaces the pending set — entries it drops
-                // lose their lookup status, exactly like a discard.
-                *pending = dirs.clone();
-            }
+                // lose their lookup status, exactly like a discard — and
+                // bumps the sequence commits echo back.
+                pending.0 += 1;
+                pending.1 = dirs.clone();
+                pending.0
+            };
             // Scope first, emit second — the page scans the moment the event
             // lands, and the scan must not race its grant.
             for dir in &dirs {
@@ -137,7 +144,7 @@ fn handle_folder_drag(app: &AppHandle, event: &tauri::DragDropEvent) {
                 .collect();
             let _ = app.emit(
                 "manorama://folders-dropped",
-                serde_json::json!({ "paths": emitted, "files": files }),
+                serde_json::json!({ "paths": emitted, "files": files, "drop": drop }),
             );
         }
         tauri::DragDropEvent::Leave => {
@@ -160,15 +167,23 @@ fn commit_dropped_roots(
     app: AppHandle,
     state: tauri::State<PendingDrops>,
     paths: Vec<String>,
+    drop: Option<u64>,
 ) -> Result<Vec<String>, String> {
     let mut pending = state.0.lock().map_err(|e| e.to_string())?;
+    // The page echoes the drop's sequence — a commit for a replaced drop
+    // must not spend the pending set its successor now owns.
+    if let Some(drop) = drop {
+        if drop != pending.0 {
+            return Err("the drop was replaced".to_string());
+        }
+    }
     let mut committed = Vec::new();
     for named in &paths {
         let candidate = PathBuf::from(named);
-        let Some(index) = pending.iter().position(|dir| same_path(dir, &candidate)) else {
+        let Some(index) = pending.1.iter().position(|dir| same_path(dir, &candidate)) else {
             continue;
         };
-        let dir = pending[index].clone();
+        let dir = pending.1[index].clone();
         // Per-path, never `?`: a root already committed is durable in
         // roots.json whether or not the command answers Err, so rejecting
         // mid-list would hide real commits from the caller. A failed path
@@ -180,7 +195,7 @@ fn commit_dropped_roots(
             eprintln!("commit_dropped_roots: {} failed to commit: {error}", dir.display());
             continue;
         }
-        pending.remove(index);
+        pending.1.remove(index);
         committed.push(dir.to_string_lossy().to_string());
     }
     Ok(committed)
@@ -201,9 +216,9 @@ fn discard_dropped_roots(
 ) -> Result<(), String> {
     let mut pending = state.0.lock().map_err(|e| e.to_string())?;
     match paths {
-        None => pending.clear(),
+        None => pending.1.clear(),
         Some(named) => {
-            pending.retain(|dir| !named.iter().any(|path| same_path(dir, &PathBuf::from(path))))
+            pending.1.retain(|dir| !named.iter().any(|path| same_path(dir, &PathBuf::from(path))))
         }
     }
     Ok(())
@@ -743,7 +758,7 @@ pub fn run() {
                 .build(),
         )
         .manage(LoopbackState(Mutex::new(None)))
-        .manage(PendingDrops(Mutex::new(Vec::new())))
+        .manage(PendingDrops(Mutex::new((0, Vec::new()))))
         .invoke_handler(tauri::generate_handler![
             device_label,
             device_kind,

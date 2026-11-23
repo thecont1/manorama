@@ -146,10 +146,13 @@ export const sharePost = async (
 // (Windows) none of these commands exist yet and the events never fire, so
 // every call degrades quietly.
 
-/** Commit the selected pending roots into the folder store. Answers the
- *  paths actually committed — the shell may hold fewer than were asked. */
-export const commitDroppedRoots = async (paths: string[]): Promise<string[]> => {
-  const committed = await invoke<unknown>('commit_dropped_roots', { paths })
+/** Commit the selected pending roots into the folder store. `drop` echoes
+ *  the sequence the drop event carried — a commit for a replaced drop is
+ *  refused, so an in-flight stale commit cannot spend the pending set its
+ *  successor now owns. Answers the paths actually committed — the shell
+ *  may hold fewer than were asked. */
+export const commitDroppedRoots = async (paths: string[], drop?: number): Promise<string[]> => {
+  const committed = await invoke<unknown>('commit_dropped_roots', { paths, drop })
   return Array.isArray(committed) ? committed.filter((path): path is string => typeof path === 'string') : []
 }
 
@@ -167,7 +170,9 @@ export const discardDroppedRoots = async (paths?: string[]): Promise<void> => {
 type FolderDropHandlers = {
   onDragEnter?: (folders: number, files: number) => void
   onDragLeave?: () => void
-  onDrop?: (paths: string[], files: number) => void
+  /** `drop` is the shell's sequence for this drop — the page echoes it on
+   *  commit so a stale commit cannot spend a successor's pending set. */
+  onDrop?: (paths: string[], files: number, drop?: number) => void
 }
 
 /**
@@ -188,8 +193,8 @@ export const onFolderDrop = async (handlers: FolderDropHandlers): Promise<() => 
         handlers.onDragEnter?.(event.payload?.folders ?? 0, event.payload?.files ?? 0)
       }),
       listen('manorama://folder-drag-leave', () => handlers.onDragLeave?.()),
-      listen<{ paths?: string[]; files?: number }>('manorama://folders-dropped', (event) => {
-        handlers.onDrop?.(event.payload?.paths ?? [], event.payload?.files ?? 0)
+      listen<{ paths?: string[]; files?: number; drop?: number }>('manorama://folders-dropped', (event) => {
+        handlers.onDrop?.(event.payload?.paths ?? [], event.payload?.files ?? 0, event.payload?.drop)
       }),
     ])
     // Armed only once the listeners exist — the shell's emit retries while

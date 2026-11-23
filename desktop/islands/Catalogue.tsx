@@ -683,16 +683,19 @@ export default function Catalogue({ apiBase }: { apiBase: string }) {
   // — an open viewer, the account tier, the catalogue still loading — is
   // read through refs at event time, never captured.
   const dropContextRef = useRef({ blocked: false, tier: 'free' })
-  const dropHandlerRef = useRef<(paths: string[]) => void>(() => {})
+  const dropHandlerRef = useRef<(paths: string[], seq?: number) => void>(() => {})
   // A second drop replaces the sheet's contents — and must also retire the
   // first drop's in-flight scan, or its late rows would land on the new
   // sheet. Every drop (and every close) bumps the generation.
   const dropScanRef = useRef(0)
+  // The shell's own sequence for the latest drop — echoed back on commit
+  // so a stale in-flight commit cannot spend a successor's pending set.
+  const dropTokenRef = useRef<number | undefined>(undefined)
   // A drop that lands while the catalogue is still loading is queued, not
   // lost: the shell's pending grants stay open (they expire on their own)
   // and the paths replay through the handler once the Library can act on
   // them. A viewer covering the surface still means ignore-and-discard.
-  const pendingDropPaths = useRef<string[] | null>(null)
+  const pendingDropPaths = useRef<{ paths: string[]; drop?: number } | null>(null)
   // Hidden galleries — namespaced keys ("account:{slug}", "device:{id}",
   // "local:{id}") concealed from the pinned/compact sections into the
   // collapsed "Hidden galleries" section. Device-local display choice,
@@ -775,10 +778,10 @@ export default function Catalogue({ apiBase }: { apiBase: string }) {
         setDropVeil(folders)
       },
       onDragLeave: () => { if (alive) setDropVeil(null) },
-      onDrop: (paths) => {
+      onDrop: (paths, _files, drop) => {
         if (!alive) return
         setDropVeil(null)
-        dropHandlerRef.current(paths)
+        dropHandlerRef.current(paths, drop)
       },
     }).then((release) => {
       if (alive) unlisten = release
@@ -1670,7 +1673,7 @@ export default function Catalogue({ apiBase }: { apiBase: string }) {
    *  while this one's scan/commit is in flight retires every write it
    *  could still make, and its discards name only this drop's own path so
    *  a newer drop's pending set can never be released by accident. */
-  const addDroppedFolder = async (path: string, gen: number) => {
+  const addDroppedFolder = async (path: string, gen: number, seq?: number) => {
     const ownsReview = () => gen === dropScanRef.current
     setNotice(null)
     setBusy(true)
@@ -1694,13 +1697,20 @@ export default function Catalogue({ apiBase }: { apiBase: string }) {
         }
         return
       }
-      const committed = await commitDroppedRoots([path])
+      // The generation must still be ours when the commit fires — and the
+      // native side checks the drop's sequence itself, closing the gap
+      // between this check and the invoke landing.
+      if (!ownsReview()) return
+      const committed = await commitDroppedRoots([path], seq)
       if (!committed.some((committedPath) => normalizeRootPath(committedPath) === path)) {
         if (ownsReview()) setNotice('That folder could not be opened')
         return
       }
       const record = buildLocalRecord(path, scan, new Date().toISOString())
       setAvailability((previous) => ({ ...previous, [record.id]: 'available' }))
+      // The commit answered — those grants are durable now whether or not
+      // the review is still ours, so the record reconciles regardless of
+      // generation. Only the review's own state stays generation-gated.
       const saved = await persistCatalogue((latest) => ({
         ...latest,
         galleries: [...latest.galleries.filter((g) => normalizeRootPath(g.rootPath) !== record.rootPath), record],
@@ -1721,7 +1731,7 @@ export default function Catalogue({ apiBase }: { apiBase: string }) {
     }
   }
 
-  const handleFolderDrop = (rawPaths: string[]) => {
+  const handleFolderDrop = (rawPaths: string[], seq?: number) => {
     const paths = dedupeDroppedPaths(rawPaths)
     const { blocked, tier } = dropContextRef.current
     // Drops belong to the Library surface alone — over an open viewer they
@@ -1730,7 +1740,7 @@ export default function Catalogue({ apiBase }: { apiBase: string }) {
     // the paths replay through here once the Library can act on them.
     if (blocked) {
       if (catalogueRef.current === null && !viewerState && !accountViewer) {
-        pendingDropPaths.current = paths
+        pendingDropPaths.current = { paths, drop: seq }
       } else {
         // Named, not all — a later drop may already own the pending set
         // by the time this invoke lands.
@@ -1756,13 +1766,14 @@ export default function Catalogue({ apiBase }: { apiBase: string }) {
     // remaining writes (they check the generation before touching the
     // review). The busy flag moves to the new owner the same way.
     dropScanRef.current += 1
+    dropTokenRef.current = seq
     setDropSheet(null)
     setDropCandidates([])
     setDropSelected(new Set())
     setDropCommitting(false)
     setBusy(false)
     if (paths.length === 1) {
-      void addDroppedFolder(paths[0], dropScanRef.current)
+      void addDroppedFolder(paths[0], dropScanRef.current, seq)
       return
     }
     setDropSheet({ paths })
@@ -1790,7 +1801,7 @@ export default function Catalogue({ apiBase }: { apiBase: string }) {
     const pending = pendingDropPaths.current
     if (!pending || catalogue === null || viewerState || accountViewer) return
     pendingDropPaths.current = null
-    dropHandlerRef.current(pending)
+    dropHandlerRef.current(pending.paths, pending.drop)
   }, [catalogue, viewerState, accountViewer])
 
   const toggleDropCandidate = (path: string) => {
@@ -1818,12 +1829,13 @@ export default function Catalogue({ apiBase }: { apiBase: string }) {
     // write below. Committed roots still reconcile into the catalogue:
     // their grants are already durable regardless of who owns the sheet.
     const gen = dropScanRef.current
+    const seq = dropTokenRef.current
     const ownsReview = () => gen === dropScanRef.current
     const selected = dropCandidates.filter((c) => c.state === 'new' && dropSelected.has(c.path))
     if (!selected.length) return
     setDropCommitting(true)
     try {
-      const committed = await commitDroppedRoots(selected.map((c) => c.path))
+      const committed = await commitDroppedRoots(selected.map((c) => c.path), seq)
       const committedPaths = new Set(committed.map(normalizeRootPath))
       // Whatever the shell still holds of THIS drop — deselected rows,
       // folders past the sheet's cap, a path that stopped being pending —
@@ -1852,6 +1864,8 @@ export default function Catalogue({ apiBase }: { apiBase: string }) {
       })
       // One write for the whole drop, in dropped order — the same merge a
       // single addFolder performs, applied to every committed record.
+      // Committed grants are durable: their records reconcile into the
+      // catalogue even when a newer drop owns the review now.
       const addedRoots = new Set(records.map((record) => record.rootPath))
       const saved = await persistCatalogue((latest) => ({
         ...latest,

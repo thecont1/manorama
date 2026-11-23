@@ -79,11 +79,15 @@ const toEntry = (photo: FixturePhoto): FixtureDirEntry => ({
 /** Spread the fixture photographs across the dropped folders — every name
  *  is a real file `servePhotos` answers. */
 const dropDirs = (): Record<string, FixtureDirEntry[]> => {
-  const roots = [...DROP_ROOTS, SINGLE_ROOT]
-  const per = Math.max(1, Math.ceil(allPhotos.length / roots.length))
   const dirs: Record<string, FixtureDirEntry[]> = {}
-  roots.forEach((root, index) => {
-    const slice = allPhotos.slice(index * per, (index + 1) * per)
+  if (!allPhotos.length) return dirs
+  // The lone-folder drop always holds at least one photograph whatever the
+  // admitted count — a tail slice of a short list can come back empty.
+  dirs[SINGLE_ROOT] = [toEntry(allPhotos[allPhotos.length - 1])]
+  const shared = allPhotos.slice(0, -1)
+  const per = Math.max(1, Math.ceil(shared.length / DROP_ROOTS.length))
+  DROP_ROOTS.forEach((root, index) => {
+    const slice = shared.slice(index * per, (index + 1) * per)
     if (slice.length) dirs[root] = slice.map(toEntry)
   })
   return dirs
@@ -115,12 +119,16 @@ const emit = (page: Page, event: string, payload: unknown) =>
     }).__manoramaEmitEvent?.(name, body)
   }, [event, payload] as const)
 
-const emitDrop = (page: Page, paths: string[], files = 0) =>
-  emit(page, 'manorama://folders-dropped', { paths, files })
+let dropSeq = 0
+const emitDrop = async (page: Page, paths: string[], files = 0) => {
+  const seq = ++dropSeq
+  await emit(page, 'manorama://folders-dropped', { paths, files, drop: seq })
+  return seq
+}
 
 const dropCalls = (page: Page) =>
   page.evaluate(() =>
-    ((window as unknown as { __dropCalls?: { command: string; args?: { paths?: string[] } }[] }).__dropCalls) ?? [])
+    ((window as unknown as { __dropCalls?: { command: string; args?: { paths?: string[]; drop?: number } }[] }).__dropCalls) ?? [])
 
 const compactCount = (page: Page) => page.locator('.lib-compact-card').count()
 
@@ -174,13 +182,16 @@ for (const size of sizes) {
     // ── One folder: no sheet, the addFolder pipeline answers directly ─────
     // Other surfaces can hold their own toasts (the stubbed account feed
     // answers "could not be loaded"), so the notice is found by its text.
-    await emitDrop(page, [SINGLE_ROOT])
+    const singleSeq = await emitDrop(page, [SINGLE_ROOT])
     await expect(page.locator('.admin-toast', { hasText: 'Lonely Pine added.' })).toBeVisible({ timeout: 15_000 })
     await expect(sheet(page)).toHaveCount(0)
     await expect(page.locator('.lib-compact-card', { hasText: 'Lonely Pine' })).toBeVisible()
     let calls = await dropCalls(page)
     expect(calls.filter((call) => call.command === 'commit_dropped_roots')).toHaveLength(1)
     expect(calls.find((call) => call.command === 'commit_dropped_roots')?.args?.paths).toEqual([SINGLE_ROOT])
+    // The commit echoes the drop's sequence — the shell refuses a commit
+    // that arrives stale.
+    expect(calls.find((call) => call.command === 'commit_dropped_roots')?.args?.drop).toBe(singleSeq)
     expect(calls.filter((call) => call.command === 'discard_dropped_roots')).toHaveLength(0)
     await page.screenshot({ path: resolve(evidence, `${engine}-${size.name}-single-added.png`), animations: 'disabled', timeout: 15_000 })
 
