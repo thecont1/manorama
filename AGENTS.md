@@ -124,6 +124,7 @@ bun install
 bun run dev                  # vite dev server with the dev-seed plugin, port 5173
 bunx tsc --noEmit            # typecheck — must be clean
 bun run test:unit            # unit tests — 1050 passing at time of writing
+./scripts/test-event-clustering.sh   # native event-core Swift tests — 37 passing
 bun run build                # client + worker production build
 bunx playwright test         # acceptance suite; needs a seeded dev server
 ```

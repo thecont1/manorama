@@ -83,7 +83,9 @@ type RawDumpScanResult = {
 type RawDumpPick = {
   label: string
   itemCount: number
-  rootPath: string
+  /** Absolute dump root on macOS; null on iOS, where the source is the
+   *  system library and a `PHAsset.localIdentifier` needs no joining. */
+  rootPath: string | null
 }
 ```
 
@@ -175,3 +177,30 @@ rebuilds instead of merging. Dates here are epoch **seconds**, matching
 The UI's job is presentation only: date span, frame count, cover
 thumbnail, a multi-day badge, and sub-day tabs. It never receives, and
 must never show, a classification label.
+
+---
+
+## 6. Where each shell hooks in
+
+The names above are the contract; how a page reaches them differs per
+shell, and the page must not have to know which shell it is in beyond the
+existing `isDesktopRuntime()` / `hasMacosShell()` markers.
+
+| Shell | Entry point | Method name on the native side |
+| :--- | :--- | :--- |
+| macOS (`macos/ManoramaMac`) | `NativeBridge.run` command switch | the snake_case names verbatim |
+| iOS / iPadOS (`ios/App/App`) | `SceneDelegate.viewDidLoad` → `bridge?.registerPluginInstance(EventClusteringPlugin())`, which is also what calls the plugin's `load()` | camelCase: `pickRawDumpRoot`, `getRawDumpStatus`, `scanRawDumpEvents`, `clearRawDumpRoot`, under `jsName` `EventClustering` |
+| Tauri desktop (`src-tauri`) | not implemented | none — see below |
+
+`registerPluginInstance` is the only registration path that works for an
+app-local plugin in this target: `LocalGalleryPlugin` is registered the same
+way, and a plugin that is compiled into the app but never registered is
+simply absent from `window.Capacitor.Plugins`.
+
+**Known gap.** `src-tauri/src/lib.rs` registers its commands explicitly, and
+none of the four are among them. A page running in the Tauri build therefore
+gets a rejection from `invoke`, which is the same answer as "this shell does
+not do this": the raw-dump UI stays hidden rather than rendering a control
+that can only error. Adding the four commands to the Tauri shell is separate
+work and must reuse the same `native/EventClustering` sources, not a
+reimplementation.
