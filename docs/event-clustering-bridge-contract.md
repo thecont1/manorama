@@ -178,19 +178,40 @@ The UI's job is presentation only: date span, frame count, cover
 thumbnail, a multi-day badge, and sub-day tabs. It never receives, and
 must never show, a classification label.
 
+One caveat on "cover thumbnail": on macOS it is a solved problem, because
+the dump root is a granted folder and the shell's media handler already
+answers absolute paths inside it. On iOS a member id is a
+`PHAsset.localIdentifier`, which is not a URL and has no route to the page
+yet. See §7 item 2 — an event that cannot show a photograph is not
+shippable on that platform, however correct its clustering is.
+
 ---
 
 ## 6. Where each shell hooks in
 
-The names above are the contract; how a page reaches them differs per
-shell, and the page must not have to know which shell it is in beyond the
-existing `isDesktopRuntime()` / `hasMacosShell()` markers.
+The four names and their payloads are the contract. What is *not* shared is
+the bundle: the repository ships two web roots, and each shell loads its
+own, so "one page drives both" would be wrong and the table below is the
+accurate version.
+
+* `desktop/` is the macOS bundle (staged into `Resources/ViewerBundle`). It
+  reaches the commands through `invoke` in `desktop/lib/event-clustering.ts`.
+* `native/` is what the Capacitor shells serve — `webDir: 'native/dist'` —
+  and it does not import the desktop islands' event UI today. Its own call
+  path for an app-local plugin is `registerPlugin('EventClustering')`, the
+  pattern `native/lib/local-gallery.ts` already uses for `LocalGallery`.
+
+Both bundles must speak the same four commands with the same payloads; that
+is what keeps the engine's answer from being interpreted differently per
+device. A shared presentation layer is possible — `native/islands/` already
+imports from `desktop/lib` — but it is not what exists now.
 
 | Shell | Entry point | Method name on the native side |
 | :--- | :--- | :--- |
 | macOS (`macos/ManoramaMac`) | `NativeBridge.run` command switch | the snake_case names verbatim |
 | iOS / iPadOS (`ios/App/App`) | `SceneDelegate.viewDidLoad` → `bridge?.registerPluginInstance(EventClusteringPlugin())`, which is also what calls the plugin's `load()` | camelCase: `pickRawDumpRoot`, `getRawDumpStatus`, `scanRawDumpEvents`, `clearRawDumpRoot`, under `jsName` `EventClustering` |
 | Tauri desktop (`src-tauri`) | not implemented | none — see below |
+| Android (`android/`) | not implemented | none — see §7 |
 
 `registerPluginInstance` is the only registration path that works for an
 app-local plugin in this target: `LocalGalleryPlugin` is registered the same
@@ -204,3 +225,53 @@ not do this": the raw-dump UI stays hidden rather than rendering a control
 that can only error. Adding the four commands to the Tauri shell is separate
 work and must reuse the same `native/EventClustering` sources, not a
 reimplementation.
+
+---
+
+## 7. Open work per surface
+
+Where the feature actually stands, so that "available everywhere" is a
+checklist rather than an assumption. Ordered by what unblocks the most.
+
+| Surface | Bundle loaded | Engine | Four commands | Event UI | Pixels for a member |
+| :--- | :--- | :--- | :--- | :--- | :--- |
+| macOS | `desktop/` | linked into the binary | all four | Library section + Settings row | granted root, `manorama://media/local/…` |
+| iOS / iPadOS | `native/dist` | compiled into the target | all four, registered | **none** | **no route** |
+| Android | `native/dist` | **absent** (Swift only) | none | none | n/a |
+| Tauri desktop | `desktop/` | **absent** (Swift only) | none | hidden by design | n/a |
+| Web app | `app/` | n/a | n/a | none, per invariant 7 | n/a |
+
+1. **Mobile event UI (`native/`).** A wrapper over
+   `registerPlugin<EventClusteringBridge>('EventClustering')`, a Settings row
+   mirroring `RawDumpSettings`, and the cards themselves. The pure
+   presentation maths and validators are already platform-free in
+   `packages/core/event-clustering.ts`, which is what makes this a port of
+   layout rather than of logic.
+2. **An iOS pixel route.** Without it an event is a list of identifiers the
+   page cannot draw. The shape the contract wants is a thumbnail request
+   addressed by `PHAsset.localIdentifier` at a bounded pixel size, served
+   through the existing asset scheme, with `PHImageManager` asked in a mode
+   that will not download from iCloud — the same refusal that keeps the
+   indexer from ever touching `requestImageData`. This is a fifth plugin
+   method and deliberately not part of the four commands above, because it
+   moves pixels rather than describing them.
+3. **Reconcile the traversal policy, in writing.** The bullet under
+   "Source link expectations" in `docs/manorama-operations.md` states that
+   only the top level of a folder is scanned and subfolders are not
+   descended into, and `fix(gallery): scan folder roots only` made that
+   structural for local folders as well — "the behavior is structural, not
+   configurable". The raw dump descends by design, because a Drive backup
+   laid out `YYYY/MM/` is the case the feature exists for; the plan's macOS
+   ingestion section argued the exemption at the time, but a reader following
+   the runbook would find nothing acknowledging it. The fix is one clarifying
+   sentence naming a
+   user-declared raw dump as a distinct concept from a scanned gallery root
+   — the two rules are not in conflict, but they look that way. Left as a
+   decision rather than edited here, because it touches the contract that
+   commit deliberately just tightened.
+4. **Tauri and Android need the engine outside Swift.** The core has no
+   platform imports beyond Foundation and CryptoKit, which is what makes the
+   plan's "portable later to Rust/TS" realistic, but nothing has been
+   ported: `packages/core/event-clustering.ts` holds wire types, validators
+   and labels, not the clusterer. Until one of those ports exists, these two
+   surfaces should stay silent rather than half-implemented.
