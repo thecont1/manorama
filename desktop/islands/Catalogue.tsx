@@ -69,6 +69,9 @@ import { SIGN_IN_PROVIDERS } from '../../app/lib/signin'
 import { desktopScreen, showPasteFallback } from '../lib/welcome'
 import ShareFlow from './ShareFlow'
 import LocalGalleryDetails from './LocalGalleryDetails'
+import EventClusters, { RawDumpSettings } from './EventClusters'
+import { eventGalleryRecord } from '../lib/event-clustering'
+import type { EventOpenTarget } from './EventClusters'
 import { DropFoldersSheet, DropVeil } from './DropFoldersSheet'
 import { Sheet } from '../../app/components/ui/Sheet'
 import { QuietIcon, SettingsIcon, LinkIcon, SourceIcon } from '../../app/components/admin-icons'
@@ -519,6 +522,15 @@ export default function Catalogue({ apiBase }: { apiBase: string }) {
   const [availability, setAvailability] = useState<Record<string, GalleryAvailability>>({})
   const [viewerState, setViewerState] = useState<ViewerState | null>(null)
   const [accountViewer, setAccountViewer] = useState<AccountViewerState | null>(null)
+  /* 1. Event Viewing: an open event is a gallery record that exists only in
+     memory. The viewer already knows how to read a local gallery record, so
+     the event is handed to it as one — never written into catalogue.json,
+     never synced. Opening anything else or leaving the viewer drops it. */
+  const [eventRecord, setEventRecord] = useState<LocalGalleryRecord | null>(null)
+  /* 2. Declaration Changed: Settings choosing or removing a Raw Dump folder
+     is the one moment the Library's own read of the shell goes stale, so the
+     host bumps this counter rather than reaching into the island's state. */
+  const [rawDumpRevision, setRawDumpRevision] = useState(0)
   // The native shell's Gallery menu drives the mounted Viewer through this
   // handle. The Viewer keeps sole ownership of the index — the handle asks it
   // to move, it never sets it. Under Tauri there is no shell, so the handle
@@ -958,6 +970,21 @@ export default function Catalogue({ apiBase }: { apiBase: string }) {
   const openViewer = (galleryId: string, index: number, edit = false) => {
     setPlate(houseAdFrameFor(galleryId))
     setViewerState({ galleryId, index, edit })
+  }
+  /** An event card opens the same viewer a folder card opens. The island
+   *  hands over the event and the dump root its members live under; the
+   *  record the viewer reads is built here and lives only as long as the
+   *  open does. No second viewer, no second manifest format. */
+  const openEvent = (target: EventOpenTarget) => {
+    const record = eventGalleryRecord(target.cluster, target.rootPath)
+    if (!record) {
+      // Every member refused to join under the root: the index is describing a
+      // folder this Mac cannot read right now, which is what it should hear.
+      setNotice('The Raw Dump folder could not be read — is the drive connected?')
+      return
+    }
+    setEventRecord(record)
+    openViewer(record.id, target.index)
   }
   // The share sheet's live state, mirrored in refs so the window-level history
   // listener (registered once, empty deps) sees the CURRENT flow instead of
@@ -3010,8 +3037,18 @@ export default function Catalogue({ apiBase }: { apiBase: string }) {
   // would snap every mode choice back to strip on the next unrelated
   // render. Rebuild only when the catalogue or the open target moves.
   const localViewerBundle = useMemo(() => {
-    if (!viewerState || !catalogue || accountTier !== 'pro') return null
-    const record = catalogue.galleries.find((gallery) => gallery.id === viewerState.galleryId)
+    if (!viewerState || !catalogue) return null
+    /* 1. Events On The Catalogue Path: an open event is a record held in
+       memory, not in catalogue.json, so it is looked up before the synced
+       galleries. It skips the tier gate on purpose — invariant 12 keeps
+       Local galleries from a Free account because those rows are added,
+       synced and mirrored; an event is a view over a folder this Mac already
+       holds and publishes nothing. */
+    const eventView = eventRecord !== null && eventRecord.id === viewerState.galleryId ? eventRecord : null
+    const record = eventView
+      ?? (accountTier === 'pro'
+        ? catalogue.galleries.find((gallery) => gallery.id === viewerState.galleryId) ?? null
+        : null)
     if (!record) return null
     const withDims = (item: LocalGalleryItem): LocalGalleryItem => {
       const dims = dimsRef.current.get(item.id)
@@ -3028,7 +3065,10 @@ export default function Catalogue({ apiBase }: { apiBase: string }) {
     // (every item's orderKey, the hidden keys), persisted into the
     // catalogue instead of PATCHed to the Worker. orderKey is the item id —
     // the relative path, stable across rescans.
-    const localEditStore = {
+    // An event has no edit store: its order is the engine's, and a hidden set
+    // would have nowhere honest to be written — the index belongs to the
+    // shell, and the page must not write it.
+    const localEditStore = eventView === null ? {
       load: async (): Promise<PickerEditItem[]> => {
         const hidden = new Set(record.hidden ?? [])
         return record.items.map((raw) => {
@@ -3062,9 +3102,9 @@ export default function Catalogue({ apiBase }: { apiBase: string }) {
         await writeCatalogueFile(serializeLocalCatalogue(next))
         setCatalogue(next)
       },
-    }
+    } : null
     return { record, manifest, settings: defaultGallerySettings(manifest), localEditStore }
-  }, [catalogue, viewerState?.galleryId, accountTier])
+  }, [catalogue, viewerState?.galleryId, accountTier, eventRecord])
 
   if (accountViewer) {
     const summary = accountViewer.gallery
@@ -3176,7 +3216,7 @@ export default function Catalogue({ apiBase }: { apiBase: string }) {
             plate={plate}
             initialIndex={viewerState?.index ?? 0}
             initialEdit={viewerState?.edit ?? false}
-            editStore={localEditStore}
+            editStore={localEditStore ?? undefined}
             allowFullscreen={false}
             navigationRef={navigationRef}
             readMetadata={async (image) => {
@@ -3188,7 +3228,13 @@ export default function Catalogue({ apiBase }: { apiBase: string }) {
             onPositionChange={(position: { index: number }) => {
               shellPost({ type: 'position', index: position.index, total: manifest.images.length })
             }}
-            onReturnToGalleries={() => setViewerState(null)}
+            onReturnToGalleries={() => {
+              setViewerState(null)
+              // The event record is a view over the shell's index, so it goes
+              // when the view does — nothing keeps a stale folder's paths in
+              // memory, and nothing can be mistaken for a synced gallery.
+              setEventRecord(null)
+            }}
             onEditSaved={(photoId: string | null) => {
               // Entered from the settings sheet — Save lands back on the
               // Library like the account flow's doneHref. Entered from the
@@ -3927,6 +3973,13 @@ export default function Catalogue({ apiBase }: { apiBase: string }) {
               ) : null}
             </section>
           ) : null}
+          {/* The Raw Dump's own section, mounted unconditionally because it
+              renders nothing until the shell answers that a folder is declared
+              and reachable — a Library the owner never touched stays exactly
+              as it was. It is not under the Visionary gate above: it groups a
+              folder this Mac already holds, syncs no row and publishes
+              nothing. */}
+          <EventClusters revision={rawDumpRevision} onOpenEvent={openEvent} />
           {compactAccountGalleries.length ? (
             <section aria-labelledby="lib-compact-title">
               <button
@@ -4105,6 +4158,12 @@ export default function Catalogue({ apiBase }: { apiBase: string }) {
                       </>
                     ) : null}
                   </ActionGroup>
+                  {/* One declared folder of uncurated photographs, grouped into
+                      events on this Mac. It answers nothing when the runtime
+                      has no raw-dump commands, so a plain web or older shell
+                      build never sees a control it cannot back with
+                      persistence. */}
+                  <RawDumpSettings onDeclarationChanged={() => setRawDumpRevision((value) => value + 1)} />
                   {/* The same vault card the iOS Settings hosts: usage, cap,
                       load policy, per-gallery purge, Forget everything. The
                       controller resolves the live tier on every call. */}
