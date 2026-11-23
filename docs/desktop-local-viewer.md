@@ -93,9 +93,17 @@ are present.
 `build-macos.sh` codesigns the bundle with the Developer ID identity
 (`MACOS_SIGN_IDENTITY` overridable, `--options runtime --timestamp`) and
 passes `macos/ManoramaMac/ManoramaMac.entitlements`. The signature matters
-beyond Gatekeeper: an ad-hoc linker signature has no stable identity, so
-the login-Keychain key the vault uses would be inaccessible on the next
-launch.
+beyond Gatekeeper: the vault's gallery keys and the device id live in the
+data-protection keychain under the shared access group
+`373K7W3LKU.manorama.shared`, and an ad-hoc linker signature carries no
+entitlements at all — it could not even name the group, so the keys would
+be inaccessible on the next launch. The shared group is what lets every
+team-signed build (Developer ID, App Store, a test bundle re-signed under
+a different bundle id) read the same items with no per-item prompt. Items
+written by older builds still sit in the file-based login keychain under
+ACLs bound to those signatures; `NativeBridge.keychainGet` migrates each
+one lazily on first read — one legacy prompt at most, then silent shared
+custody.
 
 Notarisation is not wired yet. When it lands it submits
 `macos/ManoramaMac/build/manorama.app` to `xcrun notarytool` and staples the
@@ -103,13 +111,15 @@ ticket — the same notarytool/stapler/spctl flow the Tauri runbook below
 spells out.
 
 **App Sandbox is on.** The entitlements file enables
-`com.apple.security.app-sandbox` plus the four grants the app needs:
+`com.apple.security.app-sandbox` plus the grants the app needs:
 `network.client` (API + provider calls), `network.server` (the OAuth
-loopback), `files.user-selected.read-write` (the NSOpenPanel pick), and
+loopback), `files.user-selected.read-write` (the NSOpenPanel pick),
 `files.bookmarks.app-scope` — which is exactly why `FolderStore` persists
-picks as security-scoped bookmarks rather than plain paths. Adding an
-entitlement is a real capability decision, not a flag flip: no JIT, no
-unsigned dylibs, no DYLD means nothing else belongs in the file.
+picks as security-scoped bookmarks rather than plain paths — and
+`keychain-access-groups` for the shared vault-key custody described
+above. Adding an entitlement is a real capability decision, not a flag
+flip: no JIT, no unsigned dylibs, no DYLD means nothing else belongs in
+the file.
 
 ## Scopes and storage
 
@@ -127,8 +137,9 @@ app-support directory, written atomically at mode 0600 by
 `write_private_file` (`write0600` in `NativeBridge.swift`, matching
 `src-tauri/src/private_store.rs`). `providers.json` holds the upload
 lane's refresh tokens (docs/desktop-uploads.md). **Upgrade path:** the
-login Keychain can replace `session.json` later without touching the
-catalogue or the exchange flow.
+shared-access-group Keychain that already holds the vault keys can
+replace `session.json` later without touching the catalogue or the
+exchange flow.
 
 ## Sign-in
 

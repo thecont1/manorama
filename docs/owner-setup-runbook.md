@@ -140,7 +140,8 @@ App-Sandboxed (`macos/ManoramaMac/ManoramaMac.entitlements`). The Tauri shell is
       replaces an installed copy — it only assembles the new bundle. Before opening
       `manorama.app`, quit the old app and move `/Applications/ManoramaMac.app` to the Trash;
       leaving both installed gives LaunchServices two manorama apps and the stale one can keep
-      launching. Same bundle id, so Keychain items carry over once only one copy remains.
+      launching. Keychain items carry over by team signature via the shared
+      access group once only one copy remains.
 - [ ] **Local-gallery publish providers** — the share lane needs OAuth client IDs baked at
       build time (`MANORAMA_DESKTOP_*` in `.env.local`; a missing ID renders that provider
       "Not configured in this build"):

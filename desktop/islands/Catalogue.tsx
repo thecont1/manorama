@@ -580,7 +580,7 @@ export default function Catalogue({ apiBase }: { apiBase: string }) {
   useEffect(() => { shellPost({ type: 'ready' }) }, [])
 
   // The encrypted on-device vault: galleries whose bytes already live in the
-  // login-Keychain-locked store, the owner's load policy, and the per-gallery
+  // Keychain-locked store, the owner's load policy, and the per-gallery
   // stream-only overrides — the same three surfaces the iOS app carries.
   const [savedGalleries, setSavedGalleries] = useState<OfflineGallerySummary[]>([])
   // Grid entries mint the section's covers from vault thumbnails — object

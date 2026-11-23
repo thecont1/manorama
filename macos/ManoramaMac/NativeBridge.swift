@@ -44,6 +44,16 @@ final class NativeBridge {
     /// The Keychain service the per-gallery keys live under.
     private static let keychainService = "in.thecontrarian.manorama.vault"
 
+    /// The shared access group every team-signed build carries in its
+    /// `keychain-access-groups` entitlement. Items in the data-protection
+    /// keychain under this group are readable by any binary signed by team
+    /// 373K7W3LKU with the entitlement — Developer ID, App Store, or a
+    /// re-signed test bundle — with no per-item prompt. The name is
+    /// deliberately not derived from the bundle id: the same entitlements
+    /// file signs test bundles whose CFBundleIdentifier differs, and a
+    /// bundle-id-derived group would lose them custody.
+    private static let keychainAccessGroup = "373K7W3LKU.manorama.shared"
+
     /// The private documents the renderer may read and write.
     ///
     /// A fixed allowlist, never a caller-supplied path — the same list the
@@ -1270,7 +1280,7 @@ final class NativeBridge {
     // MARK: - The Keychain
 
     /// The identity a synced row names. A random UUID minted once and kept
-    /// in the login Keychain — the same place vault keys live — so it
+    /// in the shared Keychain — the same place vault keys live — so it
     /// survives the catalogue resets and reinstalls that were proven to
     /// orphan synced rows as mirrors that can never render. It is not a
     /// serial, MAC address or hardware UUID: the privacy rule `device_label`
@@ -1286,15 +1296,36 @@ final class NativeBridge {
         return minted
     }
 
-    private func keychainGet(_ name: String) throws -> String? {
-        var query: [String: Any] = [
+    /// The item identity every keychain operation against `name` shares.
+    /// On its own it is also the *legacy* query — verbatim the shape
+    /// pre-access-group builds ran against the file-based login keychain,
+    /// where each item's ACL is bound to the creating binary's signature.
+    /// Adding the data-protection + access-group keys turns it into the
+    /// shared query (see `sharedQuery`).
+    private func legacyQuery(_ name: String) -> [String: Any] {
+        [
             kSecClass as String: kSecClassGenericPassword,
             kSecAttrService as String: Self.keychainService,
             kSecAttrAccount as String: name,
-            kSecReturnData as String: true,
-            kSecMatchLimit as String: kSecMatchLimitOne,
         ]
-        query[kSecAttrAccessible as String] = kSecAttrAccessibleAfterFirstUnlock
+    }
+
+    /// The shared-custody form of `legacyQuery`: the data-protection
+    /// keychain plus the team's shared access group, so every build
+    /// signed by team 373K7W3LKU carrying the entitlement resolves the
+    /// same item with no OS prompt.
+    private func sharedQuery(_ name: String) -> [String: Any] {
+        var query = legacyQuery(name)
+        query[kSecUseDataProtectionKeychain as String] = true
+        query[kSecAttrAccessGroup as String] = Self.keychainAccessGroup
+        return query
+    }
+
+    /// A read against the shared store only.
+    private func keychainGetShared(_ name: String) throws -> String? {
+        var query = sharedQuery(name)
+        query[kSecReturnData as String] = true
+        query[kSecMatchLimit as String] = kSecMatchLimitOne
         var item: CFTypeRef?
         let status = SecItemCopyMatching(query as CFDictionary, &item)
         if status == errSecItemNotFound { return nil }
@@ -1304,13 +1335,49 @@ final class NativeBridge {
         return String(data: data, encoding: .utf8)
     }
 
+    /// A read against the legacy file-based store only — verbatim the
+    /// query the old builds ran, so items an older signature wrote are
+    /// still found. Every failure answers nil, the dismissed ACL prompt
+    /// included: a legacy miss is an ordinary miss and a denied read is
+    /// never a reason to crash.
+    private func keychainGetLegacy(_ name: String) -> String? {
+        var query = legacyQuery(name)
+        query[kSecReturnData as String] = true
+        query[kSecMatchLimit as String] = kSecMatchLimitOne
+        query[kSecAttrAccessible as String] = kSecAttrAccessibleAfterFirstUnlock
+        var item: CFTypeRef?
+        guard SecItemCopyMatching(query as CFDictionary, &item) == errSecSuccess,
+              let data = item as? Data else { return nil }
+        return String(data: data, encoding: .utf8)
+    }
+
+    /// Read a vault key or the device id. The shared store is asked
+    /// first; a miss falls back to the legacy login keychain, where items
+    /// written before the access group existed still live under an ACL
+    /// bound to the old binary's signature. A legacy hit is migrated on
+    /// the spot — the one prompt that ACL forces on first read is the
+    /// last the item ever shows, after which every team-signed build
+    /// shares custody.
+    private func keychainGet(_ name: String) throws -> String? {
+        if let value = try keychainGetShared(name) {
+            return value
+        }
+        guard let value = keychainGetLegacy(name) else { return nil }
+        // Migrate custody: the shared copy is written before the legacy
+        // item is touched, so a failed write can never strand the key —
+        // keychainSet sweeps the legacy item itself once the shared one
+        // exists, and a write that fails simply retries on the next read.
+        do {
+            try keychainSet(name, value)
+        } catch {
+            Trace.log("keychain migration of \(name) deferred — the write was refused")
+        }
+        return value
+    }
+
     private func keychainSet(_ name: String, _ value: String) throws {
         let data = Data(value.utf8)
-        let query: [String: Any] = [
-            kSecClass as String: kSecClassGenericPassword,
-            kSecAttrService as String: Self.keychainService,
-            kSecAttrAccount as String: name,
-        ]
+        let query = sharedQuery(name)
         let attributes: [String: Any] = [
             kSecValueData as String: data,
             kSecAttrAccessible as String: kSecAttrAccessibleAfterFirstUnlock,
@@ -1323,25 +1390,34 @@ final class NativeBridge {
             guard addStatus == errSecSuccess else {
                 throw BridgeError.failed("the keychain refused the write")
             }
-            return
+        } else {
+            guard status == errSecSuccess else {
+                throw BridgeError.failed("the keychain refused the write")
+            }
         }
-        guard status == errSecSuccess else {
-            throw BridgeError.failed("the keychain refused the write")
-        }
+        // Best-effort sweep of the file-based store: a copy an older
+        // signature left behind keeps its own ACL and would keep
+        // prompting. It goes only after the shared write has succeeded,
+        // so the sweep can never strand the key.
+        SecItemDelete(legacyQuery(name) as CFDictionary)
     }
 
     private func keychainRemove(_ name: String) throws {
-        let query: [String: Any] = [
-            kSecClass as String: kSecClassGenericPassword,
-            kSecAttrService as String: Self.keychainService,
-            kSecAttrAccount as String: name,
-        ]
-        let status = SecItemDelete(query as CFDictionary)
+        let status = SecItemDelete(sharedQuery(name) as CFDictionary)
         guard status == errSecSuccess || status == errSecItemNotFound else {
             throw BridgeError.failed("the keychain refused the delete")
         }
-        // A resolved delete is not proof of deletion.
-        if (try? keychainGet(name)) != nil {
+        // The legacy copy goes too, best-effort — a denied delete there
+        // is still caught by the verification below.
+        SecItemDelete(legacyQuery(name) as CFDictionary)
+        // A resolved delete is not proof of deletion — and the item is
+        // only gone when NEITHER store still holds it. keychainGet is
+        // deliberately not used here: its migration path would copy a
+        // surviving legacy item straight back into the shared store.
+        if (try? keychainGetShared(name)) != nil {
+            throw BridgeError.failed("the key survived the delete")
+        }
+        if keychainGetLegacy(name) != nil {
             throw BridgeError.failed("the key survived the delete")
         }
     }

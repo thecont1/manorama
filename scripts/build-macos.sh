@@ -179,11 +179,13 @@ if [ "$PLIST_MIN" != "$MINOS" ]; then
 fi
 
 echo "==> signing the app bundle"
-# A linker-signed ad-hoc binary has no stable identity: the login Keychain
-# binds each item's ACL to the binary's cdhash, so every rebuild orphans the
-# stored gallery keys and macOS prompts for the keychain password once per
-# key on the next launch. A stable Developer ID signature makes the identity
-# — and therefore the Keychain trust — survive rebuilds.
+# A linker-signed ad-hoc binary has no stable identity and carries no
+# entitlements: it cannot name the shared access group the vault keys live
+# under, so they are inaccessible to it, and any item a differently-signed
+# build left in the file-based login keychain keeps an ACL bound to that
+# signature — macOS prompts for the keychain password once per item on
+# first read. A stable Developer ID signature plus the shared access group
+# makes the identity — and therefore the Keychain trust — survive rebuilds.
 IDENTITY="${MACOS_SIGN_IDENTITY:-Developer ID Application: Mahesh Shantaram (373K7W3LKU)}"
 # App Store builds sign with ManoramaMac-AppStore.entitlements, which adds the
 # application/team identifiers the distribution signature requires; direct

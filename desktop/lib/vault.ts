@@ -22,8 +22,9 @@ const tauriVaultStorage: VaultStorageProvider = {
   list: async () => (await invoke<VaultFileStat[] | null>('vault_list')) ?? [],
 }
 
-/** Per-gallery AES-256 keys live in the login Keychain, written and read only
- *  through Rust — ciphertext without them is dead bytes, which is what keeps
+/** Per-gallery AES-256 keys live in the data-protection Keychain under a
+ *  shared team access group, written and read only through the native
+ *  shell — ciphertext without them is dead bytes, which is what keeps
  *  the vault viewable solely inside this app. */
 const keychainVaultKeys: VaultKeyProvider = {
   // `?? null` keeps the `string | null` contract when a shell answers a

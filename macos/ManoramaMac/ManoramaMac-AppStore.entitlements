@@ -31,5 +31,15 @@
 	     survives relaunches without re-prompting. -->
 	<key>com.apple.security.files.bookmarks.app-scope</key>
 	<true/>
+
+	<!-- Shared vault custody: gallery keys and the device id live in the
+	     data-protection keychain under this group, so every build signed
+	     by the team reads them without a per-item OS prompt. The name is
+	     deliberately not derived from the bundle id, so a bundle whose
+	     CFBundleIdentifier differs keeps custody. -->
+	<key>keychain-access-groups</key>
+	<array>
+		<string>373K7W3LKU.manorama.shared</string>
+	</array>
 </dict>
 </plist>
