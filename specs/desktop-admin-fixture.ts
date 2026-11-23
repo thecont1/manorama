@@ -70,7 +70,27 @@ export const catalogue = {
 /** A signed-in session, plan included — the shape the exchange writes. */
 export const session = { token: 'test-session-token', ownerSlug: 'thecontrarian', tier: 'pro' }
 
-type BridgePayload = { catalogue: string; session: string; pixel: string; photos?: boolean }
+/** One `plugin:fs|read_dir` answer — the fields `scanLocalDirectory` reads. */
+export type FixtureDirEntry = {
+  name: string
+  isDirectory: boolean
+  isFile: boolean
+  width?: number
+  height?: number
+}
+
+type BridgePayload = {
+  catalogue: string
+  session: string
+  pixel: string
+  photos?: boolean
+  /** Drop-scan fixtures: absolute folder path → the directory listing the
+   *  bridge answers for it. Absent paths still answer empty. */
+  dirs?: Record<string, FixtureDirEntry[]>
+  /** Per-path read_dir delay in ms — holds a scan mid-flight so a spec can
+   *  photograph the sheet's skeleton state deterministically. */
+  dirDelay?: Record<string, number>
+}
 
 /** Injected into the page before any script runs. Its payload arrives as an
  *  argument because an init script is serialized, not called: anything it
@@ -79,10 +99,29 @@ export const installBridge = (payload: BridgePayload) => {
   const vaultFiles = new Map<string, Uint8Array>()
   const vaultKeys = new Map<string, string>()
   ;(window as unknown as Record<string, unknown>).__vaultWrites = []
+  // The event plugin's listener table, replicated: `plugin:event|listen`
+  // records which transformCallback id each event name routes to, and
+  // `__manoramaEmitEvent` delivers `{event, id, payload}` to them exactly
+  // like the shell's own emitter does for `manorama://` events.
+  const eventHandlers = new Map<string, Set<number>>()
+  const eventListeners = new Map<number, { event: string; handler: number }>()
+  const eventCallbacks = new Map<number, (payload: unknown) => void>()
+  const dropCalls: { command: string; args?: Record<string, unknown> }[] = []
+  ;(window as unknown as Record<string, unknown>).__dropCalls = dropCalls
+  let nextEventCallback = 1
+  let nextEventId = 1
+  ;(window as unknown as Record<string, unknown>).__manoramaEmitEvent = (event: string, eventPayload: unknown) => {
+    for (const id of eventHandlers.get(event) ?? []) {
+      eventCallbacks.get(id)?.({ event, id, payload: eventPayload })
+    }
+  }
   const internals = {
-    transformCallback: (callback: unknown) => {
-      const id = 1
+    transformCallback: (callback: unknown, once?: boolean) => {
+      const id = nextEventCallback++
       ;(window as unknown as Record<string, unknown>)[`_${id}`] = callback
+      if (typeof callback === 'function') {
+        eventCallbacks.set(id, callback as (payload: unknown) => void)
+      }
       return id
     },
     // The synthetic catalogue paints the stand-in pixel; the real-photograph
@@ -130,12 +169,51 @@ export const installBridge = (payload: BridgePayload) => {
       if (cmd === 'write_private_file' || cmd === 'delete_private_file') return null
       if (cmd === 'register_saved_gallery_roots') return null
       if (cmd === 'pick_gallery_root') return null
+      if (cmd === 'plugin:event|listen') {
+        const record = args as Record<string, unknown> | undefined
+        const event = String(record?.event ?? '')
+        const handler = Number(record?.handler)
+        const eventId = nextEventId++
+        if (event && handler) {
+          let set = eventHandlers.get(event)
+          if (!set) { set = new Set(); eventHandlers.set(event, set) }
+          set.add(handler)
+          eventListeners.set(eventId, { event, handler })
+        }
+        return eventId
+      }
+      if (cmd === 'plugin:event|unlisten') {
+        const record = args as Record<string, unknown> | undefined
+        const listener = eventListeners.get(Number(record?.eventId))
+        if (listener) {
+          eventListeners.delete(Number(record?.eventId))
+          eventHandlers.get(listener.event)?.delete(listener.handler)
+        }
+        return null
+      }
+      // The drop grant seam: commit answers every path it was handed (the
+      // shell books each still-pending path), discard is bookkeeping the
+      // spec reads back through `__dropCalls`.
+      if (cmd === 'commit_dropped_roots' || cmd === 'discard_dropped_roots') {
+        dropCalls.push({ command: cmd, args })
+        return cmd === 'commit_dropped_roots' ? ((args as Record<string, unknown> | undefined)?.paths ?? []) : null
+      }
       if (cmd === 'plugin:fs|exists') return true
-      if (cmd === 'plugin:fs|read_dir') return []
+      if (cmd === 'plugin:fs|read_dir') {
+        const path = String((args as Record<string, unknown> | undefined)?.path ?? '')
+        const delay = payload.dirDelay?.[path] ?? 0
+        if (delay > 0) await new Promise((resolve) => setTimeout(resolve, delay))
+        return payload.dirs?.[path] ?? []
+      }
       return null
     },
   }
   ;(window as unknown as Record<string, unknown>).__TAURI_INTERNALS__ = internals
+  // The event plugin's unregister hook — only reached when a listener is
+  // removed; the fixture's own table does the real bookkeeping.
+  ;(window as unknown as Record<string, unknown>).__TAURI_EVENT_PLUGIN_INTERNALS__ = {
+    unregisterListener: () => {},
+  }
 }
 
 export const bridgePayload: BridgePayload = {
@@ -230,12 +308,17 @@ export const buildCatalogue = (photos: FixturePhoto[], source: string) => ({
   ],
 })
 
-/** The bridge for a real-photograph catalogue. */
-export const photoBridgePayload = (built: ReturnType<typeof buildCatalogue>): BridgePayload => ({
+/** The bridge for a real-photograph catalogue. `dirs` feeds folder-drop
+ *  scans; `dirDelay` holds one mid-flight for the skeleton-state capture. */
+export const photoBridgePayload = (
+  built: ReturnType<typeof buildCatalogue>,
+  extras?: { dirs?: BridgePayload['dirs']; dirDelay?: BridgePayload['dirDelay'] },
+): BridgePayload => ({
   catalogue: JSON.stringify(built),
   session: JSON.stringify(session),
   pixel: PIXEL,
   photos: true,
+  ...extras,
 })
 
 /** Answers `/photos/<name>` with the original's own bytes, read from disk and

@@ -1,8 +1,8 @@
 mod private_store;
 
-use std::io::{Read, Write};
+use std::io::{Read, Seek, Write};
 use std::net::TcpListener;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
@@ -58,6 +58,189 @@ fn register_saved_gallery_roots(app: AppHandle) -> Result<(), String> {
         let _ = allow_root(&app, &PathBuf::from(root));
     }
     Ok(())
+}
+
+// MARK: - Drag-and-drop folder add
+//
+// The dropped-directory counterpart of the macOS shell's pendingDrops. A
+// drop grants both scopes at once — the review sheet's `readDir` scan and
+// `convertFileSrc` thumbnails must work before any commit — and holds the
+// directories here, never in renderer-reachable state. `roots.json` is
+// touched only by commit, so an uncommitted drop can never become durable.
+
+/// Directories the OS delivered on a drop that the page has not yet
+/// committed or discarded. The set is the provenance boundary: the commit
+/// and discard commands only act on paths already held here, so a path the
+/// renderer merely names is a lookup key and can never invent a grant.
+struct PendingDrops(Mutex<Vec<PathBuf>>);
+
+/// Component-wise path equality, with a canonicalised fallback — the page
+/// echoes back the strings the drop emitted after normalising separators,
+/// and a symlinked root can legitimately arrive spelled two ways.
+fn same_path(a: &Path, b: &Path) -> bool {
+    if a == b {
+        return true;
+    }
+    match (std::fs::canonicalize(a), std::fs::canonicalize(b)) {
+        (Ok(a), Ok(b)) => a == b,
+        _ => false,
+    }
+}
+
+/// Counts dragged paths for the hover veil — there are no package
+/// directories to exclude on this path (that distinction is the macOS
+/// shell's), so `is_dir` is the whole check; everything else is a loose
+/// file the drop ignores.
+fn classify_drag_paths(paths: &[PathBuf]) -> (usize, usize) {
+    let folders = paths.iter().filter(|path| path.is_dir()).count();
+    (folders, paths.len() - folders)
+}
+
+/// OS drag events → the page's three folder-drop events. Hover and leave
+/// only describe; the drop is what grants. Tauri's built-in handler keeps
+/// emitting `tauri://drag-*` in parallel and grants the asset scope on its
+/// own — the page listens only to these, and `allow_root` below covers the
+/// fs scope the built-in handler does not.
+fn handle_folder_drag(app: &AppHandle, event: &tauri::DragDropEvent) {
+    match event {
+        tauri::DragDropEvent::Enter { paths, .. } => {
+            let (folders, files) = classify_drag_paths(paths);
+            let _ = app.emit(
+                "manorama://folder-drag-enter",
+                serde_json::json!({ "folders": folders, "files": files }),
+            );
+        }
+        tauri::DragDropEvent::Drop { paths, .. } => {
+            let dirs: Vec<PathBuf> = paths
+                .iter()
+                .filter(|path| path.is_dir())
+                .cloned()
+                .collect();
+            let files = paths.len() - dirs.len();
+            {
+                let pending = app.state::<PendingDrops>();
+                let Ok(mut pending) = pending.0.lock() else {
+                    return;
+                };
+                // A fresh drop replaces the pending set — entries it drops
+                // lose their lookup status, exactly like a discard.
+                *pending = dirs.clone();
+            }
+            // Scope first, emit second — the page scans the moment the event
+            // lands, and the scan must not race its grant.
+            for dir in &dirs {
+                let _ = allow_root(app, dir);
+            }
+            let emitted: Vec<String> = dirs
+                .iter()
+                .map(|dir| dir.to_string_lossy().to_string())
+                .collect();
+            let _ = app.emit(
+                "manorama://folders-dropped",
+                serde_json::json!({ "paths": emitted, "files": files }),
+            );
+        }
+        tauri::DragDropEvent::Leave => {
+            let _ = app.emit("manorama://folder-drag-leave", serde_json::json!({}));
+        }
+        // Over carries only the cursor position, and DragDropEvent is
+        // non_exhaustive — anything newer lands here too.
+        _ => {}
+    }
+}
+
+/// Turns pending drops into durable roots: re-runs the drop-time scope
+/// grant (runtime scopes do not outlive the process, so the command stays
+/// correct even after a mid-review reset) and records each root in
+/// `roots.json`, the provenance `register_saved_gallery_roots` re-grants
+/// at launch. Only paths the pending set holds are answered — the page
+/// cannot commit a root it merely names.
+#[tauri::command]
+fn commit_dropped_roots(
+    app: AppHandle,
+    state: tauri::State<PendingDrops>,
+    paths: Vec<String>,
+) -> Result<Vec<String>, String> {
+    let mut pending = state.0.lock().map_err(|e| e.to_string())?;
+    let mut committed = Vec::new();
+    for named in &paths {
+        let candidate = PathBuf::from(named);
+        let Some(index) = pending.iter().position(|dir| same_path(dir, &candidate)) else {
+            continue;
+        };
+        let dir = pending[index].clone();
+        allow_root(&app, &dir)?;
+        private_store::record_gallery_root(&app, &dir.to_string_lossy())?;
+        pending.remove(index);
+        committed.push(dir.to_string_lossy().to_string());
+    }
+    Ok(committed)
+}
+
+/// Releases pending drops — all of them when `paths` is absent, else the
+/// named ones. The runtime scope grant is deliberately NOT revoked: Tauri
+/// scopes have no un-grant, and `forbid_directory` is a permanent veto
+/// that would also block a later re-drop or picker selection of the same
+/// folder. So a discarded root keeps its session scope until exit — the
+/// same posture Tauri's built-in drop handler takes for the asset
+/// protocol — while its provenance is gone: it was never recorded, and a
+/// relaunch knows nothing of it.
+#[tauri::command]
+fn discard_dropped_roots(
+    state: tauri::State<PendingDrops>,
+    paths: Option<Vec<String>>,
+) -> Result<(), String> {
+    let mut pending = state.0.lock().map_err(|e| e.to_string())?;
+    match paths {
+        None => pending.clear(),
+        Some(named) => {
+            pending.retain(|dir| !named.iter().any(|path| same_path(dir, &PathBuf::from(path))))
+        }
+    }
+    Ok(())
+}
+
+/// `read_file_range` answers at most this many bytes — the probe's head
+/// and extent reads are small by contract, and a bounded reply keeps a
+/// compromised renderer from turning the command into a bulk reader.
+const READ_FILE_RANGE_MAX_BYTES: u64 = 4 * 1024 * 1024;
+
+/// A bounded window of one granted file's bytes — the metadata probe's
+/// head/extent reads for the share pipeline, never whole photographs.
+/// `start` is unsigned by construction: a negative or fractional JSON
+/// number fails deserialization and rejects before the body runs. The
+/// path gate is the fs scope itself — only a path under a picked or
+/// pending root is allowed, so a renderer-supplied path outside every
+/// grant rejects. Raw bytes over IPC: serde_json would carry the reply
+/// as a number array at four times the size.
+#[tauri::command]
+async fn read_file_range(
+    app: AppHandle,
+    path: String,
+    start: u64,
+    length: u64,
+) -> Result<tauri::ipc::Response, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        if length == 0 || length > READ_FILE_RANGE_MAX_BYTES {
+            return Err(format!(
+                "read_file_range length must stay within 1..={READ_FILE_RANGE_MAX_BYTES}"
+            ));
+        }
+        let target = PathBuf::from(&path);
+        if !app.fs_scope().is_allowed(&target) {
+            return Err("read_file_range path is outside the granted roots".to_string());
+        }
+        let mut file = std::fs::File::open(&target).map_err(|e| e.to_string())?;
+        file.seek(std::io::SeekFrom::Start(start))
+            .map_err(|e| e.to_string())?;
+        let mut buffer = Vec::new();
+        file.take(length)
+            .read_to_end(&mut buffer)
+            .map_err(|e| e.to_string())?;
+        Ok(tauri::ipc::Response::new(buffer))
+    })
+    .await
+    .map_err(|e| e.to_string())?
 }
 
 /// One in-flight loopback listener for Google's installed-app OAuth. Google
@@ -551,12 +734,16 @@ pub fn run() {
                 .build(),
         )
         .manage(LoopbackState(Mutex::new(None)))
+        .manage(PendingDrops(Mutex::new(Vec::new())))
         .invoke_handler(tauri::generate_handler![
             device_label,
             device_kind,
             device_id,
             pick_gallery_root,
             register_saved_gallery_roots,
+            commit_dropped_roots,
+            discard_dropped_roots,
+            read_file_range,
             oauth_loopback_begin,
             oauth_loopback_cancel,
             oauth_loopback_finish,
@@ -581,6 +768,17 @@ pub fn run() {
                 for url in urls {
                     let _ = app.emit("manorama://deep-link", url.to_string());
                 }
+            }
+            // Folder drag-and-drop → the page's manorama:// events plus the
+            // pending set the commit/discard commands look up. The listener
+            // is additive: Tauri's own tauri://drag-* emits keep firing.
+            if let Some(window) = app.get_webview_window("main") {
+                let app_handle = app.handle().clone();
+                window.on_webview_event(move |event| {
+                    if let tauri::WebviewEvent::DragDrop(drag) = event {
+                        handle_folder_drag(&app_handle, drag);
+                    }
+                });
             }
             Ok(())
         })

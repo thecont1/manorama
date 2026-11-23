@@ -162,6 +162,12 @@ final class AppModel {
                 Trace.log("seeding the folder")
                 self?.webViewRef?.evaluateJavaScript("window.__manoramaSeedRequested = true;")
             }
+            // `--seed-drop` replays a real drop through the same pipeline —
+            // pending scopes, the page's events, commit and discard all run.
+            if self?.bridge.hasSeededDrop == true {
+                Trace.log("seeding the drop")
+                self?.bridge.receiveSeededDrop()
+            }
         }
         coordinator.onPosition = { [weak self] index, _, total in
             Trace.log("position index=\(index) total=\(total)")
@@ -217,7 +223,9 @@ final class AppModel {
             }
         }
         folderStore.refreshAvailability()
-        grantedRoots.replace(folderStore.grantedRoots())
+        // The bridge owns the formula — store bookmarks plus any pending
+        // drop scopes — so a refresh can never clobber a drop mid-review.
+        bridge.rebuildGrantedRoots()
     }
 
     /// Reload the Library.

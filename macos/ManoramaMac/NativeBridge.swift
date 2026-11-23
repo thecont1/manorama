@@ -62,6 +62,28 @@ final class NativeBridge {
     private var seededPickPath: String?
     /// Whether this launch was seeded with `--seed-folder`.
     let hasSeededFolder: Bool
+    /// Whether this launch was seeded with `--seed-drop`.
+    let hasSeededDrop: Bool
+    /// The directories a `--seed-drop` run drops once the page is ready.
+    private var seededDropPaths: [String]?
+
+    /// A dropped directory held for the page's commit or discard. `url`
+    /// is the path the page names — the lookup key; `scoped` is the URL
+    /// the security scope was actually started on (the dragged URL for a
+    /// real drop, a bookmark-resolved one for a seeded path).
+    private struct PendingDrop {
+        let url: URL
+        let scoped: URL
+        /// Whether THIS scope was started here — balanced on release.
+        let started: Bool
+    }
+    /// Dropped directories awaiting commit — scoped for reading and
+    /// thumbnails but never bookmarked, so an abandoned sheet cannot
+    /// become a durable grant. Expires on its own after ten minutes.
+    private var pendingDrops: [PendingDrop] = []
+    private var pendingDropExpiry: DispatchWorkItem?
+    private static let pendingDropTTL: TimeInterval = 10 * 60
+    private static let maxPendingDrops = 50
 
     /// The cached picker-approved roots, and the lock that guards them.
     private var cachedRoots: [String]?
@@ -116,6 +138,19 @@ final class NativeBridge {
         self.configDir = resolved
         self.vaultRoot = resolved.appendingPathComponent(Self.vaultDirName, isDirectory: true)
         self.deviceLabel = Self.resolveDeviceLabel()
+
+        // `--seed-drop <a,b,c>` replays a folder drop once the page is
+        // ready — the same pending/commit pipeline a real drag runs,
+        // minus the AppKit callbacks. Initialised before the seed-folder
+        // block below, which calls an instance method and so needs every
+        // stored property settled first.
+        if let seeded = Self.seededDrop {
+            seededDropPaths = seeded
+            hasSeededDrop = true
+        } else {
+            seededDropPaths = nil
+            hasSeededDrop = false
+        }
 
         // `--seed-folder <path>` both answers the picker and tells the app
         // to add that folder at launch. Bookmark it immediately in the
@@ -178,6 +213,14 @@ final class NativeBridge {
         let arguments = CommandLine.arguments
         guard let index = arguments.firstIndex(of: "--seed-folder"), index + 1 < arguments.count else { return nil }
         return arguments[index + 1]
+    }
+
+    /// The folders a test run asks to be dropped, comma-separated.
+    static var seededDrop: [String]? {
+        let arguments = CommandLine.arguments
+        guard let index = arguments.firstIndex(of: "--seed-drop"), index + 1 < arguments.count else { return nil }
+        let paths = arguments[index + 1].split(separator: ",").map(String.init).filter { !$0.isEmpty }
+        return paths.isEmpty ? nil : paths
     }
 
     /// The app's private directory — the Tauri build's, so the two shells
@@ -316,6 +359,11 @@ final class NativeBridge {
         case "register_saved_gallery_roots":
             try registerSavedGalleryRoots()
             return nil
+        case "commit_dropped_roots":
+            return try commitDroppedRoots(args)
+        case "discard_dropped_roots":
+            try discardDroppedRoots(args)
+            return nil
 
         case "plugin:opener|open_url":
             guard let raw = args["url"] as? String,
@@ -390,6 +438,8 @@ final class NativeBridge {
             return try await readDir(args)
         case "plugin:fs|read_file":
             return try await readFile(args)
+        case "read_file_range":
+            return try await readFileRange(args)
 
         case "vault_read":
             let path = try vaultPath(args["path"] as? String ?? "")
@@ -655,8 +705,210 @@ final class NativeBridge {
         }
         // Only live, bookmark-resolved roots enter `grantedRoots` — a vanished
         // or unmounted directory in `roots.json` does not grant access.
-        grantedRoots.replace(folderStore.grantedRoots())
+        rebuildGrantedRoots()
         onRootsChanged?()
+    }
+
+    // MARK: - Drag-and-drop folder grants
+
+    /// The granted set is the store's bookmarks plus any pending drop
+    /// scopes — one formula, so a call site cannot refresh the committed
+    /// half and silently drop the pending one.
+    func rebuildGrantedRoots() {
+        grantedRoots.replace(folderStore.grantedRoots() + pendingDrops.map(\.scoped))
+    }
+
+    /// A file drag is hovering the window — counts only, nothing scoped.
+    func folderDragEnter(folders: Int, files: Int) {
+        emitFolderEvent("manorama://folder-drag-enter", ["folders": folders, "files": files])
+    }
+
+    func folderDragLeave() {
+        emitFolderEvent("manorama://folder-drag-leave", [:])
+    }
+
+    /// The drop itself: the previous uncommitted set goes first, then each
+    /// directory is scoped pending — never bookmarked, so nothing here can
+    /// become a durable grant by accident.
+    func receiveDrop(urls: [URL], files: Int) {
+        releaseAllPendingDrops()
+        var kept: [PendingDrop] = []
+        var seen = Set<String>()
+        for url in urls {
+            guard kept.count < Self.maxPendingDrops else { break }
+            guard let pending = pendingDrop(for: url) else { continue }
+            let key = pending.scoped.resolvingExistingSymlinksInPath().standardizedFileURL.path
+            guard !seen.contains(key) else {
+                release(pending)
+                continue
+            }
+            seen.insert(key)
+            kept.append(pending)
+        }
+        pendingDrops = kept
+        armPendingDropExpiry()
+        rebuildGrantedRoots()
+        emitFolderEvent("manorama://folders-dropped", [
+            "paths": kept.map { $0.url.path },
+            "files": files,
+        ])
+    }
+
+    /// `--seed-drop` replays the drop pipeline once the page is ready —
+    /// every step except the AppKit drag callbacks is the real one.
+    func receiveSeededDrop() {
+        guard let paths = seededDropPaths, !paths.isEmpty else { return }
+        seededDropPaths = nil
+        receiveDrop(urls: paths.map { URL(fileURLWithPath: $0) }, files: 0)
+    }
+
+    /// Scope one dragged URL for pending access, or nil when it is not a
+    /// usable directory. A real drag answers `resourceValues` inside the
+    /// drag promise; a seeded path may need its ephemeral bookmark before
+    /// the sandbox lets us even look.
+    private func pendingDrop(for url: URL) -> PendingDrop? {
+        let usable = Self.droppedDirectoryStatus(url)
+        if usable == false { return nil }
+        if usable == true, url.startAccessingSecurityScopedResource() {
+            return PendingDrop(url: url, scoped: url, started: true)
+        }
+        // Either the sandbox hid the metadata (a seeded path — no drag
+        // promise) or the dragged URL refused a direct scope. An ephemeral
+        // bookmark is the remaining way in; it lives in memory only and is
+        // never written to folders.json, so the pending set still cannot
+        // outlive its commit or discard.
+        var bookmarkStale = false
+        guard let bookmark = try? url.bookmarkData(options: [.withSecurityScope], includingResourceValuesForKeys: nil, relativeTo: nil),
+              let scoped = try? URL(resolvingBookmarkData: bookmark, options: [.withSecurityScope], relativeTo: nil, bookmarkDataIsStale: &bookmarkStale),
+              scoped.startAccessingSecurityScopedResource() else {
+            // A dragged directory whose scope simply would not start still
+            // gets a pending row — reads fail honestly as 'unreadable'.
+            return usable == true ? PendingDrop(url: url, scoped: url, started: false) : nil
+        }
+        guard Self.droppedDirectoryStatus(scoped) == true else {
+            scoped.stopAccessingSecurityScopedResource()
+            return nil
+        }
+        return PendingDrop(url: url, scoped: scoped, started: true)
+    }
+
+    /// Whether a dragged URL is a usable drop directory — a real directory,
+    /// not a package. Nil when the sandbox will not even answer metadata
+    /// (a path with no drag promise and no scope yet).
+    private static func droppedDirectoryStatus(_ url: URL) -> Bool? {
+        guard let values = try? url.resourceValues(forKeys: [.isDirectoryKey, .isPackageKey]),
+              let isDirectory = values.isDirectory else { return nil }
+        return isDirectory && values.isPackage != true
+    }
+
+    /// The page's Add: each named path that is still pending becomes a
+    /// real grant — the same `folderStore.add` + `recordGalleryRoot` a
+    /// picked folder takes — and leaves the pending set. Paths are lookup
+    /// keys only; anything not pending grants nothing.
+    private func commitDroppedRoots(_ args: [String: Any]) throws -> [String] {
+        guard let raw = args["paths"] as? [String] else {
+            throw BridgeError.badArguments("commit_dropped_roots needs paths")
+        }
+        let wanted = Set(raw.map { URL(fileURLWithPath: $0).standardizedFileURL.path })
+        var committed: [String] = []
+        var remaining: [PendingDrop] = []
+        for pending in pendingDrops {
+            guard wanted.contains(pending.url.standardizedFileURL.path) else {
+                remaining.append(pending)
+                continue
+            }
+            guard let entry = folderStore.add(folder: pending.url) else {
+                // Could not be bookmarked — leave it pending so the page's
+                // discard or the expiry collects the scope.
+                remaining.append(pending)
+                continue
+            }
+            _ = folderStore.startAccess(entry)
+            if pending.started { pending.scoped.stopAccessingSecurityScopedResource() }
+            // The grant is durable now — the same recordGalleryRoot a
+            // picked folder writes, roots.json included.
+            recordGalleryRoot(pending.url.path)
+            committed.append(pending.url.path)
+        }
+        pendingDrops = remaining
+        armPendingDropExpiry()
+        rebuildGrantedRoots()
+        return committed
+    }
+
+    /// Release pending scopes — the named ones, or all of them when the
+    /// page sends no `paths`. Roots already committed in FolderStore are
+    /// never touched: only the pending set lives here.
+    private func discardDroppedRoots(_ args: [String: Any]) throws {
+        if let raw = args["paths"] as? [String] {
+            let wanted = Set(raw.map { URL(fileURLWithPath: $0).standardizedFileURL.path })
+            for pending in pendingDrops where wanted.contains(pending.url.standardizedFileURL.path) {
+                release(pending)
+            }
+            pendingDrops.removeAll { wanted.contains($0.url.standardizedFileURL.path) }
+        } else {
+            releaseAllPendingDrops()
+        }
+        armPendingDropExpiry()
+        rebuildGrantedRoots()
+    }
+
+    private func release(_ pending: PendingDrop) {
+        if pending.started { pending.scoped.stopAccessingSecurityScopedResource() }
+    }
+
+    /// Stop every pending scope and empty the set — the shell's own
+    /// cleanup for a replaced drop, a discard-all, and expiry.
+    private func releaseAllPendingDrops() {
+        for pending in pendingDrops { release(pending) }
+        pendingDrops.removeAll()
+        pendingDropExpiry?.cancel()
+        pendingDropExpiry = nil
+    }
+
+    /// An abandoned sheet must not hold security scopes forever — the
+    /// pending set expires on its own after ten minutes.
+    private func armPendingDropExpiry() {
+        pendingDropExpiry?.cancel()
+        guard !pendingDrops.isEmpty else { pendingDropExpiry = nil; return }
+        let work = DispatchWorkItem { [weak self] in
+            MainActor.assumeIsolated { self?.expirePendingDrops() }
+        }
+        pendingDropExpiry = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + Self.pendingDropTTL, execute: work)
+    }
+
+    private func expirePendingDrops() {
+        Trace.log("pending drop scopes expired")
+        releaseAllPendingDrops()
+        rebuildGrantedRoots()
+    }
+
+    /// Folder-drag events reach the page through the same shell emitter
+    /// deep links use, with one addition: a seeded drop can land before
+    /// the page's listener mounts, so delivery retries until the page arms
+    /// `__manoramaFolderDropArmed` (set by the drop subscription) or the
+    /// retries run out.
+    private func emitFolderEvent(_ event: String, _ payload: [String: Any]) {
+        guard let webView,
+              let data = try? JSONSerialization.data(withJSONObject: payload),
+              let json = String(data: data, encoding: .utf8) else { return }
+        let script = """
+        (function(){
+          var payload = \(json);
+          var deliver = function(){
+            if (window.__manoramaFolderDropArmed === true && window.__manoramaShellEmit) {
+              window.__manoramaShellEmit("\(event)", payload);
+              return true;
+            }
+            return false;
+          };
+          if (deliver()) return;
+          var tries = 0;
+          var timer = setInterval(function(){ tries += 1; if (deliver() || tries > 40) clearInterval(timer); }, 250);
+        })();
+        """
+        webView.evaluateJavaScript(script, completionHandler: nil)
     }
 
     /// Open a granted root in Finder ("Open folder" on a gallery card).
@@ -826,7 +1078,7 @@ final class NativeBridge {
         }
         // The page scans the folder it has just picked, so the grant has to
         // be in place now — not when the shell's refresh lands.
-        grantedRoots.replace(folderStore.grantedRoots())
+        rebuildGrantedRoots()
         onRootsChanged?()
     }
 
@@ -899,6 +1151,29 @@ final class NativeBridge {
     private func readFile(_ args: [String: Any]) async throws -> [String: Any] {
         let url = try grantedPath(args)
         let data = try await offMain { try Data(contentsOf: url, options: [.mappedIfSafe]) }
+        return ["__bytes": data.base64EncodedString()]
+    }
+
+    /// A bounded window of a granted file — the embedded-metadata probe asks
+    /// for a few hundred KB at a time and must never pull whole photographs
+    /// into the webview. Reading past EOF answers with whatever is left,
+    /// possibly nothing.
+    private static let maxRangeBytes = 4 * 1024 * 1024
+
+    private func readFileRange(_ args: [String: Any]) async throws -> [String: Any] {
+        let url = try grantedPath(args)
+        guard let start = args["start"] as? Int, let length = args["length"] as? Int else {
+            throw BridgeError.badArguments("read_file_range needs start and length")
+        }
+        guard start >= 0, length > 0, length <= Self.maxRangeBytes else {
+            throw BridgeError.badArguments("read_file_range bounds are start >= 0 and 0 < length <= 4 MiB")
+        }
+        let data = try await offMain { () throws -> Data in
+            let handle = try FileHandle(forReadingFrom: url)
+            defer { try? handle.close() }
+            try handle.seek(toOffset: UInt64(start))
+            return handle.readData(ofLength: length)
+        }
         return ["__bytes": data.base64EncodedString()]
     }
 

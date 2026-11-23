@@ -153,6 +153,12 @@ export const visibleItemsFor = (record: LocalGalleryRecord): LocalGalleryItem[] 
   return record.items.filter((item) => !hidden.has(item.id))
 }
 
+/** The cover a Library card wears — the first visible item, or nothing for
+ *  an empty record. Shared so a preview (the drop sheet's rows) shows
+ *  precisely the frame the card will. */
+export const coverItemFor = (record: LocalGalleryRecord): LocalGalleryItem | undefined =>
+  visibleItemsFor(record)[0]
+
 export const serializeLocalCatalogue = (catalogue: LocalCatalogue): string =>
   JSON.stringify(catalogue)
 
