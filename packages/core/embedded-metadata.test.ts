@@ -729,18 +729,38 @@ describe('embedded metadata — HEIC', () => {
     expect(parseEmbeddedMetadata(bytes)?.camera).toBe('Canon EOS R5')
   })
 
-  test('a multi-extent item past the assembled-size ceiling is skipped', () => {
-    const { bytes } = heifFileItems([
+  test('a multi-extent item past the assembled-size ceiling is skipped', async () => {
+    const tags = exifTags()
+    const exif = concat(u32(4, false), tiff(true, tags.ifd0, tags.exif))
+    // A valid TIFF sits at the first extent's start, so the only thing
+    // disqualifying the item is its declared 2.2 MiB joined size — an
+    // empty fixture could never tell a ceiling skip from a parse miss.
+    const oversized = heifFileItems([
       {
         type: 'Exif',
+        payload: exif,
+        offset: 600 * 1024,
         extents: [
           { offset: 600 * 1024, length: 1500 * 1024 },
           { offset: 2200 * 1024, length: 700 * 1024 },
         ],
       },
     ])
-    // 2.2 MiB joined — over the per-item ceiling.
-    expect(parseEmbeddedMetadata(bytes)).toBeUndefined()
+    expect(parseEmbeddedMetadata(oversized.bytes)).toBeUndefined()
+    // The same item with extents under the ceiling queues as one read
+    // set, assembles in extent order, and parses.
+    const within = heifFileItems([
+      {
+        type: 'Exif',
+        payload: exif,
+        offset: 600 * 1024,
+        extents: [
+          { offset: 600 * 1024, length: 400 * 1024 },
+          { offset: 1100 * 1024, length: 300 * 1024 },
+        ],
+      },
+    ])
+    expect((await readEmbeddedMetadata(within.read))?.camera).toBe('Canon EOS R5')
   })
 
   test('ranged extents spend one shared budget — reads refuse once it is gone', async () => {

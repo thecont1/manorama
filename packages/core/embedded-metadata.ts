@@ -547,7 +547,17 @@ type Parts = { tiff?: Uint8Array; iptc?: Uint8Array; xmp?: string }
  *  fetch one metadata payload, `webtail` fetches a window of RIFF chunks
  *  to keep walking (`end` carries the declared RIFF end so the walk knows
  *  when the container is done). */
-type PendingItem = { offset: number; length: number; kind: 'exif' | 'xmp' | 'webtail'; end?: number }
+type PendingItem = {
+  offset: number
+  length: number
+  kind: 'exif' | 'xmp' | 'webtail' | 'pngtail' | 'pngpart' | 'heifext'
+  end?: number
+  /** What a queued payload decodes as — a PNG chunk fourcc for `pngpart`,
+   *  a HEIF item kind for `heifext`. */
+  type?: string
+  /** `heifext`: the item's extents, read and assembled in order. */
+  extents?: HeifExtent[]
+}
 type Analysis = { parts: Parts; incomplete: boolean; pending: PendingItem[]; iptcZtxt?: Uint8Array[] }
 
 const APP1_XMP = 'http://ns.adobe.com/xap/1.0/'
@@ -557,19 +567,20 @@ const jpegAnalysis = (b: Uint8Array): Analysis => {
   const parts: Parts = {}
   let pos = 2 // past FFD8
   let truncated = false
+  let done = false // SOS/EOI reached, or malformed bytes ended the walk
   while (pos + 4 <= b.length) {
     if (b[pos] !== 0xff) { pos += 1; continue }
     let marker = b[pos + 1]!
     // Fill bytes and standalone markers carry no length.
     while (marker === 0xff && pos + 2 < b.length) { pos += 1; marker = b[pos + 1]! }
     if (marker === 0x00 || marker === 0x01 || (marker >= 0xd0 && marker <= 0xd9)) {
-      if (marker === 0xda || marker === 0xd9) break // SOS / EOI
+      if (marker === 0xda || marker === 0xd9) { done = true; break } // SOS / EOI
       pos += 2
       continue
     }
-    if (marker === 0xda || marker === 0xd9) break
+    if (marker === 0xda || marker === 0xd9) { done = true; break }
     const segLen = u16be(b, pos + 2)
-    if (segLen < 2) break
+    if (segLen < 2) { done = true; break }
     const segStart = pos + 4
     const segEnd = pos + 2 + segLen
     if (segEnd > b.length) { truncated = true; break }
@@ -597,7 +608,10 @@ const jpegAnalysis = (b: Uint8Array): Analysis => {
     }
     pos = segEnd
   }
-  return { parts, incomplete: truncated, pending: [] }
+  // The window ran out between segments, before SOS/EOI — more header
+  // may follow, so the walk marks itself incomplete the same as a
+  // straddled segment does.
+  return { parts, incomplete: truncated || !done, pending: [] }
 }
 
 /** Walks 8BIM resources inside a Photoshop APP13 segment for resource
@@ -691,60 +705,123 @@ const inflateZlib = async (data: Uint8Array, limit: number): Promise<Uint8Array>
   return out
 }
 
+/** The window a PNG tail read fetches — enough for several text-chunk
+ *  headers and a straddling payload's next boundary. */
+const PNG_TAIL_BYTES = 8 * 1024
+
+/** Chunk types that can carry metadata — the ones worth a ranged read of
+ *  their own when they straddle a window. */
+const pngMetaType = (type: string) => type === 'eXIf' || type === 'iTXt' || type === 'tEXt' || type === 'zTXt'
+
+/** One complete PNG chunk's data, decoded the same whether it sat in the
+ *  head window, a fetched tail window, or its own ranged read. */
+const pngTakeChunk = (parts: Parts, iptcZtxt: Uint8Array[], type: string, d: Uint8Array) => {
+  if (type === 'eXIf') {
+    parts.tiff ??= d.slice()
+  } else if (type === 'iTXt') {
+    // Work inside the chunk's own bounds — a NUL hunt must never leak
+    // into the next chunk's bytes.
+    const keywordEnd = d.indexOf(0)
+    if (keywordEnd > 0 && keywordEnd < d.length) {
+      const keyword = latin1.decode(d.subarray(0, keywordEnd))
+      // iTXt: keyword NUL compressionFlag compressionMethod lang NUL
+      // translatedKeyword NUL text — XMP requires the uncompressed form.
+      if (keyword === 'XML:com.adobe.xmp' && d[keywordEnd + 1] === 0) {
+        const langEnd = d.indexOf(0, keywordEnd + 3)
+        if (langEnd >= 0 && langEnd < d.length) {
+          const transEnd = d.indexOf(0, langEnd + 1)
+          if (transEnd >= 0 && transEnd <= d.length) {
+            parts.xmp ??= utf8.decode(d.subarray(transEnd + 1))
+          }
+        }
+      }
+    }
+  } else if (type === 'tEXt' || type === 'zTXt') {
+    const keywordEnd = d.indexOf(0)
+    if (keywordEnd > 0 && keywordEnd < d.length) {
+      const keyword = latin1.decode(d.subarray(0, keywordEnd))
+      // Raw profile type iptc is the only PNG carrier for IPTC-IIM.
+      // tEXt decodes inline; zTXt inflate is async, so its bytes ride
+      // along for readEmbeddedMetadata to decompress.
+      if (keyword === 'Raw profile type iptc') {
+        if (type === 'tEXt') {
+          const profile = decodePngRawProfile(latin1.decode(d.subarray(keywordEnd + 1)))
+          const iptc = profile && iptcProfilePayload(profile)
+          if (iptc) parts.iptc ??= iptc
+        } else if (d[keywordEnd + 1] === 0) {
+          iptcZtxt.push(d.slice(keywordEnd + 2))
+        }
+      }
+    }
+  }
+}
+
 const pngAnalysis = (b: Uint8Array): Analysis => {
   const parts: Parts = {}
   const iptcZtxt: Uint8Array[] = []
+  const pending: PendingItem[] = []
   let pos = 8 // past the 8-byte signature
+  let done = false // IEND reached — nothing useful can follow
   while (pos + 12 <= b.length) {
     const length = u32be(b, pos)
     const type = String.fromCharCode(b[pos + 4]!, b[pos + 5]!, b[pos + 6]!, b[pos + 7]!)
     const dataStart = pos + 8
     const dataEnd = dataStart + length
-    if (dataEnd + 4 > b.length) break
-    if (type === 'IEND') break
-    if (type === 'eXIf') {
-      parts.tiff ??= b.slice(dataStart, dataEnd)
-    } else if (type === 'iTXt') {
-      // Work inside the chunk's own bounds — a NUL hunt must never leak
-      // into the next chunk's bytes.
-      const d = b.subarray(dataStart, dataEnd)
-      const keywordEnd = d.indexOf(0)
-      if (keywordEnd > 0 && keywordEnd < d.length) {
-        const keyword = latin1.decode(d.subarray(0, keywordEnd))
-        // iTXt: keyword NUL compressionFlag compressionMethod lang NUL
-        // translatedKeyword NUL text — XMP requires the uncompressed form.
-        if (keyword === 'XML:com.adobe.xmp' && d[keywordEnd + 1] === 0) {
-          const langEnd = d.indexOf(0, keywordEnd + 3)
-          if (langEnd >= 0 && langEnd < d.length) {
-            const transEnd = d.indexOf(0, langEnd + 1)
-            if (transEnd >= 0 && transEnd <= d.length) {
-              parts.xmp ??= utf8.decode(d.subarray(transEnd + 1))
-            }
-          }
-        }
+    if (dataEnd + 4 > b.length) {
+      // A chunk straddles the window — same move as the WebP walk: a
+      // straddling metadata payload gets a ranged read of its own, every
+      // chunk is skipped by its declared length, and the next header
+      // resumes as a tail window, so text chunks behind a long IDAT are
+      // still found.
+      if (pngMetaType(type) && length > 0 && length <= MAX_SCAN_BYTES) {
+        pending.push({ offset: dataStart, length, kind: 'pngpart', type })
       }
-    } else if (type === 'tEXt' || type === 'zTXt') {
-      const d = b.subarray(dataStart, dataEnd)
-      const keywordEnd = d.indexOf(0)
-      if (keywordEnd > 0 && keywordEnd < d.length) {
-        const keyword = latin1.decode(d.subarray(0, keywordEnd))
-        // Raw profile type iptc is the only PNG carrier for IPTC-IIM.
-        // tEXt decodes inline; zTXt inflate is async, so its bytes ride
-        // along for readEmbeddedMetadata to decompress.
-        if (keyword === 'Raw profile type iptc') {
-          if (type === 'tEXt') {
-            const profile = decodePngRawProfile(latin1.decode(d.subarray(keywordEnd + 1)))
-            const iptc = profile && iptcProfilePayload(profile)
-            if (iptc) parts.iptc ??= iptc
-          } else if (d[keywordEnd + 1] === 0) {
-            iptcZtxt.push(d.slice(keywordEnd + 2))
-          }
-        }
-      }
+      pos = dataEnd + 4
+      break
     }
+    if (type === 'IEND') { done = true; break }
+    pngTakeChunk(parts, iptcZtxt, type, b.subarray(dataStart, dataEnd))
     pos = dataEnd + 4 // + CRC
   }
-  return { parts, incomplete: false, pending: [], ...(iptcZtxt.length ? { iptcZtxt } : {}) }
+  // The walk ended without IEND — either a straddle moved pos to the next
+  // header or fewer than 12 bytes remain, and either way the walk resumes
+  // there with a small bounded read.
+  if (!done) pending.push({ offset: pos, length: PNG_TAIL_BYTES, kind: 'pngtail' })
+  return { parts, incomplete: false, pending, ...(iptcZtxt.length ? { iptcZtxt } : {}) }
+}
+
+/** The pngAnalysis walk continued over a window fetched at absolute
+ *  offset `base`: chunks inside it parse directly, a straddling metadata
+ *  payload becomes its own ranged read, and the boundary past the next
+ *  chunk header becomes the following tail window. */
+const pngTailAnalysis = (b: Uint8Array, base: number): Analysis => {
+  const parts: Parts = {}
+  const iptcZtxt: Uint8Array[] = []
+  const pending: PendingItem[] = []
+  let pos = 0
+  let done = false
+  while (pos + 12 <= b.length) {
+    const length = u32be(b, pos)
+    const type = String.fromCharCode(b[pos + 4]!, b[pos + 5]!, b[pos + 6]!, b[pos + 7]!)
+    const dataStart = pos + 8
+    const dataEnd = dataStart + length
+    if (dataEnd + 4 > b.length) {
+      if (pngMetaType(type) && length > 0 && length <= MAX_SCAN_BYTES) {
+        pending.push({ offset: base + dataStart, length, kind: 'pngpart', type })
+      }
+      pos = dataEnd + 4
+      break
+    }
+    if (type === 'IEND') { done = true; break }
+    pngTakeChunk(parts, iptcZtxt, type, b.subarray(dataStart, dataEnd))
+    pos = dataEnd + 4
+  }
+  // Requeue only when the window made progress — a read that parsed no
+  // chunk would just re-fetch itself forever.
+  if (!done && pos > 0) {
+    pending.push({ offset: base + pos, length: PNG_TAIL_BYTES, kind: 'pngtail' })
+  }
+  return { parts, incomplete: false, pending, ...(iptcZtxt.length ? { iptcZtxt } : {}) }
 }
 
 /** EXIF and XMP chunks decode the same whether they sit in the head
@@ -1045,12 +1122,21 @@ const heifAnalysis = (b: Uint8Array): Analysis => {
     // Metadata items are single contiguous extents in every real file;
     // an item only qualifies for a ranged read when it is exactly one.
     if (list.length !== 1) {
-      const inside = list.every((e) => e.offset >= 0 && e.offset + e.length <= b.length)
-      if (!inside) continue
       // Assemble once — per-extent concat is quadratic, and the joined
       // payload answers to the same ceiling every other item does.
       const total = list.reduce((n, e) => n + e.length, 0)
       if (total <= 0 || total > MAX_SCAN_BYTES) continue
+      const inside = list.every((e) => e.offset >= 0 && e.offset + e.length <= b.length)
+      if (!inside) {
+        // An extent sits past the head — the whole item queues as one
+        // read set so the decoder still sees the assembled payload in
+        // extent order, rather than dropping it for one out-of-window
+        // piece.
+        if (list.every((e) => e.offset >= 0)) {
+          pending.push({ offset: list[0]!.offset, length: total, kind: 'heifext', type: item.kind, extents: list })
+        }
+        continue
+      }
       const payload = new Uint8Array(total)
       let at = 0
       for (const e of list) {
@@ -1180,13 +1266,43 @@ export const readEmbeddedMetadata = async (read: RangeReader): Promise<ExifData 
       analysis = analyze(buffer)
     }
     const parts: (Parts | undefined)[] = [analysis.parts]
-    // HEIC items whose extents lie past the head get one ranged read each;
-    // WebP chunk walks resume as tail windows. A queued read that would
-    // overrun the budget reads what is left, and none start once it is gone.
+    const ztxt: Uint8Array[] = [...(analysis.iptcZtxt ?? [])]
+    // HEIC items whose extents lie past the head get ranged reads; WebP
+    // and PNG chunk walks resume as tail windows. A queued read that
+    // would overrun the budget reads what is left, and none start once
+    // it is gone.
     const queue = analysis.pending.slice()
     for (let i = 0; i < queue.length && budget > 0; i++) {
       const pending = queue[i]!
       try {
+        if (pending.kind === 'heifext') {
+          // A multi-extent item reads each piece in order and only
+          // decodes when every extent arrived whole — a partial assembly
+          // could feed the decoder shifted bytes that parse as lies.
+          const extents = pending.extents ?? []
+          const total = extents.reduce((n, e) => n + e.length, 0)
+          if (total <= 0 || total > MAX_SCAN_BYTES || total > budget) continue
+          const payload = new Uint8Array(total)
+          let at = 0
+          let whole = true
+          for (const e of extents) {
+            if (e.length <= 0) continue
+            const part = await read(e.offset, e.length)
+            budget -= part?.length ?? 0
+            if (part?.length !== e.length) { whole = false; break }
+            payload.set(part.subarray(0, e.length), at)
+            at += e.length
+          }
+          if (whole) {
+            if (pending.type === 'exif') {
+              const tiff = tiffFromExifPayload(payload)
+              if (tiff) parts.push({ tiff })
+            } else {
+              parts.push({ xmp: utf8.decode(payload) })
+            }
+          }
+          continue
+        }
         const want = Math.min(pending.length, (pending.end ?? Number.MAX_SAFE_INTEGER) - pending.offset, budget)
         if (want <= 0) break
         const payload = await read(pending.offset, want)
@@ -1196,6 +1312,17 @@ export const readEmbeddedMetadata = async (read: RangeReader): Promise<ExifData 
           const tail = webpTailAnalysis(payload, pending.offset, pending.end ?? 0)
           parts.push(tail.parts)
           queue.push(...tail.pending)
+        } else if (pending.kind === 'pngtail') {
+          const tail = pngTailAnalysis(payload, pending.offset)
+          parts.push(tail.parts)
+          ztxt.push(...(tail.iptcZtxt ?? []))
+          queue.push(...tail.pending)
+        } else if (pending.kind === 'pngpart') {
+          const got: Parts = {}
+          const z: Uint8Array[] = []
+          pngTakeChunk(got, z, pending.type ?? '', payload)
+          parts.push(got)
+          ztxt.push(...z)
         } else if (pending.kind === 'exif') {
           const tiff = tiffFromExifPayload(payload)
           if (tiff) parts.push({ tiff })
@@ -1206,7 +1333,7 @@ export const readEmbeddedMetadata = async (read: RangeReader): Promise<ExifData 
     }
     // PNG zTXt raw profiles decompress here — inflate is async, so the
     // sync parser never sees them (documented on parseEmbeddedMetadata).
-    for (const compressed of analysis.iptcZtxt ?? []) {
+    for (const compressed of ztxt) {
       try {
         const profile = decodePngRawProfile(latin1.decode(await inflateZlib(compressed, MAX_SCAN_BYTES)))
         const iptc = profile && iptcProfilePayload(profile)
