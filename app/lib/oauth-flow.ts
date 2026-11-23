@@ -238,14 +238,12 @@ export const providerAuthEntry = async (c: Context, provider: AuthProvider) => {
 
 const finishFailure = (c: Context) => c.redirect('/?error=1')
 
-/** The geo cf already computed for this request — country code and the
- *  edge datacenter's IATA code. Empty in vite dev; never stored raw IPs. */
+/** The geo cf already computed for this request — the country code only.
+ *  The edge datacenter code was dropped: it described the routing hop,
+ *  not the owner. Empty in vite dev; never stored raw IPs. */
 const requestGeo = (c: Context) => {
-  const cf = (c.req.raw as { cf?: { country?: unknown; colo?: unknown } }).cf
-  return {
-    country: (cf?.country ?? '').toString().toUpperCase(),
-    colo: (cf?.colo ?? '').toString().toUpperCase(),
-  }
+  const cf = (c.req.raw as { cf?: { country?: unknown } }).cf
+  return { country: (cf?.country ?? '').toString().toUpperCase() }
 }
 
 /** The sign-in tail shared by the OAuth callback and the pending-account
@@ -265,7 +263,7 @@ const completeSignIn = async (
   const onSigninHost = isSigninHost(requestUrl.hostname, env)
   const appOrigin = onSigninHost ? appOriginOf(env) : requestUrl.origin
   const geo = requestGeo(c)
-  await setLastSeenLocation(user.accountId, geo.country, geo.colo, env).catch(() => {})
+  await setLastSeenLocation(user.accountId, geo.country, env).catch(() => {})
   const token = await createSessionToken(user.accountId, secret)
   const cookieDomain = sessionCookieDomain(env)
   const cookieOpts = {
@@ -477,7 +475,7 @@ export const finishProviderAuth = async (
         throw error
       }
       const geo = requestGeo(c)
-      await setLastSeenLocation(flow.accountId!, geo.country, geo.colo, env).catch(() => {})
+      await setLastSeenLocation(flow.accountId!, geo.country, env).catch(() => {})
       return c.redirect(nativeLink ? `${linkCallback}?linked=${provider}` : webLanding(`/${linkSessionAccount!.ownerSlug}?linked=${provider}`))
     }
 

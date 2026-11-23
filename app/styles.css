@@ -1675,7 +1675,7 @@ body.magnifier-paused * { cursor: auto !important; }
    from the public gallery and never shares its controls with the photograph
    stage. */
 body:has(.ops-page) { overflow: auto; overflow-x: clip; background: #111312; }
-.ops-page { min-height: 100svh; width: min(1120px, calc(100% - 40px)); margin: 0 auto; padding: clamp(28px, 6vw, 76px) 0; color: rgb(var(--ink)); }
+.ops-page { min-height: 100svh; width: min(1240px, calc(100% - 40px)); margin: 0 auto; padding: clamp(28px, 6vw, 76px) 0; color: rgb(var(--ink)); }
 /* The brand mark is the first in-flow child of .ops-page on both the door
    and the console, so its box is set by the shared page geometry alone and
    lands at the same pixel on either surface. */
@@ -1686,12 +1686,45 @@ body:has(.ops-page) { overflow: auto; overflow-x: clip; background: #111312; }
 .ops-logo { margin: 0 0 26px; }
 .ops-logo .brand-mark-wrap { transform: translateX(-9.2%); }
 .ops-logo-mark { display: block; width: clamp(168px, 22vw, 240px); height: auto; }
-.ops-header { display: flex; justify-content: space-between; gap: 32px; align-items: flex-start; padding-bottom: 36px; border-bottom: 1px solid rgba(var(--ink), .16); }
+.ops-header { display: flex; justify-content: space-between; gap: 32px; align-items: flex-start; padding-bottom: 36px; }
 .ops-header h1 { max-width: 12ch; margin: 16px 0; font-family: 'Bricolage Grotesque', 'Manrope', ui-sans-serif, system-ui, sans-serif; font-size: clamp(42px, 7vw, 84px); font-weight: 700; letter-spacing: -.045em; line-height: 1; }
 .ops-intro { max-width: 62ch; color: rgba(var(--ink), .64); font-size: 13px; line-height: 1.7; }
 .ops-back { color: rgba(var(--ink), .74); font: inherit; font-size: 12px; }
 .ops-back { padding: 10px 14px; border: 1px solid rgba(var(--ink), .2); text-decoration: none; }
 .ops-status { min-height: 20px; margin: 20px 0; color: rgba(var(--ink), .58); font-family: 'DM Mono', ui-monospace, monospace; font-size: 11px; }
+.ops-status:empty { min-height: 0; margin: 0; }
+/* The account-overview strip: a ledger of member-account figures plus the
+   country chips that filter the table below. Same hairline language as the
+   accounts table — label above value, rules between cells, no tiles. */
+.ops-summary { margin-top: 24px; padding: 18px 22px; border: 1px solid rgba(var(--ink), .14); background: rgba(var(--ink), .035); }
+.ops-mini-label { font-family: 'DM Mono', ui-monospace, monospace; font-size: 9px; letter-spacing: .05em; text-transform: uppercase; color: rgba(var(--ink), .45); }
+.ops-stats { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); margin-top: 10px; }
+.ops-stat { min-width: 0; padding: 14px 18px 14px 0; }
+.ops-stat:nth-child(3n+2), .ops-stat:nth-child(3n) { padding-left: 18px; border-left: 1px solid rgba(var(--ink), .1); }
+.ops-stat:nth-child(n+4) { border-top: 1px solid rgba(var(--ink), .1); }
+.ops-stat dt { font-family: 'DM Mono', ui-monospace, monospace; font-size: 9px; letter-spacing: .05em; text-transform: uppercase; color: rgba(var(--ink), .45); }
+.ops-stat dd { display: flex; align-items: baseline; flex-wrap: wrap; gap: 4px 10px; margin: 6px 0 0; font-family: 'DM Mono', ui-monospace, monospace; font-size: 16px; font-weight: 500; color: rgb(var(--ink)); }
+.ops-stat-sub { font-size: 10px; font-weight: 400; color: rgba(var(--ink), .45); }
+.ops-stat-text { font-size: 11px; font-weight: 400; color: rgba(var(--ink), .72); }
+.ops-country-bar { display: flex; align-items: center; flex-wrap: wrap; gap: 8px 14px; margin-top: 14px; padding-top: 14px; border-top: 1px solid rgba(var(--ink), .1); }
+.ops-country-bar .ops-summary-note { margin-left: auto; }
+.ops-country-chips { display: flex; flex-wrap: wrap; gap: 8px; }
+.ops-country-chip { display: inline-flex; align-items: center; justify-content: center; min-height: 44px; padding: 5px 11px; border: 1px solid rgba(var(--ink), .2); border-radius: 999px; background: transparent; color: rgba(var(--ink), .72); font-family: 'DM Mono', ui-monospace, monospace; font-size: 10px; letter-spacing: .04em; text-transform: uppercase; cursor: pointer; }
+.ops-country-chip:hover, .ops-country-chip:focus-visible { border-color: rgba(var(--ink), .6); color: rgb(var(--ink)); }
+.ops-country-chip[aria-pressed='true'] { border-color: rgb(252, 15, 192); color: rgb(252, 15, 192); }
+.ops-chip-count { color: rgba(var(--ink), .45); }
+.ops-country-chip[aria-pressed='true'] .ops-chip-count { color: rgb(252, 15, 192); }
+.ops-summary-note { font-family: 'DM Mono', ui-monospace, monospace; font-size: 10px; color: rgba(var(--ink), .45); }
+/* Disclosure bars for the collapsible overview/table sections — they wear
+   the Library section-title look (lib-section-title): 32px/600 tight-tracked
+   sentence case, quiet bracketed count, whole bar toggles, no chevron. */
+.ops-collapse-bar { display: flex; align-items: baseline; justify-content: space-between; gap: 6px 24px; width: 100%; margin: 0 0 18px; padding: 4px 0; border: 0; background: none; text-align: left; cursor: pointer; font-family: inherit; font-size: 32px; font-weight: 600; letter-spacing: -.03em; color: rgb(var(--ink)); transition: opacity .15s ease; }
+.ops-collapse-bar:hover { opacity: .72; }
+.ops-collapse-bar:focus-visible { outline: 2px solid rgb(var(--ink)); outline-offset: 4px; }
+.ops-collapse-bar .ops-summary-note { font-size: 13px; font-weight: 400; color: rgba(var(--ink), .55); }
+.ops-collapse-count { color: rgba(var(--ink), .45); }
+.ops-cell-sub { display: block; margin-top: 3px; font-family: 'DM Mono', ui-monospace, monospace; font-size: 9px; color: rgba(var(--ink), .45); }
+.ops-cell-dim { color: rgba(var(--ink), .4); }
 .ops-section { margin-top: 28px; padding: clamp(20px, 4vw, 34px); border: 1px solid rgba(var(--ink), .14); background: rgba(var(--ink), .035); }
 .ops-section h2 { margin: 8px 0 0; font-family: 'Bricolage Grotesque', 'Manrope', ui-sans-serif, system-ui, sans-serif; font-size: clamp(22px, 3vw, 34px); font-weight: 700; letter-spacing: -.03em; }
 .ops-user-id, .ops-user-slug, .ops-master-label { color: rgba(var(--ink), .48); font-family: 'DM Mono', ui-monospace, monospace; font-size: 10px; }
@@ -1751,17 +1784,21 @@ body:has(.ops-page) { overflow: auto; overflow-x: clip; background: #111312; }
 .ops-table-grip:hover::after,
 .ops-table-grip:focus-visible::after { background: rgba(var(--ink), .5); }
 .ops-table-grip:focus-visible { outline: none; }
-.ops-table-wrap { width: 100%; margin-top: 24px; overflow-x: auto; border-top: 1px solid rgba(var(--ink), .12); }
-.ops-users-table { width: 100%; min-width: 980px; border-collapse: collapse; table-layout: fixed; font-size: 12px; }
+.ops-table-wrap { width: 100%; margin-top: 14px; overflow-x: auto; border-top: 1px solid rgba(var(--ink), .12); }
+.ops-users-table { width: 100%; min-width: 1150px; border-collapse: collapse; table-layout: fixed; font-size: 12px; }
 .ops-users-table th, .ops-users-table td { padding: 14px 12px; border-bottom: 1px solid rgba(var(--ink), .1); text-align: left; vertical-align: middle; }
 .ops-users-table td { white-space: nowrap; }
+.ops-users-table td.ops-cell-wrap { white-space: normal; }
 .ops-users-table thead th { padding-top: 11px; padding-bottom: 10px; color: rgba(var(--ink), .42); font-family: 'DM Mono', ui-monospace, monospace; font-size: 9px; font-weight: 400; letter-spacing: .05em; text-transform: uppercase; white-space: nowrap; }
-.ops-users-table thead th:nth-child(1) { width: 18%; }
-.ops-users-table thead th:nth-child(2), .ops-users-table thead th:nth-child(3), .ops-users-table thead th:nth-child(4) { width: 8%; }
-.ops-users-table thead th:nth-child(5) { width: 10%; }
-.ops-users-table thead th:nth-child(6), .ops-users-table thead th:nth-child(7) { width: 14%; }
-.ops-users-table thead th:nth-child(8) { width: 8%; }
-.ops-users-table thead th:nth-child(9) { width: 14%; }
+.ops-users-table thead th:nth-child(1) { width: 16%; }
+.ops-users-table thead th:nth-child(2) { width: 6%; }
+.ops-users-table thead th:nth-child(3) { width: 5%; }
+.ops-users-table thead th:nth-child(4) { width: 12%; }
+.ops-users-table thead th:nth-child(5) { width: 7%; }
+.ops-users-table thead th:nth-child(6) { width: 10%; }
+.ops-users-table thead th:nth-child(7), .ops-users-table thead th:nth-child(8), .ops-users-table thead th:nth-child(9) { width: 8%; }
+.ops-users-table thead th:nth-child(10) { width: 7%; }
+.ops-users-table thead th:nth-child(11) { width: 10%; }
 .ops-users-table tbody th { font-weight: 400; }
 .ops-sort { display: inline-flex; align-items: center; gap: 5px; margin: 0; padding: 0; border: 0; background: none; color: inherit; font: inherit; letter-spacing: inherit; text-transform: inherit; cursor: pointer; }
 .ops-sort:hover, .ops-sort:focus-visible { color: rgba(var(--ink), .8); }

@@ -49,8 +49,8 @@ describe('master operations API', () => {
     const api = createManoramaApi()
     const other = await seedTestUser({ accountId: 'acct_operator', displayName: 'Operator', email: 'operator@example.test' })
     const india = await seedTestUser({ accountId: 'acct_india', displayName: 'India User', email: 'india@example.test' })
-    await setLastSeenLocation(other.accountId, 'DE', undefined)
-    await setLastSeenLocation(india.accountId, 'IN', 'BOM')
+    await setLastSeenLocation(other.accountId, 'DE')
+    await setLastSeenLocation(india.accountId, 'IN')
     const headers = { Cookie: await sessionCookieFor(TEST_OWNER.accountId), 'Content-Type': 'application/json' }
 
     const grant = await api.request(`/api/admin/users/${other.accountId}/master`, {
@@ -63,10 +63,10 @@ describe('master operations API', () => {
     expect(users.slice(0, 2).every((user) => user.isMaster)).toBe(true)
 
     const filtered = await api.request('/api/admin/overview?country=IN', { headers }, env)
-    const filteredUsers = ((await filtered.json()) as { users: { users: { accountId: string; lastSeenCountry?: string; lastSeenColo?: string; lastSeenAt?: string }[]; total: number } }).users
+    const filteredUsers = ((await filtered.json()) as { users: { users: { accountId: string; lastSeenCountry?: string; lastSeenAt?: string }[]; total: number } }).users
     expect(filteredUsers.total).toBe(1)
     expect(filteredUsers.users[0]?.accountId).toBe(india.accountId)
-    expect(filteredUsers.users[0]?.lastSeenColo).toBe('BOM')
+    expect(filteredUsers.users[0]?.lastSeenCountry).toBe('IN')
     expect(filteredUsers.users[0]?.lastSeenAt).toBeTruthy()
 
     const revoke = await api.request(`/api/admin/users/${other.accountId}/master`, {
