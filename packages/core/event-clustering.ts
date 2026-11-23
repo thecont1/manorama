@@ -47,6 +47,68 @@ export type RawDumpStatus = {
   /** Epoch ms, or null when never indexed. */
   lastIndexedAt: number | null
   eventCount: number
+  authorization?: EventPhotosAuthorization
+  selectedPhotoCount?: number | null
+  downloadCloudOnOpen?: boolean
+}
+
+export type EventPhotosAuthorization = 'notDetermined' | 'denied' | 'restricted' | 'limited' | 'authorized'
+export type EventAssetState = 'ready' | 'cloudOnly' | 'downloading' | 'failed' | 'missing'
+export type EventAssetImage = { id: string; url: string | null; width: number; height: number; state: EventAssetState }
+export type EventAssetRequest = { ids: string[]; purpose: 'thumbnail' | 'viewer'; maxPixelSize?: number; allowNetwork?: boolean }
+export type EventAssetProgress = { id: string; fraction: number }
+export const MAX_EVENT_ASSET_BATCH = 64
+
+/** Opaque, not a filesystem grant. PHAsset identifiers contain slashes;
+ * relative-path platforms share this seam, so traversal and controls fail closed. */
+export const isEventAssetId = (value: unknown): value is string =>
+  typeof value === 'string' && value.length > 0 && value.length <= 4096
+  && !/[\u0000-\u001f\u007f\\\\:]/.test(value)
+  && !value.split('/').some((part) => !part || part === '.' || part === '..')
+
+export const isEventAssetRequest = (value: EventAssetRequest): boolean =>
+  Array.isArray(value.ids) && value.ids.length > 0 && value.ids.length <= MAX_EVENT_ASSET_BATCH
+  && value.ids.every(isEventAssetId) && new Set(value.ids).size === value.ids.length
+  && (value.purpose === 'thumbnail' || value.purpose === 'viewer')
+  && (value.maxPixelSize === undefined || (Number.isInteger(value.maxPixelSize) && value.maxPixelSize > 0 && value.maxPixelSize <= 8192))
+  && (value.allowNetwork === undefined || typeof value.allowNetwork === 'boolean')
+  && (value.allowNetwork !== true || (value.purpose === 'viewer' && value.ids.length === 1))
+
+/** Local URLs only. In particular encoded traversal cannot turn a reply
+ * into a read outside the shell-owned media directories. */
+export const isEventAssetFileUrl = (value: unknown): value is string => {
+  if (typeof value !== 'string' || value.length > 8192 || !value.startsWith('file:///')) return false
+  try {
+    const rawPath = decodeURIComponent(value.slice(7))
+    if (/[\u0000-\u001f\u007f\\\\?#]/.test(rawPath) || rawPath.split('/').some((part) => part === '.' || part === '..')) return false
+    const url = new URL(value)
+    return !url.host && !url.search && !url.hash
+      && (/\/Caches\/event-thumbs\/[0-9a-f]{64}\.jpg$/.test(rawPath)
+        || /\/event-originals\/[0-9a-f-]{36}\/[0-9a-f-]{36}\.[a-zA-Z0-9]+$/.test(rawPath))
+  } catch { return false }
+}
+
+export const parseEventAssetImages = (value: unknown, ids: readonly string[]): EventAssetImage[] | null => {
+  const body = asObject(value)
+  if (!body || !Array.isArray(body.items) || body.items.length !== ids.length || ids.length > MAX_EVENT_ASSET_BATCH) return null
+  const result: EventAssetImage[] = []
+  for (let index = 0; index < ids.length; index++) {
+    const item = asObject(body.items[index])
+    if (!item || item.id !== ids[index] || !isEventAssetId(item.id)
+      || !['ready', 'cloudOnly', 'downloading', 'failed', 'missing'].includes(String(item.state))
+      || !Number.isInteger(item.width) || !Number.isInteger(item.height)
+      || (item.width as number) < 0 || (item.height as number) < 0) return null
+    if (item.state === 'ready' ? (!isEventAssetFileUrl(item.url) || (item.width as number) <= 0 || (item.height as number) <= 0) : item.url !== null) return null
+    result.push(item as EventAssetImage)
+  }
+  return result
+}
+
+export const parseEventAssetProgress = (value: unknown): EventAssetProgress | null => {
+  const body = asObject(value)
+  return body && isEventAssetId(body.id) && typeof body.fraction === 'number'
+    && Number.isFinite(body.fraction) && body.fraction >= 0 && body.fraction <= 1
+    ? { id: body.id, fraction: body.fraction } : null
 }
 
 export type RawDumpScanResult = {
@@ -244,8 +306,15 @@ export const parseEventClusters = (value: unknown): EventCluster[] => {
 export const parseRawDumpStatus = (value: unknown): RawDumpStatus | null => {
   const body = asObject(value)
   if (!body) return null
-  if (body.configured !== true) return RAW_DUMP_NOT_CONFIGURED
+  const photos = ['notDetermined', 'denied', 'restricted', 'limited', 'authorized'].includes(String(body.authorization))
+    ? {
+        authorization: body.authorization as EventPhotosAuthorization,
+        selectedPhotoCount: typeof body.selectedPhotoCount === 'number' && Number.isInteger(body.selectedPhotoCount) && body.selectedPhotoCount >= 0 ? body.selectedPhotoCount : null,
+        downloadCloudOnOpen: body.downloadCloudOnOpen === true,
+      } : {}
+  if (body.configured !== true) return Object.keys(photos).length ? { ...RAW_DUMP_NOT_CONFIGURED, ...photos } : RAW_DUMP_NOT_CONFIGURED
   return {
+    ...photos,
     configured: true,
     label: asLabel(body.label),
     // Availability is only ever claimed for something configured. A reply

@@ -27,6 +27,8 @@
 		7E0C1A5B4F8D2C3E9A1B0018 /* DumpMetadataParser.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7E0C1A5B4F8D2C3E9A1B0017 /* DumpMetadataParser.swift */; };
 		7E0C1A5B4F8D2C3E9A1B0020 /* GeoMath.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7E0C1A5B4F8D2C3E9A1B0019 /* GeoMath.swift */; };
 		7E0C1A5B4F8D2C3E9A1B0022 /* SHA256Digest.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7E0C1A5B4F8D2C3E9A1B0021 /* SHA256Digest.swift */; };
+		E2C000000000000000000001 /* EventAssetImages.swift in Sources */ = {isa = PBXBuildFile; fileRef = E2C000000000000000000002; };
+		E2C000000000000000000003 /* EventAssetImagesTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = E2C000000000000000000004; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -52,6 +54,9 @@
 		7E0C1A5B4F8D2C3E9A1B0019 /* GeoMath.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GeoMath.swift; sourceTree = "<group>"; };
 		7E0C1A5B4F8D2C3E9A1B0021 /* SHA256Digest.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SHA256Digest.swift; sourceTree = "<group>"; };
 		958DCC722DB07C7200EA8C5F /* debug.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; name = debug.xcconfig; path = ../debug.xcconfig; sourceTree = SOURCE_ROOT; };
+		E2C000000000000000000002 = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EventAssetImages.swift; sourceTree = "<group>"; };
+		E2C000000000000000000004 = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EventAssetImagesTests.swift; sourceTree = "<group>"; };
+		E2C000000000000000000005 = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = EventAssetImagesTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -72,6 +77,7 @@
 				958DCC722DB07C7200EA8C5F /* debug.xcconfig */,
 				504EC3061FED79650016851F /* App */,
 				504EC3051FED79650016851F /* Products */,
+				E2C000000000000000000006 /* EventAssetImagesTests */,
 			);
 			sourceTree = "<group>";
 		};
@@ -79,6 +85,7 @@
 			isa = PBXGroup;
 			children = (
 				504EC3041FED79650016851F /* App.app */,
+				E2C000000000000000000005 /* EventAssetImagesTests.xctest */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -91,6 +98,7 @@
 				7C9D2E5A4F8B1C3D6E0A1B02 /* LocalGalleryPlugin.swift */,
 				7E0C1A5B4F8D2C3E9A1B0001 /* PhotoKitDumpScanner.swift */,
 				7E0C1A5B4F8D2C3E9A1B0003 /* EventClusteringPlugin.swift */,
+				E2C000000000000000000002 /* EventAssetImages.swift */,
 				7E0C1A5B4F8D2C3E9A1B0005 /* ManoramaEventClustering */,
 				50379B222058CBB4000EE86E /* capacitor.config.json */,
 				504EC3071FED79650016851F /* AppDelegate.swift */,
@@ -175,6 +183,7 @@
 			projectRoot = "";
 			targets = (
 				504EC3031FED79650016851F /* App */,
+				E2C000000000000000000010 /* EventAssetImagesTests */,
 			);
 		};
 /* End PBXProject section */
@@ -207,6 +216,7 @@
 				7C9D2E5A4F8B1C3D6E0A1B01 /* LocalGalleryPlugin.swift in Sources */,
 				7E0C1A5B4F8D2C3E9A1B0002 /* PhotoKitDumpScanner.swift in Sources */,
 				7E0C1A5B4F8D2C3E9A1B0004 /* EventClusteringPlugin.swift in Sources */,
+				E2C000000000000000000001 /* EventAssetImages.swift in Sources */,
 				7E0C1A5B4F8D2C3E9A1B0012 /* Models.swift in Sources */,
 				7E0C1A5B4F8D2C3E9A1B0014 /* EventClusterer.swift in Sources */,
 				7E0C1A5B4F8D2C3E9A1B0016 /* EventIndex.swift in Sources */,
@@ -432,6 +442,57 @@
 			productName = "CapApp-SPM";
 		};
 /* End XCSwiftPackageProductDependency section */
+		E2C000000000000000000006 = {isa = PBXGroup; children = (E2C000000000000000000004,); path = EventAssetImagesTests; sourceTree = "<group>"; };
+		E2C000000000000000000010 = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = E2C000000000000000000011;
+			buildPhases = (E2C000000000000000000012, E2C000000000000000000013,);
+			buildRules = ();
+			dependencies = (E2C000000000000000000014,);
+			name = EventAssetImagesTests;
+			productName = EventAssetImagesTests;
+			productReference = E2C000000000000000000005;
+			productType = "com.apple.product-type.bundle.unit-test";
+		};
+		E2C000000000000000000011 = {isa = XCConfigurationList; buildConfigurations = (E2C000000000000000000016, E2C000000000000000000017,); defaultConfigurationIsVisible = 0; defaultConfigurationName = Release; };
+		E2C000000000000000000012 = {isa = PBXSourcesBuildPhase; buildActionMask = 2147483647; files = (E2C000000000000000000003,); runOnlyForDeploymentPostprocessing = 0; };
+		E2C000000000000000000013 = {isa = PBXFrameworksBuildPhase; buildActionMask = 2147483647; files = (); runOnlyForDeploymentPostprocessing = 0; };
+		E2C000000000000000000014 = {isa = PBXTargetDependency; target = 504EC3031FED79650016851F; targetProxy = E2C000000000000000000015; };
+		E2C000000000000000000015 = {isa = PBXContainerItemProxy; containerPortal = 504EC2FC1FED79650016851F; proxyType = 1; remoteGlobalIDString = 504EC3031FED79650016851F; remoteInfo = App; };
+		E2C000000000000000000016 = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				CODE_SIGN_STYLE = Automatic;
+				DEVELOPMENT_TEAM = 373K7W3LKU;
+				GENERATE_INFOPLIST_FILE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				LD_RUNPATH_SEARCH_PATHS = ("$(inherited)", "@executable_path/Frameworks", "@loader_path/Frameworks",);
+				PRODUCT_BUNDLE_IDENTIFIER = in.thecontrarian.manorama.EventAssetImagesTests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/App.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/App";
+			};
+			name = Debug;
+		};
+		E2C000000000000000000017 = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				CODE_SIGN_STYLE = Automatic;
+				DEVELOPMENT_TEAM = 373K7W3LKU;
+				GENERATE_INFOPLIST_FILE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				LD_RUNPATH_SEARCH_PATHS = ("$(inherited)", "@executable_path/Frameworks", "@loader_path/Frameworks",);
+				PRODUCT_BUNDLE_IDENTIFIER = in.thecontrarian.manorama.EventAssetImagesTests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/App.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/App";
+			};
+			name = Release;
+		};
 	};
 	rootObject = 504EC2FC1FED79650016851F /* Project object */;
 }

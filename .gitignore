@@ -54,6 +54,7 @@ outputs/**/*.zip
 # Loose captures dropped at the top level are evidence, not content; curated
 # capture sets live in their own outputs/<name>/ subdirectories.
 outputs/*.png
+outputs/slice2-*
 
 # Capture output. The harnesses under .work/stocktake are tracked; the
 # screenshots they produce are evidence, not repository content.
