@@ -85,7 +85,7 @@ The native app is the same viewing experience, plus what a phone can do that a b
 
 The desktop app (macOS and Windows) is a local-first viewer for folders and memory cards on disk — it opens folders in place and never moves, copies, or renames a file. Sharing a local gallery to a public Manorama URL is an explicit, confirmed action — nothing leaves the machine otherwise.
 
-The Mac build is a sandboxed native app: folders are reached through a security-scoped grant that only the folder picker can create, and gallery keys live in the login Keychain rather than in browser storage.
+The Mac build is a sandboxed native app: folders are reached through a security-scoped grant that only the folder picker can create, and gallery keys live in the system Keychain — a shared access group on profiled builds, the login keychain on direct builds — rather than in browser storage.
 
 ## Plans
 

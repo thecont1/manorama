@@ -115,7 +115,7 @@
             "type": "array"
           },
           "quick": {
-            "description": "Quick-add create: a random three-word title replaces any submitted title",
+            "description": "Quick-add create: a random three-word title replaces any submitted title, and revisiting a link that already produced a gallery answers 200 {existing:true} instead of 409 so the request never logs a console error",
             "type": "boolean"
           },
           "url": {
@@ -568,6 +568,25 @@
         ],
         "type": "object"
       },
+      "GalleryDuplicateResponse": {
+        "additionalProperties": false,
+        "description": "A gallery created from the same source link already exists. Non-quick callers get this body as 409; quick-add callers get QuickAddDuplicateResponse as 200 instead.",
+        "properties": {
+          "error": {
+            "type": "string"
+          },
+          "gallery": {
+            "$ref": "#/components/schemas/Gallery"
+          },
+          "galleryUrl": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "error"
+        ],
+        "type": "object"
+      },
       "Image": {
         "properties": {
           "alt": {
@@ -653,6 +672,26 @@
         },
         "required": [
           "pinned"
+        ],
+        "type": "object"
+      },
+      "QuickAddDuplicateResponse": {
+        "additionalProperties": false,
+        "description": "Quick-add (quick: true) revisit of a link that already produced a gallery — answered 200 so the request never logs a console error",
+        "properties": {
+          "existing": {
+            "const": true,
+            "type": "boolean"
+          },
+          "gallery": {
+            "$ref": "#/components/schemas/Gallery"
+          },
+          "galleryUrl": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "existing"
         ],
         "type": "object"
       },
@@ -1084,6 +1123,16 @@
           "required": true
         },
         "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/QuickAddDuplicateResponse"
+                }
+              }
+            },
+            "description": "Quick-add revisit: a gallery from that link already exists"
+          },
           "201": {
             "content": {
               "application/json": {
@@ -1102,6 +1151,16 @@
           },
           "403": {
             "$ref": "#/components/responses/Forbidden"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GalleryDuplicateResponse"
+                }
+              }
+            },
+            "description": "A gallery from that link already exists"
           },
           "422": {
             "$ref": "#/components/responses/Unprocessable"

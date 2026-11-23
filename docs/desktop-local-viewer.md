@@ -33,8 +33,9 @@ macos/ManoramaMac/      SwiftUI shell — WKWebView + the native edge
                         command surface (plugin:fs|*, plugin:deep-link|*,
                         plugin:opener|*, plugin:http|*, plugin:event|*,
                         plugin:window|*, oauth_loopback_*, vault_*,
-                        pick/register gallery roots, share_post,
-                        read/write/delete_private_file, device_*)
+                        pick/register gallery roots, commit/discard dropped
+                        roots, share_post, read/write/delete_private_file,
+                        device_*)
   FolderStore.swift     one security-scoped bookmark per picked root;
                         folders.json under Application Support/<bundle id>, 0600
   LocalSchemeHandler.swift  serves the bundle and granted originals over
@@ -46,6 +47,7 @@ scripts/build-macos.sh  vite build → stage Resources/ViewerBundle → swiftc
                         → Developer ID codesign
 desktop/                vite SPA root (mirrors native/)
   lib/local-scan.ts     pure scan: image extensions, one subdir level, sort, cap
+  lib/folder-drop.ts    drop-side scan/classify/select/record logic, injected readDir
   lib/catalogue.ts      local catalogue model + the metadata-only sync projection
   lib/session.ts        PKCE, desktop auth URL, deep-link parse, exchange, token store
   lib/sync.ts           PUT /api/device-galleries/:id per record; quiet failures
@@ -54,7 +56,9 @@ desktop/                vite SPA root (mirrors native/)
   lib/providers/        UploadProvider interface + Dropbox/Drive OAuth+upload
                         (see docs/desktop-uploads.md)
   lib/tauri.ts          the only module with plugin imports — the UI's adapter
-  islands/Catalogue.tsx pick → grid → shared Viewer
+  islands/Catalogue.tsx pick → grid → shared Viewer; owns the drop events,
+                        veil and review sheet
+  islands/DropFoldersSheet.tsx  the multi-folder review sheet + DropVeil
 vite.config.desktop-shell.ts  Library bundle for the shell (dist → staged
                         into Resources/ViewerBundle)
 vite.config.desktop.ts  standalone client build (dist → src-tauri frontendDist)
@@ -89,9 +93,19 @@ are present.
 `build-macos.sh` codesigns the bundle with the Developer ID identity
 (`MACOS_SIGN_IDENTITY` overridable, `--options runtime --timestamp`) and
 passes `macos/ManoramaMac/ManoramaMac.entitlements`. The signature matters
-beyond Gatekeeper: an ad-hoc linker signature has no stable identity, so
-the login-Keychain key the vault uses would be inaccessible on the next
-launch.
+beyond Gatekeeper: key custody lives in two tiers. Profiled builds (the
+App Store entitlements, or a future Developer ID provisioning profile)
+carry `keychain-access-groups` and use the data-protection keychain under
+the shared group `373K7W3LKU.manorama.shared` — every team-signed build
+reads the same items with no prompt. This direct build is sandboxed and
+carries no profile, so the group cannot be validated — AMFI refuses the
+restricted entitlement at exec — and custody falls to the file-based
+login keychain, where each item trusts only the signature that wrote it:
+a foreign-signature item prompts once on first read, and "Always Allow"
+settles it for that signature permanently. `NativeBridge`'s get/set/remove
+degrade between the stores on their own — `keychainGet` reads the shared
+store first, then legacy; a legacy hit rewrites itself into whichever
+store answers; deletes sweep both.
 
 Notarisation is not wired yet. When it lands it submits
 `macos/ManoramaMac/build/manorama.app` to `xcrun notarytool` and staples the
@@ -99,13 +113,18 @@ ticket — the same notarytool/stapler/spctl flow the Tauri runbook below
 spells out.
 
 **App Sandbox is on.** The entitlements file enables
-`com.apple.security.app-sandbox` plus the four grants the app needs:
+`com.apple.security.app-sandbox` plus the grants the app needs:
 `network.client` (API + provider calls), `network.server` (the OAuth
-loopback), `files.user-selected.read-write` (the NSOpenPanel pick), and
+loopback), `files.user-selected.read-write` (the NSOpenPanel pick),
 `files.bookmarks.app-scope` — which is exactly why `FolderStore` persists
-picks as security-scoped bookmarks rather than plain paths. Adding an
-entitlement is a real capability decision, not a flag flip: no JIT, no
-unsigned dylibs, no DYLD means nothing else belongs in the file.
+picks as security-scoped bookmarks rather than plain paths.
+`keychain-access-groups` is deliberately NOT in this file: restricted
+entitlements on a sandboxed profile-less signature fail AMFI at exec —
+it lives in `ManoramaMac-AppStore.entitlements`, where the provisioning
+profile validates it, and graduates here only when a Developer ID
+profile carrying the group is embedded. Adding an entitlement is a
+real capability decision, not a flag flip: no JIT, no unsigned dylibs,
+no DYLD means nothing else belongs in the file.
 
 ## Scopes and storage
 
@@ -123,8 +142,8 @@ app-support directory, written atomically at mode 0600 by
 `write_private_file` (`write0600` in `NativeBridge.swift`, matching
 `src-tauri/src/private_store.rs`). `providers.json` holds the upload
 lane's refresh tokens (docs/desktop-uploads.md). **Upgrade path:** the
-login Keychain can replace `session.json` later without touching the
-catalogue or the exchange flow.
+Keychain that already holds the vault keys can replace `session.json`
+later without touching the catalogue or the exchange flow.
 
 ## Sign-in
 
@@ -151,6 +170,47 @@ to, and paste it into the app. Because the verifier lives in memory, a
 link pasted into a *restarted* app fails the exchange — start a fresh
 sign-in and re-paste.
 
+## Drag-and-drop add
+
+Dropping folders onto the Library window adds them as local galleries —
+the same scan, record and sync path the folder picker uses, with the
+security grant split in two so a cancelled review never becomes a
+permanent permission.
+
+`DropAwareWebView` (a `WKWebView` subclass in `ViewerWebView.swift`)
+claims `.fileURL` drags before WebKit can turn them into a navigation:
+loose files and packages are ignored, directories are counted for the
+hover veil. The shell then runs a two-phase grant:
+
+- **Pending** — `receiveDrop` scopes each directory
+  (`startAccessingSecurityScopedResource`, or an ephemeral in-memory
+  bookmark for paths with no drag promise, e.g. `--seed-drop`) and holds
+  it in `NativeBridge.pendingDrops`, *not* `FolderStore`. Pending roots
+  join `grantedRoots` through `rebuildGrantedRoots`, so `readDir` and the
+  sheet's cover thumbnails work while the review is open. The set expires
+  on its own after ten minutes.
+- **Committed** — the page's `commit_dropped_roots {paths}` runs
+  `folderStore.add` + `recordGalleryRoot` for each still-pending path,
+  exactly like `pickGalleryRoot`, and returns the paths actually
+  committed. `discard_dropped_roots {paths?}` stops the pending scopes
+  and never touches roots already in `FolderStore`.
+
+Three events carry the flow to the page, all through
+`__manoramaShellEmit`: `manorama://folder-drag-enter` (`{folders, files}`)
+shows the veil, `manorama://folder-drag-leave` clears it, and
+`manorama://folders-dropped` (`{paths, files}`) starts the add — one
+folder commits immediately through the same pipeline as `addFolder`,
+several open `DropFoldersSheet` for per-folder deselection. Page-supplied
+paths are lookup keys only; a path that is not pending grants nothing.
+
+`--seed-drop <a,b,c>` replays the whole pipeline once the page is ready —
+every step except the AppKit drag callbacks — for capture runs.
+
+The Tauri shell now implements the same contract in Rust (see the final
+section) — pending-grant at drop, commit/discard, and `read_file_range` —
+but it is untested on real Windows. On iPad drops remain absent: the
+events and commands simply never fire there.
+
 ## Deliberately absent
 
 - No ambient upload paths — `publicGallerySlug` is sent only by the
@@ -164,9 +224,11 @@ sign-in and re-paste.
   catalogue. The account's device list (`PUT /api/devices/:id`) records a
   random id and the generic kind only, and a build that still sends
   `deviceLabel` has it discarded.
-- No Windows work — `src-tauri/` remains for that path; deep-link
-  single-instance delivery and path handling differ there, so revisit when
-  the second platform lands.
+- No real-Windows verification — `src-tauri/` now implements the drop
+  surface in Rust (`handle_folder_drag`, the pending set, commit/discard,
+  `read_file_range`), checked with `cargo check` on macOS but never run
+  under Windows itself; deep-link single-instance delivery and path
+  handling still differ there, so revisit when the second platform lands.
 
 ## The Tauri path (dormant)
 
@@ -179,18 +241,38 @@ second platform.
 
 ```
 src-tauri/
-  src/lib.rs            register_gallery_root, OAuth loopback commands, plugin wiring
+  src/lib.rs            pick/register gallery roots, drag-drop → pending →
+                        commit/discard, read_file_range, OAuth loopback
+                        commands, plugin wiring
   src/private_store.rs  allowlisted JSON writes under the app config dir (0600)
   capabilities/         read-only fs (listing + file bytes in picked roots),
                         dialog open, deep-link, opener
 ```
 
 Under Tauri the filesystem grant is a runtime scope instead of a bookmark:
-`register_gallery_root` grants the picked root to the fs-plugin scope (for
+`pick_gallery_root` grants the picked root to the fs-plugin scope (for
 `readDir`/`exists`) and to the asset protocol scope (for `convertFileSrc`).
 Neither scope ever contains `**`, and the granted set resets every launch,
 so the catalogue re-registers every saved root on start — the behaviour
 `FolderStore` mirrors with bookmarks.
+
+Folder drop is wired too: `window.on_webview_event` matches
+`WebviewEvent::DragDrop` and re-emits the page's three
+`manorama://folder-*` events (Tauri's own `tauri://drag-*` emits keep
+firing in parallel — the page ignores them). A drop grants both scopes to
+each directory immediately — the review sheet's scan must not race its
+grant — and records the set in a managed `PendingDrops` state.
+`commit_dropped_roots` re-runs `allow_root` and appends each still-pending
+path to `roots.json`; `discard_dropped_roots` removes pending entries and
+never touches `roots.json`. The pending scope itself is not revoked on
+discard: Tauri scopes have no un-grant, `forbid_directory` is a permanent
+veto that would block a later re-drop or pick of the same folder, and the
+grant dies with the process anyway. `read_file_range` returns up to 4 MiB
+of one file's bytes over raw IPC, gated by `fs_scope().is_allowed` — the
+same pattern the fs plugin itself consults, so pending and committed
+roots both pass and anything merely named rejects. This surface compiles
+on macOS (`cargo check` clean) but has not been exercised on real
+Windows.
 
 ```sh
 bunx tauri dev              # vite dev server + unbundled app

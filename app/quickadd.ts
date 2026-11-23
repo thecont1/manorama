@@ -186,9 +186,10 @@ export const createGallery = async (sourceUrl: string, root: HTMLElement) => {
     error?: string
   }
 
-  // 201 created, or 409 "already exists" — both know where the gallery
-  // lives, and both should simply open it.
-  if ((response.status === 201 || response.status === 409) && payload.galleryUrl) {
+  // 201 created, 200 "already exists" (quick revisits answer 200 so the
+  // fetch never logs a console error), or a legacy 409 — all three know
+  // where the gallery lives, and all should simply open it.
+  if ((response.status === 201 || response.status === 200 || response.status === 409) && payload.galleryUrl) {
     // Clear the guard BEFORE leaving: this response is terminal and
     // successful, so the guard has done its job. Leaving it set would block
     // a later visit to the same quick-add URL in this tab and stop the 409

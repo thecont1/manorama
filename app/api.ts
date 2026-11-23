@@ -10,7 +10,7 @@ import { canonicalSourceMatches, detectSource, scanSource, UNRECOGNIZED_LINK_MES
 import { localSourcesEnabled, serveLocalMedia } from './lib/local-source'
 import { createGalleryWithinLimit, deleteGallery, getGallery, getStoredGallery, listGalleries, markGallerySourceChecked, setGalleryHidden, setGalleryPinned, setGalleryPositions, setGalleryRetained, swapGalleryRetention, toLibrarySummaries, toSummary, updateGalleryHidden, updateGalleryImages, updateGalleryMetadata, updateGalleryOrder, updateGalleryRecord, updateGallerySlug, type GalleryEnv, type GalleryRecord } from './lib/gallery-repository'
 import { assertGalleryEditable, FREE_RETAINED_LIMIT, GalleryPolicyError, isGalleryExpired, PAID_RETAINED_LIMIT, paidGalleryLimitError, pinLimitError, pipelineGalleryLimitError } from './lib/gallery-policy'
-import { createLinkHandoffToken, createSessionToken, requireMasterSession, requireSession, resolveManoramaSession, SESSION_COOKIE, type HonoSessionEnv, verifyNativeHandoffToken } from './lib/session'
+import { createLinkHandoffToken, createSessionToken, privateNoStore, requireMasterSession, requireSession, resolveManoramaSession, SESSION_COOKIE, type HonoSessionEnv, verifyNativeHandoffToken } from './lib/session'
 import { deleteAccount, getUserByAccountId, listUsersForAdmin, OwnerSlugError, setUserDisabled, setUserTier, updateOwnerSlug, getUserByOwnerSlug } from './lib/user-repository'
 import { configuredMasterAccountId, grantMasterAccount, isMasterAccountId, revokeMasterAccount } from './lib/master-accounts'
 import { ogCardResponse, ogItemKey } from './lib/og-card'
@@ -55,6 +55,17 @@ const envOf = (c: { env: unknown }) => c.env as RuntimeEnv
 /** The public address of a gallery. Quick-add redirects the visitor here
  *  the moment a create succeeds (or is found to already exist). */
 const galleryUrlFor = (ownerSlug: string, slug: string) => `/${ownerSlug}/${slug}`
+
+/** Every "this link already produced a gallery" exit shares one reply shape
+ *  so the sites cannot drift. Quick-add revisits answer 200 — a browser
+ *  logs any 4xx fetch as a console error even when the page handles it —
+ *  while every other caller keeps the 409 the dashboard flows rely on. */
+const duplicateGalleryReply = (quick: boolean | undefined, ownerSlug: string, gallery: GalleryRecord | undefined) => {
+  const found = gallery ? { gallery: toSummary(gallery), galleryUrl: galleryUrlFor(ownerSlug, gallery.slug) } : {}
+  return quick === true
+    ? { status: 200 as const, body: { existing: true as const, ...found } }
+    : { status: 409 as const, body: { error: 'A gallery from that link already exists', ...found } }
+}
 const dbEnv = (c: { env: unknown }) => c.env as GalleryEnv
 
 /** Identical in-flight requests for the same thumbnail share one upstream
@@ -275,7 +286,7 @@ export const createManoramaApi = () => {
   /** Exchanges the one-minute deep-link handoff for the normal seven-day
    * bearer session. The handoff is purpose-bound and never accepted as an API
    * bearer token itself. */
-  api.post('/api/auth/native/exchange', async (c) => {
+  api.post('/api/auth/native/exchange', bodyLimit({ maxSize: 8 * 1024 }), async (c) => {
     c.header('Cache-Control', 'no-store')
     const payload: unknown = await c.req.json().catch(() => null)
     const rawToken = payload !== null && typeof payload === 'object' ? (payload as Record<string, unknown>).handoffToken : undefined
@@ -482,11 +493,13 @@ export const createManoramaApi = () => {
       return c.json({ error: 'That account could not be deleted' }, 503)
     }
   })
-  api.use('/api/galleries', requireSession())
-  api.use('/api/galleries/*', requireSession())
-  api.use('/api/library', requireSession())
-  api.use('/api/account', requireSession())
-  api.use('/api/account/*', requireSession())
+  // Session-gated JSON is owner-private: it must declare a cache policy or a
+  // shared browser profile is free to reuse one account's answer for the next.
+  api.use('/api/galleries', privateNoStore, requireSession())
+  api.use('/api/galleries/*', privateNoStore, requireSession())
+  api.use('/api/library', privateNoStore, requireSession())
+  api.use('/api/account', privateNoStore, requireSession())
+  api.use('/api/account/*', privateNoStore, requireSession())
 
   /** Mints the one-minute link handoff a client browser needs to open
    * `/auth/{provider}?link={token}` — the in-app browser holds no manorama
@@ -650,7 +663,7 @@ export const createManoramaApi = () => {
     }
   })
 
-  api.post('/api/galleries/scan', async (c) => {
+  api.post('/api/galleries/scan', bodyLimit({ maxSize: 8 * 1024 }), async (c) => {
     const payload = await c.req.json<RequestBody>().catch((): RequestBody => ({}))
     if (!payload.url?.trim()) return c.json({ error: UNRECOGNIZED_LINK_MESSAGE }, 400)
     if (isEncryptedSourceUrl(payload.url)) return c.json({ code: 'CLIENT_SCAN_REQUIRED', error: 'Encrypted sources are scanned on your device, never by the server' }, 422)
@@ -678,11 +691,10 @@ export const createManoramaApi = () => {
       const galleries = await listGalleries(session.accountId, dbEnv(c))
       const existingBefore = galleries
         .find((item) => item.sourceUrl && canonicalSourceMatches(item.sourceUrl, sourceInput))
-      if (existingBefore) return c.json({
-        error: 'A gallery from that link already exists',
-        gallery: toSummary(existingBefore),
-        galleryUrl: galleryUrlFor(session.ownerSlug, existingBefore.slug),
-      }, 409)
+      if (existingBefore) {
+        const reply = duplicateGalleryReply(payload.quick, session.ownerSlug, existingBefore)
+        return c.json(reply.body, reply.status)
+      }
       // A pro account already at its retained-gallery ceiling is refused
       // before the provider scan — the listing, title and per-item probes
       // would all be spend on a request that can only fail. Free accounts
@@ -697,11 +709,10 @@ export const createManoramaApi = () => {
       const sourceUrlMatch = galleries.find((item) => item.sourceUrl === scan.sourceUrl)
       // A revisit to /<share-url> must reopen the gallery that link already
       // produced, so the 409 carries the existing gallery and its address.
-      if (sourceUrlMatch) return c.json({
-        error: 'A gallery from that link already exists',
-        gallery: toSummary(sourceUrlMatch),
-        galleryUrl: galleryUrlFor(session.ownerSlug, sourceUrlMatch.slug),
-      }, 409)
+      if (sourceUrlMatch) {
+        const reply = duplicateGalleryReply(payload.quick, session.ownerSlug, sourceUrlMatch)
+        return c.json(reply.body, reply.status)
+      }
       // Same admission as refresh: a budget-cut scan returns a partial
       // listing, and persisting it would drop source items the scan
       // never reached — so the create is refused and nothing is written.
@@ -770,10 +781,8 @@ export const createManoramaApi = () => {
           // Lost the race to a concurrent create of the same link — resolve
           // the winner so this caller still gets somewhere to go.
           const existing = (await listGalleries(session.accountId, dbEnv(c))).find((item) => item.sourceUrl === scan.sourceUrl)
-          return c.json({
-            error: 'A gallery from that link already exists',
-            ...(existing ? { gallery: toSummary(existing), galleryUrl: galleryUrlFor(session.ownerSlug, existing.slug) } : {}),
-          }, 409)
+          const reply = duplicateGalleryReply(payload.quick, session.ownerSlug, existing)
+          return c.json(reply.body, reply.status)
         }
         if (attempt > 50) return c.json({ error: 'That gallery could not be added' }, 422)
         slug = `${baseSlug}-${suffix}`
@@ -830,6 +839,7 @@ export const createManoramaApi = () => {
           caption: source.caption,
           date: source.date,
           sourceUrl: source.sourceUrl,
+          manifestVersion: source.manifestVersion,
           createdAt: new Date().toISOString(),
           images,
         }, dbEnv(c))

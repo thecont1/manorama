@@ -214,9 +214,15 @@ export const encryptedGalleryGate = (input: {
   viewerOwner: boolean
   keyRetiredAt?: string | null
   manifestVersion?: number
+  images?: readonly unknown[]
 }): { client: boolean; legacySourceUrl?: string } => {
+  // The item check is the belt to the version column's braces: a row whose
+  // items carry keyless media references can only ever render through the
+  // client path, whatever its manifestVersion says (an adopted copy once
+  // shipped as v1 and rendered placeholders forever — R3-01).
   const client = input.viewerOwner || Boolean(input.keyRetiredAt) ||
-    input.manifestVersion === ENCRYPTED_MANIFEST_VERSION
+    input.manifestVersion === ENCRYPTED_MANIFEST_VERSION ||
+    (input.images !== undefined && manifestIsEncryptedSource({ images: input.images }))
   return {
     client,
     ...(input.viewerOwner && input.sourceUrl.includes('#') && !input.keyRetiredAt ? { legacySourceUrl: input.sourceUrl } : {}),

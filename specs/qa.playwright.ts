@@ -473,13 +473,13 @@ for (const vp of viewports) {
       const settingsDialog = page.getByRole("dialog", { name: "Settings" });
       await expect(settingsDialog).toBeVisible();
       // The owner's management drills in one level: the view page's role
-      // slot is the Gallery settings row, and the panel lives on its page.
-      await settingsDialog.getByRole("button", { name: "Gallery settings", exact: true }).click();
+      // slot is the More Settings row, and the panel lives on its page.
+      await settingsDialog.getByRole("button", { name: "More Settings", exact: true }).click();
       await expect(
-        settingsDialog.getByRole("heading", { name: "Gallery settings" }),
+        settingsDialog.getByRole("heading", { name: "More Settings" }),
       ).toBeVisible();
       await expect(
-        settingsDialog.getByRole("button", { name: "Share link" }),
+        settingsDialog.locator(".m-actionrow").filter({ hasText: /^Name/ }),
       ).toBeVisible();
       await expect(
         settingsDialog.getByRole("button", { name: "Manage gallery" }),
@@ -2363,8 +2363,8 @@ test.describe("display and info sheets", () => {
     await showChrome(page);
     await page.getByRole("button", { name: "Gallery Settings", exact: true }).click();
     const dialog = page.getByRole("dialog", { name: "Settings" });
-    // Management rows live one level deep — the Gallery settings page.
-    await dialog.getByRole("button", { name: "Gallery settings", exact: true }).click();
+    // Management rows live one level deep — the More Settings page.
+    await dialog.getByRole("button", { name: "More Settings", exact: true }).click();
     // Typing inside an editor must not reach the viewer's shortcuts —
     // the "g" completes the name, it does not open the picker. The row's
     // accessible name carries its value, so locate the label inside it.
@@ -2505,7 +2505,7 @@ test("credentials queue: one check per flagged still, retry re-enqueues", async 
   await openInfoDialog(page);
   await expect(
     panel,
-  ).toContainText(/checking content credentials|verified|could not be checked/i, { timeout: 30000 });
+  ).toContainText(/checking content credentials|verified|could not be checked|no content credentials were found/i, { timeout: 30000 });
   await expect.poll(() => flaggedRequests - beforeFlag).toBe(1);
   await page.keyboard.press("Escape");
   await expect(dialog).not.toBeVisible();
@@ -2526,7 +2526,7 @@ test("credentials queue: one check per flagged still, retry re-enqueues", async 
   await goToFrame(0, "1");
   const beforeRetry = flaggedRequests;
   await openInfoDialog(page);
-  const retry = panel.getByRole("button", { name: /try again|verify on this device/i });
+  const retry = panel.getByRole("button", { name: /try again|check on this device/i });
   if (await retry.count()) {
     await retry.click();
     await expect.poll(() => flaggedRequests - beforeRetry, { timeout: 15000 }).toBe(1);
@@ -2612,7 +2612,7 @@ test("credentialed image validates through the browser reader", async ({
     // Credentialed frames auto-verify when the panel opens; the explicit
     // button only survives if auto-verification hasn't started yet.
     const verify = panel.getByRole("button", {
-      name: /verify on this device/i,
+      name: /check on this device/i,
     });
     if (await verify.count()) await verify.click();
     await expect(panel).toContainText(
@@ -2750,7 +2750,7 @@ test("admin gallery order is a draft until Save", async ({
   expect(writes).toEqual([]);
   await expect(items.nth(0)).toHaveAttribute("data-image-id", firstId!);
   await card.getByRole("button", { name: /actions$/i }).click();
-  await page.getByRole("button", { name: "Gallery settings", exact: true }).click();
+  await page.getByRole("button", { name: "Gallery Settings", exact: true }).click();
   const detailsSurface = page.locator(".m-sheet").last();
   await expect(detailsSurface).toBeVisible();
   await detailsSurface.locator(".m-actionrow").filter({ hasText: /^Reorder photographs/ }).click();
@@ -2759,7 +2759,9 @@ test("admin gallery order is a draft until Save", async ({
   const editCells = page.locator(".viewer-edit-cell");
   await expect(editCells.first()).toBeVisible({ timeout: 20000 });
   const save = page.getByRole("button", { name: "Save", exact: true });
-  await expect(save).toBeDisabled();
+  // The terminal slot reads Cancel while the draft is clean — Save only
+  // takes it over once a pick lands.
+  await expect(save).toHaveCount(0);
   await page.locator(`.viewer-edit-cell [data-image-id="${secondId}"]`).click();
   await page.locator(`.viewer-edit-cell [data-image-id="${firstId}"]`).click();
   expect(writes).toEqual([]);
@@ -2913,7 +2915,7 @@ test("a rail drag suppresses the photo link while a sub-threshold tap opens it",
   await page.waitForURL(new RegExp(`/${OWNER}/[^/]+$`), { timeout: 15000 });
 });
 
-test("admin gallery title and caption edit through Gallery settings and persist", async ({
+test("admin gallery title and caption edit through Gallery Settings and persist", async ({
   page,
 }) => {
   await page.goto(`${BASE}/${OWNER}`, { waitUntil: "domcontentloaded" });
@@ -2921,9 +2923,12 @@ test("admin gallery title and caption edit through Gallery settings and persist"
   const card = page.locator(".lib-card").first();
   // D1: cards carry no inline editing — the one path is the settings sheet.
   await card.getByRole("button", { name: /actions$/i }).click();
-  await page.getByRole("button", { name: "Gallery settings", exact: true }).click();
+  await page.getByRole("button", { name: "Gallery Settings", exact: true }).click();
   const details = page.locator(".m-sheet").last();
   await expect(details).toBeVisible();
+  // Name and Caption live on the rest layer, one drill behind the quick
+  // actions the sheet opens on.
+  await details.getByRole("button", { name: "More Settings", exact: true }).click();
   await details.locator(".m-actionrow").filter({ hasText: /^Name/ }).click();
   const titleInput = page.getByRole("textbox", { name: "Name" });
   await titleInput.fill("Italy, seen slowly");
@@ -2943,16 +2948,17 @@ test("admin gallery title and caption edit through Gallery settings and persist"
   );
 });
 
-test("admin gallery address edits through Gallery settings and persists the public address", async ({
+test("admin gallery address edits through Gallery Settings and persists the public address", async ({
   page,
 }) => {
   await page.goto(`${BASE}/${OWNER}`, { waitUntil: "domcontentloaded" });
   await expect(page.locator('[data-admin-ready="true"]')).toBeVisible({ timeout: 20000 });
   const card = page.locator(".lib-card").first();
   await card.getByRole("button", { name: /actions$/i }).click();
-  await page.getByRole("button", { name: "Gallery settings", exact: true }).click();
+  await page.getByRole("button", { name: "Gallery Settings", exact: true }).click();
   const details = page.locator(".m-sheet").last();
   await expect(details).toBeVisible();
+  await details.getByRole("button", { name: "More Settings", exact: true }).click();
   await details.locator(".m-actionrow").filter({ hasText: /^Address/ }).click();
   const slugInput = page.getByRole("textbox", { name: "Address" });
   const nextSlug = `italy-reframed-${Date.now()}`;
@@ -3733,22 +3739,27 @@ test.describe("retention policy", () => {
     // The retention disclosure lives in Settings › Allowance.
     await page.getByRole("button", { name: "Settings", exact: true }).click();
     await expect(page.locator(".web-settings").getByText(/Free accounts retain up to 3 permanent galleries plus 96 temporary/)).toBeVisible();
-    await page.locator(".web-settings").getByRole("button", { name: "Back", exact: true }).click();
+    await page.locator(".web-settings").getByRole("button", { name: "Back to the library", exact: true }).click();
     const card = page.locator('[data-gallery-card="ui-d"]');
     await expect(card.locator(".lib-card-sub")).toContainText("Temporary gallery");
     // Locked galleries keep management but lose mutation: Reorder is
     // disabled, removal stays armed, and the upgrade path lives in the
     // gallery's own settings sheet.
     await card.locator(".lib-card-menu").click();
-    await page.getByRole("button", { name: "Gallery settings", exact: true }).click();
+    await page.getByRole("button", { name: "Gallery Settings", exact: true }).click();
     const lockedDetails = page.locator(".m-sheet").last();
     await expect(lockedDetails.locator(".m-actionrow").filter({ hasText: /^Reorder photographs/ })).toBeDisabled();
+    // Reorder is a quick action; removal lives behind More Settings.
+    await lockedDetails.getByRole("button", { name: "More Settings", exact: true }).click();
     await expect(lockedDetails.locator(".m-actionrow").filter({ hasText: /^Remove from Library/ })).toBeEnabled();
     await expect(lockedDetails.getByRole("link", { name: "Upgrade", exact: true })).toHaveAttribute("href", /^mailto:/);
     await lockedDetails.getByRole("button", { name: "Close", exact: true }).click();
+    // From the drilled layer, one dismissal only steps back — Escape again
+    // leaves the sheet entirely before the next card's menu can be hit.
+    await page.keyboard.press("Escape");
     const freeCard = page.locator('[data-gallery-card="ui-a"]');
     await freeCard.locator(".lib-card-menu").click();
-    await page.getByRole("button", { name: "Gallery settings", exact: true }).click();
+    await page.getByRole("button", { name: "Gallery Settings", exact: true }).click();
     const freeDetails = page.locator(".m-sheet").last();
     await expect(freeDetails.locator(".m-actionrow").filter({ hasText: /^Reorder photographs/ })).toBeEnabled();
     await page.keyboard.press("Escape");

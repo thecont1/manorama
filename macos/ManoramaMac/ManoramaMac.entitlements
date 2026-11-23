@@ -23,5 +23,12 @@
 	     survives relaunches without re-prompting. -->
 	<key>com.apple.security.files.bookmarks.app-scope</key>
 	<true/>
+
+	<!-- Shared vault custody: gallery keys and the device id live in the
+	     data-protection keychain under this group, so every build signed
+	     by the team — Developer ID, App Store, or a re-signed test
+	     bundle — reads them without a per-item OS prompt. The name is
+	     deliberately not derived from the bundle id: this same file
+	     signs test bundles whose CFBundleIdentifier differs. -->
 </dict>
 </plist>

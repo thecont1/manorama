@@ -1,5 +1,46 @@
 # macOS evidence notes
 
+## Fresh six-state matrix — 23 November 2026
+
+The `01`–`06` matrix in this folder and `light/` was regenerated on
+23 November 2026 for the 256 CSS-pixel artwork revision — this set, not the
+20 November matrix below, is the current visual evidence. All twelve PNGs are
+2880×1800, captured from a 1440×900 logical window with
+`screencapture -x -o -l <windowID>` against the real `manorama` Library window
+(the app owns auxiliary windows — full-width 33pt strips and a 500×500 scene —
+so the capture window is selected by name and exact geometry, not by size
+ordering). Dark states `02`–`06` were captured live; the Light set recaptures
+`02`/`03`/`04`/`06` with the per-gallery Canvas preference set to `light`
+before the viewer mounts, and reuses byte-copies of `01` and `05`, which are
+palette-independent surfaces.
+
+The app is the distinct `in.thecontrarian.manorama.galleryground.resume`
+bundle built through `scripts/build-macos.sh` into
+`.work/gallery-ground-integration/macos-resume-build/` on the same morning
+(binary and staged ViewerBundle stamped 08:03). `--store` and `--config` point
+at isolated container storage seeded with the owner-authorized session
+fixture and `device.json`; token contents were never read or displayed. The
+owner's Italy originals were cloned into the app's own container and granted
+through the supported `--seed-folder` mechanism — the same native grant a
+user-picked folder receives; no protected-file CLI cloning or shell
+workaround was used. The `--seed-folder` add runs on every launch, so the
+local record's id churns while the rescan lands — the capture probe waits for
+the `italy` card's `data-gallery-card` id to hold steady before clicking.
+
+Each state launch uses `open -n <app> --args …` — LaunchServices activation.
+A bare exec of the binary leaves the instance unactivated and the window
+server miniaturizes the Library window mid-run (observed collapsing to a
+~128×143 Dock frame while still listed by `CGWindowListCopyWindowInfo`),
+which is why earlier probe attempts intermittently reported "no window".
+The matching iPhone (`demo-captures/ios/`, iPhone 13 Pro Max, 1284×2778) and
+iPad (`demo-captures/ipad/`, iPad Pro 13-inch landscape, 2752×2064) matrices
+were regenerated the same morning through `scripts/capture-screens.sh`:
+dark sets from freshly built native bundles, light sets with
+`CAPTURE_BACKGROUND=light --skip-build`. The isolated app, simulators and
+capture helper were stopped after capture. The installed application,
+original session/catalogue and original photographs were not modified.
+Historical evidence `07`–`11` is preserved below and untouched.
+
 ## Density revision — 21 November 2026
 
 The owner selected a 256 CSS-pixel repeat of the unchanged 1024-unit vector

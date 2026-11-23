@@ -135,6 +135,27 @@ describe('createGallery limit handling', () => {
   })
 })
 
+describe('createGallery duplicate responses', () => {
+  test('a quick duplicate answered 200 {existing:true} opens the existing gallery', async () => {
+    // Quick revisits answer 200 so the fetch never logs a console error —
+    // the client treats it exactly like the legacy 409: clear the guard,
+    // then replace to the gallery.
+    const stub = stubBrowser(async () => new Response(JSON.stringify({
+      existing: true,
+      galleryUrl: '/test-owner/already-there',
+      gallery: { slug: 'already-there' },
+    }), { status: 200, headers: { 'Content-Type': 'application/json' } }))
+    const root = { dataset: {} } as HTMLElement
+    try {
+      await createGallery('https://dropbox.com/sh/example/folder', root)
+      expect(stub.navigated).toEqual(['/test-owner/already-there'])
+      expect(stub.store.has('manorama:quickadd-attempt')).toBe(false)
+    } finally {
+      stub.restore()
+    }
+  })
+})
+
 describe('reconstructSourceUrl', () => {
   test('carries the fragment the server never saw — the whole point', () => {
     // A MEGA key lives after '#'; browsers never transmit it.

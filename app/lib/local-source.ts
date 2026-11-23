@@ -1,5 +1,6 @@
 import { fileURLToPath, pathToFileURL } from 'node:url'
 import { probeImageDimensions } from './image-dims'
+import { readEmbeddedMetadata } from '../../packages/core/embedded-metadata'
 import { MAX_GALLERY_ITEMS, type GalleryMediaItem } from './imagesource'
 
 /**
@@ -158,8 +159,14 @@ const scanLocalFile = async (dir: string, name: string): Promise<GalleryMediaIte
   try {
     if (IMAGE_EXTENSIONS.has(ext)) {
       const dims = probeImageDimensions(await readAt(fs, filePath, 0, IMAGE_HEAD_BYTES))
-      // Undimensionable files can't be laid out — same bar as the providers.
-      if (!dims) return null
+      // Undimensionable files can't be laid out — same bar as the
+      // providers. A zero or missing axis is just as unusable: there is
+      // no honest box to reserve.
+      if (!dims || !(dims.width > 0) || !(dims.height > 0)) return null
+      // Embedded IPTC/XMP rides into the manifest's existing `exif` slot —
+      // read-only, never persisted anywhere else, and a parse failure just
+      // means the item carries no extra rows.
+      const exif = await readEmbeddedMetadata((start, length) => readAt(fs, filePath, start, length))
       return {
         id: name,
         filename: name,
@@ -172,6 +179,7 @@ const scanLocalFile = async (dir: string, name: string): Promise<GalleryMediaIte
         thumbnailFidelity: 'display-derivative',
         placeholder: placeholderFor(dims.width, dims.height),
         variants: [{ width: 256, src: `${localFileUrl(filePath)}&w=256`, format: 'webp' }],
+        ...(exif ? { exif } : {}),
       }
     }
     const dims = await probeMp4Dimensions(fs, filePath)

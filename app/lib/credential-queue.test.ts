@@ -56,6 +56,12 @@ describe('credential-queue', () => {
     expect(await q.enqueue('b')).toBe('verified')
   })
 
+  test('a none verdict is a settled result, not a failure', async () => {
+    const q = createCredentialQueue(() => Promise.resolve('none' as const))
+    expect(await q.enqueue('a')).toBe('none')
+    expect(q.statusOf('a')).toBe('none')
+  })
+
   test('retry after failure re-enqueues', async () => {
     let calls = 0
     const q = createCredentialQueue(() => { calls += 1; return calls === 1 ? Promise.reject(new Error('x')) : Promise.resolve('verified' as const) })

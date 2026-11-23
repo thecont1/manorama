@@ -111,7 +111,7 @@ export default createRoute(async (c) => {
 
   const gate = encryptedGalleryGate({
     sourceUrl: gallery.sourceUrl ?? '', viewerOwner: viewerRole === 'owner', keyRetiredAt: gallery.keyRetiredAt,
-    manifestVersion: gallery.manifestVersion,
+    manifestVersion: gallery.manifestVersion, images: gallery.images,
   })
   const clientGate = encrypted && gallery.id && gate.client
   const legacySourceUrl = gate.legacySourceUrl

@@ -84,4 +84,18 @@ describe('probeImageDimensions', () => {
     expect(probeImageDimensions(new Uint8Array(64))).toBeNull()
     expect(probeImageDimensions(new TextEncoder().encode('PK\x03\x04 not an image'))).toBeNull()
   })
+  test('a GIF header with a zero extent is not a dimension', () => {
+    // GIF89a + 0×0 used to return {width:0,height:0} — truthy — and slip
+    // into manifests through the ?? chain's first match.
+    expect(probeImageDimensions(gif(0, 0))).toBeNull()
+  })
+  test('a PNG IHDR with zero width is not a dimension', () => {
+    expect(probeImageDimensions(png(0, 1080))).toBeNull()
+  })
+  test('a JPEG SOF with zero height is not a dimension', () => {
+    expect(probeImageDimensions(jpeg(5712, 0))).toBeNull()
+  })
+  test('a valid header still parses', () => {
+    expect(probeImageDimensions(gif(320, 200))).toEqual({ width: 320, height: 200 })
+  })
 })

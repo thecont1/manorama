@@ -25,12 +25,26 @@ import {
   probeAvailability,
   serializeLocalCatalogue,
   UUID_PATTERN,
+  coverItemFor,
   visibleItemsFor,
   type GalleryAvailability,
   type LocalCatalogue,
   type LocalGalleryRecord,
 } from '../lib/catalogue'
-import { assetUrl, isDesktopRuntime, pathExists, pickGalleryFolder, readDirEntries, readFileBytes, registerSavedGalleryRoots, revealGalleryRoot, sharePost } from '../lib/tauri'
+import {
+  buildLocalRecord,
+  dedupeDroppedPaths,
+  existingRootMap,
+  findExistingRecord,
+  normalizeRootPath,
+  recordForCandidate,
+  scanDroppedFolders,
+  selectAllSelection,
+  toggleSelection,
+  type DroppedFolderCandidate,
+} from '../lib/folder-drop'
+import { assetUrl, commitDroppedRoots, discardDroppedRoots, isDesktopRuntime, onFolderDrop, pathExists, pickGalleryFolder, readDirEntries, readFileBytes, readFileRange, registerSavedGalleryRoots, revealGalleryRoot, sharePost } from '../lib/tauri'
+import { readEmbeddedMetadata } from '../../packages/core/embedded-metadata'
 import { invoke } from '@tauri-apps/api/core'
 import { removeDeviceGallery, syncDeviceGalleries } from '../lib/sync'
 import { copyText } from '../../app/lib/gallery-share'
@@ -55,6 +69,7 @@ import { SIGN_IN_PROVIDERS } from '../../app/lib/signin'
 import { desktopScreen, showPasteFallback } from '../lib/welcome'
 import ShareFlow from './ShareFlow'
 import LocalGalleryDetails from './LocalGalleryDetails'
+import { DropFoldersSheet, DropVeil } from './DropFoldersSheet'
 import { Sheet } from '../../app/components/ui/Sheet'
 import { QuietIcon, SettingsIcon, LinkIcon, SourceIcon } from '../../app/components/admin-icons'
 import { syncQuietFade } from '../../app/components/library/quiet'
@@ -565,7 +580,7 @@ export default function Catalogue({ apiBase }: { apiBase: string }) {
   useEffect(() => { shellPost({ type: 'ready' }) }, [])
 
   // The encrypted on-device vault: galleries whose bytes already live in the
-  // login-Keychain-locked store, the owner's load policy, and the per-gallery
+  // Keychain-locked store, the owner's load policy, and the per-gallery
   // stream-only overrides — the same three surfaces the iOS app carries.
   const [savedGalleries, setSavedGalleries] = useState<OfflineGallerySummary[]>([])
   // Grid entries mint the section's covers from vault thumbnails — object
@@ -655,6 +670,32 @@ export default function Catalogue({ apiBase }: { apiBase: string }) {
   const [detailsId, setDetailsId] = useState<string | null>(() => new URLSearchParams(window.location.search).get('details'))
   const [cardMenu, setCardMenu] = useState<CardMenu | null>(null)
   const cardMenuTrigger = useRef<HTMLButtonElement | null>(null)
+  // Drag-and-drop folder add — the shell scopes dropped directories into a
+  // pending set before the page sees a path; the sheet commits or discards
+  // it. `dropVeil` is the hover affordance (the folder count, or null),
+  // `dropSheet` the open review, `dropCandidates` the resolved rows.
+  const [dropVeil, setDropVeil] = useState<number | null>(null)
+  const [dropSheet, setDropSheet] = useState<{ paths: string[] } | null>(null)
+  const [dropCandidates, setDropCandidates] = useState<DroppedFolderCandidate[]>([])
+  const [dropSelected, setDropSelected] = useState<ReadonlySet<string>>(new Set())
+  const [dropCommitting, setDropCommitting] = useState(false)
+  // The drop subscription is mount-stable, so everything that can go stale
+  // — an open viewer, the account tier, the catalogue still loading — is
+  // read through refs at event time, never captured.
+  const dropContextRef = useRef({ blocked: false, tier: 'free' })
+  const dropHandlerRef = useRef<(paths: string[], seq?: number) => void>(() => {})
+  // A second drop replaces the sheet's contents — and must also retire the
+  // first drop's in-flight scan, or its late rows would land on the new
+  // sheet. Every drop (and every close) bumps the generation.
+  const dropScanRef = useRef(0)
+  // The shell's own sequence for the latest drop — echoed back on commit
+  // so a stale in-flight commit cannot spend a successor's pending set.
+  const dropTokenRef = useRef<number | undefined>(undefined)
+  // A drop that lands while the catalogue is still loading is queued, not
+  // lost: the shell's pending grants stay open (they expire on their own)
+  // and the paths replay through the handler once the Library can act on
+  // them. A viewer covering the surface still means ignore-and-discard.
+  const pendingDropPaths = useRef<{ paths: string[]; drop?: number } | null>(null)
   // Hidden galleries — namespaced keys ("account:{slug}", "device:{id}",
   // "local:{id}") concealed from the pinned/compact sections into the
   // collapsed "Hidden galleries" section. Device-local display choice,
@@ -724,6 +765,30 @@ export default function Catalogue({ apiBase }: { apiBase: string }) {
   useEffect(() => {
     sessionRef.current = session
   }, [session])
+  // The shell reports folder drags and drops as events — the webview claims
+  // file-URL drags before WebKit can turn them into a navigation. Under
+  // Tauri these events never fire and the subscription is inert.
+  useEffect(() => {
+    let alive = true
+    let unlisten: (() => void) | null = null
+    void onFolderDrop({
+      onDragEnter: (folders) => {
+        if (!alive) return
+        if (dropContextRef.current.blocked) { setDropVeil(null); return }
+        setDropVeil(folders)
+      },
+      onDragLeave: () => { if (alive) setDropVeil(null) },
+      onDrop: (paths, _files, drop) => {
+        if (!alive) return
+        setDropVeil(null)
+        dropHandlerRef.current(paths, drop)
+      },
+    }).then((release) => {
+      if (alive) unlisten = release
+      else void release()
+    })
+    return () => { alive = false; void unlisten?.() }
+  }, [])
   // Catalogue writes serialize through one queue: each task merges onto the
   // catalogue as it stands when the task RUNS, so a slow folder scan or
   // dims backfill can't be overwritten by a snapshot built before it
@@ -790,6 +855,15 @@ export default function Catalogue({ apiBase }: { apiBase: string }) {
   // gates the section, the add flow, and every mount path below. The account
   // read refreshes it on each sync tick, so a downgrade takes effect live.
   const accountTier = session?.tier ?? 'free'
+
+  // What a drop is allowed to do right now: nothing while a viewer or the
+  // loading shell owns the surface, Visionary-gated otherwise. Assigned
+  // during render so the mount-stable subscription always reads the live
+  // answer.
+  dropContextRef.current = {
+    blocked: Boolean(viewerState || accountViewer) || catalogue === null,
+    tier: accountTier,
+  }
 
   // A test run asks for a folder to be added. The add waits for the
   // session, because local galleries are a Visionary feature and the tier
@@ -1504,29 +1578,18 @@ export default function Catalogue({ apiBase }: { apiBase: string }) {
         setNotice('That folder has no photos Manorama can display')
         return
       }
-      const { sourceKind, mountPoint } = classifyRoot(root)
       const now = new Date().toISOString()
-      const record: LocalGalleryRecord = {
-        id: crypto.randomUUID(),
-        title: galleryTitleForRoot(root),
-        rootPath: root,
-        sourceKind,
-        ...(mountPoint ? { mountPoint } : {}),
-        itemCount: scan.truncated ?? scan.items.length,
-        items: scan.items,
-        addedAt: now,
-        lastSeenAt: now,
-      }
+      const record = buildLocalRecord(root, scan, now)
       // Re-picking an existing root replaces its record — same source,
       // fresh scan, new id (the old remote row goes stale and is deleted).
       // The merge runs inside the write queue on the catalogue as it stands
       // when the write executes, so edits that landed during the scan are
       // never overwritten.
-      const replaced = (catalogueRef.current ?? catalogue).galleries.find((g) => g.rootPath === root)
+      const replaced = (catalogueRef.current ?? catalogue).galleries.find((g) => normalizeRootPath(g.rootPath) === record.rootPath)
       setAvailability((previous) => ({ ...previous, [record.id]: 'available' }))
       const saved = await persistCatalogue((latest) => ({
         ...latest,
-        galleries: [...latest.galleries.filter((g) => g.rootPath !== root), record],
+        galleries: [...latest.galleries.filter((g) => normalizeRootPath(g.rootPath) !== record.rootPath), record],
       }))
       if (!saved) return
       if (session && replaced) void removeDeviceGallery(base, session.token, replaced)
@@ -1591,6 +1654,241 @@ export default function Catalogue({ apiBase }: { apiBase: string }) {
       setNotice('That folder could not be opened')
     } finally {
       setBusy(false)
+    }
+  }
+
+  // MARK: - Drag-and-drop folder add
+  //
+  // The shell owns the security scopes: a drop lands directories in a
+  // pending set the page may scan and thumbnail but not yet keep.
+  // `commitDroppedRoots` books the chosen ones into the folder store —
+  // the same grant `pickGalleryRoot` writes — and `discardDroppedRoots`
+  // releases everything else, including the whole set on Cancel, Escape,
+  // a free-tier drop, or a drop over an open viewer. Page-side paths are
+  // lookup keys only; a path that is not pending grants nothing.
+
+  /** One dropped folder, no sheet: the addFolder pipeline with the grant
+   *  commit deferred until the scan proves the folder is worth keeping.
+   *  `gen` is the drop's review generation — a second drop that lands
+   *  while this one's scan/commit is in flight retires every write it
+   *  could still make, and its discards name only this drop's own path so
+   *  a newer drop's pending set can never be released by accident. */
+  const addDroppedFolder = async (path: string, gen: number, seq?: number) => {
+    const ownsReview = () => gen === dropScanRef.current
+    setNotice(null)
+    setBusy(true)
+    try {
+      // Already catalogued is not an error — it is the card the owner is
+      // looking at, so the answer is its card, not a second record.
+      const existing = findExistingRecord(catalogueRef.current?.galleries ?? [], path)
+      if (existing) {
+        if (ownsReview()) {
+          setNotice(`“${existing.title}” is already in your library.`)
+          scrollToGalleryCard(existing.id)
+        }
+        void discardDroppedRoots([path])
+        return
+      }
+      const scan = await scanLocalDirectory(path, readDirEntries)
+      if (!scan.items.length) {
+        if (ownsReview()) {
+          setNotice('That folder has no photos Manorama can display')
+          void discardDroppedRoots([path])
+        }
+        return
+      }
+      // The generation must still be ours when the commit fires — and the
+      // native side checks the drop's sequence itself, closing the gap
+      // between this check and the invoke landing.
+      if (!ownsReview()) return
+      const committed = await commitDroppedRoots([path], seq)
+      if (!committed.some((committedPath) => normalizeRootPath(committedPath) === path)) {
+        if (ownsReview()) setNotice('That folder could not be opened')
+        return
+      }
+      const record = buildLocalRecord(path, scan, new Date().toISOString())
+      setAvailability((previous) => ({ ...previous, [record.id]: 'available' }))
+      // The commit answered — those grants are durable now whether or not
+      // the review is still ours, so the record reconciles regardless of
+      // generation. Only the review's own state stays generation-gated.
+      const saved = await persistCatalogue((latest) => ({
+        ...latest,
+        galleries: [...latest.galleries.filter((g) => normalizeRootPath(g.rootPath) !== record.rootPath), record],
+      }))
+      if (!saved) return
+      if (ownsReview()) {
+        setNotice(`${record.title} added.`)
+        scrollToGalleryCard(record.id)
+      }
+      void runSync(saved, session)
+    } catch {
+      if (ownsReview()) {
+        setNotice('That folder could not be opened')
+        void discardDroppedRoots([path])
+      }
+    } finally {
+      if (ownsReview()) setBusy(false)
+    }
+  }
+
+  const handleFolderDrop = (rawPaths: string[], seq?: number) => {
+    const paths = dedupeDroppedPaths(rawPaths)
+    const { blocked, tier } = dropContextRef.current
+    // Drops belong to the Library surface alone — over an open viewer they
+    // are ignored and the pending scopes go back. While the catalogue is
+    // still loading the drop waits instead: the grants stay pending and
+    // the paths replay through here once the Library can act on them.
+    if (blocked) {
+      if (catalogueRef.current === null && !viewerState && !accountViewer) {
+        pendingDropPaths.current = { paths, drop: seq }
+      } else {
+        // Named, not all — a later drop may already own the pending set
+        // by the time this invoke lands.
+        void discardDroppedRoots(paths)
+      }
+      return
+    }
+    if (tier !== 'pro') {
+      setNotice('Local galleries are included with Visionary')
+      void discardDroppedRoots(paths)
+      return
+    }
+    // A drop with nothing usable still owes the pending set its discard —
+    // the shell counted loose files and packages separately.
+    if (!paths.length) {
+      setNotice("Drop folders of photographs — loose files aren't added.")
+      void discardDroppedRoots(paths)
+      return
+    }
+    // A fresh drop supersedes whatever the sheet was reviewing — the shell
+    // has already released the previous pending set, and the generation
+    // bump retires the old scan's late arrivals and any in-flight commit's
+    // remaining writes (they check the generation before touching the
+    // review). The busy flag moves to the new owner the same way.
+    dropScanRef.current += 1
+    dropTokenRef.current = seq
+    setDropSheet(null)
+    setDropCandidates([])
+    setDropSelected(new Set())
+    setDropCommitting(false)
+    setBusy(false)
+    if (paths.length === 1) {
+      void addDroppedFolder(paths[0], dropScanRef.current, seq)
+      return
+    }
+    setDropSheet({ paths })
+    const scanId = dropScanRef.current
+    const existing = existingRootMap(catalogueRef.current?.galleries ?? [])
+    void scanDroppedFolders(paths, {
+      readDir: readDirEntries,
+      existing,
+      onCandidate: (candidate) => {
+        if (scanId !== dropScanRef.current) return
+        setDropCandidates((previous) =>
+          previous.some((known) => known.path === candidate.path) ? previous : [...previous, candidate])
+        if (candidate.state === 'new') {
+          setDropSelected((previous) => previous.has(candidate.path) ? previous : new Set(previous).add(candidate.path))
+        }
+      },
+    })
+  }
+  dropHandlerRef.current = handleFolderDrop
+
+  // Replay a drop that arrived during catalogue load. The handler re-reads
+  // the live context, so by the time this fires the surface and tier are
+  // the ones the drop actually sees.
+  useEffect(() => {
+    const pending = pendingDropPaths.current
+    if (!pending || catalogue === null || viewerState || accountViewer) return
+    pendingDropPaths.current = null
+    dropHandlerRef.current(pending.paths, pending.drop)
+  }, [catalogue, viewerState, accountViewer])
+
+  const toggleDropCandidate = (path: string) => {
+    const candidate = dropCandidates.find((c) => c.path === path)
+    if (candidate) setDropSelected((previous) => toggleSelection(previous, candidate))
+  }
+  const selectAllDropCandidates = (select: boolean) => {
+    setDropSelected(selectAllSelection(dropCandidates, select))
+  }
+  const closeDropSheet = () => {
+    if (dropCommitting) return
+    dropScanRef.current += 1
+    setDropSheet(null)
+    setDropCandidates([])
+    setDropSelected(new Set())
+    // Named, not all: a drop that landed shell-side but has not dispatched
+    // its event yet owns whatever else is pending — it survives this.
+    void discardDroppedRoots(dropSheet?.paths)
+  }
+  const commitDropSheet = async () => {
+    if (dropCommitting || !dropSheet) return
+    dropScanRef.current += 1
+    // The commit owns the review only at this generation — a second drop
+    // landing while the native call is in flight retires every review-state
+    // write below. Committed roots still reconcile into the catalogue:
+    // their grants are already durable regardless of who owns the sheet.
+    const gen = dropScanRef.current
+    const seq = dropTokenRef.current
+    const ownsReview = () => gen === dropScanRef.current
+    const selected = dropCandidates.filter((c) => c.state === 'new' && dropSelected.has(c.path))
+    if (!selected.length) return
+    setDropCommitting(true)
+    try {
+      const committed = await commitDroppedRoots(selected.map((c) => c.path), seq)
+      const committedPaths = new Set(committed.map(normalizeRootPath))
+      // Whatever the shell still holds of THIS drop — deselected rows,
+      // folders past the sheet's cap, a path that stopped being pending —
+      // goes back at once, by name: an unscoped discard would also release
+      // a newer drop's pending set. A stale completion skips the call
+      // entirely — the shell already released this set for the new drop.
+      const leftover = dropSheet.paths.filter((p) => !committedPaths.has(normalizeRootPath(p)))
+      if (ownsReview() && leftover.length) await discardDroppedRoots(leftover)
+      const now = new Date().toISOString()
+      const records = selected
+        .filter((c) => committedPaths.has(c.path))
+        .map((c) => recordForCandidate(c, now))
+      if (ownsReview()) {
+        setDropSheet(null)
+        setDropCandidates([])
+        setDropSelected(new Set())
+      }
+      if (!records.length) {
+        if (ownsReview()) setNotice('Those folders could not be remembered')
+        return
+      }
+      setAvailability((previous) => {
+        const next = { ...previous }
+        for (const record of records) next[record.id] = 'available'
+        return next
+      })
+      // One write for the whole drop, in dropped order — the same merge a
+      // single addFolder performs, applied to every committed record.
+      // Committed grants are durable: their records reconcile into the
+      // catalogue even when a newer drop owns the review now.
+      const addedRoots = new Set(records.map((record) => record.rootPath))
+      const saved = await persistCatalogue((latest) => ({
+        ...latest,
+        galleries: [...latest.galleries.filter((g) => !addedRoots.has(normalizeRootPath(g.rootPath))), ...records],
+      }))
+      if (!saved) return
+      const missed = selected.length - records.length
+      if (ownsReview()) {
+        setNotice(missed === 0
+          ? `${records.length} ${records.length === 1 ? 'gallery' : 'galleries'} added.`
+          : `${records.length} of ${selected.length} added — ${missed} ${missed === 1 ? 'folder' : 'folders'} could not be remembered.`)
+        scrollToGalleryCard(records[0].id)
+      }
+      void runSync(saved, session)
+    } catch {
+      if (ownsReview()) {
+        setDropSheet(null)
+        setDropCandidates([])
+        setDropSelected(new Set())
+        setNotice('Those folders could not be remembered')
+      }
+    } finally {
+      if (ownsReview()) setDropCommitting(false)
     }
   }
 
@@ -2862,6 +3160,9 @@ export default function Catalogue({ apiBase }: { apiBase: string }) {
   // natural size on load — nothing is upscaled or re-encoded.
   if (localViewerBundle && availability[localViewerBundle.record.id] !== 'unavailable') {
     const { record, manifest, settings, localEditStore } = localViewerBundle
+    // Embedded IPTC/XMP is read lazily when a still's Info sheet opens —
+    // image.id is the catalogue item's relative path key, `path` the file.
+    const itemPathById = new Map(record.items.map((item) => [item.id, item.path]))
     return (
       <>
         <div class="desktop-titlebar" data-tauri-drag-region />
@@ -2878,6 +3179,11 @@ export default function Catalogue({ apiBase }: { apiBase: string }) {
             editStore={localEditStore}
             allowFullscreen={false}
             navigationRef={navigationRef}
+            readMetadata={async (image) => {
+              const path = itemPathById.get(image.id)
+              if (!path) return undefined
+              return readEmbeddedMetadata((start, length) => readFileRange(path, start, length))
+            }}
             {...chromeProps}
             onPositionChange={(position: { index: number }) => {
               shellPost({ type: 'position', index: position.index, total: manifest.images.length })
@@ -3277,7 +3583,7 @@ export default function Catalogue({ apiBase }: { apiBase: string }) {
   const localCompactCard = (record: LocalGalleryRecord) => {
     const state = availability[record.id] ?? 'available'
     const unavailable = state === 'unavailable'
-    const cover = visibleItemsFor(record)[0]
+    const cover = coverItemFor(record)
     return <li key={record.id} class="lib-compact-card" data-gallery-card={record.id} data-availability={state}>
       <a
         class="lib-compact-cover"
@@ -4108,6 +4414,22 @@ export default function Catalogue({ apiBase }: { apiBase: string }) {
           </div>
         </Sheet>
       ) : null}
+      {/* Folder drag-and-drop: the veil is the hover affordance, the sheet
+          the multi-folder review. Both live on the Library surface only —
+          drops over an open viewer never reach this far. */}
+      {dropVeil !== null ? <DropVeil folders={dropVeil} pro={accountTier === 'pro'} /> : null}
+      <DropFoldersSheet
+        open={dropSheet !== null}
+        paths={dropSheet?.paths ?? []}
+        candidates={dropCandidates}
+        selected={dropSelected}
+        committing={dropCommitting}
+        assetUrl={assetUrl}
+        onToggle={toggleDropCandidate}
+        onSelectAll={selectAllDropCandidates}
+        onCancel={closeDropSheet}
+        onAdd={() => void commitDropSheet()}
+      />
       {/* Status notes toast over the surface like the web dashboard's —
           the rail stays clean of transient text. */}
       {notice || accountNote || slugNote ? (

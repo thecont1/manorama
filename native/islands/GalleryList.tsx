@@ -68,6 +68,8 @@ import { loadGlobalViewEnabled, saveGlobalViewEnabled } from '../lib/global-view
 import { beginProviderSignIn, clearPendingQuickAdd, clearSessionToken, getOwnerSlug, getPendingQuickAdd, getSessionToken, setOwnerSlug as persistOwnerSlug, type AuthProvider, type NativeGallerySelection } from '../lib/session'
 import { requestReorderClose } from '../lib/reorder-close-guard'
 import { addLocalGallery, loadLocalCatalogue, localGalleriesRootUri, localGalleryManifest, removeLocalGallery } from '../lib/local-gallery'
+import { readEmbeddedMetadata } from '../../packages/core/embedded-metadata'
+import { fetchRangeReader } from '../../app/lib/embedded-metadata-client'
 import type { LocalCatalogue, LocalGalleryRecord } from '../../desktop/lib/catalogue'
 import { galleryPolicyKey, loadGalleryStreamOnly, saveGalleryStreamOnly, DEFAULT_VAULT_LOAD_POLICY, createVaultSettingsController, type GalleryLoadOverride } from '../lib/vault-settings'
 import type { AdSuppression } from '../../app/lib/ads-visibility'
@@ -1842,6 +1844,12 @@ export default function GalleryList({ apiBase, owner, slug, deepLinkSelection, o
               setActivePhotoIndex(index)
               setGlobalViewOpen(true)
             }}
+            // Embedded IPTC/XMP is read lazily from the file scheme when a
+            // still's Info sheet opens — local galleries only; the range
+            // handler answers 206 for these URLs (Capacitor WebViewAssetHandler).
+            readMetadata={nav.viewer?.gallery.kind === 'local'
+              ? (image) => readEmbeddedMetadata(fetchRangeReader(image.src))
+              : undefined}
             initialIndex={frameKick.index}
             foldLayout={foldLayout}
             foldRenderer={renderFold}

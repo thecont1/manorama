@@ -40,6 +40,7 @@ export default defineConfig({
           '**/admin-appearance.playwright.ts',
           '**/desktop-admin.playwright.ts',
           '**/desktop-catalogue.playwright.ts',
+          '**/desktop-folder-drop.playwright.ts',
           '**/native-vault-controls.playwright.ts',
         ]),
   ],

@@ -21,6 +21,11 @@ export type ExifData = {
   iso?: number
   focalLength?: string
   description?: string
+  title?: string
+  creator?: string
+  copyright?: string
+  keywords?: string[]
+  location?: string
 }
 
 export type ImageVariant = {

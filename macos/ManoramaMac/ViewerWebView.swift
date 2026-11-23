@@ -345,7 +345,20 @@ struct ViewerWebView: NSViewRepresentable {
         // paints.
         configuration.preferences.setValue(false, forKey: "developerExtrasEnabled")
 
-        let webView = WKWebView(frame: .zero, configuration: configuration)
+        let webView = DropAwareWebView(frame: .zero, configuration: configuration)
+        // WebKit registers its own drag types at init; file URLs join them
+        // (never replace) so a Finder folder drag reaches the overrides
+        // below instead of becoming a navigation.
+        webView.registerForDraggedTypes(Array(Set(webView.registeredDraggedTypes + [.fileURL])))
+        webView.onFolderDrop = { [weak coordinator] urls, files in
+            coordinator?.bridge?.receiveDrop(urls: urls, files: files)
+        }
+        webView.onFolderDragEnter = { [weak coordinator] folders, files in
+            coordinator?.bridge?.folderDragEnter(folders: folders, files: files)
+        }
+        webView.onFolderDragLeave = { [weak coordinator] in
+            coordinator?.bridge?.folderDragLeave()
+        }
         webView.navigationDelegate = coordinator
         // The UI delegate is what makes target=_blank and window.open work —
         // routed out to the system browser rather than silently swallowed.
@@ -362,4 +375,93 @@ struct ViewerWebView: NSViewRepresentable {
     }
 
     func updateNSView(_ nsView: WKWebView, context: Context) {}
+}
+
+/// A WKWebView that claims file-URL drags for the folder-add flow.
+///
+/// WebKit's own drop handling would hand a dropped folder to the page as a
+/// navigation or a file input; the Library instead wants the paths so it
+/// can run its own scan-and-commit flow. File drags answer `.copy` and
+/// never reach `super`; every other drag type falls through unchanged.
+final class DropAwareWebView: WKWebView {
+    /// A completed drop — every dragged file URL, plus the count of items
+    /// that are not usable folders (loose files and packages).
+    var onFolderDrop: (([URL], Int) -> Void)?
+    /// (folders, files) while a file drag hovers the window.
+    var onFolderDragEnter: ((Int, Int) -> Void)?
+    var onFolderDragLeave: (() -> Void)?
+
+    private var folderDragActive = false
+
+    override func draggingEntered(_ sender: NSDraggingInfo) -> NSDragOperation {
+        guard let urls = Self.fileURLs(from: sender) else {
+            return super.draggingEntered(sender)
+        }
+        folderDragActive = true
+        let counts = Self.classify(urls)
+        onFolderDragEnter?(counts.folders, counts.files)
+        return .copy
+    }
+
+    override func draggingUpdated(_ sender: NSDraggingInfo) -> NSDragOperation {
+        guard Self.fileURLs(from: sender) != nil else {
+            return super.draggingUpdated(sender)
+        }
+        return .copy
+    }
+
+    override func draggingExited(_ sender: NSDraggingInfo?) {
+        if folderDragActive {
+            folderDragActive = false
+            onFolderDragLeave?()
+        }
+        super.draggingExited(sender)
+    }
+
+    override func prepareForDragOperation(_ sender: NSDraggingInfo) -> Bool {
+        guard Self.fileURLs(from: sender) != nil else {
+            return super.prepareForDragOperation(sender)
+        }
+        return true
+    }
+
+    override func performDragOperation(_ sender: NSDraggingInfo) -> Bool {
+        guard let urls = Self.fileURLs(from: sender) else {
+            return super.performDragOperation(sender)
+        }
+        folderDragActive = false
+        // A completed drop may not be followed by draggingExited — clear
+        // the veil here so it cannot stick over the sheet.
+        onFolderDragLeave?()
+        onFolderDrop?(urls, Self.classify(urls).files)
+        return true
+    }
+
+    /// File URLs only — `.urlReadingFileURLsOnly` keeps web links and text
+    /// drags on WebKit's own path.
+    private static func fileURLs(from sender: NSDraggingInfo) -> [URL]? {
+        let pasteboard = sender.draggingPasteboard
+        guard pasteboard.canReadObject(forClasses: [NSURL.self], options: [.urlReadingFileURLsOnly: true]) else {
+            return nil
+        }
+        let objects = pasteboard.readObjects(forClasses: [NSURL.self], options: [.urlReadingFileURLsOnly: true]) as? [NSURL] ?? []
+        return objects.map { $0 as URL }
+    }
+
+    /// Usable drop directories vs everything else — packages
+    /// (.photoslibrary, .app) count as files, matching the page's rule
+    /// that only plain directories become galleries.
+    private static func classify(_ urls: [URL]) -> (folders: Int, files: Int) {
+        var folders = 0
+        var files = 0
+        for url in urls {
+            let values = try? url.resourceValues(forKeys: [.isDirectoryKey, .isPackageKey])
+            if values?.isDirectory == true && values?.isPackage != true {
+                folders += 1
+            } else {
+                files += 1
+            }
+        }
+        return (folders, files)
+    }
 }

@@ -127,6 +127,8 @@ let dom: Window
 let files: Record<string, string>
 let dirs: Record<string, DirEntry[]>
 let readFileGate: Gate | null
+let catalogueGate: Gate | null
+let commitRootsGate: Gate | null
 let invokeLog: string[]
 let invokeCalls: { command: string; args?: Record<string, unknown> }[]
 let pickedFolder: string | null
@@ -147,15 +149,46 @@ const installTauri = (signedIn: boolean, providerTokens?: Record<string, unknown
     ],
   }
   readFileGate = null
+  // catalogueGate is deliberately NOT reset here — a test arms it before
+  // mount() so the catalogue read is already gated when the boot effect
+  // asks for it; beforeEach/afterEach own the cleanup.
   invokeLog = []
   invokeCalls = []
   pickedFolder = null
   vaultFiles = new Map()
   vaultKeys = new Map()
+  // The event plugin's listener table — `plugin:event|listen` records the
+  // transformCallback id per event name, and `__manoramaEmitEvent` delivers
+  // `{event, id, payload}` to them exactly like the shell's emitter does.
+  const eventHandlers = new Map<string, Set<number>>()
+  const eventCallbacks = new Map<number, (payload: unknown) => void>()
+  let nextEventCallback = 1
+  ;(dom as unknown as { __manoramaEmitEvent?: (event: string, payload: unknown) => void }).__manoramaEmitEvent = (event, payload) => {
+    for (const id of eventHandlers.get(event) ?? []) {
+      eventCallbacks.get(id)?.({ event, id, payload })
+    }
+  }
   ;(dom as unknown as { __TAURI_INTERNALS__: unknown }).__TAURI_INTERNALS__ = {
     invoke: async (command: string, args?: Record<string, unknown> | Uint8Array, options?: { headers?: Record<string, string> }) => {
       invokeLog.push(command)
       invokeCalls.push({ command, args: args as Record<string, unknown> })
+      if (command === 'plugin:event|listen') {
+        const event = String((args as Record<string, unknown> | undefined)?.event ?? '')
+        const handler = Number((args as Record<string, unknown> | undefined)?.handler)
+        if (event && handler) {
+          let set = eventHandlers.get(event)
+          if (!set) { set = new Set(); eventHandlers.set(event, set) }
+          set.add(handler)
+        }
+        return null
+      }
+      if (command === 'plugin:event|unlisten') {
+        const record = args as Record<string, unknown> | undefined
+        const event = String(record?.event ?? '')
+        const handler = Number(record?.handler ?? record?.eventId)
+        if (event && handler) eventHandlers.get(event)?.delete(handler)
+        return null
+      }
       // The Rust vault seam, replicated in memory: writes carry their path
       // as request metadata and their record as the raw body; reads answer
       // raw bytes and an empty body means absent — the same contract the
@@ -186,7 +219,14 @@ const installTauri = (signedIn: boolean, providerTokens?: Record<string, unknown
       if (command === 'vault_key_set') { vaultKeys.set(String((args as Record<string, unknown>)?.name), String((args as Record<string, unknown>)?.value)); return null }
       if (command === 'vault_key_remove') { vaultKeys.delete(String((args as Record<string, unknown>)?.name)); return null }
       const params = args as Record<string, unknown> | undefined
-      if (command === 'read_private_file') return files[String(params?.name)] ?? null
+      if (command === 'read_private_file') {
+        // A gate can hold the catalogue read open so a drop can land while
+        // the Library is still loading — the queue path's whole point.
+        if (String(params?.name) === 'catalogue.json' && catalogueGate) {
+          await catalogueGate.promise
+        }
+        return files[String(params?.name)] ?? null
+      }
       if (command === 'write_private_file') {
         files[String(params?.name)] = String(params?.contents)
         return null
@@ -216,10 +256,23 @@ const installTauri = (signedIn: boolean, providerTokens?: Record<string, unknown
       if (command === 'oauth_loopback_begin') return 40123
       if (command === 'oauth_loopback_finish') return new Promise(() => {})
       if (command === 'oauth_loopback_cancel') return null
+      // The drop grant seam: commit answers the paths it was given (the
+      // shell commits every still-pending path it is handed), discard is
+      // bookkeeping the assertions read through invokeCalls. A gate can
+      // hold the commit open so a second drop lands mid-flight.
+      if (command === 'commit_dropped_roots') {
+        if (commitRootsGate) await commitRootsGate.promise
+        return (args as Record<string, unknown> | undefined)?.paths ?? []
+      }
+      if (command === 'discard_dropped_roots') return null
       return null
     },
     convertFileSrc: (path: string) => `asset://localhost${path}`,
-    transformCallback: () => 1,
+    transformCallback: (callback?: (payload: unknown) => void) => {
+      const id = nextEventCallback++
+      if (callback) eventCallbacks.set(id, callback)
+      return id
+    },
     metadata: { currentWebview: { label: 'main' }, currentWindow: { label: 'main' } },
   }
   // The event plugin's unlisten path reaches past invoke to the plugin
@@ -358,6 +411,10 @@ beforeEach(() => {
   frames = []
   readFileGate?.reject(new Error('test teardown'))
   readFileGate = null
+  catalogueGate?.reject(new Error('test teardown'))
+  catalogueGate = null
+  commitRootsGate?.reject(new Error('test teardown'))
+  commitRootsGate = null
   dom.localStorage.clear()
   dom.document.documentElement.className = ''
   mounts.unmountAll()
@@ -369,6 +426,10 @@ afterEach(() => {
   releaseAllOverlays()
   readFileGate?.reject(new Error('test teardown'))
   readFileGate = null
+  catalogueGate?.reject(new Error('test teardown'))
+  catalogueGate = null
+  commitRootsGate?.reject(new Error('test teardown'))
+  commitRootsGate = null
   mounts.unmountAll()
   dom.document.body.innerHTML = ''
 })
@@ -2678,5 +2739,246 @@ describe('the Library quiet view', () => {
     expect(css).toContain('.lib-quiet :is(.lib-card, .lib-compact-card):is(:hover, :focus-within) :not(img)')
     expect(css).toContain('.lib-quiet :is(.lib-card, .lib-compact-card):is(:hover, :focus-within) :where(svg, .device-pill')
     expect(css).toContain('.lib-quiet-toggle')
+  })
+})
+
+describe('folder drop add', () => {
+  const emitDrop = (event: string, payload: unknown) =>
+    (dom as unknown as { __manoramaEmitEvent: (event: string, payload: unknown) => void }).__manoramaEmitEvent(event, payload)
+  const emitFoldersDropped = (paths: string[], files = 0) =>
+    emitDrop('manorama://folders-dropped', { paths, files })
+  const calls = (command: string) => invokeCalls.filter((call) => call.command === command)
+  const dropDirs = (entries: Record<string, DirEntry[]>) => {
+    for (const [path, list] of Object.entries(entries)) dirs[path] = list
+  }
+  const jpg = (name: string, width = 4000, height = 3000): DirEntry => ({ name, isDirectory: false, isFile: true, width, height } as DirEntry)
+  const toast = (container: HTMLElement) =>
+    container.querySelector('.desktop-toast-stack .admin-toast')?.textContent ?? ''
+  const galleryCount = () => (JSON.parse(files['catalogue.json']!) as { galleries: unknown[] }).galleries.length
+  const dropSheet = (container: HTMLElement) =>
+    [...container.querySelectorAll<HTMLElement>('.m-sheet')].find((el) => el.textContent?.includes('Add folders')) ?? null
+
+  test('a single new folder adds immediately — no sheet, committed then persisted', async () => {
+    const container = await mount(true)
+    dropDirs({ '/drop/single': [jpg('a.jpg'), jpg('b.jpg')] })
+    emitFoldersDropped(['/drop/single'])
+    await settle()
+    expect(dropSheet(container)).toBeNull()
+    expect(toast(container)).toContain('single added.')
+    expect(galleryCount()).toBe(2)
+    const commit = calls('commit_dropped_roots')
+    expect(commit).toHaveLength(1)
+    expect((commit[0].args as { paths: string[] }).paths).toEqual(['/drop/single'])
+    // Nothing left pending — the single-folder path has nothing to discard.
+    expect(calls('discard_dropped_roots')).toHaveLength(0)
+  })
+
+  test('a single duplicate scrolls to its card and discards the pending grant', async () => {
+    const container = await mount(true)
+    // Trailing slash must normalise onto the recorded rootPath.
+    emitFoldersDropped([`${ROOT_PATH}/`])
+    await settle()
+    expect(toast(container)).toContain('already in your library')
+    expect(calls('commit_dropped_roots')).toHaveLength(0)
+    expect(calls('discard_dropped_roots')).toHaveLength(1)
+    expect(galleryCount()).toBe(1)
+    expect(dropSheet(container)).toBeNull()
+  })
+
+  test('a single empty folder keeps the picker notice and discards', async () => {
+    const container = await mount(true)
+    dropDirs({ '/drop/empty': [] })
+    emitFoldersDropped(['/drop/empty'])
+    await settle()
+    expect(toast(container)).toContain('no photos Manorama can display')
+    expect(calls('commit_dropped_roots')).toHaveLength(0)
+    expect(calls('discard_dropped_roots')).toHaveLength(1)
+    expect(galleryCount()).toBe(1)
+  })
+
+  test('multiple folders open the review sheet; deselect then Add commits only the chosen', async () => {
+    const container = await mount(true)
+    dropDirs({
+      '/drop/a': [jpg('a1.jpg')],
+      '/drop/b': [jpg('b1.jpg'), jpg('b2.jpg')],
+      '/drop/c': [jpg('c1.jpg')],
+    })
+    emitFoldersDropped(['/drop/a', '/drop/b', '/drop/c'])
+    await settle()
+    const sheet = dropSheet(container)
+    expect(sheet).not.toBeNull()
+    const rows = [...sheet!.querySelectorAll<HTMLElement>('.drop-folder-row')]
+    expect(rows).toHaveLength(3)
+    expect(rows.every((row) => row.dataset.state === 'new')).toBe(true)
+    // Live subtitle counts the default selection.
+    expect(sheet!.querySelector('.drop-folders-sub')?.textContent).toContain('3 of 3 selected')
+    expect(sheet!.querySelector('.drop-folders-add')?.textContent).toContain('Add 3 galleries')
+    // Deselect the middle row through its real checkbox.
+    const checks = [...sheet!.querySelectorAll<HTMLInputElement>('.drop-folder-check')]
+    checks[1].click()
+    await settle()
+    expect(sheet!.querySelector('.drop-folders-sub')?.textContent).toContain('2 of 3 selected')
+    expect(sheet!.querySelector('.drop-folders-add')?.textContent).toContain('Add 2 galleries')
+    ;[...sheet!.querySelectorAll<HTMLButtonElement>('button')]
+      .find((button) => button.textContent?.trim() === 'Add 2 galleries')!
+      .click()
+    await settle()
+    expect(dropSheet(container)).toBeNull()
+    const commit = calls('commit_dropped_roots')
+    expect(commit).toHaveLength(1)
+    expect((commit[0].args as { paths: string[] }).paths).toEqual(['/drop/a', '/drop/c'])
+    // The whole pending set is released — selected paths were committed,
+    // the deselected one goes back.
+    expect(calls('discard_dropped_roots')).toHaveLength(1)
+    expect(galleryCount()).toBe(3)
+    expect(toast(container)).toContain('2 galleries added.')
+    const saved = JSON.parse(files['catalogue.json']!) as { galleries: { title: string; rootPath: string }[] }
+    expect(saved.galleries.map((g) => g.rootPath).sort()).toEqual(
+      [ROOT_PATH, '/drop/a', '/drop/c'].sort())
+  })
+
+  test('Cancel discards every pending grant and persists nothing', async () => {
+    const container = await mount(true)
+    dropDirs({ '/drop/a': [jpg('a1.jpg')], '/drop/b': [jpg('b1.jpg')] })
+    emitFoldersDropped(['/drop/a', '/drop/b'])
+    await settle()
+    expect(dropSheet(container)).not.toBeNull()
+    ;[...dropSheet(container)!.querySelectorAll<HTMLButtonElement>('button')]
+      .find((button) => button.textContent?.trim() === 'Cancel')!
+      .click()
+    await settle()
+    expect(dropSheet(container)).toBeNull()
+    expect(calls('commit_dropped_roots')).toHaveLength(0)
+    expect(calls('discard_dropped_roots')).toHaveLength(1)
+    expect(galleryCount()).toBe(1)
+  })
+
+  test('a free-tier drop is gated before anything scans or commits', async () => {
+    const container = await mount(true, undefined, 'free')
+    dropDirs({ '/drop/a': [jpg('a1.jpg')] })
+    emitFoldersDropped(['/drop/a'])
+    await settle()
+    expect(toast(container)).toContain('Local galleries are included with Visionary')
+    expect(calls('commit_dropped_roots')).toHaveLength(0)
+    expect(calls('discard_dropped_roots')).toHaveLength(1)
+    expect(galleryCount()).toBe(1)
+    // Nothing was scanned: no read_dir ever saw the dropped path.
+    expect(invokeCalls.filter((call) => call.command === 'plugin:fs|read_dir'
+      && (call.args as { path?: string } | undefined)?.path === '/drop/a')).toHaveLength(0)
+  })
+
+  test('a drop over the open viewer is ignored and releases the pending set', async () => {
+    const container = await mount(true)
+    dropDirs({ '/drop/a': [jpg('a1.jpg')] })
+    // Open the local gallery's viewer — drops belong to the Library alone.
+    container.querySelector<HTMLElement>('.lib-card-title')!.click()
+    await settle()
+    expect(container.querySelector('.viewer-stage')).not.toBeNull()
+    emitFoldersDropped(['/drop/a'])
+    await settle()
+    expect(calls('commit_dropped_roots')).toHaveLength(0)
+    expect(calls('discard_dropped_roots')).toHaveLength(1)
+    expect(dropSheet(container)).toBeNull()
+    expect(galleryCount()).toBe(1)
+  })
+
+  test('the hover veil names the gesture and the folder count, and leaves cleanly', async () => {
+    const container = await mount(true)
+    emitDrop('manorama://folder-drag-enter', { folders: 3, files: 1 })
+    await settle()
+    const veil = container.querySelector('.desktop-drop-veil')
+    expect(veil).not.toBeNull()
+    expect(veil!.textContent).toContain('Drop folders to add them')
+    expect(veil!.textContent).toContain('3 folders')
+    emitDrop('manorama://folder-drag-leave', null)
+    await settle()
+    expect(container.querySelector('.desktop-drop-veil')).toBeNull()
+  })
+
+  test('a drop with no usable folders says so and discards', async () => {
+    const container = await mount(true)
+    emitFoldersDropped([], 4)
+    await settle()
+    expect(toast(container)).toContain("loose files aren't added")
+    expect(calls('commit_dropped_roots')).toHaveLength(0)
+    expect(calls('discard_dropped_roots')).toHaveLength(1)
+  })
+
+  test('a second drop mid-commit keeps its review; the stale commit only reconciles', async () => {
+    const container = await mount(true)
+    dropDirs({
+      '/drop/a1': [jpg('a1.jpg')],
+      '/drop/a2': [jpg('a2.jpg')],
+      '/drop/b1': [jpg('b1.jpg')],
+      '/drop/b2': [jpg('b2.jpg')],
+    })
+    emitFoldersDropped(['/drop/a1', '/drop/a2'])
+    await settle()
+    let sheet = dropSheet(container)
+    expect(sheet).not.toBeNull()
+    // Deselect a2 — A's commit will owe the pending set a named leftover.
+    sheet!.querySelectorAll<HTMLInputElement>('.drop-folder-check')[1]!.click()
+    await settle()
+    expect(sheet!.querySelector('.drop-folders-add')?.textContent).toContain('Add 1 gallery')
+    // Gate the native commit so a second drop lands while it is in flight.
+    commitRootsGate = deferred()
+    ;[...sheet!.querySelectorAll<HTMLButtonElement>('button')]
+      .find((button) => button.textContent?.trim() === 'Add 1 gallery')!
+      .click()
+    await settle()
+    expect(calls('commit_dropped_roots')).toHaveLength(1)
+    emitFoldersDropped(['/drop/b1', '/drop/b2'])
+    await settle()
+    sheet = dropSheet(container)
+    expect(sheet).not.toBeNull()
+    expect(sheet!.querySelector('.drop-folders-sub')?.textContent).toContain('2 of 2 selected')
+    // A's commit resolves stale: it must not close B's review, clear B's
+    // rows, or release the pending set the shell now holds for B.
+    commitRootsGate!.resolve()
+    await settle()
+    sheet = dropSheet(container)
+    expect(sheet).not.toBeNull()
+    const rows = [...sheet!.querySelectorAll<HTMLElement>('.drop-folder-row')]
+    expect(rows).toHaveLength(2)
+    expect(rows.map((row) => row.querySelector('.drop-folder-title')?.textContent)).toEqual(['b1', 'b2'])
+    expect(sheet!.querySelector('.drop-folders-add')?.textContent).toContain('Add 2 galleries')
+    // Committed grants are durable — A's chosen root still reconciles
+    // into the catalogue even though its review is gone.
+    const saved = JSON.parse(files['catalogue.json']!) as { galleries: { rootPath: string }[] }
+    expect(saved.galleries.map((g) => g.rootPath)).toContain('/drop/a1')
+    expect(galleryCount()).toBe(2)
+    // The stale completion never discards: the pending set belongs to B.
+    expect(calls('discard_dropped_roots')).toHaveLength(0)
+    // B's own commit still works — the flag the stale finally would have
+    // cleared is intact.
+    ;[...sheet!.querySelectorAll<HTMLButtonElement>('button')]
+      .find((button) => button.textContent?.trim() === 'Add 2 galleries')!
+      .click()
+    await settle()
+    expect(dropSheet(container)).toBeNull()
+    expect(galleryCount()).toBe(4)
+    expect(toast(container)).toContain('2 galleries added.')
+    // B's commit leaves nothing pending — no discard call at all.
+    expect(calls('discard_dropped_roots')).toHaveLength(0)
+  })
+
+  test('a drop during catalogue load queues — grants kept, add lands once the catalogue does', async () => {
+    catalogueGate = deferred()
+    const container = await mount(true)
+    dropDirs({ '/drop/late': [jpg('l1.jpg'), jpg('l2.jpg')] })
+    // The Library is still loading: the drop must not be discarded (its
+    // pending scopes are the only access it has) and must not be lost.
+    emitFoldersDropped(['/drop/late'])
+    await settle()
+    expect(calls('commit_dropped_roots')).toHaveLength(0)
+    expect(calls('discard_dropped_roots')).toHaveLength(0)
+    expect(toast(container)).not.toContain('late added.')
+    catalogueGate!.resolve()
+    await settle()
+    expect(toast(container)).toContain('late added.')
+    expect(galleryCount()).toBe(2)
+    const commit = calls('commit_dropped_roots')
+    expect(commit).toHaveLength(1)
+    expect((commit[0].args as { paths: string[] }).paths).toEqual(['/drop/late'])
   })
 })

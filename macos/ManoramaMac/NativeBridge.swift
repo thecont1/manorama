@@ -44,6 +44,18 @@ final class NativeBridge {
     /// The Keychain service the per-gallery keys live under.
     private static let keychainService = "in.thecontrarian.manorama.vault"
 
+    /// The shared access group profiled builds carry in their
+    /// `keychain-access-groups` entitlement. Items in the data-protection
+    /// keychain under this group are readable by any binary signed by team
+    /// 373K7W3LKU with the entitlement — App Store today, a Developer ID
+    /// build once a profile is embedded — with no per-item prompt. Direct
+    /// builds carry no profile, cannot carry the restricted entitlement at
+    /// all, and land in the legacy store instead. The name is deliberately
+    /// not derived from the bundle id: the same entitlements file signs
+    /// test bundles whose CFBundleIdentifier differs, and a bundle-id-
+    /// derived group would lose them custody.
+    private static let keychainAccessGroup = "373K7W3LKU.manorama.shared"
+
     /// The private documents the renderer may read and write.
     ///
     /// A fixed allowlist, never a caller-supplied path — the same list the
@@ -62,6 +74,33 @@ final class NativeBridge {
     private var seededPickPath: String?
     /// Whether this launch was seeded with `--seed-folder`.
     let hasSeededFolder: Bool
+    /// Whether this launch was seeded with `--seed-drop`.
+    let hasSeededDrop: Bool
+    /// The directories a `--seed-drop` run drops once the page is ready.
+    private var seededDropPaths: [String]?
+
+    /// A dropped directory held for the page's commit or discard. `url`
+    /// is the path the page names — the lookup key; `scoped` is the URL
+    /// the security scope was actually started on (the dragged URL for a
+    /// real drop, a bookmark-resolved one for a seeded path).
+    private struct PendingDrop {
+        let url: URL
+        let scoped: URL
+        /// Whether THIS scope was started here — balanced on release.
+        let started: Bool
+    }
+    /// Dropped directories awaiting commit — scoped for reading and
+    /// thumbnails but never bookmarked, so an abandoned sheet cannot
+    /// become a durable grant. Expires on its own after ten minutes.
+    private var pendingDrops: [PendingDrop] = []
+    private var pendingDropExpiry: DispatchWorkItem?
+    /// The sequence that identifies the current drop — every drop bumps it
+    /// and the event carries it, so the page echoes it back on commit and a
+    /// commit for a replaced drop can be refused rather than allowed to
+    /// spend the pending set its successor now owns.
+    private var pendingDropSeq = 0
+    private static let pendingDropTTL: TimeInterval = 10 * 60
+    private static let maxPendingDrops = 50
 
     /// The cached picker-approved roots, and the lock that guards them.
     private var cachedRoots: [String]?
@@ -116,6 +155,19 @@ final class NativeBridge {
         self.configDir = resolved
         self.vaultRoot = resolved.appendingPathComponent(Self.vaultDirName, isDirectory: true)
         self.deviceLabel = Self.resolveDeviceLabel()
+
+        // `--seed-drop <a,b,c>` replays a folder drop once the page is
+        // ready — the same pending/commit pipeline a real drag runs,
+        // minus the AppKit callbacks. Initialised before the seed-folder
+        // block below, which calls an instance method and so needs every
+        // stored property settled first.
+        if let seeded = Self.seededDrop {
+            seededDropPaths = seeded
+            hasSeededDrop = true
+        } else {
+            seededDropPaths = nil
+            hasSeededDrop = false
+        }
 
         // `--seed-folder <path>` both answers the picker and tells the app
         // to add that folder at launch. Bookmark it immediately in the
@@ -178,6 +230,14 @@ final class NativeBridge {
         let arguments = CommandLine.arguments
         guard let index = arguments.firstIndex(of: "--seed-folder"), index + 1 < arguments.count else { return nil }
         return arguments[index + 1]
+    }
+
+    /// The folders a test run asks to be dropped, comma-separated.
+    static var seededDrop: [String]? {
+        let arguments = CommandLine.arguments
+        guard let index = arguments.firstIndex(of: "--seed-drop"), index + 1 < arguments.count else { return nil }
+        let paths = arguments[index + 1].split(separator: ",").map(String.init).filter { !$0.isEmpty }
+        return paths.isEmpty ? nil : paths
     }
 
     /// The app's private directory — the Tauri build's, so the two shells
@@ -316,6 +376,11 @@ final class NativeBridge {
         case "register_saved_gallery_roots":
             try registerSavedGalleryRoots()
             return nil
+        case "commit_dropped_roots":
+            return try commitDroppedRoots(args)
+        case "discard_dropped_roots":
+            try discardDroppedRoots(args)
+            return nil
 
         case "plugin:opener|open_url":
             guard let raw = args["url"] as? String,
@@ -390,6 +455,8 @@ final class NativeBridge {
             return try await readDir(args)
         case "plugin:fs|read_file":
             return try await readFile(args)
+        case "read_file_range":
+            return try await readFileRange(args)
 
         case "vault_read":
             let path = try vaultPath(args["path"] as? String ?? "")
@@ -655,8 +722,217 @@ final class NativeBridge {
         }
         // Only live, bookmark-resolved roots enter `grantedRoots` — a vanished
         // or unmounted directory in `roots.json` does not grant access.
-        grantedRoots.replace(folderStore.grantedRoots())
+        rebuildGrantedRoots()
         onRootsChanged?()
+    }
+
+    // MARK: - Drag-and-drop folder grants
+
+    /// The granted set is the store's bookmarks plus any pending drop
+    /// scopes — one formula, so a call site cannot refresh the committed
+    /// half and silently drop the pending one.
+    func rebuildGrantedRoots() {
+        grantedRoots.replace(folderStore.grantedRoots() + pendingDrops.map(\.scoped))
+    }
+
+    /// A file drag is hovering the window — counts only, nothing scoped.
+    func folderDragEnter(folders: Int, files: Int) {
+        emitFolderEvent("manorama://folder-drag-enter", ["folders": folders, "files": files])
+    }
+
+    func folderDragLeave() {
+        emitFolderEvent("manorama://folder-drag-leave", [:])
+    }
+
+    /// The drop itself: the previous uncommitted set goes first, then each
+    /// directory is scoped pending — never bookmarked, so nothing here can
+    /// become a durable grant by accident.
+    func receiveDrop(urls: [URL], files: Int) {
+        releaseAllPendingDrops()
+        var kept: [PendingDrop] = []
+        var seen = Set<String>()
+        for url in urls {
+            guard kept.count < Self.maxPendingDrops else { break }
+            guard let pending = pendingDrop(for: url) else { continue }
+            let key = pending.scoped.resolvingExistingSymlinksInPath().standardizedFileURL.path
+            guard !seen.contains(key) else {
+                release(pending)
+                continue
+            }
+            seen.insert(key)
+            kept.append(pending)
+        }
+        pendingDrops = kept
+        pendingDropSeq += 1
+        armPendingDropExpiry()
+        rebuildGrantedRoots()
+        emitFolderEvent("manorama://folders-dropped", [
+            "paths": kept.map { $0.url.path },
+            "files": files,
+            "drop": pendingDropSeq,
+        ])
+    }
+
+    /// `--seed-drop` replays the drop pipeline once the page is ready —
+    /// every step except the AppKit drag callbacks is the real one.
+    func receiveSeededDrop() {
+        guard let paths = seededDropPaths, !paths.isEmpty else { return }
+        seededDropPaths = nil
+        receiveDrop(urls: paths.map { URL(fileURLWithPath: $0) }, files: 0)
+    }
+
+    /// Scope one dragged URL for pending access, or nil when it is not a
+    /// usable directory. A real drag answers `resourceValues` inside the
+    /// drag promise; a seeded path may need its ephemeral bookmark before
+    /// the sandbox lets us even look.
+    private func pendingDrop(for url: URL) -> PendingDrop? {
+        let usable = Self.droppedDirectoryStatus(url)
+        if usable == false { return nil }
+        if usable == true, url.startAccessingSecurityScopedResource() {
+            return PendingDrop(url: url, scoped: url, started: true)
+        }
+        // Either the sandbox hid the metadata (a seeded path — no drag
+        // promise) or the dragged URL refused a direct scope. An ephemeral
+        // bookmark is the remaining way in; it lives in memory only and is
+        // never written to folders.json, so the pending set still cannot
+        // outlive its commit or discard.
+        var bookmarkStale = false
+        guard let bookmark = try? url.bookmarkData(options: [.withSecurityScope], includingResourceValuesForKeys: nil, relativeTo: nil),
+              let scoped = try? URL(resolvingBookmarkData: bookmark, options: [.withSecurityScope], relativeTo: nil, bookmarkDataIsStale: &bookmarkStale),
+              scoped.startAccessingSecurityScopedResource() else {
+            // A dragged directory whose scope simply would not start still
+            // gets a pending row — reads fail honestly as 'unreadable'.
+            return usable == true ? PendingDrop(url: url, scoped: url, started: false) : nil
+        }
+        guard Self.droppedDirectoryStatus(scoped) == true else {
+            scoped.stopAccessingSecurityScopedResource()
+            return nil
+        }
+        return PendingDrop(url: url, scoped: scoped, started: true)
+    }
+
+    /// Whether a dragged URL is a usable drop directory — a real directory,
+    /// not a package. Nil when the sandbox will not even answer metadata
+    /// (a path with no drag promise and no scope yet).
+    private static func droppedDirectoryStatus(_ url: URL) -> Bool? {
+        guard let values = try? url.resourceValues(forKeys: [.isDirectoryKey, .isPackageKey]),
+              let isDirectory = values.isDirectory else { return nil }
+        return isDirectory && values.isPackage != true
+    }
+
+    /// The page's Add: each named path that is still pending becomes a
+    /// real grant — the same `folderStore.add` + `recordGalleryRoot` a
+    /// picked folder takes — and leaves the pending set. Paths are lookup
+    /// keys only; anything not pending grants nothing.
+    private func commitDroppedRoots(_ args: [String: Any]) throws -> [String] {
+        guard let raw = args["paths"] as? [String] else {
+            throw BridgeError.badArguments("commit_dropped_roots needs paths")
+        }
+        // The page echoes the drop's sequence — a commit for a replaced
+        // drop must not spend the pending set its successor now owns.
+        if let seq = args["drop"] as? Int, seq != pendingDropSeq {
+            throw BridgeError.failed("the drop was replaced")
+        }
+        let wanted = Set(raw.map { URL(fileURLWithPath: $0).standardizedFileURL.path })
+        var committed: [String] = []
+        var remaining: [PendingDrop] = []
+        for pending in pendingDrops {
+            guard wanted.contains(pending.url.standardizedFileURL.path) else {
+                remaining.append(pending)
+                continue
+            }
+            guard let entry = folderStore.add(folder: pending.url) else {
+                // Could not be bookmarked — leave it pending so the page's
+                // discard or the expiry collects the scope.
+                remaining.append(pending)
+                continue
+            }
+            _ = folderStore.startAccess(entry)
+            if pending.started { pending.scoped.stopAccessingSecurityScopedResource() }
+            // The grant is durable now — the same recordGalleryRoot a
+            // picked folder writes, roots.json included.
+            recordGalleryRoot(pending.url.path)
+            committed.append(pending.url.path)
+        }
+        pendingDrops = remaining
+        armPendingDropExpiry()
+        rebuildGrantedRoots()
+        return committed
+    }
+
+    /// Release pending scopes — the named ones, or all of them when the
+    /// page sends no `paths`. Roots already committed in FolderStore are
+    /// never touched: only the pending set lives here.
+    private func discardDroppedRoots(_ args: [String: Any]) throws {
+        if let raw = args["paths"] as? [String] {
+            let wanted = Set(raw.map { URL(fileURLWithPath: $0).standardizedFileURL.path })
+            for pending in pendingDrops where wanted.contains(pending.url.standardizedFileURL.path) {
+                release(pending)
+            }
+            pendingDrops.removeAll { wanted.contains($0.url.standardizedFileURL.path) }
+        } else {
+            releaseAllPendingDrops()
+        }
+        armPendingDropExpiry()
+        rebuildGrantedRoots()
+    }
+
+    private func release(_ pending: PendingDrop) {
+        if pending.started { pending.scoped.stopAccessingSecurityScopedResource() }
+    }
+
+    /// Stop every pending scope and empty the set — the shell's own
+    /// cleanup for a replaced drop, a discard-all, and expiry.
+    private func releaseAllPendingDrops() {
+        for pending in pendingDrops { release(pending) }
+        pendingDrops.removeAll()
+        pendingDropExpiry?.cancel()
+        pendingDropExpiry = nil
+    }
+
+    /// An abandoned sheet must not hold security scopes forever — the
+    /// pending set expires on its own after ten minutes.
+    private func armPendingDropExpiry() {
+        pendingDropExpiry?.cancel()
+        guard !pendingDrops.isEmpty else { pendingDropExpiry = nil; return }
+        let work = DispatchWorkItem { [weak self] in
+            MainActor.assumeIsolated { self?.expirePendingDrops() }
+        }
+        pendingDropExpiry = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + Self.pendingDropTTL, execute: work)
+    }
+
+    private func expirePendingDrops() {
+        Trace.log("pending drop scopes expired")
+        releaseAllPendingDrops()
+        rebuildGrantedRoots()
+    }
+
+    /// Folder-drag events reach the page through the same shell emitter
+    /// deep links use, with one addition: a seeded drop can land before
+    /// the page's listener mounts, so delivery retries until the page arms
+    /// `__manoramaFolderDropArmed` (set by the drop subscription) or the
+    /// retries run out.
+    private func emitFolderEvent(_ event: String, _ payload: [String: Any]) {
+        guard let webView,
+              let data = try? JSONSerialization.data(withJSONObject: payload),
+              let json = String(data: data, encoding: .utf8) else { return }
+        let script = """
+        (function(){
+          var payload = \(json);
+          var deliver = function(){
+            if (window.__manoramaFolderDropArmed === true && window.__manoramaShellEmit) {
+              window.__manoramaShellEmit("\(event)", payload);
+              return true;
+            }
+            return false;
+          };
+          if (deliver()) return;
+          var tries = 0;
+          var timer = setInterval(function(){ tries += 1; if (deliver() || tries > 40) clearInterval(timer); }, 250);
+        })();
+        """
+        webView.evaluateJavaScript(script, completionHandler: nil)
     }
 
     /// Open a granted root in Finder ("Open folder" on a gallery card).
@@ -826,7 +1102,7 @@ final class NativeBridge {
         }
         // The page scans the folder it has just picked, so the grant has to
         // be in place now — not when the shell's refresh lands.
-        grantedRoots.replace(folderStore.grantedRoots())
+        rebuildGrantedRoots()
         onRootsChanged?()
     }
 
@@ -899,6 +1175,33 @@ final class NativeBridge {
     private func readFile(_ args: [String: Any]) async throws -> [String: Any] {
         let url = try grantedPath(args)
         let data = try await offMain { try Data(contentsOf: url, options: [.mappedIfSafe]) }
+        return ["__bytes": data.base64EncodedString()]
+    }
+
+    /// A bounded window of a granted file — the embedded-metadata probe asks
+    /// for a few hundred KB at a time and must never pull whole photographs
+    /// into the webview. Reading past EOF answers with whatever is left,
+    /// possibly nothing.
+    private static let maxRangeBytes = 4 * 1024 * 1024
+
+    private func readFileRange(_ args: [String: Any]) async throws -> [String: Any] {
+        let url = try grantedPath(args)
+        guard let start = args["start"] as? Int, let length = args["length"] as? Int else {
+            throw BridgeError.badArguments("read_file_range needs start and length")
+        }
+        guard start >= 0, length > 0, length <= Self.maxRangeBytes else {
+            throw BridgeError.badArguments("read_file_range bounds are start >= 0 and 0 < length <= 4 MiB")
+        }
+        let data = try await offMain { () throws -> Data in
+            let handle = try FileHandle(forReadingFrom: url)
+            defer { try? handle.close() }
+            try handle.seek(toOffset: UInt64(start))
+            // read(upToCount:) throws where the legacy readData(ofLength:)
+            // raised an NSException — a mid-range I/O error must surface as
+            // a thrown error, never as a crash. Nil is plain EOF: an empty
+            // window, exactly what reading past the end answers.
+            return try handle.read(upToCount: length) ?? Data()
+        }
         return ["__bytes": data.base64EncodedString()]
     }
 
@@ -995,7 +1298,7 @@ final class NativeBridge {
     // MARK: - The Keychain
 
     /// The identity a synced row names. A random UUID minted once and kept
-    /// in the login Keychain — the same place vault keys live — so it
+    /// in the shared Keychain — the same place vault keys live — so it
     /// survives the catalogue resets and reinstalls that were proven to
     /// orphan synced rows as mirrors that can never render. It is not a
     /// serial, MAC address or hardware UUID: the privacy rule `device_label`
@@ -1011,63 +1314,182 @@ final class NativeBridge {
         return minted
     }
 
-    private func keychainGet(_ name: String) throws -> String? {
-        var query: [String: Any] = [
+    /// The item identity every keychain operation against `name` shares.
+    /// On its own it is also the *legacy* query — verbatim the shape
+    /// pre-access-group builds ran against the file-based login keychain,
+    /// where each item's ACL is bound to the creating binary's signature.
+    /// Adding the data-protection + access-group keys turns it into the
+    /// shared query (see `sharedQuery`).
+    private func legacyQuery(_ name: String) -> [String: Any] {
+        [
             kSecClass as String: kSecClassGenericPassword,
             kSecAttrService as String: Self.keychainService,
             kSecAttrAccount as String: name,
-            kSecReturnData as String: true,
-            kSecMatchLimit as String: kSecMatchLimitOne,
         ]
-        query[kSecAttrAccessible as String] = kSecAttrAccessibleAfterFirstUnlock
+    }
+
+    /// The shared-custody form of `legacyQuery`: the data-protection
+    /// keychain plus the team's shared access group, so every build
+    /// signed by team 373K7W3LKU carrying the entitlement resolves the
+    /// same item with no OS prompt.
+    private func sharedQuery(_ name: String) -> [String: Any] {
+        var query = legacyQuery(name)
+        query[kSecUseDataProtectionKeychain as String] = true
+        query[kSecAttrAccessGroup as String] = Self.keychainAccessGroup
+        return query
+    }
+
+    /// A read against the shared store that preserves its OSStatus, so a
+    /// refusal is distinguishable from a confirmed absence.
+    private func keychainReadShared(_ name: String) -> (value: String?, status: OSStatus) {
+        var query = sharedQuery(name)
+        query[kSecReturnData as String] = true
+        query[kSecMatchLimit as String] = kSecMatchLimitOne
         var item: CFTypeRef?
         let status = SecItemCopyMatching(query as CFDictionary, &item)
-        if status == errSecItemNotFound { return nil }
-        guard status == errSecSuccess, let data = item as? Data else {
-            throw BridgeError.failed("the keychain refused the read")
+        guard status == errSecSuccess, let data = item as? Data,
+              let value = String(data: data, encoding: .utf8) else {
+            return (nil, status)
         }
+        return (value, status)
+    }
+
+    /// A read against the legacy file-based store only — verbatim the
+    /// query the old builds ran, so items an older signature wrote are
+    /// still found. Every failure answers nil, the dismissed ACL prompt
+    /// included: a legacy miss is an ordinary miss and a denied read is
+    /// never a reason to crash.
+    private func keychainGetLegacy(_ name: String) -> String? {
+        var query = legacyQuery(name)
+        query[kSecReturnData as String] = true
+        query[kSecMatchLimit as String] = kSecMatchLimitOne
+        query[kSecAttrAccessible as String] = kSecAttrAccessibleAfterFirstUnlock
+        var item: CFTypeRef?
+        guard SecItemCopyMatching(query as CFDictionary, &item) == errSecSuccess,
+              let data = item as? Data else { return nil }
         return String(data: data, encoding: .utf8)
     }
 
-    private func keychainSet(_ name: String, _ value: String) throws {
-        let data = Data(value.utf8)
-        let query: [String: Any] = [
-            kSecClass as String: kSecClassGenericPassword,
-            kSecAttrService as String: Self.keychainService,
-            kSecAttrAccount as String: name,
-        ]
+    /// Read a vault key or the device id. The shared store is asked
+    /// first; a *confirmed absence* — or a build that does not carry the
+    /// access-group entitlement at all, where every shared query is
+    /// refused — falls back to the legacy login keychain, where items
+    /// written before the access group existed still live under an ACL
+    /// bound to the old binary's signature. Any other refusal propagates:
+    /// an operational failure is not a missing key, and answering from
+    /// the wrong store would lie. A legacy hit is migrated on the spot —
+    /// the one prompt that ACL forces on first read is the last the item
+    /// ever shows, after which every team-signed build shares custody.
+    private func keychainGet(_ name: String) throws -> String? {
+        let (value, status) = keychainReadShared(name)
+        if status == errSecSuccess { return value }
+        guard status == errSecItemNotFound || status == errSecMissingEntitlement else {
+            throw BridgeError.failed("the keychain refused the read")
+        }
+        guard let value = keychainGetLegacy(name) else { return nil }
+        // Migrate custody: the shared copy is written before the legacy
+        // item is touched, so a failed write can never strand the key —
+        // a write that fails simply retries on the next read.
+        do {
+            try keychainSet(name, value)
+        } catch {
+            Trace.log("keychain migration of \(name) deferred — the write was refused")
+        }
+        return value
+    }
+
+    /// Write into `store` (a query dict already carrying the access-group
+    /// keys or not) — update-then-insert. The raw status comes back so a
+    /// missing entitlement is distinguishable from an operational refusal.
+    private func keychainWrite(_ query: [String: Any], _ value: String) -> OSStatus {
         let attributes: [String: Any] = [
-            kSecValueData as String: data,
+            kSecValueData as String: Data(value.utf8),
             kSecAttrAccessible as String: kSecAttrAccessibleAfterFirstUnlock,
         ]
         let status = SecItemUpdate(query as CFDictionary, attributes as CFDictionary)
         if status == errSecItemNotFound {
             var insert = query
             insert.merge(attributes) { current, _ in current }
-            let addStatus = SecItemAdd(insert as CFDictionary, nil)
-            guard addStatus == errSecSuccess else {
-                throw BridgeError.failed("the keychain refused the write")
-            }
+            return SecItemAdd(insert as CFDictionary, nil)
+        }
+        return status
+    }
+
+    private func keychainSet(_ name: String, _ value: String) throws {
+        let shared = keychainWrite(sharedQuery(name), value)
+        if shared == errSecSuccess {
+            // Keep the file-based copy in sync rather than sweeping it:
+            // the Tauri shell's keyring store reads the legacy keychain
+            // only, so a delete would strand its custody of the same key.
+            // Best-effort — the shared store is already authoritative,
+            // and a denied legacy write costs the Tauri leg nothing the
+            // old world did not already cost it.
+            _ = keychainWrite(legacyQuery(name), value)
             return
         }
-        guard status == errSecSuccess else {
+        // Only a build without the access-group entitlement may fall back
+        // to the file store. Any other refusal means the shared store
+        // declined a query the entitlement says is valid — and reporting
+        // success for a value the shared read on this same build will not
+        // answer hides a real fault, so it propagates instead.
+        guard shared == errSecMissingEntitlement else {
+            throw BridgeError.failed("the shared keychain refused the write")
+        }
+        guard keychainWrite(legacyQuery(name), value) == errSecSuccess else {
             throw BridgeError.failed("the keychain refused the write")
         }
     }
 
+    /// The legacy store's verbatim answer to a read probe — removal
+    /// verification's status check, where a denied read must never
+    /// collapse into "absent" the way `keychainGetLegacy` deliberately
+    /// lets it for ordinary reads.
+    private func keychainProbeLegacy(_ name: String) -> OSStatus {
+        var query = legacyQuery(name)
+        query[kSecReturnData as String] = true
+        query[kSecMatchLimit as String] = kSecMatchLimitOne
+        query[kSecAttrAccessible as String] = kSecAttrAccessibleAfterFirstUnlock
+        var item: CFTypeRef?
+        return SecItemCopyMatching(query as CFDictionary, &item)
+    }
+
     private func keychainRemove(_ name: String) throws {
-        let query: [String: Any] = [
-            kSecClass as String: kSecClassGenericPassword,
-            kSecAttrService as String: Self.keychainService,
-            kSecAttrAccount as String: name,
-        ]
-        let status = SecItemDelete(query as CFDictionary)
-        guard status == errSecSuccess || status == errSecItemNotFound else {
+        // Best-effort in the shared store — a missing-entitlement delete
+        // answers the same miss an absent item would, and the throwing
+        // probe below is what separates a refused read from a confirmed
+        // absence.
+        SecItemDelete(sharedQuery(name) as CFDictionary)
+        // The legacy delete's status matters: its per-item ACL can refuse,
+        // and a refusal leaves the item behind. Anything but success or a
+        // clean miss fails here rather than guessing at the verify.
+        let legacyDelete = SecItemDelete(legacyQuery(name) as CFDictionary)
+        guard legacyDelete == errSecSuccess || legacyDelete == errSecItemNotFound else {
             throw BridgeError.failed("the keychain refused the delete")
         }
-        // A resolved delete is not proof of deletion.
-        if (try? keychainGet(name)) != nil {
+        // A resolved delete is not proof of deletion — and the item is
+        // only gone when NEITHER store still holds it. keychainGet is
+        // deliberately not used here: its migration path would copy a
+        // surviving legacy item straight back into the shared store. The
+        // probes are the status-checking kind — the nil-on-denial readers
+        // would call a refused read a removal. A missing entitlement is
+        // the one refusal that skips verification: a build without the
+        // group can neither delete nor read the shared store, and the
+        // legacy verdict below is the only one it can give.
+        switch keychainReadShared(name).status {
+        case errSecSuccess:
             throw BridgeError.failed("the key survived the delete")
+        case errSecItemNotFound, errSecMissingEntitlement:
+            break
+        default:
+            throw BridgeError.failed("the keychain refused the read")
+        }
+        switch keychainProbeLegacy(name) {
+        case errSecSuccess:
+            throw BridgeError.failed("the key survived the delete")
+        case errSecItemNotFound:
+            break
+        default:
+            throw BridgeError.failed("the keychain refused the read")
         }
     }
 

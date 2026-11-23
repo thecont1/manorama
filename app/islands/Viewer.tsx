@@ -1,5 +1,5 @@
 import { useEffect as useHonoEffect, useLayoutEffect, useMemo, useRef, useState, type Child } from 'hono/jsx'
-import { formatMediaCount, isVideoItem, mediaCountOf, type GalleryImage, type GalleryMediaItem, type MediaCount, type VideoItem } from '../lib/imagesource'
+import { formatMediaCount, isVideoItem, mediaCountOf, type ExifData, type GalleryImage, type GalleryMediaItem, type MediaCount, type VideoItem } from '../lib/imagesource'
 import { heicObjectUrl, isHeicFilename } from '../lib/heic'
 import { encryptedSourceFromGalleryHash, type MediaReference } from '../../packages/core/encrypted-source'
 import { rewriteGalleryHistory } from '../lib/gallery-url'
@@ -18,7 +18,7 @@ import OwnerGalleryPanel, { OwnerGalleryHead } from '../components/viewer/OwnerG
 import ShortcutsSheet from '../components/viewer/ShortcutsSheet'
 import InfoSheet from '../components/viewer/InfoSheet'
 import { ActionGroup, ActionRow } from '../components/ui/ActionRow'
-import { createCredentialQueue } from '../lib/credential-queue'
+import { createCredentialQueue, type CredentialResult, type CredentialStatus } from '../lib/credential-queue'
 import SeededDoodleBackground from './SeededDoodleBackground'
 import { DEFAULT_BACKGROUND, type BackgroundPreference } from '../lib/background-preference'
 import { singlePlatePositionsFor, type AdFrame } from '../lib/adframe'
@@ -194,6 +194,10 @@ type Props = {
     onImageLoad: (id: string, src: string, width: number, height: number) => void
     renderVideo: (video: VideoItem, context: { width: number; height: number; active: boolean }) => unknown
   }) => unknown
+  /** Native/local hosts only: lazily reads embedded IPTC/XMP metadata for
+   *  a still when its Info sheet opens. The web app never passes this —
+   *  manifest `exif` alone drives its rows. */
+  readMetadata?: (image: GalleryImage) => Promise<ExifData | undefined>
 }
 
 /** The standalone C2PA viewer is a sibling homebrand: `I` deep-links the
@@ -327,7 +331,7 @@ const writeViewPrefs = (slug: string, patch: Partial<ViewPrefs>) => {
  *  preserve their aspect ratio, fit height-first in strip mode, width-first in
  *  vertical mode (portraits contain both axes instead, so they cannot run
  *  past the fold), and within both axes in single mode without upscaling. */
-export default function Viewer({ slug, galleryTitle, images: sourceImages, encryptedResolver = null, galleryId, settings: initialSettings, plate = null, onOpenGlobalView, nativePickerOpen = false, onReturnToGalleries, allowFullscreen = true, initialIndex = 0, navigationRef, chromeRef, onChromeFocus, embedded = false, demoRef, demoDisplayScaleRef, suspended = false, onPositionChange, onOpenDetails, viewerRole, galleryOwner, onAddToLibrary, addToLibraryBusy, addToLibraryLabel, signInHref, libraryHref, apiBase = '', authToken, ownerGallery, initialEdit = false, editStore, foldLayout = null, demoVerticalBarEdge, demoVerticalStyle, foldRenderer, keyStore, shareHref, onEditSaved, onGalleryRenamed, onGalleryRefreshed, onGalleryRemoved }: Props) {
+export default function Viewer({ slug, galleryTitle, images: sourceImages, encryptedResolver = null, galleryId, settings: initialSettings, plate = null, onOpenGlobalView, nativePickerOpen = false, onReturnToGalleries, allowFullscreen = true, initialIndex = 0, navigationRef, chromeRef, onChromeFocus, embedded = false, demoRef, demoDisplayScaleRef, suspended = false, onPositionChange, onOpenDetails, viewerRole, galleryOwner, onAddToLibrary, addToLibraryBusy, addToLibraryLabel, signInHref, libraryHref, apiBase = '', authToken, ownerGallery, initialEdit = false, editStore, foldLayout = null, demoVerticalBarEdge, demoVerticalStyle, foldRenderer, keyStore, shareHref, onEditSaved, onGalleryRenamed, onGalleryRefreshed, onGalleryRemoved, readMetadata }: Props) {
   const [settings, setSettings] = useState<GallerySettings>(initialSettings)
   const viewPrefs = useMemo(() => (embedded || typeof localStorage === 'undefined' ? {} : readViewPrefs(slug)), [slug, embedded])
   const [mode, setMode] = useState<Mode>(viewPrefs.mode ?? initialSettings.defaultMode)
@@ -404,8 +408,13 @@ export default function Viewer({ slug, galleryTitle, images: sourceImages, encry
   const [showCaptions, setShowCaptions] = useState(initialSettings.defaultShowCaptions)
   const [fullscreenAvailable, setFullscreenAvailable] = useState(false)
   const [fullscreenActive, setFullscreenActive] = useState(false)
-  const [credentialState, setCredentialState] = useState<Record<string, 'idle' | 'loading' | 'verified' | 'unavailable'>>({})
+  const [credentialState, setCredentialState] = useState<Record<string, CredentialStatus>>({})
   const [credentialStores, setCredentialStores] = useState<Record<string, unknown>>({})
+  // Lazily-read embedded metadata, keyed by image id like credentialState:
+  // a present key means the read settled (null = nothing found or failed —
+  // either way the sheet simply shows no extra rows).
+  const [embeddedExif, setEmbeddedExif] = useState<Record<string, ExifData | null>>({})
+  const embeddedExifPending = useRef(new Set<string>())
   const [heicSrc, setHeicSrc] = useState<Record<string, string>>({})
   // One-at-a-time sequential fade: the incumbent fades out alone
   // (120ms), the index commits at opacity 0, then the incoming frame
@@ -958,7 +967,24 @@ export default function Viewer({ slug, galleryTitle, images: sourceImages, encry
   // only exists on photographs — narrow once here rather than at each use.
   const currentVideo = currentImage && isVideoItem(currentImage) ? currentImage : null
   const currentIsVideo = Boolean(currentVideo)
-  const currentExif = currentImage && !isVideoItem(currentImage) ? currentImage.exif : undefined
+  const currentManifestExif = currentImage && !isVideoItem(currentImage) ? currentImage.exif : undefined
+  // Manifest EXIF wins per field over lazily-read embedded metadata —
+  // a scanned-in IPTC title fills gaps but never overwrites what the
+  // provider manifest already asserted.
+  const infoExif = useMemo<ExifData | undefined>(() => {
+    if (!currentImage || isVideoItem(currentImage)) return undefined
+    const embedded = embeddedExif[currentImage.id]
+    const manifest = currentManifestExif
+    if (!embedded && !manifest) return undefined
+    const merged: ExifData = { ...(embedded ?? {}) }
+    if (manifest) {
+      for (const key of Object.keys(manifest) as (keyof ExifData)[]) {
+        const value = manifest[key]
+        if (value !== undefined) (merged as Record<string, unknown>)[key] = value
+      }
+    }
+    return merged
+  }, [currentImage?.id, currentManifestExif, embeddedExif])
 
   // The pointer handlers bind once per mode change, but the plate prop
   // resolves asynchronously after mount — plateRef keeps this predicate
@@ -1845,7 +1871,7 @@ export default function Viewer({ slug, galleryTitle, images: sourceImages, encry
   useEffect(() => {
     if (!currentImage) return
     const state = credentialState[currentImage.id]
-    if (state === 'verified' || state === 'unavailable') return
+    if (state === 'verified' || state === 'unavailable' || state === 'none') return
     if (!currentImage.c2pa) {
       setCredentialState((previous) => ({ ...previous, [currentImage.id]: 'unavailable' }))
     }
@@ -2947,7 +2973,7 @@ export default function Viewer({ slug, galleryTitle, images: sourceImages, encry
   const credentialQueueRef = useRef<ReturnType<typeof createCredentialQueue> | null>(null)
   const imagesRef = useRef(images)
   imagesRef.current = images
-  const credentialChecker = async (imageId: string): Promise<'verified' | 'unavailable'> => {
+  const credentialChecker = async (imageId: string): Promise<CredentialResult> => {
     const image = imagesRef.current.find((item) => item.id === imageId)
     if (!image?.c2pa || isVideoItem(image)) return 'unavailable'
     const [{ createC2pa }, _webComponents] = await Promise.all([
@@ -2957,17 +2983,37 @@ export default function Viewer({ slug, galleryTitle, images: sourceImages, encry
     if (!c2paRef.current) c2paRef.current = await createC2pa({ wasmSrc: '/vendor/c2pa_bg.wasm' })
     const response = await fetch(image.src, { cache: 'force-cache' })
     const blob = await response.blob()
+    // fromBlob resolves null when the asset carries no C2PA manifest —
+    // that is an answer ('none'), not a failed check. A throw still
+    // propagates and lands as 'unavailable' in the queue.
     const c2paReader = await c2paRef.current.reader.fromBlob(blob.type, blob)
+    if (!c2paReader) return 'none'
     try {
       const store = await c2paReader.manifestStore()
       const hasManifest = Boolean(store && JSON.stringify(store).length > 2)
       if (hasManifest) setCredentialStores((previous) => ({ ...previous, [imageId]: store }))
-      return hasManifest ? 'verified' : 'unavailable'
+      return hasManifest ? 'verified' : 'none'
     } finally {
       await c2paReader.free()
     }
   }
   if (!credentialQueueRef.current) credentialQueueRef.current = createCredentialQueue(credentialChecker)
+
+  // Embedded IPTC/XMP reads are lazy and host-supplied: they fire once per
+  // photograph the first time its Info sheet opens, never for videos, and
+  // a late result can only land under its own image id. Failures and
+  // empty results both settle to null — the sheet just shows fewer rows.
+  useEffect(() => {
+    if (!infoOpen || !readMetadata || !currentImage || isVideoItem(currentImage)) return
+    const imageId = currentImage.id
+    if (imageId in embeddedExif || embeddedExifPending.current.has(imageId)) return
+    embeddedExifPending.current.add(imageId)
+    void Promise.resolve()
+      .then(() => readMetadata(currentImage))
+      .then((result) => setEmbeddedExif((previous) => ({ ...previous, [imageId]: result ?? null })))
+      .catch(() => setEmbeddedExif((previous) => ({ ...previous, [imageId]: null })))
+      .finally(() => { embeddedExifPending.current.delete(imageId) })
+  }, [infoOpen, readMetadata, currentImage?.id])
 
   const openCredentials = () => {
     if (!currentImage) return
@@ -3486,6 +3532,10 @@ export default function Viewer({ slug, galleryTitle, images: sourceImages, encry
                   </>
                 ) : (
                 <>
+                {/* The preview layer occupies the same honest staged box
+                    as the full image — the frame-ph 100%/100% CSS would
+                    otherwise stretch a small source's thumbnail across the
+                    whole frame, painting pixels it does not have. */}
                 <img
                   class="frame-ph"
                   src={image.variants?.[0]?.src || image.placeholder}
@@ -3493,6 +3543,7 @@ export default function Viewer({ slug, galleryTitle, images: sourceImages, encry
                   aria-hidden="true"
                   width={frameW}
                   height={frameH}
+                  style={stagedStyle}
                   decoding="async"
                   loading={isActive ? 'eager' : 'lazy'}
                 />
@@ -3945,8 +3996,7 @@ export default function Viewer({ slug, galleryTitle, images: sourceImages, encry
           mimeType={currentVideo?.mimeType}
           durationSeconds={currentVideo?.durationSeconds}
           caption={currentImage?.caption}
-          camera={[currentExif?.camera, currentExif?.lens, currentExif?.aperture, currentExif?.iso].filter(Boolean) as string[]}
-          captured={currentExif?.dateOriginal}
+          exif={infoExif}
           credentialState={currentImage ? credentialState[currentImage.id] : undefined}
           credentialStore={currentImage ? credentialStores[currentImage.id] : undefined}
           onRetryCredentials={openCredentials}

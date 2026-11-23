@@ -179,16 +179,25 @@ if [ "$PLIST_MIN" != "$MINOS" ]; then
 fi
 
 echo "==> signing the app bundle"
-# A linker-signed ad-hoc binary has no stable identity: the login Keychain
-# binds each item's ACL to the binary's cdhash, so every rebuild orphans the
-# stored gallery keys and macOS prompts for the keychain password once per
-# key on the next launch. A stable Developer ID signature makes the identity
-# — and therefore the Keychain trust — survive rebuilds.
+# A linker-signed ad-hoc binary has no stable identity and carries no
+# entitlements: any item a differently-signed build left in the file-based
+# login keychain keeps an ACL bound to that signature — macOS prompts for
+# the keychain password once per item on first read. A stable Developer ID
+# signature keeps its own identity across rebuilds, so items it owns stay
+# silent; the bridge migrates foreign-signature items on first touch.
 IDENTITY="${MACOS_SIGN_IDENTITY:-Developer ID Application: Mahesh Shantaram (373K7W3LKU)}"
 # App Store builds sign with ManoramaMac-AppStore.entitlements, which adds the
 # application/team identifiers the distribution signature requires; direct
 # (Developer ID) builds keep the leaner set.
 ENTITLEMENTS="${MANORAMA_MACOS_ENTITLEMENTS:-$APP/ManoramaMac.entitlements}"
+# Note: keychain-access-groups belongs ONLY in the App Store file. It is a
+# restricted entitlement — on a sandboxed Developer ID build with no
+# provisioning profile, AMFI cannot validate it and the kernel kills the
+# process at exec ("restricted entitlements, code signature validation
+# failed"). Shared custody reaches direct builds only when BOTH pieces ship
+# together: an embedded Developer ID profile carrying the group AND an
+# entitlements file that declares it — the profile alone changes nothing.
+# Until then the bridge's legacy file-keychain path serves them unchanged.
 codesign --force --sign "$IDENTITY" --options runtime --timestamp \
   --entitlements "$ENTITLEMENTS" "$APP_BUNDLE"
 
