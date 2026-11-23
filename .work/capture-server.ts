@@ -401,6 +401,27 @@ const PREBOOT = async (which: number) => {
     for (var i = 0; i < images.length; i++) if (images[i].complete && images[i].naturalWidth > 0) loaded++
     return { thumbs: images.length, loaded: loaded }
   }
+  // The rail mounts media only for cells its IntersectionObserver has seen —
+  // a card sitting wholly below the fold keeps zero <img> forever, which is
+  // not evidence of anything but the scroll position. Scroll the nearest
+  // scrollable ancestor just enough to bring the strip's top inside the
+  // viewport, the way a reader would; if the strip already peeks in, do
+  // nothing so the frame stays at the top of the Library.
+  var railTop = function () {
+    var rail = document.querySelector('.lib-rail, .native-library-cover-slot')
+    return rail ? rail.getBoundingClientRect().top : null
+  }
+  var ensureStripInView = function () {
+    var top = railTop()
+    if (top === null || top < innerHeight - 8) return 'peeked'
+    var rail = document.querySelector('.lib-rail, .native-library-cover-slot')
+    var node = rail && rail.parentElement
+    while (node && node.scrollHeight <= node.clientHeight + 4) node = node.parentElement
+    var scroller = node || document.scrollingElement || document.documentElement
+    var before = scroller.scrollTop
+    scroller.scrollTop = before + Math.min(top - (innerHeight - 64), top)
+    return 'scrolled ' + Math.round(before) + '->' + Math.round(scroller.scrollTop) + ' railTop ' + Math.round(top)
+  }
   var send = function (body) {
     // The preview takes (5 and 6) have their own readiness signal from the
     // choreography, and this one is the state-3 screenshot's. Both write the same
@@ -416,12 +437,14 @@ const PREBOOT = async (which: number) => {
     return Promise.resolve()
   }
   var started = Date.now()
+  var lastNudge = ''
   var wait = function () {
     var account = document.querySelector('.native-account')
     var add = document.querySelector('.native-library-actions .m-btn--primary')
     var strip = stills()
     var bounds = add && add.getBoundingClientRect()
     var addVisible = Boolean(bounds && bounds.width > 0 && bounds.height >= 44 && bounds.top >= 0 && bounds.bottom <= innerHeight)
+    if (account && addVisible && strip.thumbs === 0) lastNudge = ensureStripInView()
     var ready = Boolean(account && addVisible && strip.thumbs > 0 && strip.loaded === strip.thumbs)
     if (ready || Date.now() - started > 40000) {
       log('state ${which} ready:', ready, JSON.stringify(strip))
@@ -432,7 +455,11 @@ const PREBOOT = async (which: number) => {
         addVisible: addVisible,
         addBounds: bounds && { x: bounds.x, y: bounds.y, width: bounds.width, height: bounds.height },
         headings: [].map.call(document.querySelectorAll('.native-library-heading h1, .lib-card-title'), function (h) { return h.textContent }),
-        thumbs: strip
+        thumbs: strip,
+        cells: document.querySelectorAll('[data-rail-cell]').length,
+        railTop: railTop(),
+        scrollY: (document.scrollingElement || document.documentElement).scrollTop,
+        nudge: lastNudge
       })
       return
     }
