@@ -837,6 +837,7 @@ export const createManoramaApi = () => {
           caption: source.caption,
           date: source.date,
           sourceUrl: source.sourceUrl,
+          manifestVersion: source.manifestVersion,
           createdAt: new Date().toISOString(),
           images,
         }, dbEnv(c))

@@ -116,9 +116,9 @@ describe('adopt copies the manifest faithfully', () => {
     const html = await response.text()
     const frame = /<img[^>]*class="frame-img"[^>]*src="([^"]*)"/.exec(html)
     console.log(`ADOPTED-COPY visitor frame-img src=${JSON.stringify(frame?.[1] ?? null)}`)
-    // The copy takes the legacy path, and every copied item has src="", so the
-    // viewer emits only the placeholder — no <img class="frame-img"> at all,
-    // and no resolver that could ever fill it.
+    // The copy now takes the client gate: EncryptedGallery SSRs the Viewer
+    // shell with an encryptedResolver, so the visitor gets placeholders at
+    // SSR and the resolver fills them after hydration — no frame-img yet.
     expect(frame).toBeNull()
     expect(html).toContain('<img class="frame-ph" src="data:image/svg+xml')
   })
