@@ -5,9 +5,8 @@ detached worktree of that SHA.
 **Method:** source trace plus runnable probes; no production traffic, no live
 provider, no real account.
 **Verdict:** no exploitable vulnerability was demonstrated within the tested
-scope. One shipped behaviour is broken (a member's copy of an encrypted
-gallery renders blank), two hardening gaps and one documentation discrepancy
-were found.
+scope. One shipped behaviour was broken; all four findings are now fixed and
+re-verified on `feat/local-gallery-report-fixes`.
 
 ## Overall assessment
 
@@ -40,28 +39,33 @@ mechanisms are the ones the code claims rather than accidental ones:
   data over a header that carries the length, so a swapped or truncated record
   fails the tag rather than decrypting to a plausible wrong answer.
 
-The weaknesses cluster at the edges of those disciplines: one copy path that
-forgets a field the render gate depends on, one class of response that declares
-no cache policy, and privacy text that has drifted behind the code.
+The weaknesses clustered at the edges of those disciplines: one copy path that
+forgot a field the render gate depends on, one class of response that declared
+no cache policy, and privacy text that had drifted behind the code. All three
+are closed.
 
 ## Findings
 
-| # | Finding | Class | Severity |
-| --- | --- | --- | --- |
-| R3-01 | Adopting an encrypted gallery stores the copy as manifest version 1, so the render gate picks the legacy viewer: every frame carries an empty `src` and a visitor sees placeholders forever. | Verified defect (functional) | Medium |
-| R3-02 | Owner-private JSON (`/api/galleries`, `/api/library`, `/api/account`, `/api/galleries/:slug`) carries no `Cache-Control` and only `Vary: Origin`, so a browser cache is free to reuse one account's library for the next. | Hardening opportunity | Low |
-| R3-03 | The privacy policy says the desktop app has no encrypted vault and that video galleries are not cached offline; both are now untrue. | Product/privacy-policy discrepancy | Informational |
-| R3-04 | `/api/auth/native/exchange` (unauthenticated) and `/api/galleries/scan` buffer an unbounded request body while sibling routes bound theirs. | Hardening opportunity | Low |
+| # | Finding | Class | Severity | Status |
+| --- | --- | --- | --- | --- |
+| R3-01 | Adopting an encrypted gallery stored the copy as manifest version 1, so the render gate picked the legacy viewer: every frame carried an empty `src` and a visitor saw placeholders forever. | Verified defect (functional) | Medium | **Fixed at `e5385cab`, verified** |
+| R3-02 | Owner-private JSON (`/api/galleries`, `/api/library`, `/api/account`, `/api/galleries/:slug`) carried no `Cache-Control` and only `Vary: Origin`, so a browser cache was free to reuse one account's library for the next. | Hardening opportunity | Low | **Fixed at `626dd2fb`, verified** |
+| R3-03 | The privacy policy said the desktop app has no encrypted vault and that video galleries are not cached offline; both were untrue. | Product/privacy-policy discrepancy | Informational | **Fixed at `1aefd3da`** |
+| R3-04 | `/api/auth/native/exchange` (unauthenticated) and `/api/galleries/scan` buffered an unbounded request body while sibling routes bound theirs. | Hardening opportunity | Low | **Fixed at `626dd2fb`, verified** |
 
-R3-01 is the one user-visible break. It needs no attacker: a member taps "Add to
-Library" on a shared encrypted gallery and gets a gallery nobody can view
-without pasting the original link again — and visitors can never view it at all.
+R3-01 needed no attacker: a member tapped "Add to Library" on a shared encrypted
+gallery and got a gallery nobody could view without pasting the original link
+again — and visitors could never view it at all. `e5385cab` copies
+`manifestVersion` through the adopt create and makes `encryptedGalleryGate`
+consult the row's items as well, so a row that lost its version still renders
+through the client path. No backfill is required: the item check covers rows
+adopted before the fix.
 
 ## Release-blocking
 
-Nothing in this pass is a release blocker for the web app. R3-01 is worth fixing
-before the next iOS/macOS build ships, because it is a silent dead end in a
-flow the product advertises, not because it is dangerous.
+Nothing in this pass is a release blocker for the web app. All four findings
+are closed; R3-01 was worth fixing before the next native build because it was
+a silent dead end in an advertised flow, not because it was dangerous.
 
 ## What was not tested, and the uncertainty that matters
 
@@ -92,4 +96,4 @@ flow the product advertises, not because it is dangerous.
 On this evidence, the web app is. The native shells are in the same shape the
 second pass left them: the macOS renderer boundary is genuinely closed and
 tested, and the vault's structure is sound, but the shells were not launched
-here. Fix R3-01 and R3-02 first; neither is large.
+here. All four findings are closed as of `d5ee928e`.

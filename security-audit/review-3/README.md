@@ -3,9 +3,17 @@
 Pinned target: **`c7d8002c7ee1c6f446e619e85bd09dee543611c6`** (`main`, "Merge pull
 request #269 from thecont1/fix/desktop-publish-provider-env", 2026-11-22).
 
-The audit ran in a detached worktree of that SHA
+**Status of the findings:** all four are fixed on
+`feat/local-gallery-report-fixes` — R3-01 at
+**`e5385cabbc2d2fe37649025bd651d97b5e851d05`**, R3-02 and R3-04 at
+**`626dd2fbac47ce0515b20b6ede0e61814aa00f70`**, R3-03 at
+**`1aefd3da3a96cc850ff015ce051f2dad64aa5de2`** — and re-verified (see
+`02-findings.md` status lines and `05-verification-appendix.md` § Fix
+verification).
+
+The audit ran in a detached worktree of the pinned SHA
 (`.worktrees/audit-c7d8002`, `git rev-parse HEAD` = the SHA above) so the
-checkout's own branch and its two uncommitted files could not influence the
+checkout's own branch and its uncommitted files could not influence the
 result. Nothing here was committed, pushed, deployed or pointed at production.
 Every provider interaction is mocked; every account, gallery and file is
 synthetic.
@@ -29,7 +37,7 @@ probe-ssr.test.ts       title/caption/alt injection through SSR, quick-add path
 probe-sources.test.ts   provider URL canonicalisation and the Google Photos `?u=` fetcher
 probe-cache.test.ts     what authenticated JSON tells caches (records headers)
 probe-body.test.ts      which endpoints bound request bodies
-probe-adopt.test.ts     adopting an encrypted gallery — the one probe that fails, on purpose
+probe-adopt.test.ts     adopting an encrypted gallery, plus the gate's item check (R3-01)
 run-boundary.sh         compiles and runs the shipped macOS boundary suite
 ```
 
@@ -47,9 +55,12 @@ Run the macOS probe (Xcode command-line tools, arm64 macOS, no network):
 security-audit/review-3/run-boundary.sh
 ```
 
-`probe-adopt.test.ts` contains one assertion of *intended* behaviour and fails
-at this SHA; the failure is finding R3-01, not a broken probe. Everything else
-is green.
+All six probe files are green at `d5ee928e` (40 tests), the head of the branch
+that carries the fixes. At the pinned SHA, `probe-adopt.test.ts` had one
+intentionally failing assertion and `probe-cache`/`probe-body` recorded the
+unfixed behaviour — that failure was R3-01, and the fixes turn all of them green;
+`probe-adopt.test.ts` now also pins the gate's item check in both directions, so a
+future row that loses its version still cannot fall to the legacy path silently.
 
 ## Files created
 

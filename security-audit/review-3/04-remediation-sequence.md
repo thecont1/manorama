@@ -1,49 +1,54 @@
 # Remediation sequence
 
 Ordered by consequence, with the dependencies that actually bind.
+Status as of `d5ee928e` on `feat/local-gallery-report-fixes`: all four findings
+are closed.
 
-## 1. Before the next native build goes out
+## 1. Done
 
-**R3-01 — carry `manifestVersion` through adopt.**
-One argument in `app/api.ts` (the adopt handler's `createGalleryWithinLimit`
-call) plus one regression test. Nothing depends on it; it is independent of
-everything else here. Do it with the defensive gate change
-(`manifestIsEncryptedSource` in `encryptedGalleryGate`) if the change is being
-made anyway — the gate change alone would fix new copies but leave existing
-rows dark, so a backfill (`UPDATE galleries SET manifest_version = 2 WHERE …`
-for rows whose items are encrypted refs) is the only way to repair rows already
-adopted. Backfill is a data change: prepare it, do not run it here.
+**R3-01 — carry `manifestVersion` through adopt. Fixed at `e5385cab`.**
+The adopt create now passes `source.manifestVersion`, and `encryptedGalleryGate`
+also consults the row's items (`manifestIsEncryptedSource`), so a row that lost
+its version — including every copy adopted before the fix — still renders through
+the client path. `app/routes/[owner]/[slug].tsx` hands the gate the images; the
+only other gate caller (`/api/gallery/:owner/:slug`) reads just
+`legacySourceUrl` and needed no change.
 
-**R3-02 — declare a cache policy on authenticated JSON.**
-Two lines if the middleware is used (`Cache-Control: private, no-store` for
-anything behind `requireSession`), or four route-level calls to the existing
-`privateNoStore`. Independent of R3-01. No backfill.
+No backfill is load-bearing. The column stays `1` on rows adopted before the fix
+and the item check covers them at render time; a one-off
+`UPDATE galleries SET manifest_version = 2 WHERE …` would only tidy the column.
 
-## 2. Next hardening pass
+Verified: `probe-adopt.test.ts` 5/5, including the gate's item check in both
+directions; the whole probe set is 40/40 at `d5ee928e`.
 
-**R3-04 — bound the two unbounded bodies.**
-Independent, small, and lower value than the two above. Pairs naturally with any
-work that touches the API group's middleware, since the alternative is to bound
-`/api/*` once.
+## 2. Done
 
-## 3. Documentation, no code
+**R3-02 — declare a cache policy on authenticated JSON. Fixed at `626dd2fb`.**
+`privateNoStore` is chained onto each session-gated prefix ahead of
+`requireSession`, so every `/api/galleries`, `/api/library` and `/api/account`
+response — rejections included — answers `Cache-Control: private, no-store`.
+The public manifest keeps its cacheable path. `probe-cache.test.ts` asserts the
+header on all four routes.
 
-**R3-03 — bring the privacy text up to the code.**
-`docs/privacy-policy.md` and `packages/core/privacy-policy.ts` must be edited
-together (the route renders the latter). If the repository wants the text to
-stop drifting, the cheapest pin is a test asserting the presence of the claims
-it makes — not a parser.
+**R3-04 — bound the two unbounded bodies. Fixed at `626dd2fb`.**
+`bodyLimit({ maxSize: 8 * 1024 })` on `/api/auth/native/exchange` and on
+`/api/galleries/scan`, matching the desktop exchange's precedent.
+`probe-body.test.ts` asserts 413 outside the bound and that a body inside it
+still reaches the handler's own refusal.
+
+## 3. Done
+
+**R3-03 — bring the privacy text up to the code. Fixed at `1aefd3da`.**
+`docs/privacy-policy.md` and `packages/core/privacy-policy.ts` were edited
+together: the desktop vault is described as built (same custody model, keys in
+the device credential store) and video caching is described honestly (poster,
+plus the clip when it fits one vault entry). No pin test was added — the claim
+list would drift the same way the text did.
 
 ## Dependencies and non-dependencies
 
-- R3-01's backfill depends on knowing which existing rows are affected:
-  `manifest_version = 1` with `source_url` an encrypted provider URL and items
-  carrying `media.kind = 'encrypted'`. The code fix does not depend on the
-  backfill.
-- R3-02 and R3-04 both touch `app/api.ts`. Land them in one change if the branch
-  discipline allows it; they cannot conflict with R3-01, which touches a handler
-  body.
-- R3-03 is text only and can land at any time.
+- R3-02 and R3-04 both touched `app/api.ts` and landed in one change.
+- Nothing depended on anything else; all four landed independently.
 
 ## What this pass would look at next
 

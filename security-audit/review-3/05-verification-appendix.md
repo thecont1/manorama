@@ -9,6 +9,7 @@
 | Runtime | bun 1.4.4 |
 | Vite | 8.3.5 |
 | Audit snapshot | `.worktrees/audit-c7d8002`, detached at `c7d8002c7ee1c6f446e619e85bd09dee543611c6` |
+| Fix commits | `e5385cab` (R3-01), `626dd2fb` (R3-02, R3-04), `1aefd3da` (R3-03), `d5ee928e` (probe pin) on `feat/local-gallery-report-fixes`; re-verified in the primary checkout at `d5ee928e` |
 | Dependencies | `node_modules` symlinked from the primary checkout (same `bun.lock`); no install was run |
 | Network | none required; the Swift suite opens a loopback listener and, in the API-proxy check, one request to the configured API base if reachable |
 
@@ -77,7 +78,7 @@ EXIT:0
 Warning (pre-existing): chunks over 500 kB, chiefly `heic-decode`
 (2.0 MB) and `libsodium-wrappers` (534 kB). Performance, not security.
 
-### This pass's probes
+### This pass's probes at the pinned commit
 
 ```
 $ bun run test:unit -- security-audit/review-3
@@ -87,7 +88,7 @@ $ bun run test:unit -- security-audit/review-3
 Ran 38 tests across 6 files. [98.00ms]
 ```
 
-The single failure is the intended assertion in `probe-adopt.test.ts`
+The single failure was the intended assertion in `probe-adopt.test.ts`
 (R3-01). Per file:
 
 | Probe | Result | What it records |
@@ -97,9 +98,66 @@ The single failure is the intended assertion in `probe-adopt.test.ts`
 | `probe-sources.test.ts` | 10/10 | Dropbox/Drive canonicalisation, Google Photos `?u=` fetcher |
 | `probe-cache.test.ts` | 6/6 | header facts behind R3-02 |
 | `probe-body.test.ts` | 3/3 | 413 vs unbounded, behind R3-04 |
-| `probe-adopt.test.ts` | 2/3 | R3-01; the failing assertion is the finding |
+| `probe-adopt.test.ts` | 2/3 | R3-01; the failing assertion was the finding |
 
-### macOS boundary suite (shipped Swift)
+## Fix verification (all four findings)
+
+The fixes landed on `feat/local-gallery-report-fixes` in four commits, each
+carrying its regression evidence:
+
+| Commit | Finding | What it changes |
+| --- | --- | --- |
+| `e5385cab` | R3-01 | `manifestVersion` through adopt; `encryptedGalleryGate` consults the items |
+| `626dd2fb` | R3-02, R3-04 | `privateNoStore` on the session-gated prefixes; 8 KB bounds on the two unbounded routes |
+| `1aefd3da` | R3-03 | privacy text, both copies |
+| `d5ee928e` | — | pins the gate's item check in `probe-adopt.test.ts` |
+
+Re-run at `d5ee928e`, the last commit touching code the probes exercise:
+
+```
+$ bunx tsc --noEmit
+(no output, exit 0)
+
+$ bun run test:unit -- security-audit/review-3
+40 pass
+ 0 fail
+100 expect() calls
+Ran 40 tests across 6 files. [74.00ms]
+
+$ MANORAMA_TEST_ROOT=… bun run test:unit
+2620 pass
+   0 fail
+34207 expect() calls
+Ran 2620 tests across 211 files. [57.80s]
+```
+
+What each turned assertion now proves:
+
+- **R3-01** — the adopted copy keeps `manifestVersion 2` and `gate.client` is
+  true (`probe-adopt.test.ts`). Two tests added in `d5ee928e` pin the new belt in
+  both directions: a `manifest_version = 1` row with keyless `media` refs takes
+  the client path (this is what covers copies adopted **before** the fix, and why
+  no backfill is required), and a `manifest_version = 1` row with server-proxied
+  `src` keeps the legacy path, so the belt cannot over-claim. The visitor-render
+  assertion is unchanged and still expects no `<img class="frame-img">` at SSR:
+  the copy now takes `EncryptedGallery`, which SSRs the Viewer shell and lets the
+  resolver fill frames after hydration. Before the fix the same markup meant
+  "blank forever"; after it, "filled on hydration" — the gate assertion, not the
+  markup, is the discriminator.
+- **R3-02** — `probe-cache.test.ts` asserts `private` and `no-store` on
+  `/api/galleries`, `/api/library`, `/api/account` and `/api/galleries/:slug`,
+  and still records the public manifest as uncached.
+- **R3-03** — no test; the text was read against
+  `native/lib/offline-gallery.ts:652-689` and
+  `desktop/islands/Catalogue.tsx:2890`.
+- **R3-04** — `probe-body.test.ts` asserts 413 outside 8 KB on both routes and
+  that a body inside the bound still reaches the handler's own refusal (401 /
+  400-422), so a bound that swallowed real requests would fail.
+
+The pre-fix numbers are kept above (`37 pass / 1 fail`, `2486 / 1`) as the
+before-evidence.
+
+## macOS boundary suite (shipped Swift, pinned commit)
 
 ```
 $ security-audit/review-3/run-boundary.sh

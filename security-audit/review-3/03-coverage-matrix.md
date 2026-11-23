@@ -25,7 +25,7 @@ surface does not exist at this SHA. **Not tested** = exists, not covered here.
 | Pipeline read-only / expiry | Tested | Same file: 403 `GALLERY_READ_ONLY`, public 404 once expired, owner delete still works |
 | Creation limits and duplicate-source | Reviewed | `createGalleryWithinLimit` is one atomic `INSERT … SELECT`; the route suite covers the 403/409 shapes |
 | Slug rename / namespace | Reviewed | `updateGallerySlug` is owner-scoped + UNIQUE; reservations from migration 0019 |
-| Adopt | Tested | `probe-adopt.test.ts` — and R3-01 |
+| Adopt | Tested | `probe-adopt.test.ts`; R3-01 was found here, fixed at `e5385cab` and re-verified (the copy keeps v2, the gate takes the client path, the item check is pinned in both directions) |
 | Device galleries (tier gate, owner scope) | Tested | `app/device-gallery-api.test.ts` (real schema via miniflare) passes |
 | Master / ops console | Reviewed | Server-rendered gate in `opman.tsx`, API gate `requireMasterSession`; no probe |
 | Ad suppression | Reviewed | Master-gated writes; visibility read is public and region comes from `cf`, never stored |
@@ -62,9 +62,9 @@ surface does not exist at this SHA. **Not tested** = exists, not covered here.
 | Range / 206 forwarding and seeking | Tested | `app/media-proxy-range.test.ts` passes |
 | Query preservation through the shell proxy | Tested | `desktop-shell/bridge.test.ts` (percent-encoded path + query) |
 | Cancellation / stopped `WKURLSchemeTask` | Tested | Swift suite: a stopped task is never answered |
-| Cache partitioning of authenticated JSON | Tested | `probe-cache.test.ts` — and R3-02 |
+| Cache partitioning of authenticated JSON | Tested | `probe-cache.test.ts`; R3-02 fixed at `626dd2fb` — all four routes now assert `private, no-store` |
 | Cross-user cache leakage of provider bytes | Reviewed | Thumbnails `private, max-age=300`, originals `private, no-store`; the isolate-level `coalesce` key is the full URL |
-| Oversized bodies | Tested | `probe-body.test.ts` — and R3-04 |
+| Oversized bodies | Tested | `probe-body.test.ts`; R3-04 fixed at `626dd2fb` — 413 outside 8 KB, inside the bound reaches the handler |
 | **H. Vault, offline data, cryptography** | | |
 | AES-GCM nonce per record, AAD = header + `galleryId\0entryId` | Reviewed | `native/lib/vault.ts:163-183`; record length checked against the authenticated header |
 | Swap / truncation / oversized record | Reviewed | Covered by `native/lib/vault.test.ts` in the passing suite; not re-derived here |
@@ -73,6 +73,7 @@ surface does not exist at this SHA. **Not tested** = exists, not covered here.
 | Cross-account vault after sign-out | Reviewed | Documented: copies persist on the device until purged (`docs/privacy-policy.md:41`) |
 | Vault-after-account-deletion | Reviewed | Same sentence; `clearAllEncryptedSources()` purges gallery keys, the vault is purged separately |
 | MEGA/Ente/Proton key custody | Reviewed | Key rides the fragment and never reaches the Worker (keyless manifests validated server-side) |
+| Render-gate selection (`encryptedGalleryGate`) | Tested | `probe-adopt.test.ts`: v1 + keyless refs takes the client path, v1 + server-proxied refs keeps the legacy one |
 | **I. Billing and entitlements** | | |
 | Stripe signature, freshness, settled-session rule | Tested | `app/billing-webhook.test.ts` passes; the `setUserTier` batch is the same call the admin route uses |
 | RevenueCat HMAC + static auth + ordering | Tested | Same suite |
@@ -86,7 +87,7 @@ surface does not exist at this SHA. **Not tested** = exists, not covered here.
 | Device sync excludes paths/names | Reviewed | `device_galleries` columns carry title/kind/count only; `device_label` is local-only |
 | Logs and traces | Reviewed | `head_sampling_rate = 0.1`; failure log redacts `rlkey`/`k`/`resourcekey`; iOS `Trace.log` records media *paths* locally |
 | "noindex" treated as authorisation | Reviewed | Public galleries are genuinely public; nothing gates on the meta tag |
-| Policy text vs implementation | Tested | R3-03 (`docs/privacy-policy.md:39,43`; `packages/core/privacy-policy.ts:163-185`) |
+| Policy text vs implementation | Tested | R3-03 fixed at `1aefd3da` (`docs/privacy-policy.md:39,43`; `packages/core/privacy-policy.ts:169,185` now describe the desktop vault and video caching as built) |
 | **K. Supply chain, builds, release** | | |
 | Lockfile / overrides / scripts | Reviewed | `package.json` overrides pin the known-vulnerable transitives; `bun.lock` present |
 | GitHub Actions permissions and pins | Reviewed | `permissions: contents: read`, SHA-pinned actions, `environment: production` |

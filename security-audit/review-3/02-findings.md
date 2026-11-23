@@ -1,6 +1,8 @@
 # Findings
 
 Audited commit for every finding: `c7d8002c7ee1c6f446e619e85bd09dee543611c6`.
+R3-01 was fixed at `e5385cabbc2d2fe37649025bd651d97b5e851d05` and re-verified
+there; each finding carries its own status line.
 
 Ranked by consequence. Nothing here is a remote-code or cross-account *read*
 hole; the object-authorisation and SSRF surfaces held (see
@@ -12,6 +14,9 @@ hole; the object-authorisation and SSRF surfaces held (see
 
 **Class:** Verified defect (functional) · **Severity:** Medium · **CWE-684**
 (Incorrect provision of specified functionality)
+**Status:** **Fixed** at `e5385cabbc2d2fe37649025bd651d97b5e851d05`
+(`feat/local-gallery-report-fixes`), re-verified; the fix is described below the
+original evidence.
 
 **Affected surface:** `POST /api/galleries/adopt` → the public gallery page of
 the *new* row. Web, and any shell that renders the adopted row.
@@ -51,7 +56,7 @@ that path, so nothing can ever fill it.
 valid v2 MEGA manifest through `POST /api/galleries`, has a second account adopt
 it, and then asserts the copy's gate inputs and the rendered page.
 
-Observed at this SHA:
+Observed at the pinned SHA:
 
 ```
 (pass) the source really is a client-gated encrypted gallery
@@ -60,15 +65,47 @@ Observed at this SHA:
 ADOPTED-COPY visitor frame-img src=null          # no frame image at all
 ```
 
+**Fix applied** (`e5385cab`, four files, +12/−5). Both halves of the
+recommendation, in one change:
+
+| File | Change |
+| --- | --- |
+| `app/api.ts:842` | `manifestVersion: source.manifestVersion` on the adopt create. |
+| `packages/core/encrypted-source.ts:212-229` | `encryptedGalleryGate` takes `images` and ORs in `manifestIsEncryptedSource({ images })`, so a row whose items carry keyless `media` refs takes the client path whatever its version column says. |
+| `app/routes/[owner]/[slug].tsx:112-115` | Passes the row's images to the gate (the only caller that decides a render path). |
+| `security-audit/review-3/probe-adopt.test.ts` | The legacy-path comment updated; the visitor-render assertion kept (the copy now SSRs the client shell, so the `<img class="frame-img">` still appears only after hydration). |
+
+Re-verified at `e5385cab`:
+
+```
+(pass) the adopted copy keeps the encrypted manifest's version and key facts   # version 2, client true
+(pass) the gate's item check > a v1 row with keyless refs takes the client gate
+(pass) the gate's item check > a v1 row with server-proxied refs keeps the legacy path
+40 pass / 0 fail   # all six probe files
+```
+
+The second gate test exists because the belt must not over-claim: a genuinely
+legacy row (server-proxied `src`, no keyless refs) still renders through the
+legacy path. The probe now pins both directions.
+
+**Backfill.** None required. Rows adopted before the fix still carry
+`manifest_version = 1`, and the route's item check is what puts them on the
+client path at render time. A backfill would tidy the column but is not
+load-bearing.
+
+`POST /api/gallery/:owner/:slug` passes no `images` to the gate and is unaffected:
+there, only `legacySourceUrl` is read from the result, never `client`
+(`app/api.ts:346-353`).
+
 **Sensitive assets affected.** None (availability / correctness). The key custody
 is unaffected — the copy holds no secret the adopter did not already have.
 
 **Existing tests.** `app/gallery-api.test.ts` exercises adopt with a
 non-encrypted gallery; `app/encrypted-gallery-api.test.ts` exercises create,
-refresh and migrate but not adopt. Nothing asserts the copy's `manifestVersion`,
-which is why the gap survived.
+refresh and migrate but not adopt. Nothing asserted the copy's
+`manifestVersion`, which is why the gap survived; `probe-adopt.test.ts` now does.
 
-**Recommended fix (narrow).**
+**Recommended fix (narrow) — applied as written** at `e5385cab`.
 
 ```ts
 const result = await createGalleryWithinLimit(session.accountId, {
@@ -80,14 +117,16 @@ const result = await createGalleryWithinLimit(session.accountId, {
 }, dbEnv(c))
 ```
 
-Defence in depth, worth doing in the same change: `encryptedGalleryGate` could
-also consult `manifestIsEncryptedSource({ sourceUrl, images })` (already exported
-by the same module and unused by these routes) so a row whose items are keyless
-media refs can never fall to the legacy path, whatever its version column says.
+Defence in depth, done in the same change: `encryptedGalleryGate` now also
+consults `manifestIsEncryptedSource({ images })`, so a row whose items are
+keyless media refs can never fall to the legacy path, whatever its version
+column says.
 
-**Regression test.** Adopt a v2 encrypted gallery and assert
-`manifestVersion === 2`, `gate.client === true`, and that the SSR of the copy
-contains a `frame-img` (or the encrypted island), not a lone placeholder.
+**Regression test.** `probe-adopt.test.ts` asserts `manifestVersion === 2` and
+`gate.client === true` for the adopted copy, and pins the gate's item check in
+both directions (keyless refs → client, server-proxied refs → legacy). The SSR
+assertion stays as it is: the client shell still emits only the placeholder at
+SSR, because the resolver fills frames after hydration.
 
 **Confidence:** high (executed). **Assumption:** the production rows for
 encrypted galleries really do carry `manifest_version = 2` (they do for rows
@@ -98,6 +137,9 @@ created or migrated after M7; `POST /api/galleries` and `/refresh` both write it
 ## R3-02 — Owner-private JSON declares no cache policy and varies only on `Origin`
 
 **Class:** Hardening opportunity · **Severity:** Low · **CWE-525**
+**Status:** **Fixed** at `626dd2fbac47ce0515b20b6ede0e61814aa00f70`
+(`feat/local-gallery-report-fixes`), re-verified: `probe-cache.test.ts` now
+asserts `private, no-store` on all four routes.
 
 **Affected surface:** `GET /api/galleries`, `GET /api/library`,
 `GET /api/account`, `GET /api/galleries/:slug`.
@@ -112,7 +154,7 @@ created or migrated after M7; `POST /api/galleries` and `/refresh` both write it
   `/api/devices`, `/api/device-galleries` only
   (`app/device-api.ts:18-19`, `app/device-gallery-api.ts:15-16`).
 
-**Recorded at this SHA** (`probe-cache.test.ts`):
+**Recorded before the fix (pinned SHA)** (`probe-cache.test.ts`):
 
 ```
 HEADERS /api/galleries              cache-control=(none) vary=Origin etag=(none)
@@ -132,13 +174,15 @@ explicit freshness usually revalidate by re-fetching, so in practice the stale
 window is short and often zero. This is a missing declaration, not a
 demonstrated leak; the probe records headers, it does not reproduce a cache hit.
 
-**Recommended fix.** Apply the existing `privateNoStore` to the four routes
-(it is already written and used for exactly this class of response), or add
-`Cache-Control: private, no-store` in the `/api/*` middleware for anything
-behind `requireSession`. The public manifest may stay cacheable.
+**Fix applied** at `626dd2fb`: `privateNoStore` is composed ahead of
+`requireSession` on the `/api/galleries`, `/api/library` and `/api/account`
+groups (`app/api.ts:498-502`), so every session-gated response now carries
+`Cache-Control: private, no-store`. The public manifest
+(`/api/gallery/:owner/:slug`) is untouched and stays cacheable — it carries no
+capability.
 
-**Regression test.** Assert `cache-control` contains `private` on the four
-endpoints; extend `probe-cache.test.ts`.
+**Regression test.** `probe-cache.test.ts` now asserts `private` and `no-store`
+on all four routes; the pinned run above is kept as the before-evidence.
 
 **Confidence:** high for the header facts, medium for the user-visible impact.
 
@@ -148,6 +192,9 @@ endpoints; extend `probe-cache.test.ts`.
 
 **Class:** Product/privacy-policy discrepancy (implementation is *stronger* than
 the text, and different) · **Severity:** Informational
+**Status:** **Fixed** at `1aefd3da3a96cc850ff015ce051f2dad64aa5de2`
+(`feat/local-gallery-report-fixes`): both the markdown source and the rendered
+`/privacy` copy now describe the desktop vault and video caching as built.
 
 **Paths**
 
@@ -173,11 +220,18 @@ told they do not have the vault they do have; a mobile user is told their videos
 are not kept offline when they are. Both are the kind of sentence that becomes
 wrong silently as features land.
 
-**Recommended fix.** Rewrite those two paragraphs against the code: the desktop
-does have an encrypted vault with the same custody model, and video bytes are
-cached when they fit in one vault entry. **Regression test:** the repository has
-no test tying policy text to capability; a small assertion that
-`privacy-policy.ts` mentions the desktop vault would at least pin the sentence.
+**Fix applied** at `1aefd3da`, in both places the text lives:
+`docs/privacy-policy.md:39,43` and `packages/core/privacy-policy.ts:169,185`.
+The video sentence now reads "Galleries that include video are cached as well: a
+video keeps its poster image and, when the clip fits within a single vault
+entry, the clip itself", and the desktop paragraph now states that the desktop
+keeps the same encrypted vault as the mobile app, with keys in the device's
+credential store. Both statements match `native/lib/offline-gallery.ts:652-689`
+and `desktop/islands/Catalogue.tsx:2890` (`desktopOfflineStore.cache`).
+
+**Regression test.** None added; the repository still has no test tying policy
+text to capability. A one-line assertion that the rendered `/privacy` copy
+mentions the desktop vault would pin it.
 
 **Confidence:** high (code read; the desktop vault is exercised by
 `desktop/lib/vault.roundtrip.test.ts`).
@@ -187,6 +241,9 @@ no test tying policy text to capability; a small assertion that
 ## R3-04 — Two routes buffer an unbounded request body
 
 **Class:** Hardening opportunity · **Severity:** Low · **CWE-770**
+**Status:** **Fixed** at `626dd2fbac47ce0515b20b6ede0e61814aa00f70`
+(`feat/local-gallery-report-fixes`), re-verified: `probe-body.test.ts` asserts
+413 outside the 8 KB bound on both routes.
 
 **Paths**
 
@@ -197,7 +254,7 @@ no test tying policy text to capability; a small assertion that
 - Contrast: `app/api.ts:300` (the desktop twin, 8 KB), `515` and `567` (4 KB),
   `627` (64 KB), `665`, `993`, `1028`, `1077` (8–16 MB).
 
-Measured (`probe-body.test.ts`):
+Measured before the fix (`probe-body.test.ts`):
 
 ```
 (pass) a route with bodyLimit refuses an oversized body with 413     # desktop exchange, 9 KB
@@ -211,12 +268,14 @@ large request is not an outage; a handful in one isolate is memory pressure
 shared with every other request it serves. The scan route also parses before it
 looks at the link.
 
-**Recommended fix.** `bodyLimit({ maxSize: 8 * 1024 })` on the native exchange
-(its body is one 60-second JWT) and `bodyLimit({ maxSize: 8 * 1024 })` on scan
-(the URL plus optional order/title). Reuse the constants already in the file.
+**Fix applied** at `626dd2fb`: `bodyLimit({ maxSize: 8 * 1024 })` on
+`/api/auth/native/exchange` (`app/api.ts:289`) and on `/api/galleries/scan`
+(`app/api.ts:666`). Both bodies are a token plus a URL, so 8 KB is generous.
 
-**Regression test.** Extend `probe-body.test.ts`: both routes answer 413 for an
-oversized body.
+**Regression test.** `probe-body.test.ts` now asserts 413 outside the bound on
+both routes, and that a body *inside* it still reaches the handler (401 on a
+malformed token, 400/422 on an unrecognised link) — a bound that swallowed real
+requests would fail the second half.
 
 **Confidence:** high (executed).
 
