@@ -24,6 +24,10 @@ Event clustering runs on exactly **one user-declared raw dump per device**:
 | iOS / iPadOS | the system Photos library | `PHAsset.localIdentifier` |
 
 Normal curated galleries are never re-grouped: they are already curated.
+Gallery roots scan only their top level. The user-declared raw dump alone
+recurses: its subfolders are never published. A folder cannot be both a
+gallery root and the dump. Declaring either while the other exists is
+rejected, including aliases resolving to the same folder.
 
 Everything below is computed on-device. No timestamp, coordinate,
 thumbnail, folder path or item id is ever sent to a server. The
@@ -131,9 +135,9 @@ Semantics that all three shells owe each other:
   records and costs milliseconds; the expensive thing on a backup folder
   is the byte-reading, and that is what the cache exists to avoid.
 * **`clear_raw_dump_root`** unmarks `isRawDump`, deletes
-  `events-index.json`, and leaves the folder grant alone if the user also
-  added it as a normal gallery. Un-granting a folder is a different action
-  and stays in the folder's own UI.
+  `events-index.json`, and leaves the folder grant alone. The same root may
+  be added as a gallery only after this declaration is cleared. Un-granting
+  a folder is a different action and stays in the folder's own UI.
 
 ---
 
@@ -241,6 +245,12 @@ checklist rather than an assumption. Ordered by what unblocks the most.
 | Tauri desktop | `desktop/` | **absent** (Swift only) | none | hidden by design | n/a |
 | Web app | `app/` | n/a | n/a | none, per invariant 7 | n/a |
 
+**Traversal policy reconciled.** The root-only rule in
+`docs/manorama-operations.md` explicitly exempts the declared dump. The
+macOS boundary suite runs both scanners over the same nested tree and
+checks picker, catalogue-write and drop-batch source conflicts, including
+symlink aliases at the picker and catalogue boundaries.
+
 1. **Mobile event UI (`native/`).** A wrapper over
    `registerPlugin<EventClusteringBridge>('EventClustering')`, a Settings row
    mirroring `RawDumpSettings`, and the cards themselves. The pure
@@ -255,7 +265,7 @@ checklist rather than an assumption. Ordered by what unblocks the most.
    indexer from ever touching `requestImageData`. This is a fifth plugin
    method and deliberately not part of the four commands above, because it
    moves pixels rather than describing them.
-3. **Reconcile the traversal policy, in writing.** The bullet under
+3. **Traversal policy (completed in slice 1).** The bullet under
    "Source link expectations" in `docs/manorama-operations.md` states that
    only the top level of a folder is scanned and subfolders are not
    descended into, and `fix(gallery): scan folder roots only` made that

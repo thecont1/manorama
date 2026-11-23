@@ -1,6 +1,6 @@
 # Plan: Event Clustering on All Surfaces
 
-Status: **revised, decisions locked, not yet executed** · Branch base: `feat/event-clustering-camera-roll` (on `b4a91f29`) · Normative contract: `docs/event-clustering-bridge-contract.md`
+Status: **slice 1 verified; slices 2–6 pending** · Branch base: `feat/event-clustering-camera-roll` (on `b4a91f29`) · Normative contract: `docs/event-clustering-bridge-contract.md`
 
 This plan takes camera-roll event clustering from "macOS complete, iOS plugin dormant" to every Manorama surface: iPhone, iPad, Windows, Linux and Android. The standing non-negotiables of `PLAN-Event-Clustering-Camera-Roll.md` apply throughout: 100% on-device (no EXIF, GPS, thumbnails or paths leave the device), no ML frameworks or bundle bloat, no semantic labels, one raw-dump source per device, no full-bitmap decode during indexing, safe handling of cloud placeholders, private files written 0600 / complete file protection, and `--config`/`--store` isolation.
 
@@ -129,10 +129,10 @@ The rebuilt `.so` must be measured against the bundle-bloat rule. The target is 
 
 | Suite | Command | Notes |
 |---|---|---|
-| Swift engine | `scripts/test-event-clustering.sh` | 37 tests |
-| macOS boundary | swiftc command in contract §6 → `/tmp/boundaryN` | 126+ checks; escalation for `@Observable` |
+| Swift engine | `scripts/test-event-clustering.sh` | 78 tests, including 37 golden timelines |
+| macOS boundary | `scripts/test-macos-boundary.sh` | 145 checks; scratch-isolated binary and fixtures |
 | Bun / TS | `bunx tsc --noEmit && bun test` | desktop, packages, native |
-| iOS | `xcodebuild -workspace ios/App/App.xcworkspace -scheme App -destination 'platform=iOS Simulator,name=iPhone 17 Pro Max,OS=27.1' -derivedDataPath /tmp/mano-dd -clonedSourcePackagesDirPath /tmp/mano-spm test` | Repeat for iPad Pro 13-inch (M5), iPhone 17e, iPad mini (A17 Pro). Seed media with `xcrun simctl addmedia`, grant with `xcrun simctl privacy <udid> grant photos <bundle id>`. Never pass `DEVELOPMENT_TEAM`. |
+| iOS | `xcodebuild -project ios/App/App.xcodeproj -scheme App -destination 'platform=iOS Simulator,name=iPhone 17 Pro Max,OS=27.1' -derivedDataPath /tmp/mano-dd -clonedSourcePackagesDirPath /tmp/mano-spm test` | Repeat for iPad Pro 13-inch (M5), iPhone 17e, iPad mini (A17 Pro). Seed media with `xcrun simctl addmedia`, grant with `xcrun simctl privacy <udid> grant photos <bundle id>`. Never pass `DEVELOPMENT_TEAM`. |
 | Rust | `cargo test --workspace`; Docker for Linux | Windows in CI |
 | Android unit | `JAVA_HOME=$(brew --prefix)/opt/openjdk@21 ./gradlew test` in `android/` | Install `openjdk@21` first (D3) |
 | Android device | `emulator -avd manorama_api36 -no-window &` then `./gradlew connectedAndroidTest` | needs `cargo-ndk` and the NDK |
@@ -146,7 +146,7 @@ Known environment needs:
 
 ## 7. Other learnings folded in
 
-1. **Golden fixtures.** The 37 Swift cases are exported to `fixtures/event-clustering/*.json` (inputs, expected ids, spans and sub-days). Swift and Rust assert against the same files, and any divergence fails CI. A small generator in the Swift test target keeps them current.
+1. **Golden fixtures.** 37 synthetic timelines are exported to `fixtures/event-clustering/*.json` (inputs in epoch seconds, Gregorian calendar/timezone, configuration, expected ids, spans, covers and sub-days). They include the four original scenarios plus thresholds, ties, bursts, time-only grouping, DST, negative epochs and index schema-version cases. Swift verifies the same files Rust will consume; any missing or stale fixture fails verification. Export explicitly with `MANORAMA_EXPORT_EVENT_FIXTURES=1 scripts/test-event-clustering.sh`; normal tests never regenerate expectations.
 2. **CI.**
    - `verify.yml`: Swift engine and boundary suite on a macOS runner; `cargo test` on Linux.
    - `ios.yml`: simulator tests.

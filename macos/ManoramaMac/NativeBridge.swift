@@ -231,7 +231,7 @@ final class NativeBridge {
         // folder in the library.
         if let seeded = seededRawDump {
             let url = URL(fileURLWithPath: seeded)
-            if let entry = folderStore.add(folder: url) {
+            if (try? requireRawDumpRoot(url)) != nil, let entry = folderStore.add(folder: url) {
                 folderStore.markRawDump(entry.id)
                 _ = folderStore.startAccess(entry)
                 recordGalleryRoot(url.path)
@@ -736,8 +736,36 @@ final class NativeBridge {
     }
 
     private func writePrivateFile(_ name: String, contents: String) throws {
+        if name == "catalogue.json" {
+            for root in try catalogueRoots(contents) {
+                try requireGalleryRoot(root)
+            }
+        }
         let url = configDir.appendingPathComponent(name)
         try Self.write0600(to: url, data: Data(contents.utf8))
+    }
+
+    private func catalogueRoots(_ contents: String) throws -> [URL] {
+        let catalogue = try JSONSerialization.jsonObject(with: Data(contents.utf8)) as? [String: Any]
+        let galleries = catalogue?["galleries"] as? [[String: Any]] ?? []
+        return galleries.compactMap { gallery in
+            (gallery["rootPath"] as? String).map { URL(fileURLWithPath: $0) }
+        }
+    }
+
+    private func requireGalleryRoot(_ url: URL) throws {
+        guard let entry = folderStore.rawDumpEntry, let dump = folderStore.resolve(entry) else { return }
+        if url.resolvingExistingSymlinksInPath().path == dump.resolvingExistingSymlinksInPath().path {
+            throw BridgeError.failed("that folder is the camera-roll dump; clear it before adding it as a gallery")
+        }
+    }
+
+    private func requireRawDumpRoot(_ url: URL) throws {
+        guard let contents = try readPrivateFile("catalogue.json") else { return }
+        let wanted = url.resolvingExistingSymlinksInPath().path
+        if try catalogueRoots(contents).contains(where: { $0.resolvingExistingSymlinksInPath().path == wanted }) {
+            throw BridgeError.failed("that folder is a gallery root; remove the gallery before declaring it as the camera-roll dump")
+        }
     }
 
     private func deletePrivateFile(_ name: String) throws {
@@ -760,6 +788,7 @@ final class NativeBridge {
         if let seeded = seededPickPath {
             seededPickPath = nil
             let url = URL(fileURLWithPath: seeded)
+            try requireGalleryRoot(url)
             guard folderStore.add(folder: url) != nil else {
                 throw BridgeError.failed("that folder could not be remembered for access")
             }
@@ -774,6 +803,7 @@ final class NativeBridge {
         panel.message = "Choose a folder of photographs to view in place."
 
         guard panel.runModal() == .OK, let url = panel.url else { return nil }
+        try requireGalleryRoot(url)
         guard folderStore.add(folder: url) != nil else {
             throw BridgeError.failed("that folder could not be remembered for access")
         }
@@ -918,6 +948,9 @@ final class NativeBridge {
             throw BridgeError.failed("the drop was replaced")
         }
         let wanted = Set(raw.map { URL(fileURLWithPath: $0).standardizedFileURL.path })
+        for pending in pendingDrops where wanted.contains(pending.url.standardizedFileURL.path) {
+            try requireGalleryRoot(pending.url)
+        }
         var committed: [String] = []
         var remaining: [PendingDrop] = []
         for pending in pendingDrops {
@@ -1077,6 +1110,7 @@ final class NativeBridge {
             picked = panel.runModal() == .OK ? panel.url : nil
         }
         guard let url = picked else { return nil }   // null = the user cancelled
+        try requireRawDumpRoot(url)
         guard let entry = folderStore.add(folder: url) else {
             throw BridgeError.failed("that folder could not be remembered for access")
         }
@@ -1154,13 +1188,7 @@ final class NativeBridge {
         return RawDumpWire.scan(outcome)
     }
 
-    /// Stop using a dump as the events source.
-    ///
-    /// The folder's grant is left in place on purpose: un-granting a folder
-    /// is that folder's own action, and a user who clears the events page
-    /// should not find their library card gone with it. The cache goes,
-    /// because a timeline of someone's old dump is nothing this user asked
-    /// to keep.
+    /// Clearing the dump declaration retires its cache, not its folder grant.
     private func clearRawDumpRoot() {
         folderStore.clearRawDumpMark()
         rawDumpStore.deleteIndex()

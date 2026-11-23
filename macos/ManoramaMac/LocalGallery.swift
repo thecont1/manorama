@@ -64,10 +64,7 @@ struct LocalGallery: Identifiable, Hashable {
 
 /// The native scanner — the Swift counterpart of `desktop/lib/local-scan.ts`.
 ///
-/// Same contract, deliberately: read the root and exactly one level of
-/// subdirectories, keep a deterministic order, and reference the originals
-/// in place. Nothing is copied, moved, renamed or deleted, and no byte is
-/// re-encoded. The manifest is metadata only.
+/// Gallery roots never recurse; only a separately declared raw dump does.
 enum LocalScanner {
     /// Formats the viewer can decode in a WKWebView. RAW and TIFF are out
     /// of scope for the same reason they are out of scope in the Tauri
@@ -106,13 +103,6 @@ enum LocalScanner {
         let truncated: Int?
     }
 
-    /// Scan the root and one level of subdirectories.
-    ///
-    /// Deep enough for `DCIM/<camera>/` layouts on a card, shallow enough
-    /// that picking a large tree never becomes a filesystem crawl. Results
-    /// sort *before* the cap so a truncated scan keeps the same first N —
-    /// capping the collection order would let directory order pick what
-    /// survives.
     static func scan(root: URL) -> Result {
         var collected: [Item] = []
 
@@ -126,29 +116,6 @@ enum LocalScanner {
             let values = try? entry.resourceValues(forKeys: [.isDirectoryKey, .isRegularFileKey])
             if values?.isRegularFile == true, isImageName(entry.lastPathComponent) {
                 collected.append(Item(id: entry.lastPathComponent, name: entry.lastPathComponent, url: entry))
-            }
-        }
-
-        // One level of subdirectories, in natural collation so IMG_2
-        // precedes IMG_10.
-        let subdirs = entries
-            .filter { entry in
-                let values = try? entry.resourceValues(forKeys: [.isDirectoryKey])
-                return values?.isDirectory == true && !entry.lastPathComponent.hasPrefix(".")
-            }
-            .sorted { $0.lastPathComponent.localizedStandardCompare($1.lastPathComponent) == .orderedAscending }
-
-        for subdir in subdirs {
-            guard let children = try? FileManager.default.contentsOfDirectory(
-                at: subdir,
-                includingPropertiesForKeys: [.isRegularFileKey],
-                options: [.skipsHiddenFiles]
-            ) else { continue }
-            for child in children {
-                let values = try? child.resourceValues(forKeys: [.isRegularFileKey])
-                guard values?.isRegularFile == true, isImageName(child.lastPathComponent) else { continue }
-                let relative = "\(subdir.lastPathComponent)/\(child.lastPathComponent)"
-                collected.append(Item(id: relative, name: child.lastPathComponent, url: child))
             }
         }
 

@@ -566,6 +566,21 @@ final class BoundaryTests {
             to: dumpRoot.appendingPathComponent("notes.txt"), atomically: true, encoding: .utf8)
         check("raw dump fixtures were written", written == fixtures.count, "written=\(written)/\(fixtures.count)")
 
+        let traversalRoot = dumpConfig.appendingPathComponent("traversal", isDirectory: true)
+        let traversalPaths = ["root.jpg", "DCIM/child.jpg", "2026/03/grandchild.jpg"]
+        for path in traversalPaths {
+            check("traversal fixture \(path) was written", BoundaryTests.writeDumpPhoto(
+                in: traversalRoot, at: path, captured: "2026:03:14 18:30:00",
+                offset: "+05:30", gps: pune, camera: true
+            ))
+        }
+        let galleryScan = LocalScanner.scan(root: traversalRoot)
+        let dumpWalk = try? FolderDumpScanner.enumerate(root: traversalRoot)
+        check("a curated gallery reads only the root of the same tree",
+              galleryScan.items.map(\.id) == ["root.jpg"] && galleryScan.truncated == nil)
+        check("only a declared dump recurses the same tree",
+              Set(dumpWalk?.map(\.relativePath) ?? []) == Set(traversalPaths))
+
         // 8a. The walk itself: recursive, uncapped, hidden-free.
         let walked = try? FolderDumpScanner.enumerate(root: dumpRoot)
         check("the walk finds every visible frame at any depth", walked?.count == fixtures.count,
@@ -741,8 +756,9 @@ final class BoundaryTests {
             let realIndexWasThere = FileManager.default.fileExists(atPath: realIndex.path)
             let realIndexDate = (try? FileManager.default.attributesOfItem(atPath: realIndex.path)[.modificationDate] as? Date) ?? nil
             let granted = GrantedRoots()
-            let bridge = NativeBridge(folderStore: bridgeStore, grantedRoots: granted,
-                                      configDir: dumpConfig, seededRawDumpPath: dumpRoot.path)
+            var bridge = NativeBridge(folderStore: bridgeStore, grantedRoots: granted,
+                                      configDir: dumpConfig, seededFolder: dumpRoot.path,
+                                      seededRawDumpPath: dumpRoot.path)
             var page = RecordingBridgeWebView()
             bridge.webView = page
             var commandID = 0
@@ -802,6 +818,36 @@ final class BoundaryTests {
                       || ((status?["lastIndexedAt"] as? NSNumber)?.int64Value ?? 0) > 1_000_000_000_000,
                   "lastIndexedAt=\(String(describing: status?["lastIndexedAt"]))")
             check("status answers no path", (status?["rootPath"] as? String) == nil)
+            check("a dump cannot be picked as a curated gallery",
+                  invokeError("pick_gallery_root")?.contains("camera-roll dump") == true)
+            let galleryJSON = String(data: try! JSONSerialization.data(withJSONObject: [
+                "version": 1, "galleries": [["rootPath": dumpRoot.path]]
+            ]), encoding: .utf8)!
+            check("a catalogue write cannot turn a dump into a gallery",
+                  invokeError("write_private_file", ["name": "catalogue.json", "contents": galleryJSON])?
+                      .contains("camera-roll dump") == true)
+            check("a rejected catalogue write leaves the previous file untouched",
+                  !FileManager.default.fileExists(atPath: dumpConfig.appendingPathComponent("catalogue.json").path))
+            let dumpAlias = dumpConfig.appendingPathComponent("dump-alias")
+            try? FileManager.default.createSymbolicLink(at: dumpAlias, withDestinationURL: dumpRoot)
+            let aliasJSON = String(data: try! JSONSerialization.data(withJSONObject: [
+                "version": 1, "galleries": [["rootPath": dumpAlias.path]]
+            ]), encoding: .utf8)!
+            check("a symlink alias cannot put a dump into the catalogue",
+                  invokeError("write_private_file", ["name": "catalogue.json", "contents": aliasJSON])?
+                      .contains("camera-roll dump") == true)
+            bridge.receiveDrop(urls: [traversalRoot, dumpRoot], files: 0)
+            check("a dropped dump rejects the entire gallery batch",
+                  invokeError("commit_dropped_roots", ["paths": [traversalRoot.path, dumpRoot.path]])?
+                      .contains("camera-roll dump") == true)
+            check("a rejected drop batch makes no partial gallery grants", bridgeStore.entries.count == 1)
+            _ = invoke("discard_dropped_roots")
+            let otherGalleryJSON = String(data: try! JSONSerialization.data(withJSONObject: [
+                "version": 1, "galleries": [["rootPath": traversalRoot.path]]
+            ]), encoding: .utf8)!
+            check("a different gallery root can coexist with the dump",
+                  invokeError("write_private_file", ["name": "catalogue.json", "contents": otherGalleryJSON]) == nil)
+            _ = invoke("delete_private_file", ["name": "catalogue.json"])
             // The nudge: touch a file and wait for the watch to say so.
             try? FileManager.default.setAttributes(
                 [.modificationDate: Date()],
@@ -815,7 +861,8 @@ final class BoundaryTests {
                   page.emissions.contains { $0.contains(NativeBridge.rawDumpChangedEvent) },
                   "waited=\(String(format: "%.1f", waited))s")
             check("the nudge carries no path, timestamp or coordinate",
-                  !page.emissions.contains { $0.contains(dumpRoot.path) })
+                  !page.emissions.filter { $0.contains(NativeBridge.rawDumpChangedEvent) }
+                      .contains { $0.contains(dumpRoot.path) })
             check("the watch is armed on the dump root",
                   bridge.rawDumpWatchedRoot == dumpRoot.path,
                   "watched=\(String(describing: bridge.rawDumpWatchedRoot))")
@@ -850,6 +897,21 @@ final class BoundaryTests {
             check("a config-scoped run leaves the real config directory untouched",
                   realIndexWasThere == realIndexNow && realIndexDate == realIndexDateNow,
                   "before=\(realIndexWasThere) after=\(realIndexNow)")
+            check("clearing the dump permits a gallery catalogue declaration",
+                  invokeError("write_private_file", ["name": "catalogue.json", "contents": galleryJSON]) == nil)
+            for path in [dumpRoot.path, dumpAlias.path] {
+                bridge = NativeBridge(folderStore: bridgeStore, grantedRoots: granted,
+                                      configDir: dumpConfig, seededRawDumpPath: path)
+                page = RecordingBridgeWebView()
+                bridge.webView = page
+                check("a gallery root or its alias cannot be declared as a dump",
+                      invokeError("pick_raw_dump_root")?.contains("gallery root") == true)
+                check("a rejected dump declaration leaves the source unconfigured",
+                      bridgeStore.rawDumpEntry == nil)
+                check("a rejected dump declaration preserves the catalogue",
+                      invoke("read_private_file", ["name": "catalogue.json"]) as? String == galleryJSON)
+            }
+            _ = invoke("delete_private_file", ["name": "catalogue.json"])
         }
 
         try? FileManager.default.removeItem(at: dumpRoot)

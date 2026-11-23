@@ -1,3 +1,4 @@
+#!/usr/bin/env bash
 # macOS native shell build
 #
 # The Library bundle is built by vite (see vite.config.desktop-shell.ts) and
@@ -39,7 +40,8 @@ BUILD_DIR="${MANORAMA_MACOS_BUILD_DIR:-$APP/build}"
 BUNDLE_ID="${MANORAMA_MACOS_BUNDLE_ID:-in.thecontrarian.manorama.desktop}"
 
 echo "==> building the Library bundle"
-bunx vite build --config vite.config.desktop-shell.ts
+# Avoid bundling the config through a worktree's shared node_modules symlink.
+bunx vite build --config vite.config.desktop-shell.ts --configLoader runner
 
 echo "==> staging the viewer bundle into the app resources"
 rm -rf "$APP/Resources/ViewerBundle"

@@ -2,7 +2,15 @@
 
 Audience: the coding agent taking over this feature. Read this first, then `docs/PLAN-Event-Clustering-All-Surfaces.md` (the roadmap with locked decisions) and `docs/event-clustering-bridge-contract.md` (the normative 4-command contract).
 
-## State at handoff (2026-11-23)
+## Slice 1 checkpoint (2026-11-23)
+
+- Root-only gallery traversal is now consistent in Swift and TypeScript; the declared raw dump alone recurses. The operations document and bridge contract name the exception. Pickers, catalogue writes and drop commits reject simultaneous declarations of the same root, resolving symlink aliases before comparison.
+- 37 synthetic golden timelines and an explicit test-target exporter bind the existing Swift implementation to the planned Rust port. Run `MANORAMA_EXPORT_EVENT_FIXTURES=1 scripts/test-event-clustering.sh` only when intentionally refreshing expectations; normal verification fails for missing or stale fixtures.
+- `scripts/test-macos-boundary.sh` isolates its binary, module cache and fixtures. `verify.yml` adds the Swift/boundary job and checks tracked shell-script executable bits. The macOS build uses Vite's runner config loader so a worktree does not write config bundles through shared dependencies.
+- Verified: 78 Swift tests, 145 macOS boundary checks, `bunx tsc --noEmit`, and the complete mirrored Bun suite (2,716 tests). A fresh, separately identified macOS build launched and rendered the signed-out opening screen; event operations are covered by the boundary suite, not claimed as a signed-in GUI run. The worktree-equivalent linked-dependency build preserved its own source/config/environment and left primary outputs unchanged.
+- Slices 2–6 remain pending. The owner approved local checkpoint commits and the named slice branches, but no pushes, PRs, deployments or remote changes.
+
+## Original state at handoff (2026-11-23)
 
 - Branch `feat/event-clustering-camera-roll`, rebased onto `main` at `b4a91f29`, 11 commits ahead. Not pushed (AGENTS.md: no push; the human pushes).
 - The branch was developed in a git worktree that has since been released. Check the branch out wherever you work: `git worktree add ../<dir> feat/event-clustering-camera-roll` (or `git switch feat/event-clustering-camera-roll` in a spare checkout).
@@ -21,7 +29,7 @@ Audience: the coding agent taking over this feature. Read this first, then `docs
 - Boundary suite (126 checks), rebuild with:
   `xcrun swiftc -O macos/ManoramaMac/{LocalGallery,FolderStore,LocalSchemeHandler,Trace,OAuthLoopback,NativeBridge,InvokeReply,FolderDumpScanner,RawDumpEvents}.swift native/EventClustering/Sources/ManoramaEventClustering/*.swift macos/BoundaryTests/{BoundaryTests,main}.swift -framework AppKit -framework WebKit -framework Security -framework Vision -framework CoreServices -o /tmp/boundaryN`
 - TS: `bunx tsc --noEmit` and `bun test` in `desktop/`, `packages/`, `native/`.
-- iOS build: `xcodebuild -workspace ios/App/App.xcworkspace -scheme App -destination 'platform=iOS Simulator,name=iPhone 17 Pro Max' -derivedDataPath /tmp/mano-dd -clonedSourcePackagesDirPath /tmp/mano-spm build` — never pass `DEVELOPMENT_TEAM`; team `373K7W3LKU` is set in the pbxproj.
+- iOS build: `xcodebuild -project ios/App/App.xcodeproj -scheme App -destination 'platform=iOS Simulator,name=iPhone 17 Pro Max' -derivedDataPath /tmp/mano-dd -clonedSourcePackagesDirPath /tmp/mano-spm build` — never pass `DEVELOPMENT_TEAM`; team `373K7W3LKU` is set in the pbxproj.
 - Android (later): set `JAVA_HOME` to JDK 21 (D3). Homebrew OpenJDK 26 on PATH is not AGP-compatible.
 
 ## Invariants and contract facts (do not break)

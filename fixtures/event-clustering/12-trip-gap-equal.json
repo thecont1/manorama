@@ -1,0 +1,137 @@
+{
+  "calendar" : {
+    "identifier" : "gregorian",
+    "secondsFromGMT" : 0
+  },
+  "config" : {
+    "burstThresholdSeconds" : 3,
+    "sessionDistanceKm" : 5,
+    "sessionGapHours" : 3.5,
+    "transitBypassMinutes" : 45,
+    "tripDistanceFromHomeKm" : 50,
+    "tripOvernightGapHours" : 18,
+    "visualSplitFeaturePrintDistance" : 1,
+    "visualSplitMaxDistanceKm" : 0.5,
+    "visualSplitMinGapHours" : 1.5
+  },
+  "expected" : {
+    "events" : [
+      {
+        "coverItemId" : "home1",
+        "endDate" : 1772355600,
+        "id" : "evt_823caf76deefb1e1dc82",
+        "isMultiDay" : false,
+        "itemIds" : [
+          "home1"
+        ],
+        "startDate" : 1772355600
+      },
+      {
+        "coverItemId" : "home2",
+        "endDate" : 1772442000,
+        "id" : "evt_b691c0353ea88d590069",
+        "isMultiDay" : false,
+        "itemIds" : [
+          "home2"
+        ],
+        "startDate" : 1772442000
+      },
+      {
+        "coverItemId" : "home3",
+        "endDate" : 1772528400,
+        "id" : "evt_f6b71c84589ec17fd3cb",
+        "isMultiDay" : false,
+        "itemIds" : [
+          "home3"
+        ],
+        "startDate" : 1772528400
+      },
+      {
+        "coverItemId" : "home4",
+        "endDate" : 1772614800,
+        "id" : "evt_bcb82ebfdc5126305111",
+        "isMultiDay" : false,
+        "itemIds" : [
+          "home4"
+        ],
+        "startDate" : 1772614800
+      },
+      {
+        "coverItemId" : "away-a",
+        "endDate" : 1773237600,
+        "id" : "evt_ce66f50eb0af6fdd48da",
+        "isMultiDay" : false,
+        "itemIds" : [
+          "away-a"
+        ],
+        "startDate" : 1773237600
+      },
+      {
+        "coverItemId" : "away-b",
+        "endDate" : 1773302400,
+        "id" : "evt_48bba511a3ce6691e80e",
+        "isMultiDay" : false,
+        "itemIds" : [
+          "away-b"
+        ],
+        "startDate" : 1773302400
+      }
+    ],
+    "screenshotItemIds" : [
+
+    ],
+    "unplacedItemIds" : [
+
+    ]
+  },
+  "homeBase" : {
+    "latitude" : 18.5,
+    "longitude" : 73.9
+  },
+  "items" : [
+    {
+      "id" : "home1",
+      "isScreenshot" : false,
+      "latitude" : 18.5167,
+      "longitude" : 73.8562,
+      "timestamp" : 1772355600
+    },
+    {
+      "id" : "home2",
+      "isScreenshot" : false,
+      "latitude" : 18.5167,
+      "longitude" : 73.8562,
+      "timestamp" : 1772442000
+    },
+    {
+      "id" : "home3",
+      "isScreenshot" : false,
+      "latitude" : 18.5167,
+      "longitude" : 73.8562,
+      "timestamp" : 1772528400
+    },
+    {
+      "id" : "home4",
+      "isScreenshot" : false,
+      "latitude" : 18.5167,
+      "longitude" : 73.8562,
+      "timestamp" : 1772614800
+    },
+    {
+      "id" : "away-a",
+      "isScreenshot" : false,
+      "latitude" : 20.2954,
+      "longitude" : 73.9,
+      "timestamp" : 1773237600
+    },
+    {
+      "id" : "away-b",
+      "isScreenshot" : false,
+      "latitude" : 20.2954,
+      "longitude" : 73.9,
+      "timestamp" : 1773302400
+    }
+  ],
+  "schemaVersion" : 1,
+  "sourceId" : "test-source"
+}

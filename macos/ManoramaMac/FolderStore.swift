@@ -314,11 +314,7 @@ final class FolderStore: ObservableObject {
         return true
     }
 
-    /// Un-mark the raw dump, leaving the grant itself alone.
-    ///
-    /// Clearing the events page's source and un-granting a folder are two
-    /// decisions, and the contract keeps them in two places: a folder the
-    /// user also added as a normal gallery stays a gallery.
+    /// Clearing the dump declaration does not revoke the folder grant.
     func clearRawDumpMark() {
         guard entries.contains(where: \.isRawDump) else { return }
         for index in entries.indices {

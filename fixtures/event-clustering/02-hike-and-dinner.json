@@ -1,0 +1,97 @@
+{
+  "calendar" : {
+    "identifier" : "gregorian",
+    "secondsFromGMT" : 0
+  },
+  "config" : {
+    "burstThresholdSeconds" : 3,
+    "sessionDistanceKm" : 5,
+    "sessionGapHours" : 3.5,
+    "transitBypassMinutes" : 45,
+    "tripDistanceFromHomeKm" : 50,
+    "tripOvernightGapHours" : 18,
+    "visualSplitFeaturePrintDistance" : 1,
+    "visualSplitMaxDistanceKm" : 0.5,
+    "visualSplitMinGapHours" : 1.5
+  },
+  "expected" : {
+    "events" : [
+      {
+        "coverItemId" : "h2",
+        "endDate" : 1773482400,
+        "id" : "evt_b260288be97205253061",
+        "isMultiDay" : false,
+        "itemIds" : [
+          "h1",
+          "h2",
+          "h3"
+        ],
+        "startDate" : 1773471600
+      },
+      {
+        "coverItemId" : "e2",
+        "endDate" : 1773514800,
+        "id" : "evt_a2bc3be8c5f94019485c",
+        "isMultiDay" : false,
+        "itemIds" : [
+          "e1",
+          "e2",
+          "e3"
+        ],
+        "startDate" : 1773504000
+      }
+    ],
+    "screenshotItemIds" : [
+
+    ],
+    "unplacedItemIds" : [
+
+    ]
+  },
+  "items" : [
+    {
+      "id" : "h1",
+      "isScreenshot" : false,
+      "latitude" : 18.5167,
+      "longitude" : 73.8562,
+      "timestamp" : 1773471600
+    },
+    {
+      "id" : "h2",
+      "isScreenshot" : false,
+      "latitude" : 18.5267,
+      "longitude" : 73.8562,
+      "timestamp" : 1773477000
+    },
+    {
+      "id" : "h3",
+      "isScreenshot" : false,
+      "latitude" : 18.5367,
+      "longitude" : 73.8562,
+      "timestamp" : 1773482400
+    },
+    {
+      "id" : "e1",
+      "isScreenshot" : false,
+      "latitude" : 18.5167,
+      "longitude" : 73.8662,
+      "timestamp" : 1773504000
+    },
+    {
+      "id" : "e2",
+      "isScreenshot" : false,
+      "latitude" : 18.5167,
+      "longitude" : 73.8662,
+      "timestamp" : 1773509400
+    },
+    {
+      "id" : "e3",
+      "isScreenshot" : false,
+      "latitude" : 18.5167,
+      "longitude" : 73.8762,
+      "timestamp" : 1773514800
+    }
+  ],
+  "schemaVersion" : 1,
+  "sourceId" : "test-source"
+}
