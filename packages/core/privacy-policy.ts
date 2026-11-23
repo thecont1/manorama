@@ -166,7 +166,7 @@ export const PRIVACY_POLICY: PrivacyDocument = {
             t(' is the default for newly opened still-image galleries; '),
             strong('Stream from cloud when needed'),
             t(
-              ' avoids starting a new vault fill, while existing encrypted copies remain available. Galleries that include video are not cached for offline use today. The vault’s keys stay on that device and its files are excluded from cloud backup. Vault copies are readable through Manorama’s vault APIs only: they are not exported as ordinary photographs and should not appear in Files, Photos, Finder, or another image viewer. A cached image is either the source’s own bytes or a smaller version the source provides; nothing from the vault is saved to Manorama’s servers.',
+              ' avoids starting a new vault fill, while existing encrypted copies remain available. Galleries that include video are cached as well: a video keeps its poster image and, when the clip fits within a single vault entry, the clip itself. The vault’s keys stay on that device and its files are excluded from cloud backup. Vault copies are readable through Manorama’s vault APIs only: they are not exported as ordinary photographs and should not appear in Files, Photos, Finder, or another image viewer. A cached image is either the source’s own bytes or a smaller version the source provides; nothing from the vault is saved to Manorama’s servers.',
             ),
           ],
         },
@@ -182,7 +182,7 @@ export const PRIVACY_POLICY: PrivacyDocument = {
         {
           parts: [
             t(
-              'The desktop app keeps its catalogue — the local folders and cards you have opened and your linked galleries — on your device, along with its app-private session and provider connection records. It does not provide the mobile cloud-gallery encrypted-vault guarantee. Desktop local-folder publication is a separate, explicit Share action as described above.',
+              'The desktop app keeps its catalogue — the local folders and cards you have opened and your linked galleries — on your device, along with its app-private session and provider connection records. It keeps the same encrypted vault as the mobile app — the same custody model, with keys held by your device’s credential store — so galleries can be cached for offline viewing there too. Desktop local-folder publication is a separate, explicit Share action as described above.',
             ),
           ],
         },
