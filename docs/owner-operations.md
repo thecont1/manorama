@@ -12,15 +12,20 @@ If the binding is absent, `/opman`, the account-monitoring API, and site-wide ad
 
 ## Monitor accounts
 
-Open `/opman` while signed in as the master account. The console shows:
+Open `/opman` while signed in as the master account. A summary strip above the table totals the real owners — operator accounts are excluded from the figures but still listed — with signups and active accounts over the last 7 and 30 days, gallery activation, gallery/media/temporary totals, the source-provider mix, and one chip per country that filters the table when clicked.
 
-- display name, owner slug, tier, immutable account ID, creation date, and last-seen country;
-- the number of stored galleries, device-gallery catalogues, and linked sign-in identities;
-- a persistent **Master** role with controls to grant or revoke additional operators;
-- 100 rows per page, with the configured bootstrap master and other masters first, then newest accounts;
-- an instant server-side two-letter country filter and Previous/Next pagination.
+Each row shows:
 
-The console intentionally does not show image bytes, source URLs, OAuth provider subjects, or gallery contents. The table is bounded to 100 rows per response; pagination remains the control for thousands of users rather than rendering an unbounded page. A future high-volume lane can add cursor pagination and search without changing the role or deletion API.
+- display name, owner slug, primary sign-in provider, tier, immutable account ID, creation date, and last-active time;
+- gallery count with temporary/hidden/Local-mirror detail, total media items, the gallery source mix (Dropbox, Google Drive, iCloud, and so on — never the links themselves), and the latest gallery date;
+- the account's live app devices by type (Mac, Windows, Linux, iPhone, iPad, Android — a device unseen for 180 days drops off the list), or "web only" for accounts that have only signed in on the web;
+- a "linked sign-ins" note only when an account has more than one sign-in method;
+- the last recorded country — Cloudflare's geo-IP report at the most recent accepted write; a VPN shows its exit country, a visit Cloudflare cannot place keeps the previous country rather than blanking it, and a genuine country change can take up to 15 minutes to appear; accounts with no recorded activity show "Not yet seen";
+- a persistent **Master** role badge.
+
+Every column sorts, and the country chips filter the table client-side. The master-grant API (`PUT /api/admin/users/:accountId/master`) remains available for additional operators even though the table does not expose it.
+
+The console intentionally does not show image bytes, source URLs, OAuth provider subjects, or gallery contents. The list is unbounded — every account renders — until the base grows large enough to need paging again.
 
 ## Delete a user
 

@@ -264,7 +264,7 @@ export const requireSession = (): MiddlewareHandler<HonoSessionEnv> =>
     // write a day per account at most; it can never fail this request.
     // `executionCtx` is a throwing getter off-Workers — ask for it safely.
     const executionCtx = (() => { try { return c.executionCtx } catch { return undefined } })()
-    touchLastSeen(session.accountId, (c.req.raw as { cf?: { country?: unknown; colo?: unknown } }).cf, sessionEnv, executionCtx)
+    touchLastSeen(session.accountId, (c.req.raw as { cf?: { country?: unknown } }).cf, sessionEnv, executionCtx)
     await next()
   }
 

@@ -46,7 +46,7 @@ const link = (label: string, href: string): PrivacyInline => ({ kind: 'link', la
 
 export const PRIVACY_POLICY: PrivacyDocument = {
   title: 'Privacy Policy',
-  updated: '4 November 2026',
+  updated: '23 November 2026',
   lede:
     'Manorama is a place to share and look at photographs. This policy covers manorama.xyz, the Manorama mobile app, and the Manorama desktop app for macOS, Windows, and Linux. Start with the part that sounds like you; if you both view and publish galleries, both parts apply.',
   sections: [
@@ -75,7 +75,7 @@ export const PRIVACY_POLICY: PrivacyDocument = {
           paragraph: {
             parts: [
               t(
-                'Sign in with Apple, Google, or Dropbox. We keep your account ID, name, email (which may be an Apple private-relay address), public address, plan, and the details needed to show your galleries. You can link more than one sign-in method to the same account. We never see your sign-in password or keep the provider’s sign-in token. Photos stay at the source; deleting a gallery here never deletes the originals.',
+                'Sign in with Apple, Google, or Dropbox. We keep your account ID, name, email (which may be an Apple private-relay address), public address, plan, and the details needed to show your galleries. You can link more than one sign-in method to the same account. We never see your sign-in password or keep the provider’s sign-in token. Photos stay at the source; deleting a gallery here never deletes the originals. We also note the country your most recent signed-in visit came from, as our host Cloudflare reports it, so we can see where Manorama is used. We don’t keep your IP address or city.',
               ),
             ],
           },

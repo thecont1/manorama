@@ -2,6 +2,8 @@ import { beforeEach, describe, expect, test } from 'bun:test'
 import { seedTestUser } from './test-fixtures'
 import {
   getUserByAccountId,
+  LAST_SEEN_COUNTRY_FLOOR_MS,
+  lastSeenWriteAllowed,
   OWNER_SLUG_MAX,
   resetUserStore,
   setLastSeenLocation,
@@ -16,24 +18,35 @@ beforeEach(() => {
 describe('last-seen activity', () => {
   test('a sign-in stamp lands unconditionally', async () => {
     const user = await seedTestUser({ accountId: 'acct_seen_plain' })
-    await setLastSeenLocation(user.accountId, 'IN', 'BOM')
+    await setLastSeenLocation(user.accountId, 'IN')
     const stored = await getUserByAccountId(user.accountId)
     expect(stored?.lastSeenAt).toBeTruthy()
     expect(stored?.lastSeenCountry).toBe('IN')
-    expect(stored?.lastSeenColo).toBe('BOM')
+  })
+
+  test('Cloudflare\'s unknown country never overwrites a real reading', async () => {
+    const user = await seedTestUser({ accountId: 'acct_seen_xx' })
+    await setLastSeenLocation(user.accountId, 'IN')
+    // Sign-in path (no throttle): the timestamp still moves, the country stays.
+    await setLastSeenLocation(user.accountId, 'XX')
+    const stored = await getUserByAccountId(user.accountId)
+    expect(stored?.lastSeenCountry).toBe('IN')
+    expect(stored?.lastSeenAt).toBeTruthy()
   })
 
   test('touchLastSeen stamps once, then the day-throttle refuses a re-stamp', async () => {
     const user = await seedTestUser({ accountId: 'acct_seen_throttle' })
-    touchLastSeen(user.accountId, { country: 'IN', colo: 'BOM' })
+    touchLastSeen(user.accountId, { country: 'IN' })
     // The write is fire-and-forget but resolves on a microtask.
     await new Promise((resolve) => setTimeout(resolve, 0))
     const first = (await getUserByAccountId(user.accountId))?.lastSeenAt
     expect(first).toBeTruthy()
     // A second touch inside the interval must not move the stamp — wait
-    // past a second boundary so a re-stamp would read differently.
+    // past a second boundary so a re-stamp would read differently. The
+    // different country is inside the 15-minute floor, so it cannot pass
+    // the country-change clause either.
     await new Promise((resolve) => setTimeout(resolve, 1100))
-    touchLastSeen(user.accountId, { country: 'DE', colo: 'FRA' })
+    touchLastSeen(user.accountId, { country: 'DE' })
     await new Promise((resolve) => setTimeout(resolve, 0))
     const second = await getUserByAccountId(user.accountId)
     expect(second?.lastSeenAt).toBe(first)
@@ -42,16 +55,43 @@ describe('last-seen activity', () => {
 
   test('the stale guard inside setLastSeenLocation honours its interval', async () => {
     const user = await seedTestUser({ accountId: 'acct_seen_guard' })
-    await setLastSeenLocation(user.accountId, 'IN', 'BOM')
+    await setLastSeenLocation(user.accountId, 'IN')
     const first = (await getUserByAccountId(user.accountId))?.lastSeenAt
     await new Promise((resolve) => setTimeout(resolve, 1100))
     // A 60s-fresh stamp refuses the write; a 1ms interval permits it.
-    await setLastSeenLocation(user.accountId, 'DE', 'FRA', undefined, 60_000)
+    expect(await setLastSeenLocation(user.accountId, 'DE', undefined, 60_000)).toBe(false)
     expect((await getUserByAccountId(user.accountId))?.lastSeenAt).toBe(first)
-    await setLastSeenLocation(user.accountId, 'DE', 'FRA', undefined, 1)
+    expect(await setLastSeenLocation(user.accountId, 'DE', undefined, 1)).toBe(true)
     const moved = await getUserByAccountId(user.accountId)
     expect(moved?.lastSeenAt).not.toBe(first)
     expect(moved?.lastSeenCountry).toBe('DE')
+  })
+})
+
+describe('lastSeenWriteAllowed', () => {
+  const now = Date.parse('2026-11-23T12:00:00Z')
+  const DAY = 24 * 60 * 60 * 1000
+
+  test('sign-in and missing stamps always write', () => {
+    expect(lastSeenWriteAllowed(now - 1000, 'IN', 'DE', now, 0)).toBe(true)
+    expect(lastSeenWriteAllowed(undefined, undefined, 'IN', now, DAY)).toBe(true)
+    expect(lastSeenWriteAllowed(NaN, undefined, 'IN', now, DAY)).toBe(true)
+  })
+
+  test('routine activity writes once the stamp is a day old', () => {
+    expect(lastSeenWriteAllowed(now - DAY - 1, 'IN', 'IN', now, DAY)).toBe(true)
+    expect(lastSeenWriteAllowed(now - DAY - 1, 'IN', undefined, now, DAY)).toBe(true)
+  })
+
+  test('inside the day only a different country past the floor passes', () => {
+    const fresh = now - 60 * 1000
+    expect(lastSeenWriteAllowed(fresh, 'IN', 'IN', now, DAY)).toBe(false)
+    expect(lastSeenWriteAllowed(fresh, 'IN', 'DE', now, DAY)).toBe(false)
+    expect(lastSeenWriteAllowed(fresh, 'IN', undefined, now, DAY)).toBe(false)
+    const moved = now - LAST_SEEN_COUNTRY_FLOOR_MS - 1
+    expect(lastSeenWriteAllowed(moved, 'IN', 'DE', now, DAY)).toBe(true)
+    // A stamp with no country yet fills in on the same rule.
+    expect(lastSeenWriteAllowed(moved, undefined, 'IN', now, DAY)).toBe(true)
   })
 })
 

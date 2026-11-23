@@ -262,7 +262,7 @@ describe('the operations console at /opman', () => {
     const response = await page().request('/opman', undefined, opmanEnv)
     expect(response.status).toBe(200)
     const html = await response.text()
-    expect(html).toContain('Janitors check-in here.')
+    expect(html).toContain('Janitors check-in')
     expect(html).toContain('ops-provider')
     expect(html).toContain('>Continue with Apple<')
     expect(html).toContain('>Continue with Dropbox<')

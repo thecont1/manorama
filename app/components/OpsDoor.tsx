@@ -27,7 +27,7 @@ export default function OpsDoor({
       </div>
       <header class="ops-header">
         <div>
-          <h1>Janitors check-in here.</h1>
+          <h1>Janitors check-in</h1>
           {deniedName ? (
             <p class="ops-intro">
               Signed in as {deniedName} — that account does not hold operations access. Identify yourself another way.
