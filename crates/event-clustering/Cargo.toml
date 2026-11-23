@@ -1,0 +1,32 @@
+[package]
+name = "event-clustering"
+version = "0.1.0"
+edition = "2021"
+license-file = "../../LICENSE"
+publish = false
+
+[lib]
+name = "manorama_events"
+crate-type = ["rlib", "cdylib"]
+
+[features]
+default = []
+fs-scan = ["dep:cap-std", "dep:cap-fs-ext", "dep:kamadak-exif"]
+android = ["dep:jni"]
+
+[dependencies]
+serde = { version = "1", features = ["derive"] }
+# Correctly rounded Double decoding keeps fractional Date/config boundaries in parity.
+serde_json = { version = "1", features = ["float_roundtrip"] }
+sha2 = "0.10"
+# No host clock/locale: fixed offsets and bundled IANA rules must reproduce DST fixtures.
+chrono = { version = "0.4", default-features = false, features = ["std"] }
+chrono-tz = { version = "0.10", default-features = false }
+# Descriptor-rooted traversal prevents ancestor replacement from escaping the grant.
+cap-std = { version = "=4.0.3", optional = true }
+# Safe no-follow APIs close the final-component symlink race as well.
+cap-fs-ext = { version = "=4.0.3", optional = true }
+# Swift String ordering is canonical, not raw UTF-8; IDs themselves stay opaque.
+unicode-normalization = "0.1"
+kamadak-exif = { version = "0.6", optional = true }
+jni = { version = "0.21", default-features = false, optional = true }

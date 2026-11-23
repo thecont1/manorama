@@ -47,6 +47,23 @@ jobs:
       - name: Build desktop bundle
         run: bun run build:desktop
 
+  rust-event-core:
+    name: Rust event core (${{ matrix.features || 'default' }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    strategy:
+      matrix:
+        features: ['', 'fs-scan', 'android', 'fs-scan,android']
+    env:
+      CARGO_TARGET_DIR: ${{ runner.temp }}/manorama-events-rust-target
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Test root workspace and shared golden fixtures
+        run: cargo test --locked -p event-clustering --features '${{ matrix.features }}'
+
   macos-boundary:
     name: Swift engine and macOS boundary
     runs-on: xcode-27

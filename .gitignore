@@ -18,6 +18,9 @@ out/
 .devin/
 .qodo/
 
+# Root Rust workspace artifacts (core tests use an external CARGO_TARGET_DIR).
+/target/
+
 # Tauri build artifacts and generated capability schemas
 src-tauri/target/
 src-tauri/gen/

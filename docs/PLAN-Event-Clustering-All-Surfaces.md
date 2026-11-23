@@ -189,3 +189,136 @@ Slices 2 and 3 run in parallel after 1; 4 and 5 run in parallel after 3.
 - **Android location access:** denial of `ACCESS_MEDIA_LOCATION` weakens trip merge. Time-only clustering is tested explicitly.
 - **Windows cloud placeholders:** detection varies by cloud provider, so it is unit-tested with synthetic attributes.
 - **Version churn:** AGP, Java 21 and Capacitor versions drift over time, so `JAVA_HOME` and the NDK version are pinned in `android/gradle.properties` and CI.
+
+## Slice 3 checkpoint — Rust core (verified locally and on Linux)
+
+This section records slice 3 against `7f92538b` in the
+`feat/event-clustering-rust-core` worktree. The preceding roadmap is retained in
+full; its slice-1 status is historical, not a claim that the Rust work below is
+still unstarted. No shell, Swift, TypeScript UI, mobile project or golden expectation
+was changed. No commit, push, GUI launch or remote action was performed.
+
+### Delivered boundary
+
+- Root `Cargo.toml` / `Cargo.lock`: workspace member `crates/event-clustering`,
+  explicitly excluding `src-tauri`. Package `event-clustering` produces
+  `manorama_events` as `rlib` and `cdylib`. Root `target/` is ignored.
+- Public `MediaMetadataItem`, nine-field `ClusteringConfig`, `EventCluster`,
+  `EventDayGroup`, `EventClusteringResult`, `RawDumpStatus` and `RawDumpScanReport`.
+  All serialized fields use Swift's camelCase spelling. Every timestamp is **f64
+  epoch seconds**, including the JNI JSON; shell adapters must convert to the
+  contract's epoch milliseconds before replying to a WebView.
+- `cluster(items, source_id, config, calendar)` and `EventClusterer` return
+  `Result`, with public `inferred_home_base` and `event_id`. `CalendarSpec` matches
+  the fixtures: Gregorian plus exactly one of `secondsFromGMT` or
+  `timeZoneIdentifier`. UTC is the deterministic Rust default, never a host clock
+  or inferred locale; consumers should inject the chosen source calendar.
+- Swift's current rules are preserved: screenshots excluded before inference;
+  both coordinate components must exceed 0.0001 in absolute value; grid half ties
+  round away from zero; home ranks distinct days, frames, earliest appearance,
+  latitude, longitude; burst chains preserve all main `itemIds`; even bursts use
+  `count / 2`; covers keep the first minimum on a midpoint tie; multi-day requires
+  multiple grouped sessions **and** representative dates. `subDays` contains
+  **representatives only**, not every burst member. No Apple visual probe is added.
+- `EventIndex::{encode, decode, reusable, matches, needs_metadata_read, pruning,
+  applying}` and `SCHEMA_VERSION = 1`. Index encoding sorts keys; modification
+  deltas use the absolute one-second boundary. Pruning leaves events untouched
+  until reclustering. `decode` rejects invalid/unknown schemas and `reusable`
+  returns `None`: the consumer rebuilds instead of migrating the cache.
+- Pure `parser` functions accept EXIF/TIFF/GPS dictionaries, including signed
+  offsets, ISO-ish timestamps, DMS coordinates and the Swift screenshot rule.
+  Fractional EXIF seconds are truncated as in Swift. Foundation's spring-gap
+  normalization and first fall-overlap occurrence were checked with a CLI probe
+  and covered by Rust parser tests.
+
+### Optional consumers and dependency cost
+
+`fs-scan` alone adds `cap-std` / `cap-fs-ext` 4.0.3 and `kamadak-exif` 0.6.2;
+`walkdir` was removed. `enumerate`, `ingest`, `scan` and injectable
+`ingest_with_header` recurse only the declared dump, using pinned root/child Dir
+capabilities for enumeration, metadata and no-follow headers. Hidden entries,
+packages and name-surrogate links (including Windows junctions) are excluded,
+not ordinary/cloud reparse points. IDs remain source-relative. Windows `OFFLINE` / `RECALL_ON_DATA_ACCESS` gates
+run **before** the header callback; Unix zero-allocation stubs receive the same
+fallback treatment. Placeholder items retain file dates but no cached mod time,
+so hydration requests a fresh header. Local timestamps fall back from EXIF to
+creation then modification date; corrupt/unsupported headers never invent now.
+EXIF access is capped to a 4 MiB metadata read window, with no bitmap decoder.
+Headers beyond the window and formats unsupported by the EXIF library fall back
+to file dates. An unchanged rescan reads zero headers. The root-only-gallery
+comparison is an equivalent test enumerator, not a claim to test the unmodified
+Tauri gallery shell. Deterministic ancestor replacements before/during traversal
+and after enumeration cannot expose foreign names, metadata or headers; there is
+no ambient-open fallback. The caller must supply a fingerprint-checked cache;
+storage permissions, persistence, the selected-root grant and debounced watching remain
+shell responsibilities. `notify` is deliberately not added before a consumer
+needs it.
+
+`android` alone adds `jni` 0.21.1 (no JVM invocation feature). Exports are
+`Java_in_thecontrarian_manorama_events_RustBridge_{cluster,decodeIndex,encodeIndex}`.
+The three methods take/return strings. `cluster` takes an item array and this
+explicit options envelope as its second argument:
+
+```json
+{"sourceId":"source-id","calendar":{"identifier":"gregorian","secondsFromGMT":0},"config":{}}
+```
+
+Individual fields inside `config` default to Swift's nine thresholds; the
+`config` object itself is required. Both index methods validate and normalize the complete schema-1 JSON. Invalid input throws
+`IllegalArgumentException` with JSON `{code,message}`; caught internal panics
+throw `RuntimeException`, never empty-success JSON. Neither Android SDK nor
+MediaStore code is present. Java `String.length()` checks 16 Mi UTF-16 units
+before `get_string`; UTF-8 JSON is capped at 32 MiB and config at 16 KiB. A
+streaming preflight rejects strings over 4096 bytes and collections over 100k
+before typed allocation. Index aggregate membership is capped at 100k, sub-days
+at 366; serialization uses a bounded writer and JNI output is prechecked. All
+three exports and public JSON helpers reject violations, while 50k inputs pass.
+These are transport bounds, not a completed Android peak-RAM/CPU budget gate.
+
+Six default dependencies: `serde`, `serde_json` (correctly rounded Double
+parsing), `sha2`, `chrono`, `chrono-tz` and `unicode-normalization` 0.1.26. Bundled
+IANA rules remain necessary for DST; clock features stay disabled. NFC character
+comparison with an ASCII fast path reproduces Swift String ordering without
+normalizing raw IDs or source hash bytes. Dates quantize through Foundation's
+2001 reference epoch; intervals/midpoints use that epoch too. Config thresholds
+and fileModTime remain plain Doubles. The unmodified Swift source oracle matches
+20 cases, including `Date(-1e-8) = 0` and
+`Date(0.10000002) = 0.10000002384185791`.
+
+Ten direct dependencies with both features; no cap/filesystem crate enters the
+Android normal graph. No bitmap/ML, Tauri, network or Android-framework engine.
+Stripped LTO `opt-level="z"` **aarch64 macOS host JNI dylib: 1,891,328 bytes
+(1.804 MiB)**, +182,560 bytes from 1,708,768. An otherwise-identical temporary
+non-NFC control measured 1,775,600 bytes: NFC adds 115,728 bytes; the canonical
+comparator was restored and reverified afterward. The 1.5 MB target is still
+exceeded; Android per-ABI size remains **unmeasured**, not a passed gate.
+
+### Executed verification and remaining gates
+
+From the worktree root, using
+`CARGO_TARGET_DIR=/tmp/manorama-events-rust-slice3-target`:
+
+- macOS `cargo test --locked -p event-clustering`: **56 passed**.
+- With `--features android`: **63 passed**.
+- With `--features fs-scan`: **68 passed** (includes capability and locality-transition regressions).
+- With `--all-features`: **75 passed** on macOS and **74 passed** in the Linux `rust:1` Docker image. The live Swift oracle is macOS-only.
+- Every combination consumes all **37 unchanged fixture files**, plus an
+  inventory test; Android combinations also exercise each fixture through JNI's
+  JSON helper. Additional tests cover parser, primitives, index, privacy and fs.
+- `cargo fmt --all -- --check`, all-target/all-feature Clippy with warnings denied,
+  and `git diff --check` passed.
+- The release dylib's three JNI symbols were inspected. The added Java host
+  harness in `crates/event-clustering/tests/RustBridge.java` was compiled with
+  `javac --release 21` and run on host JDK 26 and Android Studio's Java 21:
+  **60 checks passed** on each, including pre-copy limits and 50k input.
+  Not an ART/NDK run.
+- Unchanged Swift suite rerun: **78 passed**. `bunx tsc --noEmit` and the complete
+  mirrored `bun run test:unit` rerun: **2,716 passed, 0 failed**.
+
+`verify.yml` now defines a credential-free Ubuntu cargo-test matrix for default,
+`fs-scan`, `android` and combined features, using the root locked manifest and an
+external target directory. It has been prepared, not executed remotely. Local
+Linux Docker execution passed; Windows runtime evidence, Android ABI builds/size/ART tests, Tauri wiring,
+private-store integration, watcher policy, performance budgets and any surface
+presentation remain subsequent-slice gates. No viewer change was made, so no
+Playwright or native screenshot evidence is claimed for this core-only slice.
