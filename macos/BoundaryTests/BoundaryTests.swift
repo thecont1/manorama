@@ -612,6 +612,43 @@ final class BoundaryTests {
               allIngested.count == fixtures.count
                   && allIngested.allSatisfy { $0.headerWasOpened && $0.item != nil })
 
+        /* 8b′. The optional visual pass, run for real rather than stubbed.
+         * The engine's own suite proves what an opinion does to a boundary —
+         * and that `nil` keeps a session together — but only this layer can
+         * prove the Vision path is wired: a thumbnail built from the header
+         * without caching, a request performed, a distance widened into the
+         * Double the config is written in. The fixtures are flat grey, so
+         * what is asserted is that a number comes back and that a frame is
+         * zero apart from itself, not that two scenes look different. */
+        let visualProbe = VisionBoundaryProbe(root: dumpRoot)
+        let photographed = allIngested.compactMap(\.item).filter { !$0.isScreenshot }
+        if photographed.count >= 2 {
+            let selfDistance = visualProbe.visualDistance(between: photographed[0], and: photographed[0])
+            let pairDistance = visualProbe.visualDistance(between: photographed[0], and: photographed[1])
+            check("the visual pass answers a distance for two frames that are on this disk",
+                  pairDistance.map { $0.isFinite && $0 >= 0 } == true,
+                  "distance=\(String(describing: pairDistance))")
+            check("a frame compared with itself is not apart from itself",
+                  selfDistance.map { $0 < 0.01 } == true,
+                  "distance=\(String(describing: selfDistance))")
+            /* The abstention is the safety property, not the measurement: a
+             * frame whose bytes this Mac has not been given must produce no
+             * opinion, because a cloud placeholder is not evidence that the
+             * user stopped doing something. An id that was never written is
+             * the cheapest honest stand-in for that file. */
+            let ghost = MediaMetadataItem(
+                id: "2026/06/IMG_NEVER_WRITTEN.jpg",
+                timestamp: Date(timeIntervalSince1970: 1_780_000_000)
+            )
+            let ghostDistance = visualProbe.visualDistance(between: ghost, and: photographed[0])
+            check("a frame whose pixels cannot be read has no opinion rather than a split",
+                  ghostDistance == nil, "distance=\(String(describing: ghostDistance))")
+        } else {
+            check("the visual pass answers a distance for two frames that are on this disk", false, "no fixtures")
+            check("a frame compared with itself is not apart from itself", false, "no fixtures")
+            check("a frame whose pixels cannot be read has no opinion rather than a split", false, "no fixtures")
+        }
+
         // 8c. The store: incremental, private, self-correcting.
         let dumpStore = RawDumpEventStore(configDir: dumpConfig)
         let firstScan = try? dumpStore.scan(root: dumpRoot, deviceId: "boundary-device",
