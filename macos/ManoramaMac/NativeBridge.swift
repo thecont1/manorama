@@ -94,6 +94,11 @@ final class NativeBridge {
     /// become a durable grant. Expires on its own after ten minutes.
     private var pendingDrops: [PendingDrop] = []
     private var pendingDropExpiry: DispatchWorkItem?
+    /// The sequence that identifies the current drop — every drop bumps it
+    /// and the event carries it, so the page echoes it back on commit and a
+    /// commit for a replaced drop can be refused rather than allowed to
+    /// spend the pending set its successor now owns.
+    private var pendingDropSeq = 0
     private static let pendingDropTTL: TimeInterval = 10 * 60
     private static let maxPendingDrops = 50
 
@@ -758,11 +763,13 @@ final class NativeBridge {
             kept.append(pending)
         }
         pendingDrops = kept
+        pendingDropSeq += 1
         armPendingDropExpiry()
         rebuildGrantedRoots()
         emitFolderEvent("manorama://folders-dropped", [
             "paths": kept.map { $0.url.path },
             "files": files,
+            "drop": pendingDropSeq,
         ])
     }
 
@@ -820,6 +827,11 @@ final class NativeBridge {
     private func commitDroppedRoots(_ args: [String: Any]) throws -> [String] {
         guard let raw = args["paths"] as? [String] else {
             throw BridgeError.badArguments("commit_dropped_roots needs paths")
+        }
+        // The page echoes the drop's sequence — a commit for a replaced
+        // drop must not spend the pending set its successor now owns.
+        if let seq = args["drop"] as? Int, seq != pendingDropSeq {
+            throw BridgeError.failed("the drop was replaced")
         }
         let wanted = Set(raw.map { URL(fileURLWithPath: $0).standardizedFileURL.path })
         var committed: [String] = []
@@ -1342,17 +1354,6 @@ final class NativeBridge {
         return (value, status)
     }
 
-    /// A read against the shared store only — throws on any refusal, so
-    /// callers verifying a delete cannot mistake a denied read for absence.
-    private func keychainGetShared(_ name: String) throws -> String? {
-        let (value, status) = keychainReadShared(name)
-        if status == errSecItemNotFound { return nil }
-        guard status == errSecSuccess else {
-            throw BridgeError.failed("the keychain refused the read")
-        }
-        return value
-    }
-
     /// A read against the legacy file-based store only — verbatim the
     /// query the old builds ran, so items an older signature wrote are
     /// still found. Every failure answers nil, the dismissed ACL prompt
@@ -1398,8 +1399,9 @@ final class NativeBridge {
     }
 
     /// Write into `store` (a query dict already carrying the access-group
-    /// keys or not) — update-then-insert. Answers whether it landed.
-    private func keychainWrite(_ query: [String: Any], _ value: String) -> Bool {
+    /// keys or not) — update-then-insert. The raw status comes back so a
+    /// missing entitlement is distinguishable from an operational refusal.
+    private func keychainWrite(_ query: [String: Any], _ value: String) -> OSStatus {
         let attributes: [String: Any] = [
             kSecValueData as String: Data(value.utf8),
             kSecAttrAccessible as String: kSecAttrAccessibleAfterFirstUnlock,
@@ -1408,13 +1410,14 @@ final class NativeBridge {
         if status == errSecItemNotFound {
             var insert = query
             insert.merge(attributes) { current, _ in current }
-            return SecItemAdd(insert as CFDictionary, nil) == errSecSuccess
+            return SecItemAdd(insert as CFDictionary, nil)
         }
-        return status == errSecSuccess
+        return status
     }
 
     private func keychainSet(_ name: String, _ value: String) throws {
-        if keychainWrite(sharedQuery(name), value) {
+        let shared = keychainWrite(sharedQuery(name), value)
+        if shared == errSecSuccess {
             // Keep the file-based copy in sync rather than sweeping it:
             // the Tauri shell's keyring store reads the legacy keychain
             // only, so a delete would strand its custody of the same key.
@@ -1424,9 +1427,15 @@ final class NativeBridge {
             _ = keychainWrite(legacyQuery(name), value)
             return
         }
-        // No access group on this build — the file store takes custody
-        // instead, exactly as it did before the group existed.
-        guard keychainWrite(legacyQuery(name), value) else {
+        // Only a build without the access-group entitlement may fall back
+        // to the file store. Any other refusal means the shared store
+        // declined a query the entitlement says is valid — and reporting
+        // success for a value the shared read on this same build will not
+        // answer hides a real fault, so it propagates instead.
+        guard shared == errSecMissingEntitlement else {
+            throw BridgeError.failed("the shared keychain refused the write")
+        }
+        guard keychainWrite(legacyQuery(name), value) == errSecSuccess else {
             throw BridgeError.failed("the keychain refused the write")
         }
     }
@@ -1462,9 +1471,17 @@ final class NativeBridge {
         // deliberately not used here: its migration path would copy a
         // surviving legacy item straight back into the shared store. The
         // probes are the status-checking kind — the nil-on-denial readers
-        // would call a refused read a removal.
-        if try keychainGetShared(name) != nil {
+        // would call a refused read a removal. A missing entitlement is
+        // the one refusal that skips verification: a build without the
+        // group can neither delete nor read the shared store, and the
+        // legacy verdict below is the only one it can give.
+        switch keychainReadShared(name).status {
+        case errSecSuccess:
             throw BridgeError.failed("the key survived the delete")
+        case errSecItemNotFound, errSecMissingEntitlement:
+            break
+        default:
+            throw BridgeError.failed("the keychain refused the read")
         }
         switch keychainProbeLegacy(name) {
         case errSecSuccess:
