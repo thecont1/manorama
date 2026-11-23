@@ -59,9 +59,9 @@ describe('last-seen activity', () => {
     const first = (await getUserByAccountId(user.accountId))?.lastSeenAt
     await new Promise((resolve) => setTimeout(resolve, 1100))
     // A 60s-fresh stamp refuses the write; a 1ms interval permits it.
-    await setLastSeenLocation(user.accountId, 'DE', undefined, 60_000)
+    expect(await setLastSeenLocation(user.accountId, 'DE', undefined, 60_000)).toBe(false)
     expect((await getUserByAccountId(user.accountId))?.lastSeenAt).toBe(first)
-    await setLastSeenLocation(user.accountId, 'DE', undefined, 1)
+    expect(await setLastSeenLocation(user.accountId, 'DE', undefined, 1)).toBe(true)
     const moved = await getUserByAccountId(user.accountId)
     expect(moved?.lastSeenAt).not.toBe(first)
     expect(moved?.lastSeenCountry).toBe('DE')

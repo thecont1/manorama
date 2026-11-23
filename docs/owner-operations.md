@@ -20,7 +20,7 @@ Each row shows:
 - gallery count with temporary/hidden/Local-mirror detail, total media items, the gallery source mix (Dropbox, Google Drive, iCloud, and so on — never the links themselves), and the latest gallery date;
 - the account's live app devices by type (Mac, Windows, Linux, iPhone, iPad, Android — a device unseen for 180 days drops off the list), or "web only" for accounts that have only signed in on the web;
 - a "linked sign-ins" note only when an account has more than one sign-in method;
-- the country of the latest signed-in visit, as Cloudflare's geo-IP reports it — a VPN shows its exit country, and accounts with no signed-in activity since tracking began show "Not yet seen";
+- the last recorded country — Cloudflare's geo-IP report at the most recent accepted write; a VPN shows its exit country, a visit Cloudflare cannot place keeps the previous country rather than blanking it, and a genuine country change can take up to 15 minutes to appear; accounts with no recorded activity show "Not yet seen";
 - a persistent **Master** role badge.
 
 Every column sorts, and the country chips filter the table client-side. The master-grant API (`PUT /api/admin/users/:accountId/master`) remains available for additional operators even though the table does not expose it.

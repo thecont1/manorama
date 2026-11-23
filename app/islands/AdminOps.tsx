@@ -40,7 +40,14 @@ const withinDays = (value: string | undefined, days: number, now: number): boole
 const expiryLabel = (iso?: string): string | null => {
   const t = toMs(iso)
   if (Number.isNaN(t)) return null
-  const days = Math.ceil((t - Date.now()) / DAY_MS)
+  // Calendar days in the viewer's timezone — the same clock dateCell renders —
+  // so an expiry later today reads "today", not "tomorrow" on a sub-24h diff.
+  const now = new Date()
+  const expiry = new Date(t)
+  const days = Math.round(
+    (new Date(expiry.getFullYear(), expiry.getMonth(), expiry.getDate()).getTime()
+      - new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime()) / DAY_MS,
+  )
   if (days <= 0) return 'today'
   if (days === 1) return 'tomorrow'
   return `in ${days}d`
@@ -347,7 +354,7 @@ export default function AdminOps({ ownerName, accountId }: Props) {
             </div>
             <div class="ops-stat">
               <dt>galleries</dt>
-              <dd>{totalGalleries}<span class="ops-stat-sub">{totalMedia} media · {totalTemporary} temporary{expiringSoon ? ` · ${expiringSoon} expiring ≤7d` : ''}</span></dd>
+              <dd>{totalGalleries}<span class="ops-stat-sub">{totalMedia} media · {totalTemporary} temporary{expiringSoon ? ` · ${expiringSoon} account${expiringSoon === 1 ? '' : 's'} expiring ≤7d` : ''}</span></dd>
             </div>
             <div class="ops-stat">
               <dt>sources</dt>

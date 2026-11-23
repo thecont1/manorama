@@ -26,7 +26,7 @@ import {
   verifyNativeHandoffToken,
 } from '../../lib/session'
 import { applySetCookie, TEST_SESSION_SECRET } from '../../lib/test-fixtures'
-import { listUsersForAdmin } from '../../lib/user-repository'
+import { listUsersForAdmin, setLastSeenLocation } from '../../lib/user-repository'
 import dropboxStartRoute from './dropbox'
 import dropboxCallbackRoute from './dropbox/callback'
 import googleStartRoute from './google'
@@ -881,10 +881,15 @@ describe('the first-time-account interstitial', () => {
       VALUES ('g2', 'acct_ops_stats', 'Temp', '[]', '2026-11-20 09:00:00', 'pipeline', ?)`).bind(expiry).run()
     await dbi.prepare(`INSERT INTO galleries (slug, owner_id, title, images_json, created_at, retention, hidden_at)
       VALUES ('g3', 'acct_ops_stats', 'Hidden', '[]', '2026-11-10 09:00:00', 'retained', '2026-11-11 00:00:00')`).run()
+    const seenAgo = (days: number) => new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString()
     await dbi.prepare(`INSERT INTO devices (owner_id, id, kind, ordinal, colour, first_seen_at, last_seen_at) VALUES
-      ('acct_ops_stats', 'dev-1', 'iphone', 1, 0, '2026-11-01T00:00:00.000Z', '2026-11-20T00:00:00.000Z'),
-      ('acct_ops_stats', 'dev-2', 'mac', 1, 1, '2026-11-01T00:00:00.000Z', '2026-11-20T00:00:00.000Z'),
-      ('acct_ops_stats', 'dev-old', 'ipad', 1, 2, '2026-01-01T00:00:00.000Z', '2026-01-01T00:00:00.000Z')`).run()
+      ('acct_ops_stats', 'dev-1', 'iphone', 1, 0, ?, ?),
+      ('acct_ops_stats', 'dev-2', 'mac', 1, 1, ?, ?),
+      ('acct_ops_stats', 'dev-old', 'ipad', 1, 2, ?, ?)`).bind(
+      seenAgo(10), seenAgo(2),
+      seenAgo(10), seenAgo(2),
+      seenAgo(400), seenAgo(400),
+    ).run()
 
     const { users } = await listUsersForAdmin({ DB: dbi })
     const user = users.find((u) => u.accountId === 'acct_ops_stats')
@@ -899,6 +904,22 @@ describe('the first-time-account interstitial', () => {
     expect(user?.devices).toEqual([{ kind: 'mac', count: 1 }, { kind: 'iphone', count: 1 }])
     expect(JSON.stringify(user)).not.toContain('scl/fo')
     expect(JSON.stringify(user)).not.toContain('rlkey')
+  })
+
+  test('a throttled last-seen write carrying a country lands on D1', async () => {
+    const dbi = db()
+    await dbi.prepare(`INSERT INTO users (account_id, owner_slug, display_name, tier) VALUES ('acct_seen_d1', 'seen-d1', 'Seen D1', 'free')`).run()
+    const d1Env = { DB: dbi }
+    // Country + throttle together: the guarded UPDATE must bind account_id
+    // between the SET and guard placeholders — a mis-ordered bind silently
+    // matches zero rows.
+    expect(await setLastSeenLocation('acct_seen_d1', 'DE', d1Env, 60_000)).toBe(true)
+    const row = await dbi.prepare(`SELECT last_seen_country FROM users WHERE account_id = 'acct_seen_d1'`).first<{ last_seen_country: string }>()
+    expect(row?.last_seen_country).toBe('DE')
+    // The fresh stamp then refuses the next write inside the interval.
+    expect(await setLastSeenLocation('acct_seen_d1', 'FR', d1Env, 60_000)).toBe(false)
+    const kept = await dbi.prepare(`SELECT last_seen_country FROM users WHERE account_id = 'acct_seen_d1'`).first<{ last_seen_country: string }>()
+    expect(kept?.last_seen_country).toBe('DE')
   })
 })
 

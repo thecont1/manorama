@@ -393,9 +393,10 @@ export const setLastSeenLocation = async (
    *  this many milliseconds — the throttle rides inside the UPDATE, so a
    *  cold isolate cannot double-stamp the same day. A different incoming
    *  country passes once the stamp is older than
-   *  LAST_SEEN_COUNTRY_FLOOR_MS. */
+   *  LAST_SEEN_COUNTRY_FLOOR_MS. Resolves true when the guarded UPDATE
+   *  changed a row — false when the throttle or guards refused it. */
   onlyIfStaleMs = 0,
-): Promise<void> => {
+): Promise<boolean> => {
   const validCountry = normaliseLastSeenCountry(country)
   if (d1Configured(env)) {
     const sets = ['last_seen_at = datetime(\'now\')']
@@ -414,16 +415,16 @@ export const setLastSeenLocation = async (
       }
       guard = ` AND (${clauses.join(' OR ')})`
     }
-    await env.DB.prepare(`UPDATE users SET ${sets.join(', ')} WHERE account_id = ?${guard}`).bind(...binds, ...guardBinds, accountId).run()
-    return
+    const result = await env.DB.prepare(`UPDATE users SET ${sets.join(', ')} WHERE account_id = ?${guard}`).bind(...binds, accountId, ...guardBinds).run()
+    return (result.meta.changes ?? 0) > 0
   }
   const user = users.get(accountId)
-  if (user) {
-    const storedAtMs = user.lastSeenAt ? Date.parse(`${user.lastSeenAt.replace(' ', 'T')}Z`) : undefined
-    if (!lastSeenWriteAllowed(storedAtMs, user.lastSeenCountry, validCountry, Date.now(), onlyIfStaleMs)) return
-    user.lastSeenAt = new Date().toISOString().replace('T', ' ').slice(0, 19)
-    if (validCountry) user.lastSeenCountry = validCountry
-  }
+  if (!user) return false
+  const storedAtMs = user.lastSeenAt ? Date.parse(`${user.lastSeenAt.replace(' ', 'T')}Z`) : undefined
+  if (!lastSeenWriteAllowed(storedAtMs, user.lastSeenCountry, validCountry, Date.now(), onlyIfStaleMs)) return false
+  user.lastSeenAt = new Date().toISOString().replace('T', ' ').slice(0, 19)
+  if (validCountry) user.lastSeenCountry = validCountry
+  return true
 }
 
 /** How often activity may move the stamp — one write per day per account. */
@@ -459,7 +460,11 @@ export const touchLastSeen = (
     incoming,
     env,
     LAST_ACTIVITY_INTERVAL_MS,
-  ).catch(() => {
+  ).then((changed) => {
+    // A guarded refusal must not leave the daily cache entry suppressing a
+    // later eligible write — downgrade to the retry backoff instead.
+    if (!changed) lastActivityStamped.set(accountId, { at: Date.now() - LAST_ACTIVITY_INTERVAL_MS + LAST_ACTIVITY_RETRY_BACKOFF_MS, country: incoming })
+  }).catch(() => {
     // Keep a shortened stamp — the next touch waits out the backoff rather
     // than retrying a write that just failed.
     lastActivityStamped.set(accountId, { at: Date.now() - LAST_ACTIVITY_INTERVAL_MS + LAST_ACTIVITY_RETRY_BACKOFF_MS, country: incoming })
