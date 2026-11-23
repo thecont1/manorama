@@ -71,6 +71,23 @@ export const assetUrl = (path: string): string => convertFileSrc(path)
  */
 export const readFileBytes = async (path: string): Promise<Uint8Array> => readFile(path)
 
+/** True when an invoke rejection says the shell has no such command —
+ *  the macOS bridge answers "the native shell does not implement X" and
+ *  a real Tauri runtime reports the missing method by name. Errors that
+ *  merely mention the path (scope, IO, decode) are real failures. */
+const isUnsupportedCommand = (error: unknown, command: string): boolean => {
+  const message = (error instanceof Error ? error.message : String(error)).toLowerCase()
+  if (!message.includes(command)) return false
+  return (
+    message.includes('does not implement') ||
+    message.includes('not implemented') ||
+    message.includes('not found') ||
+    message.includes('unknown') ||
+    message.includes('no such') ||
+    message.includes('invalid invoke')
+  )
+}
+
 /**
  * A bounded window of a granted file's bytes — the embedded-metadata probe
  * asks for the head and a few ranged extents, never whole photographs.
@@ -78,23 +95,29 @@ export const readFileBytes = async (path: string): Promise<Uint8Array> => readFi
  * shell bridge revives to a Uint8Array before invoke resolves; a raw
  * `{__bytes}` reply is decoded here for shells that skip that step.
  * Shells without the command fall back to a full read sliced to the
- * window — correct, just heavier.
+ * window — correct, just heavier. On a shell that HAS the command a real
+ * failure (scope, IO, decode) propagates: silently reading the whole file
+ * would defeat the byte bound exactly when something is already wrong.
  */
 export const readFileRange = async (path: string, start: number, length: number): Promise<Uint8Array> => {
+  let reply: Uint8Array | ArrayBuffer | { __bytes?: string } | null | undefined
   try {
-    const reply = await invoke<Uint8Array | ArrayBuffer | { __bytes?: string }>('read_file_range', { path, start, length })
-    if (reply instanceof Uint8Array) return reply
-    if (reply instanceof ArrayBuffer) return new Uint8Array(reply)
-    const encoded = reply?.__bytes
-    if (typeof encoded !== 'string') throw new Error('read_file_range returned no bytes')
-    const bin = atob(encoded)
-    const bytes = new Uint8Array(bin.length)
-    for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i)
-    return bytes
-  } catch {
-    const whole = await readFileBytes(path)
-    return whole.slice(start, start + length)
+    reply = await invoke<Uint8Array | ArrayBuffer | { __bytes?: string }>('read_file_range', { path, start, length })
+  } catch (error) {
+    if (isUnsupportedCommand(error, 'read_file_range')) {
+      const whole = await readFileBytes(path)
+      return whole.slice(start, start + length)
+    }
+    throw error
   }
+  if (reply instanceof Uint8Array) return reply
+  if (reply instanceof ArrayBuffer) return new Uint8Array(reply)
+  const encoded = reply?.__bytes
+  if (typeof encoded !== 'string') throw new Error('read_file_range returned no bytes')
+  const bin = atob(encoded)
+  const bytes = new Uint8Array(bin.length)
+  for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i)
+  return bytes
 }
 
 /**

@@ -1184,7 +1184,11 @@ final class NativeBridge {
             let handle = try FileHandle(forReadingFrom: url)
             defer { try? handle.close() }
             try handle.seek(toOffset: UInt64(start))
-            return handle.readData(ofLength: length)
+            // read(upToCount:) throws where the legacy readData(ofLength:)
+            // raised an NSException — a mid-range I/O error must surface as
+            // a thrown error, never as a crash. Nil is plain EOF: an empty
+            // window, exactly what reading past the end answers.
+            return try handle.read(upToCount: length) ?? Data()
         }
         return ["__bytes": data.base64EncodedString()]
     }
@@ -1323,18 +1327,30 @@ final class NativeBridge {
         return query
     }
 
-    /// A read against the shared store only.
-    private func keychainGetShared(_ name: String) throws -> String? {
+    /// A read against the shared store that preserves its OSStatus, so a
+    /// refusal is distinguishable from a confirmed absence.
+    private func keychainReadShared(_ name: String) -> (value: String?, status: OSStatus) {
         var query = sharedQuery(name)
         query[kSecReturnData as String] = true
         query[kSecMatchLimit as String] = kSecMatchLimitOne
         var item: CFTypeRef?
         let status = SecItemCopyMatching(query as CFDictionary, &item)
+        guard status == errSecSuccess, let data = item as? Data,
+              let value = String(data: data, encoding: .utf8) else {
+            return (nil, status)
+        }
+        return (value, status)
+    }
+
+    /// A read against the shared store only — throws on any refusal, so
+    /// callers verifying a delete cannot mistake a denied read for absence.
+    private func keychainGetShared(_ name: String) throws -> String? {
+        let (value, status) = keychainReadShared(name)
         if status == errSecItemNotFound { return nil }
-        guard status == errSecSuccess, let data = item as? Data else {
+        guard status == errSecSuccess else {
             throw BridgeError.failed("the keychain refused the read")
         }
-        return String(data: data, encoding: .utf8)
+        return value
     }
 
     /// A read against the legacy file-based store only — verbatim the
@@ -1354,22 +1370,25 @@ final class NativeBridge {
     }
 
     /// Read a vault key or the device id. The shared store is asked
-    /// first; a miss — or a build that does not carry the access-group
-    /// entitlement at all, where every shared query is refused — falls
-    /// back to the legacy login keychain, where items written before the
-    /// access group existed still live under an ACL bound to the old
-    /// binary's signature. A legacy hit is migrated on the spot — the one
-    /// prompt that ACL forces on first read is the last the item ever
-    /// shows, after which every team-signed build shares custody.
+    /// first; a *confirmed absence* — or a build that does not carry the
+    /// access-group entitlement at all, where every shared query is
+    /// refused — falls back to the legacy login keychain, where items
+    /// written before the access group existed still live under an ACL
+    /// bound to the old binary's signature. Any other refusal propagates:
+    /// an operational failure is not a missing key, and answering from
+    /// the wrong store would lie. A legacy hit is migrated on the spot —
+    /// the one prompt that ACL forces on first read is the last the item
+    /// ever shows, after which every team-signed build shares custody.
     private func keychainGet(_ name: String) throws -> String? {
-        if let value = try? keychainGetShared(name) {
-            return value
+        let (value, status) = keychainReadShared(name)
+        if status == errSecSuccess { return value }
+        guard status == errSecItemNotFound || status == errSecMissingEntitlement else {
+            throw BridgeError.failed("the keychain refused the read")
         }
         guard let value = keychainGetLegacy(name) else { return nil }
         // Migrate custody: the shared copy is written before the legacy
         // item is touched, so a failed write can never strand the key —
-        // keychainSet sweeps the legacy item itself once the shared one
-        // exists, and a write that fails simply retries on the next read.
+        // a write that fails simply retries on the next read.
         do {
             try keychainSet(name, value)
         } catch {
@@ -1396,11 +1415,13 @@ final class NativeBridge {
 
     private func keychainSet(_ name: String, _ value: String) throws {
         if keychainWrite(sharedQuery(name), value) {
-            // Best-effort sweep of the file-based store: a copy an older
-            // signature left behind keeps its own ACL and would keep
-            // prompting. It goes only after the shared write has succeeded,
-            // so the sweep can never strand the key.
-            SecItemDelete(legacyQuery(name) as CFDictionary)
+            // Keep the file-based copy in sync rather than sweeping it:
+            // the Tauri shell's keyring store reads the legacy keychain
+            // only, so a delete would strand its custody of the same key.
+            // Best-effort — the shared store is already authoritative,
+            // and a denied legacy write costs the Tauri leg nothing the
+            // old world did not already cost it.
+            _ = keychainWrite(legacyQuery(name), value)
             return
         }
         // No access group on this build — the file store takes custody
@@ -1410,22 +1431,48 @@ final class NativeBridge {
         }
     }
 
+    /// The legacy store's verbatim answer to a read probe — removal
+    /// verification's status check, where a denied read must never
+    /// collapse into "absent" the way `keychainGetLegacy` deliberately
+    /// lets it for ordinary reads.
+    private func keychainProbeLegacy(_ name: String) -> OSStatus {
+        var query = legacyQuery(name)
+        query[kSecReturnData as String] = true
+        query[kSecMatchLimit as String] = kSecMatchLimitOne
+        query[kSecAttrAccessible as String] = kSecAttrAccessibleAfterFirstUnlock
+        var item: CFTypeRef?
+        return SecItemCopyMatching(query as CFDictionary, &item)
+    }
+
     private func keychainRemove(_ name: String) throws {
-        // Best-effort in both stores — a missing-entitlement delete answers
-        // the same miss an absent item would.
+        // Best-effort in the shared store — a missing-entitlement delete
+        // answers the same miss an absent item would, and the throwing
+        // probe below is what separates a refused read from a confirmed
+        // absence.
         SecItemDelete(sharedQuery(name) as CFDictionary)
-        // The legacy copy goes too, best-effort — a denied delete there
-        // is still caught by the verification below.
-        SecItemDelete(legacyQuery(name) as CFDictionary)
+        // The legacy delete's status matters: its per-item ACL can refuse,
+        // and a refusal leaves the item behind. Anything but success or a
+        // clean miss fails here rather than guessing at the verify.
+        let legacyDelete = SecItemDelete(legacyQuery(name) as CFDictionary)
+        guard legacyDelete == errSecSuccess || legacyDelete == errSecItemNotFound else {
+            throw BridgeError.failed("the keychain refused the delete")
+        }
         // A resolved delete is not proof of deletion — and the item is
         // only gone when NEITHER store still holds it. keychainGet is
         // deliberately not used here: its migration path would copy a
-        // surviving legacy item straight back into the shared store.
-        if (try? keychainGetShared(name)) != nil {
+        // surviving legacy item straight back into the shared store. The
+        // probes are the status-checking kind — the nil-on-denial readers
+        // would call a refused read a removal.
+        if try keychainGetShared(name) != nil {
             throw BridgeError.failed("the key survived the delete")
         }
-        if keychainGetLegacy(name) != nil {
+        switch keychainProbeLegacy(name) {
+        case errSecSuccess:
             throw BridgeError.failed("the key survived the delete")
+        case errSecItemNotFound:
+            break
+        default:
+            throw BridgeError.failed("the keychain refused the read")
         }
     }
 

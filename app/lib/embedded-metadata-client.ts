@@ -7,12 +7,23 @@ import type { RangeReader } from '../../packages/core/embedded-metadata'
  * `start + length` bytes and then cancelled — the caller never downloads
  * more of the source than the metadata window needs.
  */
+
+/** The fallback's transfer ceiling: a Range-ignoring 200 drains from byte
+ *  0, so the needed span must sit inside a modest prefix — matched to the
+ *  4 MiB window the native shells' `read_file_range` command answers.
+ *  Past it only a real 206 keeps the probe honest. */
+export const RANGE_FALLBACK_PREFIX_BYTES = 4 * 1024 * 1024
+
 export const fetchRangeReader = (url: string): RangeReader => async (start, length) => {
   const response = await fetch(url, {
     headers: { Range: `bytes=${start}-${start + length - 1}` },
   })
   if (!response.ok) throw new Error(`metadata range request failed: ${response.status}`)
   if (response.status === 206) return new Uint8Array(await response.arrayBuffer())
+  if (start + length > RANGE_FALLBACK_PREFIX_BYTES) {
+    await response.body?.cancel().catch(() => {})
+    throw new Error(`metadata range request needs a 206 beyond the ${RANGE_FALLBACK_PREFIX_BYTES}-byte prefix`)
+  }
 
   const body = response.body
   if (!body) return new Uint8Array(0)

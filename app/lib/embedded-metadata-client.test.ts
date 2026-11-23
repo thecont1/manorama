@@ -50,6 +50,26 @@ describe('fetchRangeReader', () => {
     expect(pulled).toBeLessThan(file.length)
   })
 
+  test('a 200 for a span past the prefix budget refuses instead of draining the file', async () => {
+    let pulled = 0
+    let cancelled = false
+    const stream = new ReadableStream<Uint8Array>({
+      pull(controller) {
+        pulled += 1
+        controller.enqueue(bytes(4096))
+      },
+      cancel() { cancelled = true },
+    })
+    globalThis.fetch = (async () => new Response(stream, { status: 200 })) as typeof fetch
+    const read = fetchRangeReader('https://example.test/huge.heic')
+    // A span ending past the 4 MiB prefix must demand a real 206.
+    await expect(read(6 * 1024 * 1024, 64)).rejects.toThrow('206')
+    // The body is cancelled, never drained (Response may pull one chunk
+    // eagerly into its queue before the cancel lands).
+    expect(cancelled).toBe(true)
+    expect(pulled).toBeLessThanOrEqual(1)
+  })
+
   test('non-ok responses throw', async () => {
     globalThis.fetch = (async () => new Response('nope', { status: 404 })) as typeof fetch
     const read = fetchRangeReader('https://example.test/missing.jpg')

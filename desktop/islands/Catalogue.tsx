@@ -1665,8 +1665,13 @@ export default function Catalogue({ apiBase }: { apiBase: string }) {
   // lookup keys only; a path that is not pending grants nothing.
 
   /** One dropped folder, no sheet: the addFolder pipeline with the grant
-   *  commit deferred until the scan proves the folder is worth keeping. */
-  const addDroppedFolder = async (path: string) => {
+   *  commit deferred until the scan proves the folder is worth keeping.
+   *  `gen` is the drop's review generation — a second drop that lands
+   *  while this one's scan/commit is in flight retires every write it
+   *  could still make, and its discards name only this drop's own path so
+   *  a newer drop's pending set can never be released by accident. */
+  const addDroppedFolder = async (path: string, gen: number) => {
+    const ownsReview = () => gen === dropScanRef.current
     setNotice(null)
     setBusy(true)
     try {
@@ -1674,20 +1679,24 @@ export default function Catalogue({ apiBase }: { apiBase: string }) {
       // looking at, so the answer is its card, not a second record.
       const existing = findExistingRecord(catalogueRef.current?.galleries ?? [], path)
       if (existing) {
-        setNotice(`“${existing.title}” is already in your library.`)
-        scrollToGalleryCard(existing.id)
-        void discardDroppedRoots()
+        if (ownsReview()) {
+          setNotice(`“${existing.title}” is already in your library.`)
+          scrollToGalleryCard(existing.id)
+        }
+        void discardDroppedRoots([path])
         return
       }
       const scan = await scanLocalDirectory(path, readDirEntries)
       if (!scan.items.length) {
-        setNotice('That folder has no photos Manorama can display')
-        void discardDroppedRoots()
+        if (ownsReview()) {
+          setNotice('That folder has no photos Manorama can display')
+          void discardDroppedRoots([path])
+        }
         return
       }
       const committed = await commitDroppedRoots([path])
       if (!committed.some((committedPath) => normalizeRootPath(committedPath) === path)) {
-        setNotice('That folder could not be opened')
+        if (ownsReview()) setNotice('That folder could not be opened')
         return
       }
       const record = buildLocalRecord(path, scan, new Date().toISOString())
@@ -1697,14 +1706,18 @@ export default function Catalogue({ apiBase }: { apiBase: string }) {
         galleries: [...latest.galleries.filter((g) => normalizeRootPath(g.rootPath) !== record.rootPath), record],
       }))
       if (!saved) return
-      setNotice(`${record.title} added.`)
-      scrollToGalleryCard(record.id)
+      if (ownsReview()) {
+        setNotice(`${record.title} added.`)
+        scrollToGalleryCard(record.id)
+      }
       void runSync(saved, session)
     } catch {
-      setNotice('That folder could not be opened')
-      void discardDroppedRoots()
+      if (ownsReview()) {
+        setNotice('That folder could not be opened')
+        void discardDroppedRoots([path])
+      }
     } finally {
-      setBusy(false)
+      if (ownsReview()) setBusy(false)
     }
   }
 
@@ -1719,32 +1732,37 @@ export default function Catalogue({ apiBase }: { apiBase: string }) {
       if (catalogueRef.current === null && !viewerState && !accountViewer) {
         pendingDropPaths.current = paths
       } else {
-        void discardDroppedRoots()
+        // Named, not all — a later drop may already own the pending set
+        // by the time this invoke lands.
+        void discardDroppedRoots(paths)
       }
       return
     }
     if (tier !== 'pro') {
       setNotice('Local galleries are included with Visionary')
-      void discardDroppedRoots()
+      void discardDroppedRoots(paths)
       return
     }
     // A drop with nothing usable still owes the pending set its discard —
     // the shell counted loose files and packages separately.
     if (!paths.length) {
       setNotice("Drop folders of photographs — loose files aren't added.")
-      void discardDroppedRoots()
+      void discardDroppedRoots(paths)
       return
     }
     // A fresh drop supersedes whatever the sheet was reviewing — the shell
     // has already released the previous pending set, and the generation
-    // bump retires the old scan's late arrivals.
+    // bump retires the old scan's late arrivals and any in-flight commit's
+    // remaining writes (they check the generation before touching the
+    // review). The busy flag moves to the new owner the same way.
     dropScanRef.current += 1
     setDropSheet(null)
     setDropCandidates([])
     setDropSelected(new Set())
     setDropCommitting(false)
+    setBusy(false)
     if (paths.length === 1) {
-      void addDroppedFolder(paths[0])
+      void addDroppedFolder(paths[0], dropScanRef.current)
       return
     }
     setDropSheet({ paths })
@@ -1788,29 +1806,43 @@ export default function Catalogue({ apiBase }: { apiBase: string }) {
     setDropSheet(null)
     setDropCandidates([])
     setDropSelected(new Set())
-    void discardDroppedRoots()
+    // Named, not all: a drop that landed shell-side but has not dispatched
+    // its event yet owns whatever else is pending — it survives this.
+    void discardDroppedRoots(dropSheet?.paths)
   }
   const commitDropSheet = async () => {
     if (dropCommitting || !dropSheet) return
     dropScanRef.current += 1
+    // The commit owns the review only at this generation — a second drop
+    // landing while the native call is in flight retires every review-state
+    // write below. Committed roots still reconcile into the catalogue:
+    // their grants are already durable regardless of who owns the sheet.
+    const gen = dropScanRef.current
+    const ownsReview = () => gen === dropScanRef.current
     const selected = dropCandidates.filter((c) => c.state === 'new' && dropSelected.has(c.path))
     if (!selected.length) return
     setDropCommitting(true)
     try {
       const committed = await commitDroppedRoots(selected.map((c) => c.path))
       const committedPaths = new Set(committed.map(normalizeRootPath))
-      // Whatever the shell still holds — deselected rows, folders past the
-      // sheet's cap, a path that stopped being pending — goes back at once.
-      await discardDroppedRoots()
+      // Whatever the shell still holds of THIS drop — deselected rows,
+      // folders past the sheet's cap, a path that stopped being pending —
+      // goes back at once, by name: an unscoped discard would also release
+      // a newer drop's pending set. A stale completion skips the call
+      // entirely — the shell already released this set for the new drop.
+      const leftover = dropSheet.paths.filter((p) => !committedPaths.has(normalizeRootPath(p)))
+      if (ownsReview() && leftover.length) await discardDroppedRoots(leftover)
       const now = new Date().toISOString()
       const records = selected
         .filter((c) => committedPaths.has(c.path))
         .map((c) => recordForCandidate(c, now))
-      setDropSheet(null)
-      setDropCandidates([])
-      setDropSelected(new Set())
+      if (ownsReview()) {
+        setDropSheet(null)
+        setDropCandidates([])
+        setDropSelected(new Set())
+      }
       if (!records.length) {
-        setNotice('Those folders could not be remembered')
+        if (ownsReview()) setNotice('Those folders could not be remembered')
         return
       }
       setAvailability((previous) => {
@@ -1827,18 +1859,22 @@ export default function Catalogue({ apiBase }: { apiBase: string }) {
       }))
       if (!saved) return
       const missed = selected.length - records.length
-      setNotice(missed === 0
-        ? `${records.length} ${records.length === 1 ? 'gallery' : 'galleries'} added.`
-        : `${records.length} of ${selected.length} added — ${missed} ${missed === 1 ? 'folder' : 'folders'} could not be remembered.`)
-      scrollToGalleryCard(records[0].id)
+      if (ownsReview()) {
+        setNotice(missed === 0
+          ? `${records.length} ${records.length === 1 ? 'gallery' : 'galleries'} added.`
+          : `${records.length} of ${selected.length} added — ${missed} ${missed === 1 ? 'folder' : 'folders'} could not be remembered.`)
+        scrollToGalleryCard(records[0].id)
+      }
       void runSync(saved, session)
     } catch {
-      setNotice('Those folders could not be remembered')
-      setDropSheet(null)
-      setDropCandidates([])
-      setDropSelected(new Set())
+      if (ownsReview()) {
+        setDropSheet(null)
+        setDropCandidates([])
+        setDropSelected(new Set())
+        setNotice('Those folders could not be remembered')
+      }
     } finally {
-      setDropCommitting(false)
+      if (ownsReview()) setDropCommitting(false)
     }
   }
 

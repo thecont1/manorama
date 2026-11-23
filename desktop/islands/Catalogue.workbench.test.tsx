@@ -128,6 +128,7 @@ let files: Record<string, string>
 let dirs: Record<string, DirEntry[]>
 let readFileGate: Gate | null
 let catalogueGate: Gate | null
+let commitRootsGate: Gate | null
 let invokeLog: string[]
 let invokeCalls: { command: string; args?: Record<string, unknown> }[]
 let pickedFolder: string | null
@@ -257,8 +258,12 @@ const installTauri = (signedIn: boolean, providerTokens?: Record<string, unknown
       if (command === 'oauth_loopback_cancel') return null
       // The drop grant seam: commit answers the paths it was given (the
       // shell commits every still-pending path it is handed), discard is
-      // bookkeeping the assertions read through invokeCalls.
-      if (command === 'commit_dropped_roots') return (args as Record<string, unknown> | undefined)?.paths ?? []
+      // bookkeeping the assertions read through invokeCalls. A gate can
+      // hold the commit open so a second drop lands mid-flight.
+      if (command === 'commit_dropped_roots') {
+        if (commitRootsGate) await commitRootsGate.promise
+        return (args as Record<string, unknown> | undefined)?.paths ?? []
+      }
       if (command === 'discard_dropped_roots') return null
       return null
     },
@@ -408,6 +413,8 @@ beforeEach(() => {
   readFileGate = null
   catalogueGate?.reject(new Error('test teardown'))
   catalogueGate = null
+  commitRootsGate?.reject(new Error('test teardown'))
+  commitRootsGate = null
   dom.localStorage.clear()
   dom.document.documentElement.className = ''
   mounts.unmountAll()
@@ -421,6 +428,8 @@ afterEach(() => {
   readFileGate = null
   catalogueGate?.reject(new Error('test teardown'))
   catalogueGate = null
+  commitRootsGate?.reject(new Error('test teardown'))
+  commitRootsGate = null
   mounts.unmountAll()
   dom.document.body.innerHTML = ''
 })
@@ -2893,6 +2902,64 @@ describe('folder drop add', () => {
     expect(toast(container)).toContain("loose files aren't added")
     expect(calls('commit_dropped_roots')).toHaveLength(0)
     expect(calls('discard_dropped_roots')).toHaveLength(1)
+  })
+
+  test('a second drop mid-commit keeps its review; the stale commit only reconciles', async () => {
+    const container = await mount(true)
+    dropDirs({
+      '/drop/a1': [jpg('a1.jpg')],
+      '/drop/a2': [jpg('a2.jpg')],
+      '/drop/b1': [jpg('b1.jpg')],
+      '/drop/b2': [jpg('b2.jpg')],
+    })
+    emitFoldersDropped(['/drop/a1', '/drop/a2'])
+    await settle()
+    let sheet = dropSheet(container)
+    expect(sheet).not.toBeNull()
+    // Deselect a2 — A's commit will owe the pending set a named leftover.
+    sheet!.querySelectorAll<HTMLInputElement>('.drop-folder-check')[1]!.click()
+    await settle()
+    expect(sheet!.querySelector('.drop-folders-add')?.textContent).toContain('Add 1 gallery')
+    // Gate the native commit so a second drop lands while it is in flight.
+    commitRootsGate = deferred()
+    ;[...sheet!.querySelectorAll<HTMLButtonElement>('button')]
+      .find((button) => button.textContent?.trim() === 'Add 1 gallery')!
+      .click()
+    await settle()
+    expect(calls('commit_dropped_roots')).toHaveLength(1)
+    emitFoldersDropped(['/drop/b1', '/drop/b2'])
+    await settle()
+    sheet = dropSheet(container)
+    expect(sheet).not.toBeNull()
+    expect(sheet!.querySelector('.drop-folders-sub')?.textContent).toContain('2 of 2 selected')
+    // A's commit resolves stale: it must not close B's review, clear B's
+    // rows, or release the pending set the shell now holds for B.
+    commitRootsGate!.resolve()
+    await settle()
+    sheet = dropSheet(container)
+    expect(sheet).not.toBeNull()
+    const rows = [...sheet!.querySelectorAll<HTMLElement>('.drop-folder-row')]
+    expect(rows).toHaveLength(2)
+    expect(rows.map((row) => row.querySelector('.drop-folder-title')?.textContent)).toEqual(['b1', 'b2'])
+    expect(sheet!.querySelector('.drop-folders-add')?.textContent).toContain('Add 2 galleries')
+    // Committed grants are durable — A's chosen root still reconciles
+    // into the catalogue even though its review is gone.
+    const saved = JSON.parse(files['catalogue.json']!) as { galleries: { rootPath: string }[] }
+    expect(saved.galleries.map((g) => g.rootPath)).toContain('/drop/a1')
+    expect(galleryCount()).toBe(2)
+    // The stale completion never discards: the pending set belongs to B.
+    expect(calls('discard_dropped_roots')).toHaveLength(0)
+    // B's own commit still works — the flag the stale finally would have
+    // cleared is intact.
+    ;[...sheet!.querySelectorAll<HTMLButtonElement>('button')]
+      .find((button) => button.textContent?.trim() === 'Add 2 galleries')!
+      .click()
+    await settle()
+    expect(dropSheet(container)).toBeNull()
+    expect(galleryCount()).toBe(4)
+    expect(toast(container)).toContain('2 galleries added.')
+    // B's commit leaves nothing pending — no discard call at all.
+    expect(calls('discard_dropped_roots')).toHaveLength(0)
   })
 
   test('a drop during catalogue load queues — grants kept, add lands once the catalogue does', async () => {

@@ -169,8 +169,17 @@ fn commit_dropped_roots(
             continue;
         };
         let dir = pending[index].clone();
-        allow_root(&app, &dir)?;
-        private_store::record_gallery_root(&app, &dir.to_string_lossy())?;
+        // Per-path, never `?`: a root already committed is durable in
+        // roots.json whether or not the command answers Err, so rejecting
+        // mid-list would hide real commits from the caller. A failed path
+        // stays pending — the page's discard collects it and a retry can
+        // still name it — while the reply lists only what committed.
+        if let Err(error) = allow_root(&app, &dir)
+            .and_then(|_| private_store::record_gallery_root(&app, &dir.to_string_lossy()))
+        {
+            eprintln!("commit_dropped_roots: {} failed to commit: {error}", dir.display());
+            continue;
+        }
         pending.remove(index);
         committed.push(dir.to_string_lossy().to_string());
     }

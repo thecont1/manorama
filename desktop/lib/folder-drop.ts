@@ -25,10 +25,30 @@ import { coverItemFor, type LocalGalleryRecord } from './catalogue'
 export const DROP_FOLDER_LIMIT = 24
 
 /** Strip trailing separators — the shared dedupe key. The picker never
- *  hands back a trailing slash, so `addFolder`'s record is unchanged. */
+ *  hands back a trailing slash, so `addFolder`'s record is unchanged.
+ *
+ *  Platform-aware: POSIX treats only '/' as a separator — a trailing '\'
+ *  is a legal filename byte there and is never eaten. Windows forms
+ *  ('X:\…', 'X:/…', '\\server\share\…') treat both as separators, but the
+ *  root's own separator survives: 'E:\' is a root while 'E:' is the
+ *  drive's current directory — a different folder. Verbatim '\\?\' paths
+ *  are already canonical and pass through whole. */
 export const normalizeRootPath = (path: string): string => {
-  const trimmed = path.replace(/[\\/]+$/, '')
-  return trimmed === '' ? '/' : trimmed
+  if (/^[\\/]{2}\?/.test(path)) return path
+  const windows = /^[A-Za-z]:/.test(path) || /^[\\/]{2}/.test(path)
+  // The floor a stripped result may not fall below — the root itself.
+  let floor = 1 // POSIX keeps at least '/'
+  if (windows) {
+    if (/^[A-Za-z]:[\\/]/.test(path)) floor = 3 // 'E:\' keeps its separator
+    else if (/^[\\/]{2}/.test(path)) {
+      // UNC: the root is the whole '\\server\share' prefix — an oddball
+      // path with no share name is left untouched.
+      const unc = /^[\\/]{2}[^\\/]+[\\/]+[^\\/]+/.exec(path)
+      floor = unc ? unc[0].length : path.length
+    } else floor = 2 // drive-relative 'E:dir' keeps 'E:'
+  }
+  const trimmed = path.replace(windows ? /[\\/]+$/ : /\/+$/, '')
+  return trimmed.length >= floor ? trimmed : path.slice(0, floor)
 }
 
 /** De-dupe identical dropped paths, preserving first-seen order. The shell

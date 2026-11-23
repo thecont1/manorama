@@ -169,40 +169,70 @@ const isoBox = (type: string, content: Uint8Array): Uint8Array =>
 const fullBox = (version: number, content: Uint8Array): Uint8Array =>
   concat(new Uint8Array([version, 0, 0, 0]), content)
 
-const heifFileItems = (entries: { type: 'Exif' | 'mime'; payload: Uint8Array; offset: number; contentType?: string }[]) => {
+type HeifItemSpec = {
+  type: string // 'Exif', 'mime', 'hvc1', … — only Exif/mime are metadata
+  payload?: Uint8Array
+  offset?: number
+  /** Overrides the single {offset, payload.length} extent derived from
+   *  payload/offset — how multi-extent items are built. */
+  extents?: { offset: number; length: number }[]
+  contentType?: string
+  id?: number // defaults to 1-based position
+}
+const heifFileItems = (
+  entries: HeifItemSpec[],
+  opts: { pitm?: number; cdsc?: [from: number, tos: number[]][] } = {},
+) => {
   const calls: { offset: number; length: number }[] = []
+  const ids = entries.map((entry, i) => entry.id ?? i + 1)
   const infes = entries.map((entry, i) => {
-    const id = i + 1
+    const id = ids[i]!
     const itemBody = entry.type === 'mime'
       ? concat(
           u16(id, false), u16(0, false), te.encode('mime'), new Uint8Array([0]),
           te.encode(entry.contentType ?? 'application/rdf+xml'), new Uint8Array([0]),
           new Uint8Array([0]),
         )
-      : concat(u16(id, false), u16(0, false), te.encode('Exif'), new Uint8Array([0]))
+      : concat(u16(id, false), u16(0, false), te.encode(entry.type), new Uint8Array([0]))
     return isoBox('infe', fullBox(2, itemBody))
   })
   const iinf = isoBox('iinf', fullBox(0, concat(u16(entries.length, false), ...infes)))
+  const extentsFor = (entry: HeifItemSpec) =>
+    entry.extents ?? (entry.payload && entry.offset !== undefined
+      ? [{ offset: entry.offset, length: entry.payload.length }]
+      : [])
   // iloc v0: offset_size=4, length_size=4, base_offset_size=0
-  const ilocEntries = entries.flatMap((entry, i) => [
-    u16(i + 1, false), // item_ID
-    u16(0, false), // data_reference_index
-    u16(1, false), // extent_count
-    u32(entry.offset, false),
-    u32(entry.payload.length, false),
-  ])
+  const ilocEntries = entries.flatMap((entry, i) => {
+    const list = extentsFor(entry)
+    return [
+      u16(ids[i]!, false), // item_ID
+      u16(0, false), // data_reference_index
+      u16(list.length, false), // extent_count
+      ...list.flatMap((e) => [u32(e.offset, false), u32(e.length, false)]),
+    ]
+  })
   const iloc = isoBox('iloc', fullBox(0, concat(
     new Uint8Array([0x44, 0x00]),
     u16(entries.length, false),
     ...ilocEntries,
   )))
-  const meta = isoBox('meta', fullBox(0, concat(iinf, iloc)))
+  // pitm v0 names the primary item; iref carries the cdsc references.
+  const pitm = opts.pitm !== undefined ? isoBox('pitm', fullBox(0, u16(opts.pitm, false))) : new Uint8Array(0)
+  const cdsc = (opts.cdsc ?? []).map(([from, tos]) =>
+    isoBox('cdsc', concat(u16(from, false), u16(tos.length, false), ...tos.map((to) => u16(to, false)))))
+  const iref = cdsc.length ? isoBox('iref', fullBox(0, concat(...cdsc))) : new Uint8Array(0)
+  const meta = isoBox('meta', fullBox(0, concat(iinf, iloc, pitm, iref)))
   const ftyp = isoBox('ftyp', concat(te.encode('heic'), u32(0, false), te.encode('heic')))
   const head = concat(ftyp, meta)
-  const end = Math.max(...entries.map((e) => e.offset + e.payload.length), head.length)
+  const end = Math.max(
+    head.length,
+    ...entries.flatMap((entry) => extentsFor(entry).map((e) => e.offset + e.length)),
+  )
   const bytes = new Uint8Array(end)
   bytes.set(head, 0)
-  for (const entry of entries) bytes.set(entry.payload, entry.offset)
+  for (const entry of entries) {
+    if (entry.payload && entry.offset !== undefined) bytes.set(entry.payload, entry.offset)
+  }
   const read: RangeReader = async (start, length) => {
     calls.push({ offset: start, length })
     return bytes.slice(start, Math.min(start + length, bytes.length))
@@ -513,10 +543,76 @@ describe('embedded metadata — PNG and WebP', () => {
     expect(await readEmbeddedMetadata(read)).toBeUndefined()
   })
 
+  test('a zTXt profile inflating past the byte budget is skipped — EXIF already found survives', async () => {
+    const tags = exifTags()
+    // A real profile followed by ~4 MiB of hex padding: the compressed
+    // chunk is a few KB, but inflating it crosses MAX_SCAN_BYTES — so the
+    // profile is abandoned and 'Bomb Title' must never surface. Without
+    // the decompressed-byte ceiling it would parse.
+    const bomb = te.encode(
+      pngRawProfileText(iptcDataset(2, 0x05, te.encode('Bomb Title'))) + '\n' + '0'.repeat(4 * 1024 * 1024),
+    )
+    const file = png(
+      pngChunk('IHDR', new Uint8Array(13)),
+      pngChunk('eXIf', tiff(true, tags.ifd0, tags.exif)),
+      await pngZtxt('Raw profile type iptc', bomb),
+    )
+    const read: RangeReader = async (start, length) => file.slice(start, Math.min(start + length, file.length))
+    const exif = await readEmbeddedMetadata(read)
+    expect(exif?.camera).toBe('Canon EOS R5')
+    expect(exif?.title).toBeUndefined()
+  })
+
   test('WebP EXIF chunk parses (with Exif prefix)', () => {
     const tags = exifTags()
     const file = webp(webpChunk('EXIF', concat(te.encode('Exif\0\0'), tiff(true, tags.ifd0, tags.exif))))
     expect(parseEmbeddedMetadata(file)?.camera).toBe('Canon EOS R5')
+  })
+
+  test('WebP metadata after a large bitstream is reached with bounded tail reads', async () => {
+    const tags = exifTags()
+    const xmp = '<?xpacket?><x:xmpmeta><rdf:RDF><rdf:Description xmlns:dc="http://purl.org/dc/elements/1.1/"><dc:title><rdf:Alt><rdf:li>Tail Title</rdf:li></rdf:Alt></dc:title></rdf:Description></rdf:RDF></x:xmpmeta>'
+    const file = webp(
+      webpChunk('VP8 ', new Uint8Array(600 * 1024)),
+      webpChunk('EXIF', concat(te.encode('Exif\0\0'), tiff(true, tags.ifd0, tags.exif))),
+      webpChunk('XMP ', te.encode(xmp)),
+    )
+    // The head window ends inside the bitstream — the sync parse sees nothing.
+    expect(parseEmbeddedMetadata(file.subarray(0, 512 * 1024))).toBeUndefined()
+    const calls: { offset: number; length: number }[] = []
+    const read: RangeReader = async (start, length) => {
+      calls.push({ offset: start, length })
+      return file.slice(start, Math.min(start + length, file.length))
+    }
+    const exif = await readEmbeddedMetadata(read)
+    expect(exif?.camera).toBe('Canon EOS R5')
+    expect(exif?.title).toBe('Tail Title')
+    // Head + one tail window starting right past the bitstream chunk.
+    expect(calls).toHaveLength(2)
+    expect(calls[0]).toEqual({ offset: 0, length: 512 * 1024 })
+    expect(calls[1]!.offset).toBe(12 + 8 + 600 * 1024)
+    expect(calls[1]!.length).toBeLessThanOrEqual(2 * 1024 * 1024)
+  })
+
+  test('WebP tail walk resumes past further out-of-window chunks', async () => {
+    const tags = exifTags()
+    const file = webp(
+      webpChunk('VP8 ', new Uint8Array(600 * 1024)),
+      webpChunk('VP8L', new Uint8Array(1600 * 1024)),
+      webpChunk('EXIF', concat(te.encode('Exif\0\0'), tiff(true, tags.ifd0, tags.exif))),
+    )
+    const calls: { offset: number; length: number }[] = []
+    const read: RangeReader = async (start, length) => {
+      calls.push({ offset: start, length })
+      return file.slice(start, Math.min(start + length, file.length))
+    }
+    const exif = await readEmbeddedMetadata(read)
+    expect(exif?.camera).toBe('Canon EOS R5')
+    // Head + two tail windows — the second resumes past the VP8L chunk.
+    expect(calls).toHaveLength(3)
+    expect(calls[2]!.offset).toBe(12 + 8 + 600 * 1024 + 8 + 1600 * 1024)
+    // Every read is charged to the one budget.
+    expect(calls.reduce((n, c) => n + c.length, 0)).toBeLessThanOrEqual(2 * 1024 * 1024)
   })
 })
 
@@ -573,6 +669,96 @@ describe('embedded metadata — HEIC', () => {
     expect(exif?.iso).toBe(400)
     const itemRead = calls.find((c) => c.offset === offset)
     expect(itemRead?.length).toBe(payload.length)
+  })
+
+  test('the primary item owns the metadata — a secondary image\'s EXIF is not attributed', () => {
+    const primaryTags = tiff(true, [T.ascii(0x010f, 'Canon'), T.ascii(0x0110, 'EOS R5')])
+    const TB = tiffTags(false)
+    const secondaryTags = tiff(false, [TB.ascii(0x010f, 'NIKON'), TB.ascii(0x0110, 'D850')])
+    const { bytes } = heifFileItems([
+      // The secondary image's EXIF sits FIRST in iinf order — unassociated
+      // parsing would pick it over the primary's.
+      { type: 'Exif', id: 1, payload: concat(u32(4, false), secondaryTags), offset: 400 },
+      { type: 'Exif', id: 2, payload: concat(u32(4, false), primaryTags), offset: 600 },
+      { type: 'hvc1', id: 10 }, // primary image
+      { type: 'hvc1', id: 20 }, // secondary image
+    ], { pitm: 10, cdsc: [[1, [20]], [2, [10]]] })
+    const exif = parseEmbeddedMetadata(bytes)
+    expect(exif?.camera).toBe('Canon EOS R5')
+  })
+
+  test('without pitm/iref association the first-recognized order stands', () => {
+    const TB = tiffTags(false)
+    const firstTags = tiff(false, [TB.ascii(0x010f, 'NIKON'), TB.ascii(0x0110, 'D850')])
+    const secondTags = tiff(true, [T.ascii(0x010f, 'Canon'), T.ascii(0x0110, 'EOS R5')])
+    const { bytes } = heifFileItems([
+      { type: 'Exif', id: 1, payload: concat(u32(4, false), firstTags), offset: 400 },
+      { type: 'Exif', id: 2, payload: concat(u32(4, false), secondTags), offset: 600 },
+      { type: 'hvc1', id: 10 },
+      { type: 'hvc1', id: 20 },
+    ])
+    expect(parseEmbeddedMetadata(bytes)?.camera).toBe('NIKON D850')
+  })
+
+  test('a primary with no metadata of its own is not filled from the secondary', () => {
+    const TB = tiffTags(false)
+    const secondaryTags = tiff(false, [TB.ascii(0x010f, 'NIKON'), TB.ascii(0x0110, 'D850')])
+    const { bytes } = heifFileItems([
+      { type: 'Exif', id: 1, payload: concat(u32(4, false), secondaryTags), offset: 400 },
+      { type: 'hvc1', id: 10 }, // primary — described by nothing
+      { type: 'hvc1', id: 20 },
+    ], { pitm: 10, cdsc: [[1, [20]]] })
+    expect(parseEmbeddedMetadata(bytes)).toBeUndefined()
+  })
+
+  test('a multi-extent item assembles once and parses', () => {
+    const tags = exifTags()
+    const payload = concat(u32(4, false), tiff(true, tags.ifd0, tags.exif))
+    const half = Math.floor(payload.length / 2)
+    const { bytes } = heifFileItems([
+      {
+        type: 'Exif',
+        payload,
+        offset: 400,
+        extents: [
+          { offset: 400, length: half },
+          { offset: 400 + half, length: payload.length - half },
+        ],
+      },
+    ])
+    expect(parseEmbeddedMetadata(bytes)?.camera).toBe('Canon EOS R5')
+  })
+
+  test('a multi-extent item past the assembled-size ceiling is skipped', () => {
+    const { bytes } = heifFileItems([
+      {
+        type: 'Exif',
+        extents: [
+          { offset: 600 * 1024, length: 1500 * 1024 },
+          { offset: 2200 * 1024, length: 700 * 1024 },
+        ],
+      },
+    ])
+    // 2.2 MiB joined — over the per-item ceiling.
+    expect(parseEmbeddedMetadata(bytes)).toBeUndefined()
+  })
+
+  test('ranged extents spend one shared budget — reads refuse once it is gone', async () => {
+    // Four 600 KiB Exif items beyond the head: the 2 MiB budget covers
+    // head + two full extents + a partial third — the fourth never reads.
+    const entries = [0, 1, 2, 3].map((i) => {
+      const tags = tiff(true, [T.ascii(0x010f, 'Maker'), T.ascii(0x0110, `Cam${i + 1}`)])
+      const payload = new Uint8Array(600 * 1024)
+      payload.set(concat(u32(4, false), tags), 0)
+      return { type: 'Exif', payload, offset: 600 * 1024 + i * 600 * 1024 }
+    })
+    const { read, calls } = heifFileItems(entries)
+    const exif = await readEmbeddedMetadata(read)
+    // The third item's truncated read still parses — its TIFF sits first.
+    expect(exif?.camera).toBe('Maker Cam3')
+    expect(calls).toHaveLength(4) // head + three item reads, none for item 4
+    expect(calls.reduce((n, c) => n + c.length, 0)).toBeLessThanOrEqual(2 * 1024 * 1024)
+    expect(calls.find((c) => c.offset === 600 * 1024 + 3 * 600 * 1024)).toBeUndefined()
   })
 })
 

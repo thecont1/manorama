@@ -61,6 +61,30 @@ describe('normalizeRootPath / dedupeDroppedPaths', () => {
     expect(normalizeRootPath('relative/dir/')).toBe('relative/dir')
   })
 
+  test('POSIX names keep a trailing backslash — it is a filename byte, not a separator', () => {
+    expect(normalizeRootPath('/photos/trip\\')).toBe('/photos/trip\\')
+    expect(normalizeRootPath('/photos/trip\\/')).toBe('/photos/trip\\')
+    expect(normalizeRootPath('dir\\')).toBe('dir\\')
+  })
+
+  test('Windows drive roots keep the separator that makes them roots', () => {
+    // 'E:' is drive-relative — a different folder than the root 'E:\'.
+    expect(normalizeRootPath('E:\\')).toBe('E:\\')
+    expect(normalizeRootPath('E:/')).toBe('E:/')
+    expect(normalizeRootPath('E:\\\\')).toBe('E:\\')
+    expect(normalizeRootPath('E:\\photos\\trip\\')).toBe('E:\\photos\\trip')
+    expect(normalizeRootPath('E:/photos/')).toBe('E:/photos')
+    expect(normalizeRootPath('E:dir\\')).toBe('E:dir')
+  })
+
+  test('UNC share roots keep their shape; verbatim paths pass through whole', () => {
+    expect(normalizeRootPath('\\\\server\\share\\')).toBe('\\\\server\\share')
+    expect(normalizeRootPath('\\\\server\\share\\dir\\')).toBe('\\\\server\\share\\dir')
+    expect(normalizeRootPath('\\\\?\\E:\\')).toBe('\\\\?\\E:\\')
+    // An incomplete UNC path is left alone rather than mangled further.
+    expect(normalizeRootPath('\\\\server\\')).toBe('\\\\server\\')
+  })
+
   test('de-dupes identical paths after normalization, first-seen order', () => {
     expect(dedupeDroppedPaths(['/a', '/b/', '/a', '/b', '/c/'])).toEqual(['/a', '/b', '/c'])
     expect(dedupeDroppedPaths([])).toEqual([])

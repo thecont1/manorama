@@ -24,12 +24,17 @@ export const EMBEDDED_HEAD_BYTES = 512 * 1024
  *  window, but never past this total — a pathological file must not turn
  *  an Info-sheet open into an unbounded download. */
 const MAX_SCAN_BYTES = 2 * 1024 * 1024
+/** A WebP tail read fetches this many bytes of chunk headers at a time —
+ *  enough to cover several small metadata chunks at once, cheap enough
+ *  that skipping bitstream payloads never drains the scan budget. */
+const WEBP_TAIL_BYTES = 8 * 1024
 
 // ---------------------------------------------------------------------------
 // byte helpers
 
 const u16be = (b: Uint8Array, o: number) => (b[o]! << 8) | b[o + 1]!
 const u32be = (b: Uint8Array, o: number) => ((b[o]! << 24) >>> 0) + (b[o + 1]! << 16) + (b[o + 2]! << 8) + b[o + 3]!
+const u32le = (b: Uint8Array, o: number) => (b[o]! | (b[o + 1]! << 8) | (b[o + 2]! << 16) | (b[o + 3]! << 24)) >>> 0
 
 const concat = (a: Uint8Array, b: Uint8Array) => {
   const out = new Uint8Array(a.length + b.length)
@@ -538,7 +543,11 @@ const xmpFromPacket = (packet: string): ExifData | undefined => {
 // containers
 
 type Parts = { tiff?: Uint8Array; iptc?: Uint8Array; xmp?: string }
-type PendingItem = { offset: number; length: number; kind: 'exif' | 'xmp' }
+/** A ranged read readEmbeddedMetadata owes the analysis: `exif`/`xmp`
+ *  fetch one metadata payload, `webtail` fetches a window of RIFF chunks
+ *  to keep walking (`end` carries the declared RIFF end so the walk knows
+ *  when the container is done). */
+type PendingItem = { offset: number; length: number; kind: 'exif' | 'xmp' | 'webtail'; end?: number }
 type Analysis = { parts: Parts; incomplete: boolean; pending: PendingItem[]; iptcZtxt?: Uint8Array[] }
 
 const APP1_XMP = 'http://ns.adobe.com/xap/1.0/'
@@ -651,10 +660,35 @@ const iptcProfilePayload = (payload: Uint8Array): Uint8Array | undefined => {
   return payload.length ? payload : undefined
 }
 
-const inflateZlib = async (data: Uint8Array): Promise<Uint8Array> => {
+/** Inflate with a hard ceiling on DECOMPRESSED bytes — the chunk only
+ *  bounds the compressed payload, and a small zTXt can hide a much larger
+ *  stream. Overflow throws; the caller keeps whatever else it parsed. */
+const inflateZlib = async (data: Uint8Array, limit: number): Promise<Uint8Array> => {
   // The copy pins the payload to a plain ArrayBuffer for BlobPart.
   const stream = new Blob([new Uint8Array(data)]).stream().pipeThrough(new DecompressionStream('deflate'))
-  return new Uint8Array(await new Response(stream).arrayBuffer())
+  const reader = stream.getReader()
+  const chunks: Uint8Array[] = []
+  let total = 0
+  try {
+    for (;;) {
+      const { done, value: chunk } = await reader.read()
+      if (done) break
+      total += chunk.length
+      if (total > limit) throw new Error('decompressed profile exceeds the metadata byte budget')
+      chunks.push(chunk)
+    }
+  } finally {
+    // Overflow and truncation both land here — the stream must not keep
+    // pumping a payload nobody will read.
+    await reader.cancel().catch(() => {})
+  }
+  const out = new Uint8Array(total)
+  let at = 0
+  for (const chunk of chunks) {
+    out.set(chunk, at)
+    at += chunk.length
+  }
+  return out
 }
 
 const pngAnalysis = (b: Uint8Array): Analysis => {
@@ -713,27 +747,81 @@ const pngAnalysis = (b: Uint8Array): Analysis => {
   return { parts, incomplete: false, pending: [], ...(iptcZtxt.length ? { iptcZtxt } : {}) }
 }
 
+/** EXIF and XMP chunks decode the same whether they sit in the head
+ *  window or in a fetched tail window. */
+const webpTakeChunk = (parts: Parts, fourcc: string, data: Uint8Array) => {
+  if (fourcc === 'EXIF') {
+    parts.tiff ??= data.length >= 6 && data[0] === 0x45 && data[1] === 0x78 && data[2] === 0x69 && data[3] === 0x66 && data[4] === 0 && data[5] === 0
+      ? data.slice(6)
+      : data.slice()
+  } else if (fourcc === 'XMP ') {
+    parts.xmp ??= utf8.decode(data)
+  }
+}
+
 const webpAnalysis = (b: Uint8Array): Analysis => {
   const parts: Parts = {}
-  if (b.length < 20 || u32be(b, 0) !== 0x52494646 || u32be(b, 8) !== 0x57454250) return { parts, incomplete: false, pending: [] } // RIFF....WEBP
+  const pending: PendingItem[] = []
+  if (b.length < 20 || u32be(b, 0) !== 0x52494646 || u32be(b, 8) !== 0x57454250) return { parts, incomplete: false, pending } // RIFF....WEBP
+  const riffEnd = 8 + u32le(b, 4)
   let pos = 12
-  while (pos + 8 <= b.length) {
+  while (pos + 8 <= b.length && pos + 8 <= riffEnd) {
     const fourcc = String.fromCharCode(b[pos]!, b[pos + 1]!, b[pos + 2]!, b[pos + 3]!)
-    const size = (b[pos + 4]! | (b[pos + 5]! << 8) | (b[pos + 6]! << 16) | (b[pos + 7]! << 24)) >>> 0
+    const size = u32le(b, pos + 4)
     const dataStart = pos + 8
     const dataEnd = dataStart + size
-    if (dataEnd > b.length) break
-    if (fourcc === 'EXIF') {
-      const data = b.subarray(dataStart, dataEnd)
-      parts.tiff ??= data.length >= 6 && data[0] === 0x45 && data[1] === 0x78 && data[2] === 0x69 && data[3] === 0x66 && data[4] === 0 && data[5] === 0
-        ? data.slice(6)
-        : data.slice()
-    } else if (fourcc === 'XMP ') {
-      parts.xmp ??= utf8.decode(b.subarray(dataStart, dataEnd))
+    if (dataEnd > b.length) {
+      // The image bitstream usually outgrows the head window, and EXIF /
+      // XMP chunks sit AFTER it — RIFF sizes let the walk skip past it
+      // without transferring a byte of it. A straddling metadata chunk's
+      // payload gets a ranged read of its own; whatever follows resumes
+      // as a tail window.
+      if ((fourcc === 'EXIF' || fourcc === 'XMP ') && size > 0 && size <= MAX_SCAN_BYTES) {
+        pending.push({ offset: dataStart, length: size, kind: fourcc === 'EXIF' ? 'exif' : 'xmp' })
+      }
+      pos = dataEnd + (size % 2) // chunks pad to even
+      break
     }
-    pos = dataEnd + (size % 2) // chunks pad to even
+    webpTakeChunk(parts, fourcc, b.subarray(dataStart, dataEnd))
+    pos = dataEnd + (size % 2)
   }
-  return { parts, incomplete: false, pending: [] }
+  // The RIFF declares more chunks than the window fetched — the walk
+  // resumes with small header-window reads at `pos`, skipping bitstream
+  // payloads outright instead of downloading them.
+  if (pos + 8 <= riffEnd) pending.push({ offset: pos, length: WEBP_TAIL_BYTES, kind: 'webtail', end: riffEnd })
+  return { parts, incomplete: false, pending }
+}
+
+/** The webpAnalysis walk continued over a window fetched at absolute
+ *  offset `base`: chunks inside it parse directly, a straddling metadata
+ *  payload becomes its own ranged read, and the boundary past the next
+ *  chunk becomes the following tail window. */
+const webpTailAnalysis = (b: Uint8Array, base: number, riffEnd: number): Analysis => {
+  const parts: Parts = {}
+  const pending: PendingItem[] = []
+  let pos = 0
+  while (pos + 8 <= b.length) {
+    const fourcc = String.fromCharCode(b[pos]!, b[pos + 1]!, b[pos + 2]!, b[pos + 3]!)
+    const size = u32le(b, pos + 4)
+    const dataStart = pos + 8
+    const dataEnd = dataStart + size
+    if (dataEnd > b.length) {
+      if ((fourcc === 'EXIF' || fourcc === 'XMP ') && size > 0 && size <= MAX_SCAN_BYTES) {
+        pending.push({ offset: base + dataStart, length: size, kind: fourcc === 'EXIF' ? 'exif' : 'xmp' })
+      }
+      pos = dataEnd + (size % 2)
+      break
+    }
+    webpTakeChunk(parts, fourcc, b.subarray(dataStart, dataEnd))
+    pos = dataEnd + (size % 2)
+  }
+  // Continue past what this window saw — a straddling bitstream was
+  // skipped for free, and dense small chunks parsed inline. Requeueing
+  // without progress would just re-read the same short window.
+  if (pos > 0 && base + pos + 8 <= riffEnd) {
+    pending.push({ offset: base + pos, length: WEBP_TAIL_BYTES, kind: 'webtail', end: riffEnd })
+  }
+  return { parts, incomplete: false, pending }
 }
 
 // --- ISOBMFF (HEIC/HEIF/AVIF) ---
@@ -797,21 +885,58 @@ const cstring = (b: Uint8Array, pos: number, end: number): { text: string; next:
 type HeifItem = { id: number; kind: 'exif' | 'xmp' }
 type HeifExtent = { offset: number; length: number }
 
-const heifItems = (b: Uint8Array): { items: HeifItem[]; extents: Map<number, HeifExtent[]> } => {
+const heifItems = (b: Uint8Array): {
+  items: HeifItem[]
+  extents: Map<number, HeifExtent[]>
+  primaryId: number | undefined
+  describes: Map<number, number[]>
+} => {
   const items = new Map<number, 'exif' | 'xmp'>()
   const extents = new Map<number, HeifExtent[]>()
+  const empty = { items: [], extents, primaryId: undefined, describes: new Map<number, number[]>() }
   const top = isoBoxes(b, 0, b.length)
   const meta = top.find((box) => box.type === 'meta')
-  if (!meta || meta.end - meta.start < 4) return { items: [], extents }
+  if (!meta || meta.end - meta.start < 4) return empty
   const children = isoBoxes(b, meta.start + 4, meta.end) // FullBox header
   const iinf = children.find((box) => box.type === 'iinf')
   const iloc = children.find((box) => box.type === 'iloc')
+
+  // pitm names the primary item — the photograph the file IS. A FullBox:
+  // item_ID is u16 (version 0) or u32 (version 1).
+  let primaryId: number | undefined
+  const pitm = children.find((box) => box.type === 'pitm')
+  if (pitm && pitm.end - pitm.start >= 6) {
+    primaryId = b[pitm.start] === 0 ? u16be(b, pitm.start + 4) : u32be(b, pitm.start + 4)
+  }
+
+  // iref carries typed references; 'cdsc' (content describes) links a
+  // metadata item to the image item it describes — without it a
+  // secondary image's EXIF would be attributed to the primary.
+  const describes = new Map<number, number[]>()
+  const iref = children.find((box) => box.type === 'iref')
+  if (iref && iref.end - iref.start >= 4) {
+    const idSize = b[iref.start] === 0 ? 2 : 4
+    for (const ref of isoBoxes(b, iref.start + 4, iref.end)) {
+      if (ref.type !== 'cdsc') continue
+      let p = ref.start
+      if (p + idSize + 2 > ref.end) continue
+      const from = readBE(b, p, idSize)
+      p += idSize
+      const count = u16be(b, p)
+      p += 2
+      const tos: number[] = []
+      for (let i = 0; i < count && p + idSize <= ref.end; i++, p += idSize) {
+        tos.push(readBE(b, p, idSize))
+      }
+      if (tos.length) describes.set(from, [...(describes.get(from) ?? []), ...tos])
+    }
+  }
 
   if (iinf && iinf.end - iinf.start >= 6) {
     const version = b[iinf.start]!
     const countSize = version === 0 ? 2 : 4
     let p = iinf.start + 4
-    if (p + countSize > iinf.end) return { items: [], extents }
+    if (p + countSize > iinf.end) return { items: [], extents, primaryId, describes }
     const entryCount = countSize === 2 ? u16be(b, p) : u32be(b, p)
     p += countSize
     for (const child of isoBoxes(b, p, iinf.end)) {
@@ -850,7 +975,7 @@ const heifItems = (b: Uint8Array): { items: HeifItem[]; extents: Map<number, Hei
     let p = iloc.start + 6
     const idSize = version === 2 ? 4 : 2
     const countSize = version === 2 ? 4 : 2
-    if (p + countSize > iloc.end) return { items: [], extents }
+    if (p + countSize > iloc.end) return { items: [], extents, primaryId, describes }
     const itemCount = countSize === 2 ? u16be(b, p) : u32be(b, p)
     p += countSize
     for (let i = 0; i < itemCount && p < iloc.end; i++) {
@@ -873,7 +998,7 @@ const heifItems = (b: Uint8Array): { items: HeifItem[]; extents: Map<number, Hei
       if (list.length) extents.set(id, list)
     }
   }
-  return { items: [...items.entries()].map(([id, kind]) => ({ id, kind })), extents }
+  return { items: [...items.entries()].map(([id, kind]) => ({ id, kind })), extents, primaryId, describes }
 }
 
 const tiffMagicAt = (b: Uint8Array, o: number): boolean =>
@@ -904,16 +1029,34 @@ const heifAnalysis = (b: Uint8Array): Analysis => {
   const parts: Parts = {}
   const pending: PendingItem[] = []
   if (!isHeif(b)) return { parts, incomplete: false, pending }
-  const { items, extents } = heifItems(b)
-  for (const item of items) {
+  const { items, extents, primaryId, describes } = heifItems(b)
+  let candidates = items
+  if (primaryId !== undefined) {
+    // A cdsc reference says which image each metadata item describes —
+    // only the primary image's own items may speak for the file. When no
+    // item claims the primary, unattributed items fall back to the old
+    // first-recognized order; items claiming another image are excluded.
+    const primary = items.filter((item) => describes.get(item.id)?.includes(primaryId))
+    candidates = primary.length ? primary : items.filter((item) => !describes.has(item.id))
+  }
+  for (const item of candidates) {
     const list = extents.get(item.id)
     if (!list?.length) continue
     // Metadata items are single contiguous extents in every real file;
     // an item only qualifies for a ranged read when it is exactly one.
     if (list.length !== 1) {
-      const inside = list.every((e) => e.offset + e.length <= b.length)
+      const inside = list.every((e) => e.offset >= 0 && e.offset + e.length <= b.length)
       if (!inside) continue
-      const payload = list.map((e) => b.slice(e.offset, e.offset + e.length)).reduce(concat)
+      // Assemble once — per-extent concat is quadratic, and the joined
+      // payload answers to the same ceiling every other item does.
+      const total = list.reduce((n, e) => n + e.length, 0)
+      if (total <= 0 || total > MAX_SCAN_BYTES) continue
+      const payload = new Uint8Array(total)
+      let at = 0
+      for (const e of list) {
+        payload.set(b.subarray(e.offset, e.offset + e.length), at)
+        at += e.length
+      }
       if (item.kind === 'exif') {
         const tiff = tiffFromExifPayload(payload)
         if (tiff && !parts.tiff) parts.tiff = tiff
@@ -1016,27 +1159,44 @@ export const parseEmbeddedMetadata = (bytes: Uint8Array): ExifData | undefined =
  *  to whatever parsed, or undefined. */
 export const readEmbeddedMetadata = async (read: RangeReader): Promise<ExifData | undefined> => {
   try {
+    // Every range read — the head, each JPEG continuation window, every
+    // queued extent — spends from one budget, so a pathological file
+    // cannot multiply a small probe into a large transfer.
+    let budget = MAX_SCAN_BYTES
     const head = await read(0, EMBEDDED_HEAD_BYTES)
     if (!head?.length) return undefined
+    budget -= head.length
     let buffer = head
     let analysis = analyze(buffer)
     // JPEG metadata can sit behind a long strip of segments; keep pulling
     // chunks (bounded) until the walk reaches SOS/EOI or the buffer ends.
     let guard = 0
-    while (analysis.incomplete && buffer.length < MAX_SCAN_BYTES && guard++ < 8) {
-      const want = Math.min(EMBEDDED_HEAD_BYTES, MAX_SCAN_BYTES - buffer.length)
+    while (analysis.incomplete && buffer.length < MAX_SCAN_BYTES && budget > 0 && guard++ < 8) {
+      const want = Math.min(EMBEDDED_HEAD_BYTES, MAX_SCAN_BYTES - buffer.length, budget)
       const chunk = await read(buffer.length, want)
       if (!chunk?.length) break
+      budget -= chunk.length
       buffer = concat(buffer, chunk)
       analysis = analyze(buffer)
     }
     const parts: (Parts | undefined)[] = [analysis.parts]
-    // HEIC items whose extents lie past the head get one ranged read each.
-    for (const pending of analysis.pending) {
+    // HEIC items whose extents lie past the head get one ranged read each;
+    // WebP chunk walks resume as tail windows. A queued read that would
+    // overrun the budget reads what is left, and none start once it is gone.
+    const queue = analysis.pending.slice()
+    for (let i = 0; i < queue.length && budget > 0; i++) {
+      const pending = queue[i]!
       try {
-        const payload = await read(pending.offset, pending.length)
+        const want = Math.min(pending.length, (pending.end ?? Number.MAX_SAFE_INTEGER) - pending.offset, budget)
+        if (want <= 0) break
+        const payload = await read(pending.offset, want)
+        budget -= payload?.length ?? 0
         if (!payload?.length) continue
-        if (pending.kind === 'exif') {
+        if (pending.kind === 'webtail') {
+          const tail = webpTailAnalysis(payload, pending.offset, pending.end ?? 0)
+          parts.push(tail.parts)
+          queue.push(...tail.pending)
+        } else if (pending.kind === 'exif') {
           const tiff = tiffFromExifPayload(payload)
           if (tiff) parts.push({ tiff })
         } else {
@@ -1048,7 +1208,7 @@ export const readEmbeddedMetadata = async (read: RangeReader): Promise<ExifData 
     // sync parser never sees them (documented on parseEmbeddedMetadata).
     for (const compressed of analysis.iptcZtxt ?? []) {
       try {
-        const profile = decodePngRawProfile(latin1.decode(await inflateZlib(compressed)))
+        const profile = decodePngRawProfile(latin1.decode(await inflateZlib(compressed, MAX_SCAN_BYTES)))
         const iptc = profile && iptcProfilePayload(profile)
         if (iptc) parts.push({ iptc })
       } catch { /* skip */ }
