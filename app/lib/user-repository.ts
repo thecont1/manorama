@@ -1,5 +1,6 @@
 import type { D1Database } from '@cloudflare/workers-types'
 import { isMasterAccountId, type MasterAccountEnv } from './master-accounts'
+import { emptyAccountActivity, summarizeAccountActivity, type AccountActivity } from './admin-account-stats'
 
 /**
  * Manorama user accounts. Identity is the immutable account ID —
@@ -17,11 +18,8 @@ export type UserRecord = {
   billingEventTimestampMs?: number
   billingEventId?: string
   lastSeenCountry?: string
-  /** IATA code of the Cloudflare edge datacenter that served the last
-   *  sign-in (SIN, BOM…) — the location signal that isn't a stored IP. */
-  lastSeenColo?: string
-  /** When that last sign-in happened — the datetime behind the ops table's
-   *  Last seen column. */
+  /** When the latest signed-in access happened — the datetime behind the
+   *  ops table's Last active column. */
   lastSeenAt?: string
   /** Set when the master suspends sign-in; NULL/absent means active. The rows
    *  stay — disabling is deliberately non-destructive. */
@@ -33,9 +31,11 @@ export type UserRecord = {
   updatedAt?: string
 }
 
-export type AdminUserSummary = UserRecord & {
+export type AdminUserSummary = UserRecord & AccountActivity & {
   galleryCount: number
-  deviceGalleryCount: number
+  /** Mirrors in the device_galleries catalogue — a different thing from
+   *  `devices`, the account's live app/device list. */
+  localGalleryCount: number
   identityCount: number
   /** Provider of the account's earliest identity — how it first signed in. */
   primaryProvider?: 'dropbox' | 'google' | 'apple'
@@ -89,9 +89,6 @@ const rowToUser = (row: Record<string, unknown> | null): UserRecord | null => {
   }
   if (typeof row.last_seen_country === 'string' && row.last_seen_country.length > 0) {
     user.lastSeenCountry = row.last_seen_country
-  }
-  if (typeof row.last_seen_colo === 'string' && row.last_seen_colo.length > 0) {
-    user.lastSeenColo = row.last_seen_colo
   }
   if (typeof row.last_seen_at === 'string' && row.last_seen_at.length > 0) {
     user.lastSeenAt = row.last_seen_at
@@ -275,43 +272,55 @@ export const listUsersForAdmin = async (
   const country = options.country?.trim().toUpperCase() ?? ''
   const bootstrapAccountId = options.bootstrapAccountId?.trim() ?? ''
   if (d1Configured(env)) {
-    const totalRow = await env.DB.prepare(
-      `SELECT COUNT(*) AS total FROM users
-       WHERE (? = '' OR COALESCE(last_seen_country, '') = ?)`,
-    ).bind(country, country).first<{ total: number }>()
-    const result = await env.DB.prepare(`
-      SELECT
-        u.account_id,
-        u.owner_slug,
-        u.display_name,
-        u.email,
-        u.tier,
-        u.created_at,
-        u.updated_at,
-        u.last_seen_country,
-        u.last_seen_colo,
-        u.last_seen_at,
-        u.disabled_at,
-        CASE WHEN u.account_id = ? THEN 0 ELSE 1 END AS bootstrap_order,
-        CASE WHEN u.account_id = ? OR EXISTS (
-          SELECT 1 FROM master_accounts m WHERE m.account_id = u.account_id
-        ) THEN 1 ELSE 0 END AS is_master,
-        (SELECT COUNT(*) FROM galleries g WHERE g.owner_id = u.account_id) AS gallery_count,
-        (SELECT COUNT(DISTINCT d.device_id) FROM device_galleries d WHERE d.owner_id = u.account_id) AS device_gallery_count,
-        (SELECT COUNT(*) FROM auth_identities i WHERE i.account_id = u.account_id) AS identity_count,
-        (SELECT i.provider FROM auth_identities i WHERE i.account_id = u.account_id
-          ORDER BY i.created_at ASC, i.provider ASC LIMIT 1) AS primary_provider
-      FROM users u
-      WHERE (? = '' OR COALESCE(u.last_seen_country, '') = ?)
-      ORDER BY bootstrap_order ASC, is_master DESC, u.created_at DESC, u.account_id ASC
-    `).bind(bootstrapAccountId, bootstrapAccountId, country, country).all<Record<string, unknown>>()
+    const [totalRow, result, galleryRows, deviceRows] = await Promise.all([
+      env.DB.prepare(
+        `SELECT COUNT(*) AS total FROM users
+         WHERE (? = '' OR COALESCE(last_seen_country, '') = ?)`,
+      ).bind(country, country).first<{ total: number }>(),
+      env.DB.prepare(`
+        SELECT
+          u.account_id,
+          u.owner_slug,
+          u.display_name,
+          u.email,
+          u.tier,
+          u.created_at,
+          u.updated_at,
+          u.last_seen_country,
+          u.last_seen_at,
+          u.disabled_at,
+          CASE WHEN u.account_id = ? THEN 0 ELSE 1 END AS bootstrap_order,
+          CASE WHEN u.account_id = ? OR EXISTS (
+            SELECT 1 FROM master_accounts m WHERE m.account_id = u.account_id
+          ) THEN 1 ELSE 0 END AS is_master,
+          (SELECT COUNT(*) FROM galleries g WHERE g.owner_id = u.account_id) AS gallery_count,
+          (SELECT COUNT(*) FROM device_galleries d WHERE d.owner_id = u.account_id) AS local_gallery_count,
+          (SELECT COUNT(*) FROM auth_identities i WHERE i.account_id = u.account_id) AS identity_count,
+          (SELECT i.provider FROM auth_identities i WHERE i.account_id = u.account_id
+            ORDER BY i.created_at ASC, i.provider ASC LIMIT 1) AS primary_provider
+        FROM users u
+        WHERE (? = '' OR COALESCE(u.last_seen_country, '') = ?)
+        ORDER BY bootstrap_order ASC, is_master DESC, u.created_at DESC, u.account_id ASC
+      `).bind(bootstrapAccountId, bootstrapAccountId, country, country).all<Record<string, unknown>>(),
+      // Activity stats ride two slim reads — images_json stays in D1, only
+      // its length crosses the wire.
+      env.DB.prepare(`
+        SELECT owner_id, source_url, retention, expires_at, hidden_at, created_at,
+          CASE WHEN json_valid(images_json) THEN json_array_length(images_json) ELSE 0 END AS media_count
+        FROM galleries
+      `).all<Record<string, unknown>>(),
+      env.DB.prepare('SELECT owner_id, kind, last_seen_at FROM devices').all<Record<string, unknown>>(),
+    ])
+    const activity = summarizeAccountActivity(galleryRows.results ?? [], deviceRows.results ?? [])
     const users = (result.results ?? []).flatMap((row) => {
       const user = rowToUser(row)
       if (!user) return []
       return [{
         ...user,
+        ...emptyAccountActivity(),
+        ...(activity.get(user.accountId) ?? {}),
         galleryCount: Number(row.gallery_count) || 0,
-        deviceGalleryCount: Number(row.device_gallery_count) || 0,
+        localGalleryCount: Number(row.local_gallery_count) || 0,
         identityCount: Number(row.identity_count) || 0,
         isMaster: Number(row.is_master) === 1,
         ...(typeof row.primary_provider === 'string'
@@ -326,8 +335,9 @@ export const listUsersForAdmin = async (
   }
   const allUsers = [...users.values()].map((user) => ({
     ...user,
+    ...emptyAccountActivity(),
     galleryCount: 0,
-    deviceGalleryCount: 0,
+    localGalleryCount: 0,
     identityCount: 0,
     isMaster: false,
   }))
@@ -340,38 +350,79 @@ export const listUsersForAdmin = async (
   return { users: filtered, total: filtered.length }
 }
 
+/** Cloudflare's "unknown" country and anything that isn't an ISO code —
+ *  never a real reading, so it must never overwrite one. */
+const normaliseLastSeenCountry = (value: unknown): string | undefined => {
+  if (typeof value !== 'string') return undefined
+  const code = value.trim().toUpperCase()
+  return /^[A-Z]{2}$/.test(code) && code !== 'XX' ? code : undefined
+}
+
+/** How old a stamp must be before a *different* country may move it inside
+ *  the daily throttle — a VPN flap must not write per request, but a real
+ *  move should not wait out the day. */
+export const LAST_SEEN_COUNTRY_FLOOR_MS = 15 * 60 * 1000
+
+/** The write rule shared by the memory and D1 branches (mirrored in SQL):
+ *  routine activity writes once a day; a sign-in (staleMs 0) always
+ *  writes; inside the day only a genuinely different country may pass,
+ *  and only once the stored stamp is past the floor. */
+export const lastSeenWriteAllowed = (
+  storedAtMs: number | undefined,
+  storedCountry: string | undefined,
+  incomingCountry: string | undefined,
+  nowMs: number,
+  staleMs: number,
+): boolean => {
+  if (staleMs <= 0) return true
+  if (storedAtMs === undefined || Number.isNaN(storedAtMs)) return true
+  const age = nowMs - storedAtMs
+  if (age >= staleMs) return true
+  return Boolean(incomingCountry && storedCountry !== incomingCountry && age >= LAST_SEEN_COUNTRY_FLOOR_MS)
+}
+
 /** Stamps the sign-in's place and time. The timestamp always moves;
- *  country/colo write only when cf supplied a valid value — an absent
- *  edge (vite dev, tests) must never blank a real reading. */
+ *  country writes only when cf supplied a valid value — an absent
+ *  edge (vite dev, tests) or Cloudflare's 'XX' must never blank a real
+ *  reading. */
 export const setLastSeenLocation = async (
   accountId: string,
   country: string | undefined,
-  colo: string | undefined,
   env?: UserRepositoryEnv,
   /** When >0, the write is refused while the stored stamp is fresher than
    *  this many milliseconds — the throttle rides inside the UPDATE, so a
-   *  cold isolate cannot double-stamp the same day. */
+   *  cold isolate cannot double-stamp the same day. A different incoming
+   *  country passes once the stamp is older than
+   *  LAST_SEEN_COUNTRY_FLOOR_MS. */
   onlyIfStaleMs = 0,
 ): Promise<void> => {
-  const validCountry = country && /^[A-Z]{2}$/.test(country) ? country : undefined
-  const validColo = colo && /^[A-Z]{3}$/.test(colo) ? colo : undefined
+  const validCountry = normaliseLastSeenCountry(country)
   if (d1Configured(env)) {
     const sets = ['last_seen_at = datetime(\'now\')']
     const binds: string[] = []
     if (validCountry) { sets.push('last_seen_country = ?'); binds.push(validCountry) }
-    if (validColo) { sets.push('last_seen_colo = ?'); binds.push(validColo) }
-    const stale = onlyIfStaleMs > 0
-      ? ` AND (last_seen_at IS NULL OR last_seen_at < datetime('now', '-${Math.max(1, Math.round(onlyIfStaleMs / 1000))} seconds'))`
-      : ''
-    await env.DB.prepare(`UPDATE users SET ${sets.join(', ')} WHERE account_id = ?${stale}`).bind(...binds, accountId).run()
+    const guardBinds: string[] = []
+    let guard = ''
+    if (onlyIfStaleMs > 0) {
+      const clauses = [
+        'last_seen_at IS NULL',
+        `last_seen_at < datetime('now', '-${Math.max(1, Math.round(onlyIfStaleMs / 1000))} seconds')`,
+      ]
+      if (validCountry) {
+        clauses.push(`(COALESCE(last_seen_country, '') <> ? AND last_seen_at < datetime('now', '-${Math.max(1, Math.round(LAST_SEEN_COUNTRY_FLOOR_MS / 1000))} seconds'))`)
+        guardBinds.push(validCountry)
+      }
+      guard = ` AND (${clauses.join(' OR ')})`
+    }
+    await env.DB.prepare(`UPDATE users SET ${sets.join(', ')} WHERE account_id = ?${guard}`).bind(...binds, ...guardBinds, accountId).run()
     return
   }
   const user = users.get(accountId)
   if (user) {
-    if (onlyIfStaleMs > 0 && user.lastSeenAt && Date.now() - Date.parse(`${user.lastSeenAt.replace(' ', 'T')}Z`) < onlyIfStaleMs) return
+    const storedAtMs = user.lastSeenAt ? Date.parse(`${user.lastSeenAt.replace(' ', 'T')}Z`) : undefined
+    if (!lastSeenWriteAllowed(storedAtMs, user.lastSeenCountry, validCountry, Date.now(), onlyIfStaleMs)) return
     user.lastSeenAt = new Date().toISOString().replace('T', ' ').slice(0, 19)
     if (validCountry) user.lastSeenCountry = validCountry
-    if (validColo) user.lastSeenColo = validColo
   }
 }
 
@@ -386,7 +437,7 @@ const LAST_ACTIVITY_RETRY_BACKOFF_MS = 5 * 60 * 1000
  *  skips the UPDATE entirely, so routine traffic costs no D1 op at all. A
  *  cold isolate may write once more — the stale-guard inside the UPDATE
  *  still caps the day at one persisted stamp. */
-const lastActivityStamped = new Map<string, number>()
+const lastActivityStamped = new Map<string, { at: number; country?: string }>()
 
 /** Marks real account activity on traffic the app already makes — no
  *  beacon, no extra request, no new data (the geo is the `cf` Cloudflare
@@ -394,24 +445,24 @@ const lastActivityStamped = new Map<string, number>()
  *  fail the request it rode in on. */
 export const touchLastSeen = (
   accountId: string,
-  cf: { country?: unknown; colo?: unknown } | undefined,
+  cf: { country?: unknown } | undefined,
   env?: UserRepositoryEnv,
   executionCtx?: { waitUntil?: (promise: Promise<unknown>) => void },
 ): void => {
   const stamped = lastActivityStamped.get(accountId)
   const now = Date.now()
-  if (stamped && now - stamped < LAST_ACTIVITY_INTERVAL_MS) return
-  lastActivityStamped.set(accountId, now)
+  const incoming = normaliseLastSeenCountry(cf?.country)
+  if (stamped && !lastSeenWriteAllowed(stamped.at, stamped.country, incoming, now, LAST_ACTIVITY_INTERVAL_MS)) return
+  lastActivityStamped.set(accountId, { at: now, country: incoming })
   const write = setLastSeenLocation(
     accountId,
-    typeof cf?.country === 'string' ? cf.country : undefined,
-    typeof cf?.colo === 'string' ? cf.colo : undefined,
+    incoming,
     env,
     LAST_ACTIVITY_INTERVAL_MS,
   ).catch(() => {
     // Keep a shortened stamp — the next touch waits out the backoff rather
     // than retrying a write that just failed.
-    lastActivityStamped.set(accountId, Date.now() - LAST_ACTIVITY_INTERVAL_MS + LAST_ACTIVITY_RETRY_BACKOFF_MS)
+    lastActivityStamped.set(accountId, { at: Date.now() - LAST_ACTIVITY_INTERVAL_MS + LAST_ACTIVITY_RETRY_BACKOFF_MS, country: incoming })
   })
   if (executionCtx?.waitUntil) executionCtx.waitUntil(write)
   else void write
