@@ -194,9 +194,10 @@ ENTITLEMENTS="${MANORAMA_MACOS_ENTITLEMENTS:-$APP/ManoramaMac.entitlements}"
 # restricted entitlement — on a sandboxed Developer ID build with no
 # provisioning profile, AMFI cannot validate it and the kernel kills the
 # process at exec ("restricted entitlements, code signature validation
-# failed"). Direct builds get shared custody back the moment a Developer ID
-# profile carrying the group is embedded; until then the bridge's legacy
-# file-keychain path serves them unchanged.
+# failed"). Shared custody reaches direct builds only when BOTH pieces ship
+# together: an embedded Developer ID profile carrying the group AND an
+# entitlements file that declares it — the profile alone changes nothing.
+# Until then the bridge's legacy file-keychain path serves them unchanged.
 codesign --force --sign "$IDENTITY" --options runtime --timestamp \
   --entitlements "$ENTITLEMENTS" "$APP_BUNDLE"
 
