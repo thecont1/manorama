@@ -122,4 +122,31 @@ describe('adopt copies the manifest faithfully', () => {
     expect(frame).toBeNull()
     expect(html).toContain('<img class="frame-ph" src="data:image/svg+xml')
   })
+
+  /**
+   * The fix's defence in depth: the gate itself, not only the copied column.
+   * A row adopted before the fix still says `manifest_version = 1`, so the
+   * item check is what keeps it off the legacy path — and a genuinely legacy
+   * row (server-proxied srcs, no keyless refs) must keep the legacy path.
+   */
+  describe('the gate\'s item check', () => {
+    const keyless = { id: 'n1', src: '', media: { kind: 'encrypted', provider: 'mega', sourceKind: 'folder', sourceId: 'AbC123', nodeId: 'nodeABC' } }
+    const legacy = { id: 'n1', src: '/api/mega/file?id=abc&k=secret' }
+
+    test('a v1 row with keyless refs takes the client gate', () => {
+      const gate = encryptedGalleryGate({
+        sourceUrl: 'https://mega.nz/folder/AbC123',
+        viewerOwner: false, keyRetiredAt: null, manifestVersion: 1, images: [keyless],
+      })
+      expect(gate.client).toBe(true)
+    })
+
+    test('a v1 row with server-proxied refs keeps the legacy path', () => {
+      const gate = encryptedGalleryGate({
+        sourceUrl: 'https://mega.nz/folder/AbC123',
+        viewerOwner: false, keyRetiredAt: null, manifestVersion: 1, images: [legacy],
+      })
+      expect(gate.client).toBe(false)
+    })
+  })
 })
