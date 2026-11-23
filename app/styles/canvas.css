@@ -99,6 +99,15 @@ html:root:is(.app-page, :has(body.manorama-native), :has(body.manorama-desktop))
   background-color: var(--app-translucent-surface);
 }
 
+/* The wall-backing is for controls sitting on the artwork itself. A sheet
+   or drawer is already a surface — opaque on the web, frost in a shell —
+   so the same fill inside one only doubles the backing, and under glass it
+   smears the blurred backdrop into the control (the muddy bands on the
+   Gallery Settings rows). Their own rules carry the right fill. */
+:is(.m-sheet, .admin-drawer-panel) {
+  --app-translucent-surface: transparent;
+}
+
 /* The rail is a column of small type — version, tier line, device legend,
    copyright — so beside the shared fill it wears the same corner the
    cards and sponsored slot do. */
