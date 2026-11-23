@@ -154,6 +154,18 @@ describe('OpenAPI contract: static spec', () => {
     expect(refresh.requestBody?.content['application/json'].schema.$ref).toBe('#/components/schemas/RefreshRequest')
   })
 
+  test('create documents the quick-add duplicate 200 and the non-quick 409', () => {
+    const create = spec.paths['/api/galleries'].post as {
+      responses: Record<string, { content?: Record<string, { schema?: { $ref?: string } }> }>
+    }
+    const schemaRef = (status: string) =>
+      create.responses[status]?.content?.['application/json']?.schema?.$ref
+    expect(schemaRef('200')).toBe('#/components/schemas/QuickAddDuplicateResponse')
+    expect(schemaRef('409')).toBe('#/components/schemas/GalleryDuplicateResponse')
+    const duplicate = spec.components.schemas.QuickAddDuplicateResponse as { required: string[] }
+    expect(duplicate.required).toEqual(['existing'])
+  })
+
   test('mutation operations document the 403 policy refusal', () => {
     for (const op of [
       spec.paths['/api/galleries'].post,

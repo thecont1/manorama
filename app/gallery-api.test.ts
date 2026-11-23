@@ -433,6 +433,78 @@ describe('quick-add naming', () => {
       restore()
     }
   })
+
+  const postCreate = (url: string, quick?: boolean) => api.request('/api/galleries', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Cookie: cookie },
+    body: JSON.stringify(quick === undefined ? { url } : { url, quick }),
+  }, { ...env, DROPBOX_APP_KEY: 'key', DROPBOX_APP_SECRET: 'secret' })
+
+  test('a quick revisit to an existing link answers 200 {existing:true}, never a 4xx', async () => {
+    // Browsers log any 4xx fetch as a console error even when JS handles
+    // it, so quick-add duplicates answer 200 with the gallery to open.
+    const restore = stubScan('Duplicate Album')
+    try {
+      const url = 'https://www.dropbox.com/scl/fo/dup-quick'
+      expect((await postCreate(url, true)).status).toBe(201)
+      const second = await postCreate(url, true)
+      expect(second.status).toBe(200)
+      const payload = await second.json() as { existing?: boolean; error?: string; gallery?: { slug?: string }; galleryUrl?: string }
+      expect(payload.existing).toBe(true)
+      expect(payload.error).toBeUndefined()
+      expect(payload.gallery?.slug).toBeTruthy()
+      // /{owner}/{slug} — the owner slug is renamed by earlier describes.
+      expect(payload.galleryUrl).toMatch(new RegExp(`^/[^/]+/${payload.gallery!.slug!}$`))
+    } finally {
+      restore()
+    }
+  })
+
+  test('a non-quick duplicate keeps the 409 contract', async () => {
+    const restore = stubScan('Duplicate Album')
+    try {
+      const url = 'https://www.dropbox.com/scl/fo/dup-dash'
+      expect((await postCreate(url)).status).toBe(201)
+      const second = await postCreate(url)
+      expect(second.status).toBe(409)
+      const payload = await second.json() as { existing?: boolean; error?: string; galleryUrl?: string }
+      expect(payload.existing).toBeUndefined()
+      expect(payload.error).toBe('A gallery from that link already exists')
+      expect(payload.galleryUrl).toMatch(/^\/[^/]+\/duplicate-album$/)
+    } finally {
+      restore()
+    }
+  })
+
+  test('a concurrent quick create that loses the source race also answers 200', async () => {
+    const restore = stubScan('Race Album')
+    try {
+      const url = 'https://www.dropbox.com/scl/fo/dup-race'
+      const [a, b] = await Promise.all([postCreate(url, true), postCreate(url, true)])
+      expect([a.status, b.status].sort((x, y) => x - y)).toEqual([200, 201])
+      const loser = a.status === 200 ? a : b
+      const payload = await loser.json() as { existing?: boolean; galleryUrl?: string }
+      expect(payload.existing).toBe(true)
+      expect(payload.galleryUrl).toBeTruthy()
+    } finally {
+      restore()
+    }
+  })
+
+  test('a concurrent non-quick create that loses the race still answers 409', async () => {
+    const restore = stubScan('Race Album')
+    try {
+      const url = 'https://www.dropbox.com/scl/fo/dup-race-dash'
+      const [a, b] = await Promise.all([postCreate(url), postCreate(url)])
+      expect([a.status, b.status].sort((x, y) => x - y)).toEqual([201, 409])
+      const loser = a.status === 409 ? a : b
+      const payload = await loser.json() as { error?: string; galleryUrl?: string }
+      expect(payload.error).toBe('A gallery from that link already exists')
+      expect(payload.galleryUrl).toBeTruthy()
+    } finally {
+      restore()
+    }
+  })
 })
 
 describe('source ordering', () => {

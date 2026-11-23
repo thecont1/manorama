@@ -55,6 +55,17 @@ const envOf = (c: { env: unknown }) => c.env as RuntimeEnv
 /** The public address of a gallery. Quick-add redirects the visitor here
  *  the moment a create succeeds (or is found to already exist). */
 const galleryUrlFor = (ownerSlug: string, slug: string) => `/${ownerSlug}/${slug}`
+
+/** Every "this link already produced a gallery" exit shares one reply shape
+ *  so the sites cannot drift. Quick-add revisits answer 200 — a browser
+ *  logs any 4xx fetch as a console error even when the page handles it —
+ *  while every other caller keeps the 409 the dashboard flows rely on. */
+const duplicateGalleryReply = (quick: boolean | undefined, ownerSlug: string, gallery: GalleryRecord | undefined) => {
+  const found = gallery ? { gallery: toSummary(gallery), galleryUrl: galleryUrlFor(ownerSlug, gallery.slug) } : {}
+  return quick === true
+    ? { status: 200 as const, body: { existing: true as const, ...found } }
+    : { status: 409 as const, body: { error: 'A gallery from that link already exists', ...found } }
+}
 const dbEnv = (c: { env: unknown }) => c.env as GalleryEnv
 
 /** Identical in-flight requests for the same thumbnail share one upstream
@@ -678,11 +689,10 @@ export const createManoramaApi = () => {
       const galleries = await listGalleries(session.accountId, dbEnv(c))
       const existingBefore = galleries
         .find((item) => item.sourceUrl && canonicalSourceMatches(item.sourceUrl, sourceInput))
-      if (existingBefore) return c.json({
-        error: 'A gallery from that link already exists',
-        gallery: toSummary(existingBefore),
-        galleryUrl: galleryUrlFor(session.ownerSlug, existingBefore.slug),
-      }, 409)
+      if (existingBefore) {
+        const reply = duplicateGalleryReply(payload.quick, session.ownerSlug, existingBefore)
+        return c.json(reply.body, reply.status)
+      }
       // A pro account already at its retained-gallery ceiling is refused
       // before the provider scan — the listing, title and per-item probes
       // would all be spend on a request that can only fail. Free accounts
@@ -697,11 +707,10 @@ export const createManoramaApi = () => {
       const sourceUrlMatch = galleries.find((item) => item.sourceUrl === scan.sourceUrl)
       // A revisit to /<share-url> must reopen the gallery that link already
       // produced, so the 409 carries the existing gallery and its address.
-      if (sourceUrlMatch) return c.json({
-        error: 'A gallery from that link already exists',
-        gallery: toSummary(sourceUrlMatch),
-        galleryUrl: galleryUrlFor(session.ownerSlug, sourceUrlMatch.slug),
-      }, 409)
+      if (sourceUrlMatch) {
+        const reply = duplicateGalleryReply(payload.quick, session.ownerSlug, sourceUrlMatch)
+        return c.json(reply.body, reply.status)
+      }
       // Same admission as refresh: a budget-cut scan returns a partial
       // listing, and persisting it would drop source items the scan
       // never reached — so the create is refused and nothing is written.
@@ -770,10 +779,8 @@ export const createManoramaApi = () => {
           // Lost the race to a concurrent create of the same link — resolve
           // the winner so this caller still gets somewhere to go.
           const existing = (await listGalleries(session.accountId, dbEnv(c))).find((item) => item.sourceUrl === scan.sourceUrl)
-          return c.json({
-            error: 'A gallery from that link already exists',
-            ...(existing ? { gallery: toSummary(existing), galleryUrl: galleryUrlFor(session.ownerSlug, existing.slug) } : {}),
-          }, 409)
+          const reply = duplicateGalleryReply(payload.quick, session.ownerSlug, existing)
+          return c.json(reply.body, reply.status)
         }
         if (attempt > 50) return c.json({ error: 'That gallery could not be added' }, 422)
         slug = `${baseSlug}-${suffix}`
