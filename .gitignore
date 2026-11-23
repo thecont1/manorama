@@ -91,6 +91,13 @@ macos/ManoramaMac/build-focus-test/
 /build/dmg-preview/
 macos/ManoramaMac/build-*/
 
+# SwiftPM scratch for the shared event-clustering core. What makes the package
+# reproducible is `Package.swift`, which is checked in; the `.build` tree is
+# this machine's object files and locks, and a `.lock` committed by one runner
+# is a stale claim about somebody else's build directory.
+native/EventClustering/.build/
+native/EventClustering/.swiftpm/
+
 # Local working copy of the procedural-illustrator sampling engine — scratch;
 # its provenance ships as the tool-source zip under outputs/procedural-illustrator.
 /tools/
