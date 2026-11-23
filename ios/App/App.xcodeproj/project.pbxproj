@@ -19,6 +19,14 @@
 		9582B6832FE993A70072D4E8 /* SceneDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9582B6822FE993A50072D4E8 /* SceneDelegate.swift */; };
 		7B3E4F1A2C9D8E5F6A0B1C01 /* GlassOverlay.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7B3E4F1A2C9D8E5F6A0B1C02 /* GlassOverlay.swift */; };
 		7C9D2E5A4F8B1C3D6E0A1B01 /* LocalGalleryPlugin.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7C9D2E5A4F8B1C3D6E0A1B02 /* LocalGalleryPlugin.swift */; };
+		7E0C1A5B4F8D2C3E9A1B0002 /* PhotoKitDumpScanner.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7E0C1A5B4F8D2C3E9A1B0001 /* PhotoKitDumpScanner.swift */; };
+		7E0C1A5B4F8D2C3E9A1B0004 /* EventClusteringPlugin.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7E0C1A5B4F8D2C3E9A1B0003 /* EventClusteringPlugin.swift */; };
+		7E0C1A5B4F8D2C3E9A1B0012 /* Models.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7E0C1A5B4F8D2C3E9A1B0011 /* Models.swift */; };
+		7E0C1A5B4F8D2C3E9A1B0014 /* EventClusterer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7E0C1A5B4F8D2C3E9A1B0013 /* EventClusterer.swift */; };
+		7E0C1A5B4F8D2C3E9A1B0016 /* EventIndex.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7E0C1A5B4F8D2C3E9A1B0015 /* EventIndex.swift */; };
+		7E0C1A5B4F8D2C3E9A1B0018 /* DumpMetadataParser.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7E0C1A5B4F8D2C3E9A1B0017 /* DumpMetadataParser.swift */; };
+		7E0C1A5B4F8D2C3E9A1B0020 /* GeoMath.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7E0C1A5B4F8D2C3E9A1B0019 /* GeoMath.swift */; };
+		7E0C1A5B4F8D2C3E9A1B0022 /* SHA256Digest.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7E0C1A5B4F8D2C3E9A1B0021 /* SHA256Digest.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -35,6 +43,14 @@
 		9582B6822FE993A50072D4E8 /* SceneDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SceneDelegate.swift; sourceTree = "<group>"; };
 		7B3E4F1A2C9D8E5F6A0B1C02 /* GlassOverlay.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GlassOverlay.swift; sourceTree = "<group>"; };
 		7C9D2E5A4F8B1C3D6E0A1B02 /* LocalGalleryPlugin.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LocalGalleryPlugin.swift; sourceTree = "<group>"; };
+		7E0C1A5B4F8D2C3E9A1B0001 /* PhotoKitDumpScanner.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PhotoKitDumpScanner.swift; sourceTree = "<group>"; };
+		7E0C1A5B4F8D2C3E9A1B0003 /* EventClusteringPlugin.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EventClusteringPlugin.swift; sourceTree = "<group>"; };
+		7E0C1A5B4F8D2C3E9A1B0011 /* Models.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Models.swift; sourceTree = "<group>"; };
+		7E0C1A5B4F8D2C3E9A1B0013 /* EventClusterer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EventClusterer.swift; sourceTree = "<group>"; };
+		7E0C1A5B4F8D2C3E9A1B0015 /* EventIndex.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EventIndex.swift; sourceTree = "<group>"; };
+		7E0C1A5B4F8D2C3E9A1B0017 /* DumpMetadataParser.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DumpMetadataParser.swift; sourceTree = "<group>"; };
+		7E0C1A5B4F8D2C3E9A1B0019 /* GeoMath.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GeoMath.swift; sourceTree = "<group>"; };
+		7E0C1A5B4F8D2C3E9A1B0021 /* SHA256Digest.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SHA256Digest.swift; sourceTree = "<group>"; };
 		958DCC722DB07C7200EA8C5F /* debug.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; name = debug.xcconfig; path = ../debug.xcconfig; sourceTree = SOURCE_ROOT; };
 /* End PBXFileReference section */
 
@@ -73,6 +89,9 @@
 				9582B6822FE993A50072D4E8 /* SceneDelegate.swift */,
 				7B3E4F1A2C9D8E5F6A0B1C02 /* GlassOverlay.swift */,
 				7C9D2E5A4F8B1C3D6E0A1B02 /* LocalGalleryPlugin.swift */,
+				7E0C1A5B4F8D2C3E9A1B0001 /* PhotoKitDumpScanner.swift */,
+				7E0C1A5B4F8D2C3E9A1B0003 /* EventClusteringPlugin.swift */,
+				7E0C1A5B4F8D2C3E9A1B0005 /* ManoramaEventClustering */,
 				50379B222058CBB4000EE86E /* capacitor.config.json */,
 				504EC3071FED79650016851F /* AppDelegate.swift */,
 				504EC30B1FED79650016851F /* Main.storyboard */,
@@ -84,6 +103,20 @@
 				50B271D01FEDC1A000F3C39B /* public */,
 			);
 			path = App;
+			sourceTree = "<group>";
+		};
+		7E0C1A5B4F8D2C3E9A1B0005 /* ManoramaEventClustering */ = {
+			isa = PBXGroup;
+			children = (
+				7E0C1A5B4F8D2C3E9A1B0011 /* Models.swift */,
+				7E0C1A5B4F8D2C3E9A1B0013 /* EventClusterer.swift */,
+				7E0C1A5B4F8D2C3E9A1B0015 /* EventIndex.swift */,
+				7E0C1A5B4F8D2C3E9A1B0017 /* DumpMetadataParser.swift */,
+				7E0C1A5B4F8D2C3E9A1B0019 /* GeoMath.swift */,
+				7E0C1A5B4F8D2C3E9A1B0021 /* SHA256Digest.swift */,
+			);
+			name = ManoramaEventClustering;
+			path = ../../../native/EventClustering/Sources/ManoramaEventClustering;
 			sourceTree = "<group>";
 		};
 /* End PBXGroup section */
@@ -172,6 +205,14 @@
 				9582B6832FE993A70072D4E8 /* SceneDelegate.swift in Sources */,
 				7B3E4F1A2C9D8E5F6A0B1C01 /* GlassOverlay.swift in Sources */,
 				7C9D2E5A4F8B1C3D6E0A1B01 /* LocalGalleryPlugin.swift in Sources */,
+				7E0C1A5B4F8D2C3E9A1B0002 /* PhotoKitDumpScanner.swift in Sources */,
+				7E0C1A5B4F8D2C3E9A1B0004 /* EventClusteringPlugin.swift in Sources */,
+				7E0C1A5B4F8D2C3E9A1B0012 /* Models.swift in Sources */,
+				7E0C1A5B4F8D2C3E9A1B0014 /* EventClusterer.swift in Sources */,
+				7E0C1A5B4F8D2C3E9A1B0016 /* EventIndex.swift in Sources */,
+				7E0C1A5B4F8D2C3E9A1B0018 /* DumpMetadataParser.swift in Sources */,
+				7E0C1A5B4F8D2C3E9A1B0020 /* GeoMath.swift in Sources */,
+				7E0C1A5B4F8D2C3E9A1B0022 /* SHA256Digest.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
