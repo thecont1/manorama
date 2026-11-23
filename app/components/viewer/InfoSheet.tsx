@@ -57,7 +57,7 @@ export default function InfoSheet({
             {exif?.creator ? <div class="m-info-row"><dt>Creator</dt><dd>{exif.creator}</dd></div> : null}
             {exif?.copyright ? <div class="m-info-row"><dt>Copyright</dt><dd>{exif.copyright}</dd></div> : null}
             {exif?.location ? <div class="m-info-row"><dt>Location</dt><dd>{exif.location}</dd></div> : null}
-            {exif?.keywords?.length ? <div class="m-info-row"><dt>Keywords</dt><dd>{exif.keywords.join(', ')}</dd></div> : null}
+            {Array.isArray(exif?.keywords) && exif.keywords.length ? <div class="m-info-row"><dt>Keywords</dt><dd>{exif.keywords.join(', ')}</dd></div> : null}
             {isVideo && mimeType ? <div class="m-info-row"><dt>Type</dt><dd>Video ({mimeType})</dd></div> : null}
             {isVideo && durationSeconds ? <div class="m-info-row"><dt>Duration</dt><dd>{formatDuration(durationSeconds)}</dd></div> : null}
           </dl>
