@@ -108,6 +108,21 @@
 				<string>NSPrivacyCollectedDataTypePurposeAppFunctionality</string>
 			</array>
 		</dict>
+		<!-- The Worker records the country of the owner's latest signed-in
+		     visit (Cloudflare geo-IP) for the private ops console. Coarse
+		     location only — no IP address, city, or precise location. -->
+		<dict>
+			<key>NSPrivacyCollectedDataType</key>
+			<string>NSPrivacyCollectedDataTypeCoarseLocation</string>
+			<key>NSPrivacyCollectedDataTypeLinked</key>
+			<true/>
+			<key>NSPrivacyCollectedDataTypeTracking</key>
+			<false/>
+			<key>NSPrivacyCollectedDataTypePurposes</key>
+			<array>
+				<string>NSPrivacyCollectedDataTypePurposeAnalytics</string>
+			</array>
+		</dict>
 	</array>
 	<!--
 		@capacitor/filesystem (via its IONFilesystemLib dependency) calls
