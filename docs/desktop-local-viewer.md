@@ -93,17 +93,19 @@ are present.
 `build-macos.sh` codesigns the bundle with the Developer ID identity
 (`MACOS_SIGN_IDENTITY` overridable, `--options runtime --timestamp`) and
 passes `macos/ManoramaMac/ManoramaMac.entitlements`. The signature matters
-beyond Gatekeeper: the vault's gallery keys and the device id live in the
-data-protection keychain under the shared access group
-`373K7W3LKU.manorama.shared`, and an ad-hoc linker signature carries no
-entitlements at all — it could not even name the group, so the keys would
-be inaccessible on the next launch. The shared group is what lets every
-team-signed build (Developer ID, App Store, a test bundle re-signed under
-a different bundle id) read the same items with no per-item prompt. Items
-written by older builds still sit in the file-based login keychain under
-ACLs bound to those signatures; `NativeBridge.keychainGet` migrates each
-one lazily on first read — one legacy prompt at most, then silent shared
-custody.
+beyond Gatekeeper: key custody lives in two tiers. Profiled builds (the
+App Store entitlements, or a future Developer ID provisioning profile)
+carry `keychain-access-groups` and use the data-protection keychain under
+the shared group `373K7W3LKU.manorama.shared` — every team-signed build
+reads the same items with no prompt. This direct build is sandboxed and
+carries no profile, so the group cannot be validated — AMFI refuses the
+restricted entitlement at exec — and custody falls to the file-based
+login keychain, where each item trusts only the signature that wrote it:
+a foreign-signature item prompts once on first read, and "Always Allow"
+settles it for that signature permanently. `NativeBridge`'s get/set/remove
+degrade between the stores on their own — `keychainGet` reads the shared
+store first, then legacy; a legacy hit rewrites itself into whichever
+store answers; deletes sweep both.
 
 Notarisation is not wired yet. When it lands it submits
 `macos/ManoramaMac/build/manorama.app` to `xcrun notarytool` and staples the
@@ -115,11 +117,14 @@ spells out.
 `network.client` (API + provider calls), `network.server` (the OAuth
 loopback), `files.user-selected.read-write` (the NSOpenPanel pick),
 `files.bookmarks.app-scope` — which is exactly why `FolderStore` persists
-picks as security-scoped bookmarks rather than plain paths — and
-`keychain-access-groups` for the shared vault-key custody described
-above. Adding an entitlement is a real capability decision, not a flag
-flip: no JIT, no unsigned dylibs, no DYLD means nothing else belongs in
-the file.
+picks as security-scoped bookmarks rather than plain paths.
+`keychain-access-groups` is deliberately NOT in this file: restricted
+entitlements on a sandboxed profile-less signature fail AMFI at exec —
+it lives in `ManoramaMac-AppStore.entitlements`, where the provisioning
+profile validates it, and graduates here only when a Developer ID
+profile carrying the group is embedded. Adding an entitlement is a
+real capability decision, not a flag flip: no JIT, no unsigned dylibs,
+no DYLD means nothing else belongs in the file.
 
 ## Scopes and storage
 
@@ -137,9 +142,8 @@ app-support directory, written atomically at mode 0600 by
 `write_private_file` (`write0600` in `NativeBridge.swift`, matching
 `src-tauri/src/private_store.rs`). `providers.json` holds the upload
 lane's refresh tokens (docs/desktop-uploads.md). **Upgrade path:** the
-shared-access-group Keychain that already holds the vault keys can
-replace `session.json` later without touching the catalogue or the
-exchange flow.
+Keychain that already holds the vault keys can replace `session.json`
+later without touching the catalogue or the exchange flow.
 
 ## Sign-in
 

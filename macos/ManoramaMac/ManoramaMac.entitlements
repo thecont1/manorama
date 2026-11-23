@@ -30,9 +30,5 @@
 	     bundle — reads them without a per-item OS prompt. The name is
 	     deliberately not derived from the bundle id: this same file
 	     signs test bundles whose CFBundleIdentifier differs. -->
-	<key>keychain-access-groups</key>
-	<array>
-		<string>373K7W3LKU.manorama.shared</string>
-	</array>
 </dict>
 </plist>

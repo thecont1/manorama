@@ -44,14 +44,16 @@ final class NativeBridge {
     /// The Keychain service the per-gallery keys live under.
     private static let keychainService = "in.thecontrarian.manorama.vault"
 
-    /// The shared access group every team-signed build carries in its
+    /// The shared access group profiled builds carry in their
     /// `keychain-access-groups` entitlement. Items in the data-protection
     /// keychain under this group are readable by any binary signed by team
-    /// 373K7W3LKU with the entitlement — Developer ID, App Store, or a
-    /// re-signed test bundle — with no per-item prompt. The name is
-    /// deliberately not derived from the bundle id: the same entitlements
-    /// file signs test bundles whose CFBundleIdentifier differs, and a
-    /// bundle-id-derived group would lose them custody.
+    /// 373K7W3LKU with the entitlement — App Store today, a Developer ID
+    /// build once a profile is embedded — with no per-item prompt. Direct
+    /// builds carry no profile, cannot carry the restricted entitlement at
+    /// all, and land in the legacy store instead. The name is deliberately
+    /// not derived from the bundle id: the same entitlements file signs
+    /// test bundles whose CFBundleIdentifier differs, and a bundle-id-
+    /// derived group would lose them custody.
     private static let keychainAccessGroup = "373K7W3LKU.manorama.shared"
 
     /// The private documents the renderer may read and write.
@@ -1352,14 +1354,15 @@ final class NativeBridge {
     }
 
     /// Read a vault key or the device id. The shared store is asked
-    /// first; a miss falls back to the legacy login keychain, where items
-    /// written before the access group existed still live under an ACL
-    /// bound to the old binary's signature. A legacy hit is migrated on
-    /// the spot — the one prompt that ACL forces on first read is the
-    /// last the item ever shows, after which every team-signed build
-    /// shares custody.
+    /// first; a miss — or a build that does not carry the access-group
+    /// entitlement at all, where every shared query is refused — falls
+    /// back to the legacy login keychain, where items written before the
+    /// access group existed still live under an ACL bound to the old
+    /// binary's signature. A legacy hit is migrated on the spot — the one
+    /// prompt that ACL forces on first read is the last the item ever
+    /// shows, after which every team-signed build shares custody.
     private func keychainGet(_ name: String) throws -> String? {
-        if let value = try keychainGetShared(name) {
+        if let value = try? keychainGetShared(name) {
             return value
         }
         guard let value = keychainGetLegacy(name) else { return nil }
@@ -1375,38 +1378,42 @@ final class NativeBridge {
         return value
     }
 
-    private func keychainSet(_ name: String, _ value: String) throws {
-        let data = Data(value.utf8)
-        let query = sharedQuery(name)
+    /// Write into `store` (a query dict already carrying the access-group
+    /// keys or not) — update-then-insert. Answers whether it landed.
+    private func keychainWrite(_ query: [String: Any], _ value: String) -> Bool {
         let attributes: [String: Any] = [
-            kSecValueData as String: data,
+            kSecValueData as String: Data(value.utf8),
             kSecAttrAccessible as String: kSecAttrAccessibleAfterFirstUnlock,
         ]
         let status = SecItemUpdate(query as CFDictionary, attributes as CFDictionary)
         if status == errSecItemNotFound {
             var insert = query
             insert.merge(attributes) { current, _ in current }
-            let addStatus = SecItemAdd(insert as CFDictionary, nil)
-            guard addStatus == errSecSuccess else {
-                throw BridgeError.failed("the keychain refused the write")
-            }
-        } else {
-            guard status == errSecSuccess else {
-                throw BridgeError.failed("the keychain refused the write")
-            }
+            return SecItemAdd(insert as CFDictionary, nil) == errSecSuccess
         }
-        // Best-effort sweep of the file-based store: a copy an older
-        // signature left behind keeps its own ACL and would keep
-        // prompting. It goes only after the shared write has succeeded,
-        // so the sweep can never strand the key.
-        SecItemDelete(legacyQuery(name) as CFDictionary)
+        return status == errSecSuccess
+    }
+
+    private func keychainSet(_ name: String, _ value: String) throws {
+        if keychainWrite(sharedQuery(name), value) {
+            // Best-effort sweep of the file-based store: a copy an older
+            // signature left behind keeps its own ACL and would keep
+            // prompting. It goes only after the shared write has succeeded,
+            // so the sweep can never strand the key.
+            SecItemDelete(legacyQuery(name) as CFDictionary)
+            return
+        }
+        // No access group on this build — the file store takes custody
+        // instead, exactly as it did before the group existed.
+        guard keychainWrite(legacyQuery(name), value) else {
+            throw BridgeError.failed("the keychain refused the write")
+        }
     }
 
     private func keychainRemove(_ name: String) throws {
-        let status = SecItemDelete(sharedQuery(name) as CFDictionary)
-        guard status == errSecSuccess || status == errSecItemNotFound else {
-            throw BridgeError.failed("the keychain refused the delete")
-        }
+        // Best-effort in both stores — a missing-entitlement delete answers
+        // the same miss an absent item would.
+        SecItemDelete(sharedQuery(name) as CFDictionary)
         // The legacy copy goes too, best-effort — a denied delete there
         // is still caught by the verification below.
         SecItemDelete(legacyQuery(name) as CFDictionary)

@@ -18,17 +18,18 @@ const normalizeSource = (value: string | null): string | null => {
   }
 }
 
-/** Custody the whole Mac shares: the data-protection Keychain under the
- *  shared access group `373K7W3LKU.manorama.shared`, reached through the
- *  same `vault_key_*` bridge the encrypted-copy vault already uses, so a
- *  key adopted in one shell unlocks the gallery in the other — and every
- *  team-signed build reads it without a prompt. Custody used to live in
- *  localStorage, which is per-webview: keys adopted under the Tauri
- *  shell were invisible to the SwiftUI one. The first read of a legacy
- *  entry moves it into the Keychain and drops the copy; items written
- *  into the file-based login Keychain by older signatures migrate the
- *  same way on first access inside the bridge itself. When the bridge
- *  is unreachable (plain browser, tests without a stub) the store
+/** Custody the whole Mac shares: the Keychain, reached through the same
+ *  `vault_key_*` bridge the encrypted-copy vault already uses, so a key
+ *  adopted in one shell unlocks the gallery in the other. Profiled
+ *  builds use the data-protection Keychain under the shared access
+ *  group `373K7W3LKU.manorama.shared` — every team-signed build reads
+ *  without a prompt; profile-less direct builds use the file-based
+ *  login Keychain, where the bridge migrates each foreign-signature
+ *  item lazily on first access. Custody used to live in localStorage,
+ *  which is per-webview: keys adopted under the Tauri shell were
+ *  invisible to the SwiftUI one. The first read of a legacy entry moves
+ *  it into the Keychain and drops the copy. When the bridge is
+ *  unreachable (plain browser, tests without a stub) the store
  *  degrades to the localStorage behaviour it replaces. */
 class KeychainGalleryKeyStore implements GalleryKeyCustody {
   private readonly legacy = () => new WebGalleryKeyStore(localStorage)
