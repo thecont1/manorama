@@ -54,4 +54,9 @@ declare global {
    *  the update check's fallback when the Tauri API is not in process,
    *  e.g. the SwiftUI shell. Undefined outside bundled code. */
   const __MANORAMA_APP_VERSION__: string | undefined
+  /** The last-commit ISO timestamps of the published documents — the
+   *  "Updated" stamps on /about and /techspecs. Undefined outside
+   *  bundled code. */
+  const __MANORAMA_ABOUT_STAMP__: string | undefined
+  const __MANORAMA_TECHSPEC_STAMP__: string | undefined
 }

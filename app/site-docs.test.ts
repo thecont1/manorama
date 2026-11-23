@@ -1,12 +1,17 @@
 import { describe, expect, test } from 'bun:test'
 import { Hono } from 'hono'
 import type { Context, Handler, Next } from 'hono'
+import { createRoute } from 'honox/factory'
+import { jsx } from 'hono/jsx/jsx-runtime'
+import { raw } from 'hono/html'
 import { contextStorage } from 'honox/server/context-storage'
 import renderer from './routes/_renderer'
 import aboutRoute from './routes/about'
 import privacyRoute from './routes/privacy'
 import techSpecsRoute from './routes/techspecs'
 import termsRoute from './routes/terms'
+import DocShell from './components/DocShell'
+import { docUpdatedLine } from './lib/site-docs'
 
 /**
  * The public document pages. /about and /techspecs render the repository's
@@ -133,6 +138,27 @@ describe('/privacy shares the same site chrome', () => {
     expect(html).toContain('<title>Privacy Policy — manorama</title>')
     expect(html).toContain('<article class="policy-document">')
     expectSiteChrome(html)
+  })
+})
+
+describe('the updated stamp', () => {
+  test('docUpdatedLine renders a human-friendly UTC date-time, no seconds', () => {
+    expect(docUpdatedLine('2026-11-22T04:08:50+05:30')).toBe('Updated 21 November 2026, 22:38 UTC')
+    expect(docUpdatedLine('2026-01-05T00:00:00.123Z')).toBe('Updated 5 January 2026, 00:00 UTC')
+    expect(docUpdatedLine('not a date')).toBe('')
+  })
+
+  test('DocShell prints the stamp at the top of the page when provided', async () => {
+    const stamped = createRoute((c) => c.render(raw(String(jsx(DocShell, { html: '<h1>Doc</h1>', updated: docUpdatedLine('2026-11-22T04:08:50+05:30') })))))
+    const html = await get('/doc', stamped)
+    expect(html).toContain('<p class="doc-updated">Updated 21 November 2026, 22:38 UTC</p>')
+    expect(html.indexOf('doc-updated')).toBeLessThan(html.indexOf('policy-document'))
+  })
+
+  test('DocShell omits the stamp element when the build could not stamp the doc', async () => {
+    const unstamped = createRoute((c) => c.render(raw(String(jsx(DocShell, { html: '<h1>Doc</h1>' })))))
+    const html = await get('/doc', unstamped)
+    expect(html).not.toContain('doc-updated')
   })
 })
 

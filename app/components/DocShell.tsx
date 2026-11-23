@@ -13,6 +13,7 @@ import Footer from './home/sections/Footer'
  */
 export default function DocShell({
   html,
+  updated,
   returning,
   next,
   signInOrigin,
@@ -21,6 +22,9 @@ export default function DocShell({
   /** Pre-rendered document HTML for the repo-doc pages; omit when the
    *  document arrives as JSX children that supply their own article. */
   html?: string
+  /** The document's "Updated …" line, printed at the top of the page;
+   *  omitted entirely when the build could not stamp the source. */
+  updated?: string
   returning?: boolean
   next?: string
   signInOrigin?: string
@@ -31,6 +35,7 @@ export default function DocShell({
       <Header navBase="/" returning={returning} next={next} signInOrigin={signInOrigin} />
       {/* id="content" keeps the header's skip link honest. */}
       <main id="content" class="policy-page">
+        {updated ? <p class="doc-updated">{updated}</p> : null}
         {html !== undefined ? (
           <article class="policy-document" dangerouslySetInnerHTML={{ __html: html }} />
         ) : (

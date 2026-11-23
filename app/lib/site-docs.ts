@@ -108,3 +108,27 @@ const renderTechSpecs = (src: string): string => {
 }
 
 export const TECH_SPECS_DOC_HTML = renderTechSpecs(techSpecsMd)
+
+/**
+ * The "updated" stamp each document page prints at its top. The build
+ * injects the file's last-commit timestamp via `define` (git history is
+ * the honest marker — file mtime lies about packaged builds); outside a
+ * bundled build the constant is absent and the line is omitted.
+ *
+ * The stamp is rendered in UTC so every reader sees one unambiguous
+ * clock — the commit's own offset is a local detail, and seconds and
+ * sub-second precision are noise at this granularity.
+ */
+const MONTHS = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December']
+
+export const docUpdatedLine = (iso: string): string => {
+  const when = new Date(iso)
+  if (Number.isNaN(when.getTime())) return ''
+  const pad = (n: number) => String(n).padStart(2, '0')
+  return `Updated ${when.getUTCDate()} ${MONTHS[when.getUTCMonth()]} ${when.getUTCFullYear()}, ${pad(when.getUTCHours())}:${pad(when.getUTCMinutes())} UTC`
+}
+
+export const ABOUT_UPDATED =
+  typeof __MANORAMA_ABOUT_STAMP__ === 'string' ? docUpdatedLine(__MANORAMA_ABOUT_STAMP__) : ''
+export const TECH_SPECS_UPDATED =
+  typeof __MANORAMA_TECHSPEC_STAMP__ === 'string' ? docUpdatedLine(__MANORAMA_TECHSPEC_STAMP__) : ''

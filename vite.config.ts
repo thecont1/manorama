@@ -14,6 +14,13 @@ const buildCommit = (() => {
   try { return execSync('git rev-parse --short HEAD').toString().trim() } catch { return 'dev' }
 })()
 
+/** The last-commit ISO timestamp for a published document — the "updated"
+ *  stamp /about and /techspecs print. Empty when the build context has no
+ *  git history, and the page simply omits the line. */
+const docStamp = (file: string) => {
+  try { return execSync(`git log -1 --format=%cI -- "${file}"`).toString().trim() } catch { return '' }
+}
+
 /** Default manifest item for spawn-seeded galleries: a 1×1 PNG data URI. */
 const DEV_SPAWN_IMAGE = {
   id: 'dev-spawn-pixel',
@@ -459,7 +466,11 @@ const noTestIslands = (): Plugin => ({
 
 export default defineConfig(() => ({
   cacheDir: '.work/vite-web-cache',
-  define: { __MANORAMA_COMMIT__: JSON.stringify(buildCommit) },
+  define: {
+    __MANORAMA_COMMIT__: JSON.stringify(buildCommit),
+    __MANORAMA_ABOUT_STAMP__: JSON.stringify(docStamp('README.md')),
+    __MANORAMA_TECHSPEC_STAMP__: JSON.stringify(docStamp('TECH-SPEC.md')),
+  },
   plugins: [
     manoramaDevSeed(),
     noTestIslands(),
