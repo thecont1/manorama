@@ -6,6 +6,7 @@
  * closes the script element.
  */
 import { beforeAll, describe, expect, test } from 'bun:test'
+import { Window } from 'happy-dom'
 import { Hono } from 'hono'
 import type { Context, Next } from 'hono'
 import { contextStorage } from 'honox/server/context-storage'
@@ -23,6 +24,17 @@ const env = { HOST_API_JWT_SECRET: TEST_SESSION_SECRET }
 
 const PAYLOAD = `</script><img src=x onerror=alert(1)><script>alert(2)</script>`
 const ATTR = `" onerror="alert(3)" x="`
+
+// A payload that escaped serialisation lands as a live element OUTSIDE the
+// script blocks, so script-content inspection alone cannot see it. Strip the
+// script elements (they cannot execute anyway inside innerHTML), parse what
+// remains as markup, and ask the DOM whether any element carries a handler.
+const injectedElements = (html: string): number => {
+  const markup = html.replace(/<script\b[^>]*>[\s\S]*?<\/script>/g, '')
+  const window = new Window({ settings: { disableJavaScriptFileLoading: true } })
+  window.document.body.innerHTML = markup
+  return window.document.querySelectorAll('[onerror],img[src="x"]').length
+}
 
 const app = () => {
   const hono = new Hono()
@@ -72,6 +84,10 @@ describe('gallery page serialisation', () => {
       // next "script" match; the tell is markup outside the quoting context.
       expect(script.includes('onerror=alert(1)')).toBe(false)
     }
+    // And nothing may land as a live element anywhere in the document —
+    // the escaped text still reads "onerror=alert(1)", but only a real
+    // <img> would carry it as an attribute.
+    expect(injectedElements(html)).toBe(0)
     // The document-level title is escaped, not parsed.
     expect(html).toContain('<title>')
     // The curtain title uses dangerouslySetInnerHTML with an escaped value.
@@ -88,5 +104,6 @@ describe('quick-add page', () => {
     for (const script of html.match(/<script\b[^>]*>[\s\S]*?<\/script>/g) ?? []) {
       expect(script.includes('onerror=alert(1)')).toBe(false)
     }
+    expect(injectedElements(html)).toBe(0)
   })
 })

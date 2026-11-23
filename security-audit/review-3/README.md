@@ -49,7 +49,10 @@ nested worktrees):
 bun run test:unit -- security-audit/review-3
 ```
 
-Run the macOS probe (Xcode command-line tools, arm64 macOS, no network):
+Run the macOS probe (Xcode command-line tools, arm64 macOS). It opens a
+loopback listener and, when the network is reachable, sends one outward
+request through the app's own API proxy — the stopped-task check needs a live
+round trip; without reachability that check is skipped, not failed:
 
 ```sh
 security-audit/review-3/run-boundary.sh

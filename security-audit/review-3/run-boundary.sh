@@ -8,8 +8,11 @@
 # capability scopes, the OAuth loopback, the invoke-reply contract and the
 # deep-link bookkeeping.
 #
-# Safe to repeat: it writes only under $TMPDIR, touches no Keychain item of the
-# running app, and opens no network connection beyond a loopback listener.
+# Safe to repeat: it writes only under $TMPDIR and touches no Keychain item of
+# the running app. Its network use is a loopback listener PLUS one outward
+# request through the app's own API proxy — the stopped-task check needs a
+# live URLSession round trip to prove the completion pipeline ran. When the
+# network is unreachable that single check is skipped, not failed.
 set -euo pipefail
 
 here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
