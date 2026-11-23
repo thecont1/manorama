@@ -4,17 +4,21 @@
  *  opens of the same photo dedupe. Results land in a per-id map so a
  *  response can never surface against the wrong photograph. */
 
-export type CredentialStatus = 'idle' | 'loading' | 'verified' | 'unavailable'
+/** 'none' is a settled answer, not a failure: the check ran and the
+ *  bytes carry no manifest. Only a thrown check lands on 'unavailable'. */
+export type CredentialResult = 'verified' | 'unavailable' | 'none'
 
-export type CredentialChecker = (imageId: string) => Promise<'verified' | 'unavailable'>
+export type CredentialStatus = 'idle' | 'loading' | CredentialResult
 
-type Entry = { id: string; promise: Promise<'verified' | 'unavailable'>; resolve: (v: 'verified' | 'unavailable') => void }
+export type CredentialChecker = (imageId: string) => Promise<CredentialResult>
+
+type Entry = { id: string; promise: Promise<CredentialResult>; resolve: (v: CredentialResult) => void }
 
 export type CredentialQueue = {
   /** Queue a check for an image. Repeat calls for the in-flight id share
    *  the one request; a call for a different id while another waits
    *  supersedes the waiter (its promise still resolves, just skipped). */
-  enqueue(imageId: string): Promise<'verified' | 'unavailable'>
+  enqueue(imageId: string): Promise<CredentialResult>
   /** Look up the last settled status for an image. */
   statusOf(imageId: string): CredentialStatus
   /** Forget everything — unmount/test teardown. */
@@ -28,7 +32,7 @@ export const createCredentialQueue = (check: CredentialChecker): CredentialQueue
 
   const make = (id: string): Entry => {
     const entry = { id } as Entry
-    entry.promise = new Promise<'verified' | 'unavailable'>((resolve) => { entry.resolve = resolve })
+    entry.promise = new Promise<CredentialResult>((resolve) => { entry.resolve = resolve })
     return entry
   }
 
@@ -66,8 +70,11 @@ export const createCredentialQueue = (check: CredentialChecker): CredentialQueue
       const entry = make(imageId)
       if (current) {
         // The newest request wins: a queued-but-unstarted check is
-        // replaced outright rather than run stale work.
-        queued?.resolve(status.get(queued.id) === 'verified' ? 'verified' : 'unavailable')
+        // replaced outright rather than run stale work. Its promise still
+        // resolves — with the image's settled verdict when one exists, so
+        // a superseded re-check never downgrades a known answer.
+        const settled = queued ? status.get(queued.id) : undefined
+        queued?.resolve(settled === 'verified' || settled === 'none' ? settled : 'unavailable')
         queued = entry
       } else {
         void start(entry)
