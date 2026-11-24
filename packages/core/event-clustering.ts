@@ -4,9 +4,9 @@
  *
  * The contract is `docs/event-clustering-bridge-contract.md`: one
  * user-declared raw dump per device, epoch **milliseconds** everywhere on
- * the wire, four `invoke` commands, and a page that does nothing but present
- * what the shell computed. Nothing here clusters anything — the engine lives
- * in `native/EventClustering/` and this file mirrors what it answers.
+ * the wire, and a page that does nothing but present what the shell computed.
+ * Nothing here clusters anything — the portable engine lives in
+ * `crates/event-clustering/` and this file mirrors what the shells answer.
  *
  * Invariant 8: platform-free. No `window`, no Node built-ins, no Capacitor
  * or Tauri. Dates are the only system-observable thing it touches.
@@ -49,10 +49,76 @@ export type RawDumpStatus = {
   eventCount: number
 }
 
+export type EventPhotosAuthorization = 'notDetermined' | 'denied' | 'restricted' | 'limited' | 'authorized'
+export type EventAssetState = 'ready' | 'cloudOnly' | 'downloading' | 'failed' | 'missing'
+export type EventAssetImage = { id: string; url: string | null; width: number; height: number; state: EventAssetState }
+export type EventAssetRequest = { ids: string[]; purpose: 'thumbnail' | 'viewer'; maxPixelSize?: number; allowNetwork?: boolean }
+export type EventAssetProgress = { id: string; fraction: number }
+export const MAX_EVENT_ASSET_BATCH = 64
+
+export const isEventAssetId = (value: unknown): value is string =>
+  typeof value === 'string' && value.length > 0 && value.length <= 4096
+  && !/[\u0000-\u001f\u007f\\\\:]/.test(value)
+  && !value.split('/').some((part) => !part || part === '.' || part === '..')
+
+export const isEventAssetRequest = (value: EventAssetRequest): boolean =>
+  Array.isArray(value.ids) && value.ids.length > 0 && value.ids.length <= MAX_EVENT_ASSET_BATCH
+  && value.ids.every(isEventAssetId) && new Set(value.ids).size === value.ids.length
+  && (value.purpose === 'thumbnail' || value.purpose === 'viewer')
+  && (value.maxPixelSize === undefined || (Number.isInteger(value.maxPixelSize) && value.maxPixelSize > 0 && value.maxPixelSize <= 8192))
+  && (value.allowNetwork === undefined || typeof value.allowNetwork === 'boolean')
+  && (value.allowNetwork !== true || (value.purpose === 'viewer' && value.ids.length === 1))
+
+/** A native-returned local file URL, never a grant constructed by the page.
+ * Decode before URL normalization so encoded traversal cannot disappear. */
+export const isEventAssetFileUrl = (value: unknown): value is string => {
+  if (typeof value !== 'string' || value.length > 8192 || !value.startsWith('file:///')) return false
+  try {
+    const rawPath = decodeURIComponent(value.slice(7))
+    if (!rawPath.startsWith('/') || /[\u0000-\u001f\u007f\\\\]/.test(rawPath)) return false
+    if (rawPath.slice(1).split('/').some((part) => !part || part === '.' || part === '..')) return false
+    const url = new URL(value)
+    return url.protocol === 'file:' && !url.host && !url.search && !url.hash
+  } catch { return false }
+}
+
+/** Desktop originals are reachable only through opaque, native-issued leases. */
+export const isEventAssetLeaseUrl = (value: unknown): value is string =>
+  typeof value === 'string'
+  && /^(?:manorama-event:\/\/localhost\/|http:\/\/manorama-event\.localhost\/)[0-9a-fA-F]{32}$/.test(value)
+
+export const isEventAssetUrl = (value: unknown): value is string =>
+  isEventAssetLeaseUrl(value) || isEventAssetFileUrl(value)
+
+export const parseEventAssetImages = (value: unknown, ids: readonly string[]): EventAssetImage[] | null => {
+  if (!Array.isArray(ids) || ids.length === 0 || ids.length > MAX_EVENT_ASSET_BATCH
+    || !ids.every(isEventAssetId) || new Set(ids).size !== ids.length) return null
+  const body = asObject(value)
+  if (!body || !Array.isArray(body.items) || body.items.length !== ids.length) return null
+  const result: EventAssetImage[] = []
+  for (let index = 0; index < ids.length; index++) {
+    const item = asObject(body.items[index])
+    if (!item || item.id !== ids[index] || !isEventAssetId(item.id)
+      || !['ready', 'cloudOnly', 'downloading', 'failed', 'missing'].includes(String(item.state))
+      || !Number.isInteger(item.width) || !Number.isInteger(item.height)
+      || (item.width as number) < 0 || (item.height as number) < 0) return null
+    if (item.state === 'ready' ? (!isEventAssetUrl(item.url) || (item.width as number) <= 0 || (item.height as number) <= 0) : item.url !== null) return null
+    result.push({ id: item.id, url: item.url as string | null, width: item.width as number, height: item.height as number, state: item.state as EventAssetState })
+  }
+  return result
+}
+
+export const parseEventAssetProgress = (value: unknown): EventAssetProgress | null => {
+  const body = asObject(value)
+  return body && isEventAssetId(body.id) && typeof body.fraction === 'number'
+    && Number.isFinite(body.fraction) && body.fraction >= 0 && body.fraction <= 1
+    ? { id: body.id, fraction: body.fraction } : null
+}
+
 export type RawDumpScanResult = {
   clusters: EventCluster[]
   screenshotCount: number
-  /** The dump root, for `assetUrl(joinDumpPath(rootPath, itemId))` only. */
+  /** Diagnostic source information only; never a media URL or filesystem grant. */
   rootPath: string | null
 }
 
@@ -408,28 +474,6 @@ export const formatIndexedAgo = (lastIndexedAt: number | null, now: number): str
   return `Indexed ${formatDateSpan(lastIndexedAt, lastIndexedAt)}`
 }
 
-/**
- * The dump root and one member id, joined into the absolute path the shell's
- * media handler is asked for.
- *
- * The id comes from an index the page does not own, so this is where the
- * traversal check lives: no leading separator (an absolute id would replace
- * the root whole), no `..`, no empty or `.` segment. A refused join answers
- * null and the caller drops that frame from the event rather than pointing
- * the asset protocol outside the folder the user declared. The shell re-checks
- * every path against its granted roots anyway — this is the page's half of the
- * same refusal.
- */
-export const joinDumpPath = (rootPath: string | null | undefined, itemId: string): string | null => {
-  if (!isMemberId(itemId)) return null
-  if (typeof rootPath !== 'string' || rootPath.length === 0) return null
-  if (itemId.startsWith('/') || itemId.startsWith('\\')) return null
-  const segments = itemId.split(/[\\/]/)
-  if (segments.some((segment) => segment === '' || segment === '.' || segment === '..')) return null
-  const base = rootPath.replace(/[\\/]+$/, '')
-  if (!base || base === '/' || base === '\\') return null
-  return `${base}/${segments.join('/')}`
-}
 
 /* ── State mapping ─────────────────────────────────────────────────────
  * The one place the feature's shape is decided from what the shell answered,

@@ -179,8 +179,27 @@ final class RawDumpEventStore: @unchecked Sendable {
         force: Bool,
         config: ClusteringConfig = ClusteringConfig()
     ) throws -> RawDumpScanOutcome {
+        try scan(
+            root: EventAssetSupport.openRoot(root, expected: nil),
+            deviceId: deviceId,
+            sourceId: sourceId,
+            label: label,
+            force: force,
+            config: config
+        )
+    }
+
+    func scan(
+        root: EventAssetSupport.VerifiedRoot,
+        deviceId: String,
+        sourceId: String,
+        label: String,
+        force: Bool,
+        config: ClusteringConfig = ClusteringConfig()
+    ) throws -> RawDumpScanOutcome {
         scanLock.lock()
         defer { scanLock.unlock() }
+        guard root.isStillCurrent() else { throw EventAssetSupportError.reselectionRequired }
         let files = try FolderDumpScanner.enumerate(root: root)
         let indexedAt = Date()
         let existing = readIndex()
@@ -244,10 +263,18 @@ final class RawDumpEventStore: @unchecked Sendable {
         let result = EventClusterer(
             sourceId: sourceId,
             config: config,
-            probe: VisionBoundaryProbe(root: root)
+            probe: VisionBoundaryProbe(root: root.url)
         ).cluster(Array(cache.values))
+        guard root.isStillCurrent() else {
+            deleteIndex()
+            throw EventAssetSupportError.reselectionRequired
+        }
         let next = base.applying(result, itemCache: cache, indexedAt: indexedAt)
         try write(next)
+        guard root.isStillCurrent() else {
+            deleteIndex()
+            throw EventAssetSupportError.reselectionRequired
+        }
         remember(next)
         return RawDumpScanOutcome(
             report: RawDumpScanReport(
@@ -257,7 +284,7 @@ final class RawDumpEventStore: @unchecked Sendable {
                 eventCount: next.events.count,
                 lastIndexedAt: next.source.lastIndexedAt
             ),
-            rootPath: root.path,
+            rootPath: root.url.path,
             label: label
         )
     }

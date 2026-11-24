@@ -134,8 +134,9 @@ let invokeCalls: { command: string; args?: Record<string, unknown> }[]
 let pickedFolder: string | null
 let vaultFiles: Map<string, Uint8Array>
 let vaultKeys: Map<string, string>
+let eventsEnabled: boolean
 
-const installTauri = (signedIn: boolean, providerTokens?: Record<string, unknown>, tier: 'free' | 'pro' = 'pro', extraFiles?: Record<string, string>) => {
+const installTauri = (signedIn: boolean, providerTokens?: Record<string, unknown>, tier: 'free' | 'pro' = 'pro', extraFiles?: Record<string, string>, withEvents = false) => {
   files = {
     'catalogue.json': JSON.stringify({ version: 1, deviceId: DEVICE_ID, deviceLabel: 'This Mac', galleries: [record] }),
     ...(extraFiles ?? {}),
@@ -157,6 +158,7 @@ const installTauri = (signedIn: boolean, providerTokens?: Record<string, unknown
   pickedFolder = null
   vaultFiles = new Map()
   vaultKeys = new Map()
+  eventsEnabled = withEvents
   // The event plugin's listener table — `plugin:event|listen` records the
   // transformCallback id per event name, and `__manoramaEmitEvent` delivers
   // `{event, id, payload}` to them exactly like the shell's emitter does.
@@ -237,6 +239,35 @@ const installTauri = (signedIn: boolean, providerTokens?: Record<string, unknown
       }
       // `pick_gallery_root` — the folder dialog answers whatever the test staged.
       if (command === 'pick_gallery_root') return pickedFolder
+      if (command === 'get_raw_dump_status') return {
+        configured: eventsEnabled,
+        label: eventsEnabled ? 'Camera Roll' : null,
+        isAvailable: eventsEnabled,
+        lastIndexedAt: null,
+        eventCount: eventsEnabled ? 1 : 0,
+      }
+      if (command === 'scan_raw_dump_events') return {
+        clusters: eventsEnabled ? [{
+          id: 'evt_0123456789abcdef0123',
+          startDate: Date.UTC(2026, 2, 15, 9),
+          endDate: Date.UTC(2026, 2, 15, 11),
+          isMultiDay: false,
+          coverItemId: 'IMG_0001.jpg',
+          itemIds: ['IMG_0001.jpg'],
+        }] : [],
+        screenshotCount: 0,
+        rootPath: null,
+      }
+      if (command === 'get_event_asset_image') {
+        const ids = (params?.ids ?? []) as string[]
+        return { items: ids.map((id) => ({
+          id,
+          url: `file:///Users/home/Pictures/Camera%20Roll/${id}`,
+          width: 1024,
+          height: 683,
+          state: 'ready',
+        })) }
+      }
       // `plugin:fs|exists` — every saved root is reported mounted.
       if (command === 'plugin:fs|exists') return true
       // `plugin:fs|read_dir` — a virtual directory tree per root.
@@ -282,8 +313,8 @@ const installTauri = (signedIn: boolean, providerTokens?: Record<string, unknown
   }
 }
 
-const mount = async (signedIn: boolean, providerTokens?: Record<string, unknown>, tier: 'free' | 'pro' = 'pro', extraFiles?: Record<string, string>): Promise<HTMLElement> => {
-  installTauri(signedIn, providerTokens, tier, extraFiles)
+const mount = async (signedIn: boolean, providerTokens?: Record<string, unknown>, tier: 'free' | 'pro' = 'pro', extraFiles?: Record<string, string>, withEvents = false): Promise<HTMLElement> => {
+  installTauri(signedIn, providerTokens, tier, extraFiles, withEvents)
   // happy-dom's element types are not lib.dom's; the repo's render tests cast at
   // this one boundary so every query below is typed by the DOM library.
   const container = dom.document.createElement('div') as unknown as HTMLElement
@@ -2874,6 +2905,26 @@ describe('folder drop add', () => {
     container.querySelector<HTMLElement>('.lib-card-title')!.click()
     await settle()
     expect(container.querySelector('.viewer-stage')).not.toBeNull()
+    emitFoldersDropped(['/drop/a'])
+    await settle()
+    expect(calls('commit_dropped_roots')).toHaveLength(0)
+    expect(calls('discard_dropped_roots')).toHaveLength(1)
+    expect(dropSheet(container)).toBeNull()
+    expect(galleryCount()).toBe(1)
+  })
+
+  test('an event viewer blocks the drop veil and never starts the add-gallery flow', async () => {
+    const container = await mount(true, undefined, 'pro', undefined, true)
+    byText(container, 'Camera Roll')!.click()
+    await settle()
+    expect(container.querySelector('.event-card-open')).not.toBeNull()
+    container.querySelector<HTMLElement>('.event-card-open')!.click()
+    await settle()
+    expect(container.querySelector('.event-viewer')).not.toBeNull()
+
+    emitDrop('manorama://folder-drag-enter', { folders: 1, files: 0 })
+    await settle()
+    expect(container.querySelector('.desktop-drop-veil')).toBeNull()
     emitFoldersDropped(['/drop/a'])
     await settle()
     expect(calls('commit_dropped_roots')).toHaveLength(0)

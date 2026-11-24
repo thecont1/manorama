@@ -82,8 +82,14 @@ final class NativeBridge {
     /// The dump's cached timeline — the shell owns this file, the page does
     /// not get to read it. See `RawDumpEventStore`.
     private let rawDumpStore: RawDumpEventStore
+    /// Descriptor-backed event capabilities, shared with the scheme handler.
+    let eventAssetRegistry = EventAssetRegistry()
     /// The filesystem watch on the dump root. A nudge, never a scan.
     private let rawDumpWatcher = RawDumpWatcher()
+    private struct EventAssetSource {
+        let entry: FolderStore.Entry
+        let root: EventAssetSupport.VerifiedRoot
+    }
     /// The folder a test run hands back instead of asking for a dump root,
     /// consumed once — the same seam `seededPickPath` is for the gallery
     /// picker, kept separate because a launch can be seeded with both.
@@ -231,9 +237,12 @@ final class NativeBridge {
         // folder in the library.
         if let seeded = seededRawDump {
             let url = URL(fileURLWithPath: seeded)
-            if (try? requireRawDumpRoot(url)) != nil, let entry = folderStore.add(folder: url) {
-                folderStore.markRawDump(entry.id)
-                _ = folderStore.startAccess(entry)
+            if (try? requireRawDumpRoot(url)) != nil,
+               let pickedRoot = try? EventAssetSupport.openRoot(url, expected: nil),
+               let entry = folderStore.add(folder: url),
+               let scopedURL = folderStore.startAccess(entry),
+               let scopedRoot = try? EventAssetSupport.openRoot(scopedURL, expected: pickedRoot.identity),
+               folderStore.markRawDump(entry.id, identity: scopedRoot.identity) {
                 recordGalleryRoot(url.path)
             }
         }
@@ -453,6 +462,10 @@ final class NativeBridge {
         case "clear_raw_dump_root":
             clearRawDumpRoot()
             return nil
+        case "get_event_asset_image":
+            return try await getEventAssetImage(args)
+        case "reveal_event_asset":
+            return try await revealEventAsset(args)
 
         case "plugin:opener|open_url":
             guard let raw = args["url"] as? String,
@@ -754,7 +767,7 @@ final class NativeBridge {
     }
 
     private func requireGalleryRoot(_ url: URL) throws {
-        guard let entry = folderStore.rawDumpEntry, let dump = folderStore.resolve(entry) else { return }
+        guard let entry = folderStore.entries.first(where: \.isRawDump), let dump = folderStore.resolve(entry) else { return }
         if url.resolvingExistingSymlinksInPath().path == dump.resolvingExistingSymlinksInPath().path {
             throw BridgeError.failed("that folder is the camera-roll dump; clear it before adding it as a gallery")
         }
@@ -1111,26 +1124,64 @@ final class NativeBridge {
         }
         guard let url = picked else { return nil }   // null = the user cancelled
         try requireRawDumpRoot(url)
+        let pickedRoot: EventAssetSupport.VerifiedRoot
+        do {
+            pickedRoot = try EventAssetSupport.openRoot(url, expected: nil)
+        } catch let error as EventAssetSupportError {
+            throw eventAssetBridgeError(error)
+        }
         guard let entry = folderStore.add(folder: url) else {
             throw BridgeError.failed("that folder could not be remembered for access")
         }
-        let replacedAnotherDump = folderStore.rawDumpEntry.map { $0.id != entry.id } ?? false
-        folderStore.markRawDump(entry.id)
-        _ = folderStore.startAccess(entry)
+        let previousDump = folderStore.entries.first(where: \.isRawDump)
+        let previousIdentity = previousDump?.rawDumpRootIdentity
+        guard let scopedURL = folderStore.startAccess(entry) else {
+            throw BridgeError.failed("that folder could not be pinned as the raw dump")
+        }
+        let scopedRoot: EventAssetSupport.VerifiedRoot
+        do {
+            scopedRoot = try EventAssetSupport.openRoot(scopedURL, expected: pickedRoot.identity)
+        } catch let error as EventAssetSupportError {
+            throw eventAssetBridgeError(error)
+        }
+        guard folderStore.markRawDump(entry.id, identity: scopedRoot.identity) else {
+            throw BridgeError.failed("that folder could not be pinned as the raw dump")
+        }
+        let selectedIdentity = folderStore.rawDumpEntry?.rawDumpRootIdentity
+        // The bookmark deduplicates by path, so picking a replacement at the
+        // same path returns the same entry. Its new identity must retire the
+        // old source's cache and capabilities just like a different entry.
+        let replacedAnotherDump = previousDump.map {
+            $0.id != entry.id || previousIdentity != selectedIdentity
+        } ?? false
+        if let previousDump, replacedAnotherDump {
+            eventAssetRegistry.revokeSource(previousDump.id)
+            rawDumpWatcher.stop()
+        }
         // The path is the catalogue's record of what the user chose; the
         // grant itself is the bookmark, which only this binary can resolve.
         recordGalleryRoot(url.path)
-        // Replacing a *different* dump retires its cache immediately. The
-        // fingerprint would refuse to reuse it at the next scan anyway,
-        // but leaving it on disk would let `get_raw_dump_status` answer
-        // with the previous folder's event count.
+        // Replacing a different or legacy dump retires its cache immediately.
         if replacedAnotherDump {
             rawDumpStore.deleteIndex()
         }
+        let source: EventAssetSource
+        do {
+            source = try eventAssetRoot()
+        } catch let error as EventAssetSupportError {
+            throw eventAssetBridgeError(error)
+        }
         // Enumerating a whole backup is filesystem work with a directory
         // walk's appetite, and it has no business on the main actor.
-        let count = try await offMain { try FolderDumpScanner.countImages(root: url) }
-        startRawDumpWatch(root: url)
+        let count: Int
+        do {
+            count = try await offMain { try FolderDumpScanner.countImages(root: source.root) }
+            try confirmEventAssetRoot(source)
+        } catch let error as EventAssetSupportError {
+            if isRootReplacement(error) { invalidateRawDump(source.entry.id) }
+            throw eventAssetBridgeError(error)
+        }
+        startRawDumpWatch(source: source)
         return RawDumpWire.pick(label: entry.name, itemCount: count, rootPath: url.path)
     }
 
@@ -1146,16 +1197,32 @@ final class NativeBridge {
         guard let entry = folderStore.rawDumpEntry else {
             return RawDumpWire.status(.notConfigured)
         }
-        // `startAccess` is idempotent per entry — the store keeps the set
-        // of scopes it has already taken — so a poll the page runs on
-        // every mount cannot stack kernel resources.
-        let root = folderStore.startAccess(entry)
-        let reachable = root.map { Self.presentDirectory($0) } ?? false
+        func unavailable() -> [String: Any] {
+            RawDumpWire.status(RawDumpStatus(
+                configured: true,
+                label: entry.name,
+                isAvailable: false,
+                lastIndexedAt: nil,
+                eventCount: 0
+            ))
+        }
+        let source: EventAssetSource
+        do {
+            source = try eventAssetRoot()
+        } catch {
+            if isRootReplacement(error) { invalidateRawDump(entry.id) }
+            return unavailable()
+        }
         let summary = try? await offMain { self.rawDumpSummary() }
+        do {
+            try confirmEventAssetRoot(source)
+        } catch {
+            return unavailable()
+        }
         let status = RawDumpStatus(
             configured: true,
             label: entry.name,
-            isAvailable: reachable,
+            isAvailable: true,
             lastIndexedAt: summary?.lastIndexedAt,
             eventCount: summary?.eventCount ?? 0
         )
@@ -1172,32 +1239,44 @@ final class NativeBridge {
         guard let entry = folderStore.rawDumpEntry else {
             throw BridgeError.failed("no raw dump folder is configured")
         }
-        guard let root = folderStore.startAccess(entry), Self.presentDirectory(root) else {
-            throw BridgeError.failed("the raw dump folder could not be reached")
+        let source: EventAssetSource
+        do {
+            source = try eventAssetRoot()
+        } catch let error as EventAssetSupportError {
+            throw eventAssetBridgeError(error)
         }
         let deviceId = try stableDeviceId()
         let sourceId = entry.id.uuidString
         let label = entry.name
         let force = (args["force"] as? Bool) ?? false
-        let outcome = try await offMain {
-            try self.rawDumpScan(root: root, deviceId: deviceId, sourceId: sourceId, label: label, force: force)
+        let outcome: RawDumpScanOutcome
+        do {
+            outcome = try await offMain {
+                try self.rawDumpScan(root: source.root, deviceId: deviceId, sourceId: sourceId, label: label, force: force)
+            }
+            try confirmEventAssetRoot(source)
+        } catch let error as EventAssetSupportError {
+            if isRootReplacement(error) { invalidateRawDump(source.entry.id) }
+            throw eventAssetBridgeError(error)
         }
         // A scan run without a pick — a relaunch, a folder re-mounted — is
         // the second chance the shell gets to notice it should be watching.
-        startRawDumpWatch(root: root)
+        startRawDumpWatch(source: source)
         return RawDumpWire.scan(outcome)
     }
 
     /// Clearing the dump declaration retires its cache, not its folder grant.
     private func clearRawDumpRoot() {
+        let sourceID = folderStore.entries.first(where: \.isRawDump)?.id
         folderStore.clearRawDumpMark()
+        if let sourceID { eventAssetRegistry.revokeSource(sourceID) }
         rawDumpStore.deleteIndex()
         rawDumpWatcher.stop()
     }
 
     /// The store call, out of the main actor's way.
     nonisolated private func rawDumpScan(
-        root: URL,
+        root: EventAssetSupport.VerifiedRoot,
         deviceId: String,
         sourceId: String,
         label: String,
@@ -1211,16 +1290,130 @@ final class NativeBridge {
         rawDumpStore.summary()
     }
 
-    /// Whether a resolved root is a directory on this machine right now.
-    ///
-    /// A bookmark can resolve for a drive that is not mounted, and the
-    /// answer the page needs is about the disk rather than the token: an
-    /// unmounted dump is configured and not available, and offering a scan
-    /// of it would fail a command the user believed they had set up.
-    nonisolated private static func presentDirectory(_ url: URL) -> Bool {
-        var isDir: ObjCBool = false
-        guard FileManager.default.fileExists(atPath: url.path, isDirectory: &isDir) else { return false }
-        return isDir.boolValue
+    /// Opaque capabilities for event originals. The renderer supplies relative
+    /// ids, never paths; each URL retains a verified native member and the
+    /// dump declaration and its bookmark remain the source authority.
+    private func getEventAssetImage(_ args: [String: Any]) async throws -> [String: Any] {
+        let request: EventAssetSupport.Request
+        do {
+            request = try EventAssetSupport.Request.parse(
+                args, imageExtensions: FolderDumpScanner.imageExtensions
+            )
+        } catch let error as EventAssetSupportError {
+            throw eventAssetBridgeError(error)
+        }
+        let source: EventAssetSource
+        do {
+            source = try eventAssetRoot()
+        } catch let error as EventAssetSupportError {
+            throw eventAssetBridgeError(error)
+        }
+        let root = source.root
+        let sourceID = source.entry.id
+        let items: [EventAssetSupport.Item]
+        do {
+            items = try await offMain {
+                try EventAssetSupport.items(
+                    root: root,
+                    request: request,
+                    pixelsAreLocal: FolderDumpScanner.pixelsAreLocal(at:),
+                    registry: self.eventAssetRegistry,
+                    sourceID: sourceID
+                )
+            }
+        } catch let error as EventAssetSupportError {
+            if isRootReplacement(error) { invalidateRawDump(sourceID) }
+            throw eventAssetBridgeError(error)
+        }
+        // A clear or replacement during the reads must not hand the old
+        // source's members back under the newly declared dump.
+        try confirmEventAssetRoot(source)
+        return ["items": items.map(\.wireValue)]
+    }
+
+    /// Reveal only a declared dump member. Placeholders are metadata and may
+    /// be selected in Finder without opening their bytes.
+    private func revealEventAsset(_ args: [String: Any]) async throws -> Any? {
+        let id: String
+        do {
+            id = try EventAssetSupport.Request.parseRevealID(
+                args, imageExtensions: FolderDumpScanner.imageExtensions
+            )
+        } catch let error as EventAssetSupportError {
+            throw eventAssetBridgeError(error)
+        }
+        let source: EventAssetSource
+        do {
+            source = try eventAssetRoot()
+        } catch let error as EventAssetSupportError {
+            throw eventAssetBridgeError(error)
+        }
+        let root = source.root
+        let member: EventAssetSupport.VerifiedMember
+        do {
+            member = try await offMain {
+                try EventAssetSupport.reveal(
+                    root: root,
+                    id: id,
+                    imageExtensions: FolderDumpScanner.imageExtensions
+                )
+            }
+        } catch let error as EventAssetSupportError {
+            throw eventAssetBridgeError(error)
+        }
+        do {
+            try EventAssetSupport.reveal(member, confirmSource: {
+                try self.confirmEventAssetRoot(source)
+            }, select: { path, parent in
+                NSWorkspace.shared.selectFile(path, inFileViewerRootedAtPath: parent)
+            })
+        } catch let error as EventAssetSupportError {
+            if isRootReplacement(error) { invalidateRawDump(source.entry.id) }
+            throw eventAssetBridgeError(error)
+        }
+        return nil
+    }
+
+    private func eventAssetRoot() throws -> EventAssetSource {
+        guard let entry = folderStore.rawDumpEntry, let identity = entry.rawDumpRootIdentity else {
+            throw BridgeError.failed("no raw dump folder is configured")
+        }
+        guard let url = folderStore.startAccess(entry) else {
+            throw EventAssetSupportError.unavailable("the raw dump folder could not be reached")
+        }
+        return EventAssetSource(
+            entry: entry,
+            root: try EventAssetSupport.openRoot(url, expected: identity)
+        )
+    }
+
+    private func confirmEventAssetRoot(_ source: EventAssetSource) throws {
+        guard let current = folderStore.rawDumpEntry,
+              current.id == source.entry.id,
+              current.rawDumpRootIdentity == source.root.identity,
+              source.root.isStillCurrent() else {
+            invalidateRawDump(source.entry.id)
+            throw BridgeError.failed("Raw dump changed during asset read")
+        }
+    }
+
+    private func invalidateRawDump(_ sourceID: UUID) {
+        eventAssetRegistry.revokeSource(sourceID)
+        rawDumpStore.deleteIndex()
+        rawDumpWatcher.stop()
+    }
+
+    private func isRootReplacement(_ error: Error) -> Bool {
+        guard let eventError = error as? EventAssetSupportError else { return false }
+        if case .reselectionRequired = eventError { return true }
+        return false
+    }
+
+    private func eventAssetBridgeError(_ error: EventAssetSupportError) -> BridgeError {
+        switch error {
+        case .badArguments(let why): return .badArguments(why)
+        default: return .failed(error.localizedDescription)
+        }
     }
 
     /// Point the watch at `root`, if it is not already there.
@@ -1230,9 +1423,28 @@ final class NativeBridge {
     /// clear. An unmounted root keeps its stream: watching a path that is
     /// not there costs nothing, and it is how the page hears the drive come
     /// back without the user reopening anything.
-    private func startRawDumpWatch(root: URL) {
-        rawDumpWatcher.start(root: root) { [weak self] in
-            MainActor.assumeIsolated { self?.rawDumpChanged() }
+    private func startRawDumpWatch(source: EventAssetSource) {
+        let sourceID = source.entry.id
+        let root = source.root
+        guard let current = folderStore.rawDumpEntry,
+              current.id == sourceID,
+              current.rawDumpRootIdentity == root.identity,
+              root.isStillCurrent() else {
+            invalidateRawDump(sourceID)
+            return
+        }
+        rawDumpWatcher.start(root: root.url) { [weak self] in
+            MainActor.assumeIsolated {
+                guard let self else { return }
+                guard let current = self.folderStore.rawDumpEntry,
+                      current.id == sourceID,
+                      current.rawDumpRootIdentity == root.identity,
+                      root.isStillCurrent() else {
+                    self.invalidateRawDump(sourceID)
+                    return
+                }
+                self.rawDumpChanged()
+            }
         }
     }
 
@@ -1242,11 +1454,17 @@ final class NativeBridge {
     /// through the dump's own commands means a root that left the library
     /// cannot leave a stream running against it behind.
     private func syncRawDumpWatch() {
-        guard let entry = folderStore.rawDumpEntry, let root = folderStore.startAccess(entry) else {
+        do {
+            startRawDumpWatch(source: try eventAssetRoot())
+        } catch let error as EventAssetSupportError {
+            if isRootReplacement(error), let entry = folderStore.rawDumpEntry {
+                invalidateRawDump(entry.id)
+            } else {
+                rawDumpWatcher.stop()
+            }
+        } catch {
             rawDumpWatcher.stop()
-            return
         }
-        startRawDumpWatch(root: root)
     }
 
     /// The watcher's nudge. It scans nothing and decides nothing: it says

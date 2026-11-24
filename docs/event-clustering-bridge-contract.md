@@ -1,16 +1,18 @@
 # Event clustering: the bridge contract
 
-One page, because there is one interface and three implementations of it:
-the macOS SwiftUI shell (`macos/ManoramaMac/`), the iOS Capacitor shell
-(`ios/App/App/`), and, later, the Rust shell in `src-tauri/`. The web
-bundle drives all of them through the same Tauri-compatible `invoke`
-command names, so a command listed here means the same thing on every
-device, and a page written against it never forks per platform.
+One device-local interface, shared by the macOS Swift shell, the iOS Capacitor
+shell and the Tauri desktop shell. Android will consume the same wire contract
+through a thin Kotlin plugin and the portable Rust engine.
 
-The engine behind the commands is `native/EventClustering/` — pure
-Foundation Swift, deterministic, no ML packages, no network. See
-`docs/PLAN-Event-Clustering-Camera-Roll.md` for why the boundaries sit
-where they do.
+The repository has two web roots. `desktop/` is loaded by the macOS and Tauri
+shells; `native/dist` is loaded by Capacitor. They share the platform-free
+types, validators and presentation helpers in `packages/core/event-clustering.ts`,
+but each owns its transport and island components.
+
+The engines are Swift (`native/EventClustering/`) on Apple surfaces and Rust
+(`crates/event-clustering/`) on Tauri and, later, Android. Neither engine uses
+ML or network access. See `docs/PLAN-Event-Clustering-Camera-Roll.md` for why
+these boundaries sit where they do.
 
 ---
 
@@ -21,26 +23,39 @@ Event clustering runs on exactly **one user-declared raw dump per device**:
 | Platform | Source | Item id |
 | :--- | :--- | :--- |
 | macOS | one security-scoped folder (a Drive/Proton/iCloud camera backup) | path relative to that folder, e.g. `2026/03/IMG_4821.jpg` |
+| Windows / Linux (Tauri) | one picker-approved folder | path relative to that folder |
 | iOS / iPadOS | the system Photos library | `PHAsset.localIdentifier` |
+| Android (planned) | MediaStore selection | MediaStore id |
 
-Normal curated galleries are never re-grouped: they are already curated.
-Gallery roots scan only their top level. The user-declared raw dump alone
-recurses: its subfolders are never published. A folder cannot be both a
-gallery root and the dump. Declaring either while the other exists is
-rejected, including aliases resolving to the same folder.
+Normal curated galleries are never re-grouped. Gallery roots scan only their
+top level. The user-declared raw dump alone recurses: its subfolders are never
+published. A folder cannot be both a gallery root and the dump. Declaring
+either while the other exists is rejected, including canonical and symlink
+aliases resolving to the same folder.
 
-Everything below is computed on-device. No timestamp, coordinate,
-thumbnail, folder path or item id is ever sent to a server. The
-`/api/*` surface does not gain a single route for this feature, and the
-D1 schema does not gain a single column.
+Everything below is computed on-device. No timestamp, coordinate, thumbnail,
+folder path or item id is sent to a server. The `/api/*` surface gains no route
+for this feature, and the D1 schema gains no column.
+
+### Library presentation
+
+The ordinary Library contains no event cards and performs no event scan.
+Library Settings owns one compact Camera Roll folder declaration/clear action.
+A capability-gated **Camera Roll** pill sits beside **Add Gallery**. Activating
+it mounts the event controller and replaces only the gallery-list contents
+with event cards; the brand/control rail remains. Opening Settings unmounts the
+controller. Events open in the shared Viewer and return to the still-active
+Camera Roll list.
+
+The pill performs only the cheap capability/status probe. Scanning begins when
+Camera Roll mode is activated, not when Settings declares or clears a folder.
 
 ---
 
 ## 2. Types
 
-Epoch **milliseconds** everywhere on the wire. The Swift index stores
-seconds (`EventIndex`'s codable strategy) and the bridge multiplies by
-1000 on the way out; one conversion, in one place, per platform.
+Epoch **milliseconds** everywhere on the wire. The Swift and Rust indexes store
+seconds and their shell adapters multiply by 1000 on output.
 
 ```ts
 /** packages/core/event-clustering.ts */
@@ -53,15 +68,13 @@ type EventDayGroup = {
 }
 
 type EventCluster = {
-  /** `evt_` + 20 hex: sha256(sourceId | startDateSeconds). Stable across
-   *  rescans, so a viewer open on an event survives a re-index. */
+  /** `evt_` + 20 hex: sha256(sourceId | startDateSeconds). */
   id: string
   startDate: number
   endDate: number
   isMultiDay: boolean
   coverItemId: string
-  /** Every member, chronological. Burst frames included — the collapse
-   *  chooses a cover, it never deletes a photograph. */
+  /** Every member, chronological. Burst frames included. */
   itemIds: string[]
   /** Present exactly when `isMultiDay`. */
   subDays?: EventDayGroup[] | null
@@ -80,27 +93,37 @@ type RawDumpStatus = {
 type RawDumpScanResult = {
   clusters: EventCluster[]
   screenshotCount: number
-  /** The dump root, for `assetUrl(joinPath(rootPath, itemId))` only. */
+  /** Diagnostic source information only; never a media URL or filesystem grant. */
   rootPath: string | null
 }
 
 type RawDumpPick = {
   label: string
   itemCount: number
-  /** Absolute dump root on macOS; null on iOS, where the source is the
-   *  system library and a `PHAsset.localIdentifier` needs no joining. */
+  /** Absolute dump root on desktop; null on iOS. Never media-URL authority. */
   rootPath: string | null
 }
+
+type EventAssetState = 'ready' | 'cloudOnly' | 'downloading' | 'failed' | 'missing'
+type EventAssetImage = {
+  id: string
+  url: string | null
+  width: number
+  height: number
+  state: EventAssetState
+}
+type EventAssetRequest = {
+  ids: string[]
+  purpose: 'thumbnail' | 'viewer'
+  maxPixelSize?: number
+  allowNetwork?: boolean
+}
+type EventAssetProgress = { id: string; fraction: number }
 ```
 
-`rootPath` is the one field that looks like a leak and is not. It is
-device-local, never serialised into any request: the local catalogue
-already stores absolute root paths in `catalogue.json` and
-`pick_gallery_root` already returns a path to the renderer. The viewer
-needs an absolute path to ask the shell's own media handler for the
-original, and the media handler re-checks every request against the
-granted roots — a path grants nothing, the bookmark does. `get_raw_dump_status`
-carries no path: it is the command a page may poll.
+`rootPath` is diagnostic only. The renderer must never join it to an item id,
+construct an original-file URL from it, or treat it as a grant. Event media URLs
+come only from a validated `get_event_asset_image` reply.
 
 ---
 
@@ -108,47 +131,117 @@ carries no path: it is the command a page may poll.
 
 | Command | Arguments | Returns | Errors |
 | :--- | :--- | :--- | :--- |
-| `pick_raw_dump_root` | `{}` | `RawDumpPick \| null` (null = the user cancelled) | native failure only |
-| `get_raw_dump_status` | `{}` | `RawDumpStatus` | never throws for "not configured" — answers `configured: false` |
-| `scan_raw_dump_events` | `{ force?: boolean }` | `RawDumpScanResult` | throws when no root is configured, or the root cannot be reached |
-| `clear_raw_dump_root` | `{}` | `null` | — |
+| `pick_raw_dump_root` | `{}` | `RawDumpPick \| null` (null = cancelled) | native failure only |
+| `get_raw_dump_status` | `{}` | `RawDumpStatus` | never throws for "not configured" |
+| `scan_raw_dump_events` | `{ force?: boolean }` | `RawDumpScanResult` | throws when unconfigured, unavailable or indexing fails |
+| `clear_raw_dump_root` | `{}` | `null` | native failure only |
+| `get_event_asset_image` | `EventAssetRequest` | `{ items: EventAssetImage[] }` | invalid request, unavailable source or native read failure |
+| `reveal_event_asset` | `{ id: string }` | `null` | invalid id, missing member or reveal failure |
 
-Semantics that all three shells owe each other:
+Semantics shared by the shells:
 
 * **`pick_raw_dump_root`** replaces any previous raw dump. macOS opens the
-  `NSOpenPanel`, marks the chosen `FolderStore.Entry` with
-  `isRawDump = true`, clears the flag on every other entry, records the
-  root in `roots.json`, and persists the grant as a security-scoped
-  bookmark. iOS asks for `.readWrite` photo permission, records
-  `cameraRollDumpEnabled` in `library-prefs.json`, and answers
-  `label: "Camera Roll"`, `rootPath: null` — there is no path on iOS, and
-  the viewer resolves `PHAsset.localIdentifier` through the existing
-  asset-protocol path.
-* **`get_raw_dump_status`** is the only cheap command: it reads the store
-  and the index header, touches no photographs, and is safe to call on
-  every mount.
-* **`scan_raw_dump_events`** runs off the main thread. Incremental by
-  default: it re-reads EXIF headers only for files whose modification
-  time moved (`EventIndex.needsMetadataRead`), and `force: true` rebuilds
-  the metadata cache from scratch. The clustering pass itself always
-  covers the whole timeline — it is in-memory arithmetic over 50,000 tiny
-  records and costs milliseconds; the expensive thing on a backup folder
-  is the byte-reading, and that is what the cache exists to avoid.
-* **`clear_raw_dump_root`** unmarks `isRawDump`, deletes
-  `events-index.json`, and leaves the folder grant alone. The same root may
-  be added as a gallery only after this declaration is cleared. Un-granting
-  a folder is a different action and stays in the folder's own UI.
+  `NSOpenPanel`, marks one `FolderStore.Entry` as the dump, clears the flag on
+  every other entry and persists a security-scoped bookmark. Tauri accepts only
+  a directory returned by its native picker/drop provenance, rejects gallery
+  roots and aliases before committing, and stores a Rust-only declaration. iOS
+  records the system library as `label: "Camera Roll"`, `rootPath: null`.
+  Selection itself performs no scan and loads no preview.
+* **`get_raw_dump_status`** is the only cheap command: it reads the store and
+  memoized index summary, touches no photograph bytes and is safe on mount.
+* **`scan_raw_dump_events`** runs off the main thread. Incremental by default:
+  it re-reads headers only for files whose metadata requires it. `force: true`
+  rebuilds the metadata cache. Clustering always covers the whole timeline.
+* **`clear_raw_dump_root`** removes the declaration and `events-index.json`,
+  stops its watcher and leaves folder grants alone. The same folder may become
+  a gallery only after the declaration is cleared. Clearing never modifies the
+  provider or source folder.
+* A source revision invalidates in-flight scans and asset replies. A late scan
+  cannot repopulate a cleared or replaced source, and a late asset reply cannot
+  become a URL under a new declaration.
+
+### `get_event_asset_image`
+
+Batch cap: **64** distinct, non-empty source-relative ids. `purpose` is
+`thumbnail` or `viewer`; `maxPixelSize`, when present, is an integer from 1 to
+8192. Replies contain exactly one item per requested id, in request order.
+
+A `ready` item has a native-produced URL and positive intrinsic width and
+height. Every other state has `url: null` and non-negative dimensions. The
+renderer validates the complete reply before using any URL.
+
+* **macOS and Tauri:** `purpose` and `maxPixelSize` are presentation hints only.
+  The shell returns an opaque, native-issued lease after authorization and a
+  bounded metadata-only header read. It creates no thumbnail, never resizes or
+  re-encodes, and never decodes bitmap pixels. `allowNetwork: true` is rejected;
+  cloud placeholders return `cloudOnly`. The renderer never derives a path from
+  the lease or from `rootPath`.
+* **iOS:** thumbnail replies reference the protected on-device thumbnail cache;
+  viewer replies reference the original bytes in a protected temporary file.
+  Thumbnail generation is bounded by both target and source dimensions. Viewer
+  originals are never re-encoded. Temp files and cancelled requests are released
+  when the viewer closes.
+* **iCloud-only iOS assets:** default requests use `allowNetwork: false` and
+  return `cloudOnly`. Only an explicit viewer request may opt into the OS
+  download, with Low Data/cellular consent and `eventAssetProgress` updates.
+  Indexing and thumbnails never download.
+* **Android:** planned. MediaStore supplies metadata; the Kotlin bridge will
+  call the Rust core and follow the same reply validation and no-implicit-
+  download rule.
+
+### Desktop verified-lease protocol
+
+Desktop URLs contain no filesystem pathname:
+
+| Shell | Exact ready URL |
+| :--- | :--- |
+| macOS / Linux | `manorama-event://localhost/<32 lowercase or uppercase hex>` |
+| Windows | `http://manorama-event.localhost/<32 lowercase or uppercase hex>` |
+
+Credentials, ports, queries, fragments, extra path segments, encoded characters,
+non-hex tokens and wrong-length tokens are rejected. The native lease registry is
+bounded and process-local. Swift uses capacity 128 with a 30-minute TTL; Rust uses
+FIFO capacity 256 with no TTL. Both revoke by source generation, and tokens are
+128-bit random, so this is a documented parity difference rather than a pathname
+or token-guessing gap. Each lease retains the selected root identity, a pinned
+parent directory handle, the leaf name, expected leaf device/inode identity and
+MIME type. Every protocol read revalidates those identities and reopens the leaf
+through the pinned parent with no-follow semantics. Replacing the root, an
+ancestor or the leaf revokes the lease.
+
+The asynchronous custom protocol supports `GET` and `HEAD`, unchanged original
+bytes, one bounded byte range including suffix and open-ended ranges, truthful
+`Content-Range`, `416` for unsatisfiable ranges and `405` for other methods.
+Responses use `Cache-Control: private, no-store` and `X-Content-Type-Options:
+nosniff`. Multi-range requests are refused. The renderer uses bounded range reads
+for embedded metadata and never converts a lease into a filesystem URL.
+
+### `reveal_event_asset`
+
+Desktop-only metadata action. It validates the id under the active dump grant,
+permits local and cloud-placeholder members without reading their bytes, and
+asks Finder/Explorer to reveal only that declared member. It neither downloads
+nor opens the photograph. The shell retains the verified root/directory/leaf
+identities, revalidates them immediately before the OS call, and fails closed on
+replacement. Finder/Explorer's public APIs accept pathnames rather than pinned
+handles, so a race after the OS accepts that pathname remains unavoidable and is
+not described as atomic. iOS uses its own explicit Photos action instead.
+
+### iOS auxiliary plugin methods
+
+The Capacitor plugin additionally exposes `cancelEventAssetImage`,
+`releaseEventAssetImages`, `setEventCloudDownload`,
+`presentLimitedLibraryPicker`, `openEventPhotosSettings` and
+`openEventAssetInPhotos`. These are native capabilities, not commands the Tauri
+or macOS shells must implement.
 
 ---
 
 ## 4. `events-index.json`
 
-Written into `configDir` (`Application Support/in.thecontrarian.manorama.desktop`
-on macOS; the app container on iOS) through the shell's atomic `0600`
-writer, never through `write_private_file`, and deliberately **not** added
-to the private-file allowlist: the page reads events from the scan
-command's answer, not from the file, so the index stays a cache the shell
-owns rather than a second source of truth a renderer can write.
+Written into the shell's private config directory through its atomic protected
+writer, never through the renderer-writable private-file allowlist. The page
+reads events from command replies, not from this file.
 
 ```jsonc
 {
@@ -161,127 +254,80 @@ owns rather than a second source of truth a renderer can write.
 }
 ```
 
-A fingerprint mismatch (`deviceId`, `sourceId`, or `schemaVersion`) means
-the index belongs to a different source or an older engine: the shell
-rebuilds instead of merging. Dates here are epoch **seconds**, matching
-`EventIndex`'s codable strategy; only the wire format uses milliseconds.
+A fingerprint mismatch (`deviceId`, `sourceId`, or `schemaVersion`) means the
+index belongs to another source or engine: the shell rebuilds instead of
+migrating. Dates here are epoch **seconds**; only the wire uses milliseconds.
+Unknown schema versions are discarded.
 
 ---
 
 ## 5. Cover and day rules the UI can rely on
 
 * `coverItemId ∈ itemIds`, always.
-* A screenshot is never a cover and never a member of an event.
-* `subDays` is non-empty exactly when `isMultiDay`, and one entry per
+* A screenshot is never a cover or event member.
+* `subDays` is non-empty exactly when `isMultiDay`, with one representative per
   local calendar day the event spans.
-* Events are returned in chronological order, oldest first.
-* `itemIds` are chronological, which means the viewer can open an event
-  at index 0 and page forward through it like any other gallery.
-
-The UI's job is presentation only: date span, frame count, cover
-thumbnail, a multi-day badge, and sub-day tabs. It never receives, and
-must never show, a classification label.
-
-One caveat on "cover thumbnail": on macOS it is a solved problem, because
-the dump root is a granted folder and the shell's media handler already
-answers absolute paths inside it. On iOS a member id is a
-`PHAsset.localIdentifier`, which is not a URL and has no route to the page
-yet. See §7 item 2 — an event that cannot show a photograph is not
-shippable on that platform, however correct its clustering is.
+* Events are chronological, oldest first.
+* `itemIds` are chronological; the Viewer opens at the requested index and
+  pages through the event like a gallery.
+* The UI presents date span, frame count, cover, multi-day badge and day entry
+  points. It never receives or shows a semantic classification label.
+* Covers and picker thumbnails are lazy and intrinsically sized. A bitmap is
+  never rendered larger than its intrinsic pixels.
 
 ---
 
 ## 6. Where each shell hooks in
 
-The four names and their payloads are the contract. What is *not* shared is
-the bundle: the repository ships two web roots, and each shell loads its
-own, so "one page drives both" would be wrong and the table below is the
-accurate version.
+| Shell | Bundle | Engine | Transport / registration | State |
+| :--- | :--- | :--- | :--- | :--- |
+| macOS (`macos/ManoramaMac`) | `desktop/` | Swift | `NativeBridge` snake_case commands | implemented |
+| Windows / Linux (`src-tauri`) | `desktop/` | Rust | Tauri `invoke`, explicit `generate_handler!` | implemented |
+| iOS / iPadOS (`ios/App/App`) | `native/dist` | Swift | `registerPluginInstance(EventClusteringPlugin())`, camelCase methods under `EventClustering` | implemented |
+| Android (`android/`) | `native/dist` | Rust via JNI | planned Kotlin Capacitor plugin | pending |
+| Web app (`app/`) | `app/` | none | none | absent by invariant 7 |
 
-* `desktop/` is the macOS bundle (staged into `Resources/ViewerBundle`). It
-  reaches the commands through `invoke` in `desktop/lib/event-clustering.ts`.
-* `native/` is what the Capacitor shells serve — `webDir: 'native/dist'` —
-  and it does not import the desktop islands' event UI today. Its own call
-  path for an app-local plugin is `registerPlugin('EventClustering')`, the
-  pattern `native/lib/local-gallery.ts` already uses for `LocalGallery`.
-
-Both bundles must speak the same four commands with the same payloads; that
-is what keeps the engine's answer from being interpreted differently per
-device. A shared presentation layer is possible — `native/islands/` already
-imports from `desktop/lib` — but it is not what exists now.
-
-| Shell | Entry point | Method name on the native side |
-| :--- | :--- | :--- |
-| macOS (`macos/ManoramaMac`) | `NativeBridge.run` command switch | the snake_case names verbatim |
-| iOS / iPadOS (`ios/App/App`) | `SceneDelegate.viewDidLoad` → `bridge?.registerPluginInstance(EventClusteringPlugin())`, which is also what calls the plugin's `load()` | camelCase: `pickRawDumpRoot`, `getRawDumpStatus`, `scanRawDumpEvents`, `clearRawDumpRoot`, under `jsName` `EventClustering` |
-| Tauri desktop (`src-tauri`) | not implemented | none — see below |
-| Android (`android/`) | not implemented | none — see §7 |
-
-`registerPluginInstance` is the only registration path that works for an
-app-local plugin in this target: `LocalGalleryPlugin` is registered the same
-way, and a plugin that is compiled into the app but never registered is
-simply absent from `window.Capacitor.Plugins`.
-
-**Known gap.** `src-tauri/src/lib.rs` registers its commands explicitly, and
-none of the four are among them. A page running in the Tauri build therefore
-gets a rejection from `invoke`, which is the same answer as "this shell does
-not do this": the raw-dump UI stays hidden rather than rendering a control
-that can only error. Adding the four commands to the Tauri shell is separate
-work and must reuse the same `native/EventClustering` sources, not a
-reimplementation.
+`desktop/lib/event-clustering.ts` dynamically imports Tauri's `invoke` and
+`listen`. `native/lib/event-clustering.ts` uses Capacitor's `registerPlugin`.
+Both validate replies through `packages/core`; neither interprets a renderer
+path as native authorization.
 
 ---
 
-## 7. Open work per surface
+## 7. Verification status and remaining gates
 
-Where the feature actually stands, so that "available everywhere" is a
-checklist rather than an assumption. Ordered by what unblocks the most.
+Implemented and locally verified:
 
-| Surface | Bundle loaded | Engine | Four commands | Event UI | Pixels for a member |
-| :--- | :--- | :--- | :--- | :--- | :--- |
-| macOS | `desktop/` | linked into the binary | all four | Library section + Settings row | granted root, `manorama://media/local/…` |
-| iOS / iPadOS | `native/dist` | compiled into the target | all four, registered | **none** | **no route** |
-| Android | `native/dist` | **absent** (Swift only) | none | none | n/a |
-| Tauri desktop | `desktop/` | **absent** (Swift only) | none | hidden by design | n/a |
-| Web app | `app/` | n/a | n/a | none, per invariant 7 | n/a |
+* Swift engine, macOS boundary and iOS Camera Roll mode.
+* Portable Rust engine with Swift golden-fixture parity.
+* Tauri private declaration/index/provenance, scanner, watcher and six commands.
+* Persisted selected-root identity, pinned no-follow member authorization, opaque
+  desktop leases, asynchronous original-byte protocol reads and reveal handoff
+  revalidation in Rust; matching Swift asset/reveal commands and boundary tests.
+* Desktop pill, Settings action, conditional right-rail event list, shared
+  Viewer, lazy intrinsic covers, cloud placeholders, source-revision races,
+  modal-drop blocking and bounded cover-cancellation retries.
 
-**Traversal policy reconciled.** The root-only rule in
-`docs/manorama-operations.md` explicitly exempts the declared dump. The
-macOS boundary suite runs both scanners over the same nested tree and
-checks picker, catalogue-write and drop-batch source conflicts, including
-symlink aliases at the picker and catalogue boundaries.
+Independent round-3 reviewer `qfmodel` returned **“Verdict: APPROVED as a local
+checkpoint.”** P1/P2/P3 are closed. The desktop renderer accepts only exact opaque
+lease URLs; shared-core file-URL support remains for iOS. The tracked Swift suites
+pass 262 checks, including a real headless `WKWebView` using the production
+configuration and an issued `manorama-event` URL that served unchanged original
+bytes.
 
-1. **Mobile event UI (`native/`).** A wrapper over
-   `registerPlugin<EventClusteringBridge>('EventClustering')`, a Settings row
-   mirroring `RawDumpSettings`, and the cards themselves. The pure
-   presentation maths and validators are already platform-free in
-   `packages/core/event-clustering.ts`, which is what makes this a port of
-   layout rather than of logic.
-2. **An iOS pixel route.** Without it an event is a list of identifiers the
-   page cannot draw. The shape the contract wants is a thumbnail request
-   addressed by `PHAsset.localIdentifier` at a bounded pixel size, served
-   through the existing asset scheme, with `PHImageManager` asked in a mode
-   that will not download from iCloud — the same refusal that keeps the
-   indexer from ever touching `requestImageData`. This is a fifth plugin
-   method and deliberately not part of the four commands above, because it
-   moves pixels rather than describing them.
-3. **Traversal policy (completed in slice 1).** The bullet under
-   "Source link expectations" in `docs/manorama-operations.md` states that
-   only the top level of a folder is scanned and subfolders are not
-   descended into, and `fix(gallery): scan folder roots only` made that
-   structural for local folders as well — "the behavior is structural, not
-   configurable". The raw dump descends by design, because a Drive backup
-   laid out `YYYY/MM/` is the case the feature exists for; the plan's macOS
-   ingestion section argued the exemption at the time, but a reader following
-   the runbook would find nothing acknowledging it. The fix is one clarifying
-   sentence naming a
-   user-declared raw dump as a distinct concept from a scanned gallery root
-   — the two rules are not in conflict, but they look that way. Left as a
-   decision rather than edited here, because it touches the contract that
-   commit deliberately just tightened.
-4. **Tauri and Android need the engine outside Swift.** The core has no
-   platform imports beyond Foundation and CryptoKit, which is what makes the
-   plan's "portable later to Rust/TS" realistic, but nothing has been
-   ported: `packages/core/event-clustering.ts` holds wire types, validators
-   and labels, not the clusterer. Until one of those ports exists, these two
-   surfaces should stay silent rather than half-implemented.
+The broad Playwright run remains red (61 failed, 386 passed, 8 skipped). A
+same-environment clean-base comparison reproduced 60 exact failures; the sole
+Slice-4-only observation and two base-only observations passed an isolated warm
+base rerun. No Slice 4-specific regression is demonstrated, but the matrix is not
+green. Synthetic browser evidence, real headless WKWebView protocol evidence and
+partial signed/unsandboxed native GUI evidence are recorded separately.
+
+Still gated:
+
+* Complete six-state native release evidence from a packaged sandboxed app; the
+  current 3456×2168 synthetic evidence covers the event rail, Viewer, picker and
+  Library Settings controls only.
+* Android NDK/JNI/Kotlin/MediaStore implementation and physical-device checks.
+* Real iCloud-only behavior, Low Data/cellular consent and locked-device checks.
+* 50,000-item performance budgets, localization and accessibility sweep.
+* Windows/Linux packaged-app runs and the cross-surface verification script.

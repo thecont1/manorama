@@ -257,9 +257,13 @@ struct ViewerWebView: NSViewRepresentable {
     /// for a native shell.
     var startURL: URL { URL(string: "manorama://localhost/index.html")! }
 
-    func makeNSView(context: Context) -> WKWebView {
+    static func makeConfiguration(
+        schemeHandler: LocalSchemeHandler,
+        coordinator: ViewerCoordinator
+    ) -> WKWebViewConfiguration {
         let configuration = WKWebViewConfiguration()
         configuration.setURLSchemeHandler(schemeHandler, forURLScheme: "manorama")
+        configuration.setURLSchemeHandler(schemeHandler, forURLScheme: "manorama-event")
         // The hiddenTitleBar window puts content under the traffic lights,
         // so the page marks itself — top-anchored chrome reserves the strip
         // the lights occupy instead of landing beneath them.
@@ -344,7 +348,14 @@ struct ViewerWebView: NSViewRepresentable {
         // A dark webview avoids a white flash before the page's own ground
         // paints.
         configuration.preferences.setValue(false, forKey: "developerExtrasEnabled")
+        return configuration
+    }
 
+    func makeNSView(context: Context) -> WKWebView {
+        let configuration = Self.makeConfiguration(
+            schemeHandler: schemeHandler,
+            coordinator: coordinator
+        )
         let webView = DropAwareWebView(frame: .zero, configuration: configuration)
         // WebKit registers its own drag types at init; file URLs join them
         // (never replace) so a Finder folder drag reaches the overrides

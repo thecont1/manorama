@@ -8,8 +8,11 @@ import {
   formatFrameCount,
   formatIndexedAgo,
   formatSubDayLabel,
-  joinDumpPath,
+  isEventAssetFileUrl,
+  isEventAssetLeaseUrl,
+  isEventAssetRequest,
   orderedSubDays,
+  parseEventAssetImages,
   parseEventCluster,
   parseEventClusters,
   parseRawDumpPick,
@@ -372,35 +375,101 @@ describe('formatIndexedAgo', () => {
   })
 })
 
-describe('joinDumpPath', () => {
-  test('joins a relative member under the root', () => {
-    expect(joinDumpPath('/Users/home/Backups/Photos', '2026/03/IMG_4821.jpg'))
-      .toBe('/Users/home/Backups/Photos/2026/03/IMG_4821.jpg')
-    // A trailing separator on the root does not double up.
-    expect(joinDumpPath('/Users/home/Backups/Photos/', 'a.jpg'))
-      .toBe('/Users/home/Backups/Photos/a.jpg')
+describe('event asset contract', () => {
+  test('accepts native local file URLs on macOS and Windows', () => {
+    expect(isEventAssetFileUrl('file:///Users/example/Photos/a.jpg')).toBe(true)
+    expect(isEventAssetFileUrl('file:///C:/Photos/a.jpg')).toBe(true)
+    expect(isEventAssetFileUrl('file:///Users/example/Photos/a%20b.jpg')).toBe(true)
   })
 
-  test('refuses to leave the declared folder', () => {
-    expect(joinDumpPath('/dump', '../../etc/passwd')).toBeNull()
-    expect(joinDumpPath('/dump', '2026/../../etc/passwd')).toBeNull()
-    expect(joinDumpPath('/dump', '../outside.jpg')).toBeNull()
-    // An absolute id would replace the root whole.
-    expect(joinDumpPath('/dump', '/etc/passwd')).toBeNull()
-    expect(joinDumpPath('/dump', '\\etc\\passwd')).toBeNull()
-    expect(joinDumpPath('/dump', './a.jpg')).toBeNull()
-    expect(joinDumpPath('/dump', 'a//b.jpg')).toBeNull()
-    expect(joinDumpPath('/dump', '')).toBeNull()
-    expect(joinDumpPath('/dump', 'a\u0000.jpg')).toBeNull()
+  test('refuses remote, query, hash, traversal and malformed URLs', () => {
+    for (const value of [
+      'https://example.com/a.jpg',
+      'asset://localhost/a.jpg',
+      'file://server/share/a.jpg',
+      'file:///Users/example/a.jpg?download=1',
+      'file:///Users/example/a.jpg#frame',
+      'file:///Users/example/%2e%2e/a.jpg',
+      'file:///Users/example/%2E%2E/a.jpg',
+      'file:///Users/example/../a.jpg',
+      'file:///Users/example//a.jpg',
+      'file:///Users/example/a\\b.jpg',
+      'file:///Users/example/a\u0000.jpg',
+      'file:///',
+      null,
+    ]) expect(isEventAssetFileUrl(value)).toBe(false)
   })
 
-  test('no root means no path to build', () => {
-    // iOS answers no root at all; an asset identifier is resolved by the
-    // shell's own protocol, so a caller that expected a path must not get one.
-    expect(joinDumpPath(null, 'a.jpg')).toBeNull()
-    expect(joinDumpPath(undefined, 'a.jpg')).toBeNull()
-    expect(joinDumpPath('', 'a.jpg')).toBeNull()
-    expect(joinDumpPath('/', 'a.jpg')).toBeNull()
+  test('accepts only exact opaque desktop lease URLs', () => {
+    const token = '0123456789abcdef0123456789abcdef'
+    expect(isEventAssetLeaseUrl(`manorama-event://localhost/${token}`)).toBe(true)
+    expect(isEventAssetLeaseUrl(`http://manorama-event.localhost/${token.toUpperCase()}`)).toBe(true)
+    for (const value of [
+      `manorama-event://localhost/${token.slice(1)}`,
+      `manorama-event://localhost/${token}0`,
+      `manorama-event://localhost/${token}/extra`,
+      `manorama-event://localhost/${token}?download=1`,
+      `manorama-event://localhost/${token}#frame`,
+      `manorama-event://localhost:80/${token}`,
+      `manorama-event://user@localhost/${token}`,
+      `manorama-event://example.com/${token}`,
+      `manorama-event://localhost/%30${token.slice(1)}`,
+      `manorama-event://localhost/${token.slice(0, 16)}%2f${token.slice(16)}`,
+      `http://manorama-event.localhost:80/${token}`,
+      `http://user@manorama-event.localhost/${token}`,
+      `https://manorama-event.localhost/${token}`,
+      `http://manorama.xyz/${token}`,
+      `manorama-event://localhost/${'g'.repeat(32)}`,
+      null,
+    ]) expect(isEventAssetLeaseUrl(value)).toBe(false)
+  })
+
+  test('validates request bounds and desktop-incompatible network asks', () => {
+    expect(isEventAssetRequest({ ids: ['a.jpg'], purpose: 'thumbnail', maxPixelSize: 512 })).toBe(true)
+    expect(isEventAssetRequest({ ids: ['a.jpg'], purpose: 'viewer', allowNetwork: true })).toBe(true)
+    expect(isEventAssetRequest({ ids: [], purpose: 'viewer' })).toBe(false)
+    expect(isEventAssetRequest({ ids: ['a.jpg', 'a.jpg'], purpose: 'viewer' })).toBe(false)
+    expect(isEventAssetRequest({ ids: ['../a.jpg'], purpose: 'viewer' })).toBe(false)
+    expect(isEventAssetRequest({ ids: ['a.jpg'], purpose: 'thumbnail', maxPixelSize: 0 })).toBe(false)
+    expect(isEventAssetRequest({ ids: ['a.jpg'], purpose: 'thumbnail', allowNetwork: true })).toBe(false)
+    expect(isEventAssetRequest({ ids: Array.from({ length: 65 }, (_, index) => `${index}.jpg`), purpose: 'viewer' })).toBe(false)
+  })
+
+  test('preserves reply order and enforces truthful ready and unavailable states', () => {
+    const parsed = parseEventAssetImages({ items: [
+      { id: 'a.jpg', url: 'file:///Users/example/a.jpg', width: 4032, height: 3024, state: 'ready' },
+      { id: 'b.jpg', url: null, width: 0, height: 0, state: 'cloudOnly' },
+      { id: 'c.jpg', url: null, width: 0, height: 0, state: 'missing' },
+    ] }, ['a.jpg', 'b.jpg', 'c.jpg'])
+    expect(parsed?.map((item) => item.id)).toEqual(['a.jpg', 'b.jpg', 'c.jpg'])
+    expect(parsed?.[1]).toEqual({ id: 'b.jpg', url: null, width: 0, height: 0, state: 'cloudOnly' })
+  })
+
+  test('a ready item needs a local URL and positive intrinsic dimensions', () => {
+    for (const item of [
+      { id: 'a.jpg', url: null, width: 10, height: 10, state: 'ready' },
+      { id: 'a.jpg', url: 'https://example.com/a.jpg', width: 10, height: 10, state: 'ready' },
+      { id: 'a.jpg', url: 'file:///tmp/a.jpg', width: 0, height: 10, state: 'ready' },
+      { id: 'a.jpg', url: 'file:///tmp/a.jpg', width: 10.5, height: 10, state: 'ready' },
+      { id: 'a.jpg', url: 'file:///tmp/a.jpg', width: 10, height: 10, state: 'cloudOnly' },
+    ]) expect(parseEventAssetImages({ items: [item] }, ['a.jpg'])).toBeNull()
+  })
+
+  test('accepts native file URLs and opaque desktop leases as ready assets', () => {
+    for (const url of ['file:///Users/example/a.jpg', 'manorama-event://localhost/0123456789abcdef0123456789abcdef']) {
+      const parsed = parseEventAssetImages({ items: [
+        { id: 'a.jpg', url, width: 4032, height: 3024, state: 'ready' },
+      ] }, ['a.jpg'])
+      expect(parsed?.[0]?.url).toBe(url)
+    }
+  })
+
+  test('a reply cannot reorder, omit or duplicate requested members', () => {
+    const ready = { id: 'a.jpg', url: 'file:///tmp/a.jpg', width: 10, height: 10, state: 'ready' }
+    expect(parseEventAssetImages({ items: [ready] }, ['b.jpg'])).toBeNull()
+    expect(parseEventAssetImages({ items: [] }, ['a.jpg'])).toBeNull()
+    expect(parseEventAssetImages({ items: [ready, ready] }, ['a.jpg', 'b.jpg'])).toBeNull()
+    expect(parseEventAssetImages({ items: [ready] }, [])).toBeNull()
   })
 })
 

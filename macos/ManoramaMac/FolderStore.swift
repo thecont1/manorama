@@ -1,4 +1,36 @@
+import Darwin
 import Foundation
+
+/// The object a raw-dump declaration refers to, independent of its pathname.
+///
+/// A bookmark preserves the grant, not the identity of the directory that
+/// happens to occupy the resolved path today. Persisting both numbers lets
+/// every raw-dump boundary reject a replacement before it is trusted.
+struct NativeFileIdentity: Codable, Hashable {
+    let device: UInt64
+    let inode: UInt64
+
+    init(device: UInt64, inode: UInt64) {
+        self.device = device
+        self.inode = inode
+    }
+
+    init?(_ metadata: stat) {
+        self.device = UInt64(bitPattern: Int64(metadata.st_dev))
+        self.inode = metadata.st_ino
+    }
+
+    init?(directoryAt url: URL) {
+        var metadata = stat()
+        guard url.path.withCString({ lstat($0, &metadata) }) == 0,
+              metadata.st_mode & S_IFMT == S_IFDIR else { return nil }
+        self.init(metadata)
+    }
+
+    func matches(_ metadata: stat) -> Bool {
+        device == UInt64(bitPattern: Int64(metadata.st_dev)) && inode == metadata.st_ino
+    }
+}
 
 /// The folders the media handler answers for.
 ///
@@ -56,6 +88,9 @@ final class FolderStore: ObservableObject {
         /// rule the bridge contract sets, and a second one would make
         /// "which camera roll is this event from" unanswerable.
         var isRawDump: Bool = false
+        /// Device and inode of the directory actually chosen as the dump.
+        /// Nil is a legacy declaration and is never treated as trusted.
+        var rawDumpRootIdentity: NativeFileIdentity? = nil
 
         /// The memberwise initialiser, written out because the custom
         /// `init(from:)` below takes the synthesised one away, and
@@ -66,7 +101,8 @@ final class FolderStore: ObservableObject {
             bookmark: String,
             isAvailable: Bool = true,
             sourceKind: String = "folder",
-            isRawDump: Bool = false
+            isRawDump: Bool = false,
+            rawDumpRootIdentity: NativeFileIdentity? = nil
         ) {
             self.id = id
             self.name = name
@@ -74,10 +110,11 @@ final class FolderStore: ObservableObject {
             self.isAvailable = isAvailable
             self.sourceKind = sourceKind
             self.isRawDump = isRawDump
+            self.rawDumpRootIdentity = rawDumpRootIdentity
         }
 
         private enum CodingKeys: String, CodingKey {
-            case id, name, bookmark, isAvailable, sourceKind, isRawDump
+            case id, name, bookmark, isAvailable, sourceKind, isRawDump, rawDumpRootIdentity
         }
 
         /*
@@ -102,6 +139,7 @@ final class FolderStore: ObservableObject {
             isAvailable = try container.decodeIfPresent(Bool.self, forKey: .isAvailable) ?? true
             sourceKind = try container.decodeIfPresent(String.self, forKey: .sourceKind) ?? "folder"
             isRawDump = try container.decodeIfPresent(Bool.self, forKey: .isRawDump) ?? false
+            rawDumpRootIdentity = try container.decodeIfPresent(NativeFileIdentity.self, forKey: .rawDumpRootIdentity)
         }
     }
 
@@ -288,26 +326,29 @@ final class FolderStore: ObservableObject {
 
     // MARK: - The raw dump
 
-    /// The folder declared as this device's raw dump, if there is one.
+    /// The trusted raw-dump declaration, if there is one.
+    ///
+    /// Older files can carry `isRawDump` without an identity. They remain
+    /// visible as declarations in `entries`, but require a fresh pick rather
+    /// than becoming an authority merely because the old JSON said so.
     var rawDumpEntry: Entry? {
-        entries.first(where: \.isRawDump)
+        entries.first { $0.isRawDump && $0.rawDumpRootIdentity != nil }
     }
 
-    /// Declare one folder the raw dump, clearing the flag on every other.
+    /// Declare one verified folder as the raw dump, clearing every other mark.
     ///
-    /// The clear is the point of the method rather than an incidental
-    /// detail, and it is done here instead of at the call site so that no
-    /// caller can mark a second dump by accident. Returns false when the
-    /// entry is not in the store — a mark on an unknown folder is a bug in
-    /// the caller, not a state to write to disk.
+    /// The identity comes from the object pinned when the user picked it, not
+    /// from a later pathname lookup. Returns false for an unknown entry.
     @discardableResult
-    func markRawDump(_ id: UUID) -> Bool {
+    func markRawDump(_ id: UUID, identity: NativeFileIdentity) -> Bool {
         guard let index = entries.firstIndex(where: { $0.id == id }) else { return false }
-        var changed = !entries[index].isRawDump
+        var changed = !entries[index].isRawDump || entries[index].rawDumpRootIdentity != identity
         entries[index].isRawDump = true
+        entries[index].rawDumpRootIdentity = identity
         for other in entries.indices where other != index {
-            guard entries[other].isRawDump else { continue }
+            guard entries[other].isRawDump || entries[other].rawDumpRootIdentity != nil else { continue }
             entries[other].isRawDump = false
+            entries[other].rawDumpRootIdentity = nil
             changed = true
         }
         if changed { save() }
@@ -319,6 +360,7 @@ final class FolderStore: ObservableObject {
         guard entries.contains(where: \.isRawDump) else { return }
         for index in entries.indices {
             entries[index].isRawDump = false
+            entries[index].rawDumpRootIdentity = nil
         }
         save()
     }

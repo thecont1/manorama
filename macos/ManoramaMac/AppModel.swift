@@ -110,14 +110,15 @@ final class AppModel {
             return arguments[index + 1]
         }()
         self.folderStore = FolderStore(fileURL: storeURL, configDir: configDir)
-        self.schemeHandler = LocalSchemeHandler(bundleRoot: bundleRoot)
         let roots = grantedRoots
-        self.bridge = NativeBridge(
+        let bridge = NativeBridge(
             folderStore: folderStore,
             grantedRoots: roots,
             configDir: configDir,
             seededRawDumpPath: seededRawDump
         )
+        self.schemeHandler = LocalSchemeHandler(bundleRoot: bundleRoot, eventAssets: bridge.eventAssetRegistry)
+        self.bridge = bridge
         coordinator.bridge = bridge
         // The media handler answers an absolute path only when it really is
         // inside a root the user granted. The list is read from the cache

@@ -14,6 +14,7 @@ import WebKit
 ///   manorama://app/<path>     → the viewer bundle (inside the app)
 ///   manorama://media/<token>/<path>  → a picked folder, only while a scope
 ///                                       is open
+///   manorama-event://localhost/<capability> → a pinned event original
 ///
 /// The media prefix is only reachable for folders the user granted, and
 /// only while their security scope is held. A path outside a granted root
@@ -178,6 +179,7 @@ final class LocalMediaResolver {
 /// page fetch originals lazily.
 final class LocalSchemeHandler: NSObject, WKURLSchemeHandler {
     let resolver: LocalMediaResolver
+    private let eventAssets: EventAssetRegistry?
 
     /// Why a photograph could not be served.
     ///
@@ -237,8 +239,26 @@ final class LocalSchemeHandler: NSObject, WKURLSchemeHandler {
     /// WebKit's and would stall on a multi-hundred-megabyte file.
     private let readQueue = DispatchQueue(label: "in.thecontrarian.manorama.media-reads", qos: .userInitiated)
 
-    init(bundleRoot: URL) {
+    init(bundleRoot: URL, eventAssets: EventAssetRegistry? = nil) {
         self.resolver = LocalMediaResolver(bundleRoot: bundleRoot)
+        self.eventAssets = eventAssets
+    }
+
+    /// The protocol response used by the event branch, kept synchronous so
+    /// HEAD and Range semantics can be checked without a live web view.
+    func eventAssetResponse(for request: URLRequest) -> EventAssetRegistry.Response {
+        guard let eventAssets, let url = request.url else {
+            return EventAssetRegistry.Response(
+                statusCode: 404,
+                headers: ["Cache-Control": "private, no-store"],
+                body: Data()
+            )
+        }
+        return eventAssets.response(
+            for: url,
+            method: (request.httpMethod ?? "GET").uppercased(),
+            range: request.value(forHTTPHeaderField: "Range")
+        )
     }
 
     /// Register a granted folder, starting its security scope.
@@ -505,6 +525,10 @@ final class LocalSchemeHandler: NSObject, WKURLSchemeHandler {
             urlSchemeTask.didFailWithError(URLError(.badURL))
             return
         }
+        if EventAssetRegistry.isEventURL(url) {
+            serveEventAsset(urlSchemeTask)
+            return
+        }
 
         switch resolver.resolve(url) {
         case .badURL:
@@ -600,6 +624,34 @@ final class LocalSchemeHandler: NSObject, WKURLSchemeHandler {
                     urlSchemeTask.didFinish()
                     self.clearStopped(taskID)
                 }
+            }
+        }
+    }
+
+    private func serveEventAsset(_ urlSchemeTask: WKURLSchemeTask) {
+        let taskID = ObjectIdentifier(urlSchemeTask)
+        stoppedTasksLock.lock()
+        inflightTasks.insert(taskID)
+        stoppedTasksLock.unlock()
+        readQueue.async { [weak self] in
+            guard let self else { return }
+            if self.wasStopped(taskID) { self.clearStopped(taskID); return }
+            let result = self.eventAssetResponse(for: urlSchemeTask.request)
+            let url = urlSchemeTask.request.url!
+            let method = (urlSchemeTask.request.httpMethod ?? "GET").uppercased()
+            DispatchQueue.main.async { [weak self] in
+                guard let self else { return }
+                if self.wasStopped(taskID) { self.clearStopped(taskID); return }
+                defer { self.clearStopped(taskID) }
+                let response = HTTPURLResponse(
+                    url: url, statusCode: result.statusCode, httpVersion: "HTTP/1.1",
+                    headerFields: result.headers
+                )!
+                urlSchemeTask.didReceive(response)
+                if method != "HEAD", !result.body.isEmpty {
+                    urlSchemeTask.didReceive(result.body)
+                }
+                urlSchemeTask.didFinish()
             }
         }
     }
