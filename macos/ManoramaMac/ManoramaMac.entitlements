@@ -6,6 +6,14 @@
 	<key>com.apple.security.app-sandbox</key>
 	<true/>
 
+
+	<!-- Sign in with Apple: the native ASAuthorizationController sheet the
+	     shell prefers over the in-app web view for /auth/apple. -->
+	<key>com.apple.developer.applesignin</key>
+	<array>
+		<string>Default</string>
+	</array>
+
 	<!-- Outbound: manorama.xyz API, provider APIs/CDNs (Dropbox, Drive, MEGA,
 	     Proton), all via URLSession + WKWebView. -->
 	<key>com.apple.security.network.client</key>

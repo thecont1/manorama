@@ -121,6 +121,12 @@ final class NativeBridge {
     /// the same path an OS deep link takes.
     private var authSheet: AuthSheetController?
 
+    /// The in-flight native Sign in with Apple — Apple's own system
+    /// sheet, preferred over the web sheet whenever the provider is
+    /// apple. The system does not retain the controller; the bridge
+    /// holds it until its completion fires.
+    private var appleSignIn: AppleSignInController?
+
     /// Custom-scheme deep links (`in.thecontrarian.manorama.desktop://...`) received by the app.
     private var currentDeepLinks: [String] = []
     /// URLs buffered for get_current whose live emit has not yet confirmed —
@@ -357,6 +363,78 @@ final class NativeBridge {
         return "Sign in with \(String(parts[1]).capitalized)"
     }
 
+    // MARK: - Native Sign in with Apple
+
+    /// Runs Apple's own system sign-in for an `/auth/apple` URL. The web
+    /// layer is untouched: the same beginDesktopSignIn click reaches here,
+    /// and the server exchange mints the same desktop handoff the web
+    /// callback would have — fed to deliverDeepLink, the page's PKCE
+    /// exchange completes exactly as before.
+    ///
+    /// Returns false when the flow cannot even start (no window, no
+    /// challenge in the URL) — the caller then uses the web sheet, which
+    /// is also where the completion sends first-time sign-ins, whose
+    /// interstitial owns account creation.
+    private func runNativeAppleSignIn(_ url: URL, parent: NSWindow) -> Bool {
+        guard appleSignIn == nil,
+              let challenge = URLComponents(url: url, resolvingAgainstBaseURL: false)?
+                .queryItems?.first(where: { $0.name == "code_challenge" })?.value,
+              !challenge.isEmpty,
+              let scheme = url.scheme, let host = url.host else { return false }
+        var origin = "\(scheme)://\(host)"
+        if let port = url.port { origin += ":\(port)" }
+        let nonce = UUID().uuidString
+        let controller = AppleSignInController(anchor: parent, nonce: nonce) { [weak self] outcome in
+            guard let self else { return }
+            self.appleSignIn = nil
+            switch outcome {
+            case .cancelled:
+                // The user's own dismissal — the in-memory verifier simply
+                // goes unused, exactly like closing the web sheet.
+                break
+            case .failed:
+                Trace.log("native apple sign-in failed — falling back to the web sheet")
+                _ = self.openAuthSheet(url)
+            case .success(let credential):
+                Task { await self.exchangeNativeApple(credential: credential, nonce: nonce, challenge: challenge, origin: origin, fallbackURL: url) }
+            }
+        }
+        appleSignIn = controller
+        controller.start()
+        Trace.log("native apple sign-in started")
+        return true
+    }
+
+    /// Posts the credential to the server's native exchange and feeds the
+    /// minted handoff to the deep-link path. Any failure — an unknown
+    /// identity included — falls back to the web sheet, whose flow owns
+    /// first-time sign-in and recovery.
+    private func exchangeNativeApple(credential: AppleSignInController.Credential, nonce: String, challenge: String, origin: String, fallbackURL: URL) async {
+        if let endpoint = URL(string: "\(origin)/api/auth/native/apple") {
+            var request = URLRequest(url: endpoint)
+            request.httpMethod = "POST"
+            request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+            var body: [String: Any] = [
+                "identityToken": credential.identityToken,
+                "nonce": nonce,
+                "codeChallenge": challenge,
+            ]
+            if let fullName = credential.fullName { body["fullName"] = fullName }
+            if let email = credential.email { body["email"] = email }
+            request.httpBody = try? JSONSerialization.data(withJSONObject: body)
+            if let (data, response) = try? await URLSession.shared.data(for: request),
+               (response as? HTTPURLResponse)?.statusCode == 200,
+               let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+               let handoff = json["handoffToken"] as? String {
+                Trace.log("native apple sign-in exchanged")
+                deliverDeepLink("in.thecontrarian.manorama.desktop://auth/callback?handoff=\(handoff)")
+                return
+            }
+        }
+        Trace.log("native apple exchange failed — falling back to the web sheet")
+        _ = openAuthSheet(fallbackURL)
+    }
+
     // MARK: - The channel
 
     /// Answer one command from the page.
@@ -440,11 +518,22 @@ final class NativeBridge {
             }
             // Account auth stays inside the app — App Review 4.0.0
             // rejects a sign-in that hands the user to the default
-            // browser. The sheet intercepts the provider's redirect to
-            // our scheme and returns it through deliverDeepLink, the same
-            // path an OS-opened deep link takes.
-            if NativeCapabilities.isAccountAuthURL(url), openAuthSheet(url) {
-                return nil
+            // browser. Apple gets the native system sheet when it can
+            // start; everything else — and any native failure — uses the
+            // in-app web sheet, which intercepts the provider's redirect
+            // to our scheme and returns it through deliverDeepLink, the
+            // same path an OS-opened deep link takes.
+            if NativeCapabilities.isAccountAuthURL(url) {
+                let isApple = url.path.split(separator: "/").last == "apple"
+                let isLink = URLComponents(url: url, resolvingAgainstBaseURL: false)?
+                    .queryItems?.contains(where: { $0.name == "link" }) == true
+                if isApple, !isLink, let parent = webView?.window,
+                   runNativeAppleSignIn(url, parent: parent) {
+                    return nil
+                }
+                if openAuthSheet(url) {
+                    return nil
+                }
             }
             guard NSWorkspace.shared.open(url) else {
                 throw BridgeError.failed("The system browser could not open that URL")

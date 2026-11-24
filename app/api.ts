@@ -20,8 +20,8 @@ import { adSuppressionFor, clearAdSuppression, listAdSuppressions, setAdSuppress
 import { createDeviceGalleryApi } from './device-gallery-api'
 import { createDeviceApi } from './device-api'
 import { getGalleryKey, getOwnerVault, putGalleryKey, putOwnerVault } from './lib/key-vault-repository'
-import { verifyDesktopHandoffToken } from './lib/desktop-auth'
-import { LastIdentityError, listIdentities, unlinkIdentity, type AuthProvider } from './lib/identity-repository'
+import { createDesktopHandoffToken, isDesktopChallenge, verifyDesktopHandoffToken } from './lib/desktop-auth'
+import { AccountDisabledError, findAccountByIdentity, LastIdentityError, listIdentities, unlinkIdentity, upsertIdentitySignIn, type AuthProvider } from './lib/identity-repository'
 import { PROXY_RESPONSE_CSP } from './lib/security-headers'
 import { ENCRYPTED_MANIFEST_VERSION, encryptedGalleryGate, isEncryptedSourceUrl, keylessSourceUrl } from '../packages/core/encrypted-source'
 import { stripLegacyDeliveryCapabilities } from './lib/encrypted-public'
@@ -31,6 +31,8 @@ import { probeSource } from './lib/source-probe'
 import { sourceCheckDue } from './lib/source-freshness'
 import { isAppOrigin } from './lib/app-origin'
 import { sessionCookieDomain } from './lib/signin-host'
+import { verifyNativeAppleIdentity } from './lib/apple-auth'
+import { boundedName } from './lib/oidc'
 
 type RequestBody = { url?: string; manifest?: unknown; order?: string[]; quick?: boolean; title?: string; caption?: string }
 
@@ -329,6 +331,51 @@ export const createManoramaApi = () => {
     // can state it the way the web dashboard and iOS already do. It is the
     // account's own record — never a claim the client supplies.
     return c.json({ token, ownerSlug: user.ownerSlug, tier: user.tier })
+  })
+  /** The native Sign in with Apple exchange: the macOS shell runs
+   * ASAuthorizationController itself and posts the identity token here.
+   * The token proves the Apple subject; a known account gets a desktop
+   * handoff bound to the app's PKCE challenge, so the shell feeds the
+   * existing deep-link exchange and the web layer never learns the flow
+   * was native. An unknown identity answers 404 — a first-time sign-in
+   * falls back to the in-app web flow, whose interstitial owns account
+   * creation. */
+  api.post('/api/auth/native/apple', bodyLimit({ maxSize: 8 * 1024 }), async (c) => {
+    c.header('Cache-Control', 'no-store')
+    const payload: unknown = await c.req.json().catch(() => null)
+    const body = payload !== null && typeof payload === 'object' && !Array.isArray(payload)
+      ? payload as Record<string, unknown>
+      : {}
+    const identityToken = typeof body.identityToken === 'string' ? body.identityToken : ''
+    const nonce = typeof body.nonce === 'string' ? body.nonce : ''
+    const codeChallenge = typeof body.codeChallenge === 'string' ? body.codeChallenge : ''
+    const secret = envOf(c).HOST_API_JWT_SECRET?.trim()
+    if (!identityToken || !nonce || !secret || !isDesktopChallenge(codeChallenge)) {
+      return c.json({ error: 'Authentication could not be completed' }, 401)
+    }
+    const verified = await verifyNativeAppleIdentity({ identityToken, nonce })
+    if (!verified) return c.json({ error: 'Authentication could not be completed' }, 401)
+    // The credential's own email and name fill what the token omits —
+    // Apple sends them only on the first consent. The token's verified
+    // email always wins over the client-supplied one.
+    if (!verified.email && typeof body.email === 'string' && body.email.trim().length <= 320) {
+      verified.email = body.email.trim()
+    }
+    const displayName = boundedName(body.fullName)
+    if (displayName) verified.displayName = displayName
+    const existing = await findAccountByIdentity('apple', verified.subject, dbEnv(c))
+    if (!existing) return c.json({ error: 'unknown-identity' }, 404)
+    let user
+    try {
+      user = await upsertIdentitySignIn(verified, dbEnv(c))
+    } catch (error) {
+      if (error instanceof AccountDisabledError) {
+        return c.json({ error: 'This account has been disabled' }, 401)
+      }
+      throw error
+    }
+    const handoff = await createDesktopHandoffToken(user.accountId, secret, codeChallenge)
+    return c.json({ handoffToken: handoff })
   })
   api.get('/api/gallery/:owner/:slug', async (c) => {
     const user = await getUserByOwnerSlug(c.req.param('owner'), dbEnv(c))

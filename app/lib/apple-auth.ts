@@ -114,3 +114,36 @@ export const fetchAppleIdentity = async (
     ...(tokens.refreshToken ? { refreshToken: tokens.refreshToken } : {}),
   }
 }
+
+/**
+ * The native Sign in with Apple audience: the macOS app's bundle id, not
+ * the web service id. Apple's native identity token signs for the app it
+ * was minted in, so verification here uses this client id rather than the
+ * APPLE_CLIENT_ID env the web flow exchanges against.
+ */
+export const APPLE_NATIVE_CLIENT_ID = 'in.thecontrarian.manorama.desktop'
+
+/** Verifies a native Sign in with Apple identity token — the JWT an
+ *  ASAuthorizationController hands the app, validated against Apple's
+ *  keys with the app's own bundle id as audience and the nonce the
+ *  client set on the request. Answers null on any failure: the caller
+ *  falls back to the web flow rather than distinguishing why. */
+export const verifyNativeAppleIdentity = async (
+  input: { identityToken: string; nonce: string },
+  deps: OidcDependencies = {},
+): Promise<IdentityInput | null> => {
+  if (!input.identityToken.trim() || !input.nonce.trim()) return null
+  try {
+    const payload = await verifyOidcToken(
+      input.identityToken,
+      deps.keyResolver ?? remoteKeyResolver(APPLE_JWKS_URL),
+      { issuer: APPLE_ISSUER, clientId: APPLE_NATIVE_CLIENT_ID, nonce: input.nonce },
+    )
+    const identity: IdentityInput = { provider: 'apple', subject: payload.sub! }
+    const email = verifiedEmailClaim(payload)
+    if (email) identity.email = email
+    return identity
+  } catch {
+    return null
+  }
+}
