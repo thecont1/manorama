@@ -84,6 +84,7 @@ export const isEventAssetFileUrl = (value: unknown): value is string => {
     const url = new URL(value)
     return !url.host && !url.search && !url.hash
       && (/\/Caches\/event-thumbs\/[0-9a-f]{64}\.jpg$/.test(rawPath)
+        || /\/cache\/event-thumbs\/[0-9a-f]{64}\.jpg$/.test(rawPath)
         || /\/event-originals\/[0-9a-f-]{36}\/[0-9a-f-]{36}\.[a-zA-Z0-9]+$/.test(rawPath))
   } catch { return false }
 }

@@ -1,6 +1,6 @@
 # Plan: Event Clustering on All Surfaces
 
-Status: **slice 1 verified; slices 2–6 pending** · Branch base: `feat/event-clustering-camera-roll` (on `b4a91f29`) · Normative contract: `docs/event-clustering-bridge-contract.md`
+Status: **slices 1–5 verified locally; slice 6 pending** · Branch base: `feat/event-clustering-camera-roll` (on `b4a91f29`) · Normative contract: `docs/event-clustering-bridge-contract.md`
 
 This plan takes camera-roll event clustering from "macOS complete, iOS plugin dormant" to every Manorama surface: iPhone, iPad, Windows, Linux and Android. The standing non-negotiables of `PLAN-Event-Clustering-Camera-Roll.md` apply throughout: 100% on-device (no EXIF, GPS, thumbnails or paths leave the device), no ML frameworks or bundle bloat, no semantic labels, one raw-dump source per device, no full-bitmap decode during indexing, safe handling of cloud placeholders, private files written 0600 / complete file protection, and `--config`/`--store` isolation.
 
@@ -17,18 +17,18 @@ This plan takes camera-roll event clustering from "macOS complete, iOS plugin do
 
 ## 0. Where we stand
 
-| Surface | Engine | Shell commands (4) | Pixels for an event | UI visible | Tests |
+| Surface | Engine | Shell commands | Pixels for an event | UI visible | Tests |
 |---|---|---|---|---|---|
-| macOS | Swift core | Done | Done (local scheme) | Done | 37 engine + 126 boundary + bun |
-| iOS / iPadOS | Swift core | Done, registered | **Missing** | **Hidden** | Simulator typecheck only |
-| Windows / Linux (Tauri) | **None** | **None** | Existing `read_file_range` | Gated off | None |
-| Android | **None** | **None** | **None** | **None** | None |
+| macOS | Swift core | Done | Done (local scheme) | Done | Slice 1 engine, boundary and Bun suites |
+| iOS / iPadOS | Swift core | Done, registered | Done (native leases) | Done | Slice 2 unit, boundary and simulator checks |
+| Windows / Linux (Tauri) | Rust core | Done | Done (opaque leases) | Done | Slice 4 Rust, Tauri and Linux Docker checks; Windows CI prepared |
+| Android | Rust core via JNI | Done (11 commands) | Done (local and explicit cloud reveal) | Done | 5 JVM + 11 instrumentation + 63 Rust + Bun; API 36 emulator verified |
 
 ## 1. Make the feature visible on iPhone and iPad
 
 The native side already answers the four contract commands; the `native/` bundle side is missing.
 
-- **Bridge wrapper.** `native/lib/event-clustering.ts`, modelled on `native/lib/local-gallery.ts`: `registerPlugin('EventClustering')` exposing `pickRawDumpRoot`, `getRawDumpStatus`, `scanRawDumpEvents`, `clearRawDumpRoot` and the fifth method. Every reply goes through the validators in `packages/core/event-clustering.ts`. `isEventClusteringAvailable()` is a capability probe (`getRawDumpStatus` resolves), not a platform check, so Android lights up without bundle changes.
+- **Bridge wrapper.** `native/lib/event-clustering.ts`, modelled on `native/lib/local-gallery.ts`: `registerPlugin('EventClustering')` exposing `pickRawDumpRoot`, `getRawDumpStatus`, `scanRawDumpEvents`, `clearRawDumpRoot`, `getEventAssetImage`, `cancelEventAssetImage`, `releaseEventAssetImages`, `setEventCloudDownload`, `presentLimitedLibraryPicker`, `openEventPhotosSettings` and `openEventAssetInPhotos`. Every reply goes through the validators in `packages/core/event-clustering.ts`. `isEventClusteringAvailable()` is a capability probe (`getRawDumpStatus` resolves), not a platform check, so Android lights up without bundle changes.
 - **Shared presentation.** Lift span formatting and sub-day grouping out of `desktop/islands/EventClusters.tsx` into `packages/core`, with one test file used by both bundles.
 - **Settings row.** In `native/islands/Settings.tsx`: declare, change or clear the source; show authorisation state, event count and last indexed time; hold the iCloud download toggle (section 2).
 - **Event section.** New `native/islands/EventSection.tsx` imported by `GalleryList.tsx` (2,895 lines; nothing added inline).
@@ -54,7 +54,7 @@ PhotoKit assets have no file URL, so `convertFileSrc` cannot reach them today. T
 4. Downloads are performed by the OS from the user's own iCloud account into the device's Photos library. Manorama sends nothing anywhere; the on-device invariant holds. The copy says this plainly.
 5. Thumbnails never trigger downloads, even with the toggle on: only an explicit open does. Indexing never downloads.
 6. Respect Low Data Mode and cellular: when `ProcessInfo`/`NWPathMonitor` reports a constrained or expensive path, ask before each download.
-7. Android equivalent: MediaStore items are local by definition; cloud-backed items from Google Photos are not in scope and are excluded by source choice. Desktop equivalent: cloud placeholders (OneDrive, iCloud Drive, Dropbox) stay `cloudOnly` with an "Open in Finder/Explorer" action; no opt-in download in this plan.
+7. Android equivalent: a MediaStore row without a verified readable local `_data` file returns `cloudOnly`; thumbnails never invoke a provider. Only an explicit single-item viewer request with `downloadCloudOnOpen` enabled may stream through `ContentResolver`, after native metered-data/power confirmation when required. The original is copied byte-for-byte into a private lease. Desktop equivalent: cloud placeholders (OneDrive, iCloud Drive, Dropbox) stay `cloudOnly` with an "Open in Finder/Explorer" action; no opt-in download in this plan.
 
 **Tests.** Simulator XCTest with `simctl addmedia` fixtures: size bound and no upscale; cache key changes with the asset; eviction bound; clear purges cache; unknown id is `missing`; `allowNetwork: false` never sets network access (asserted through an injected image-manager protocol, since simulators cannot fake iCloud-only assets); cancel stops progress events. Bun tests for the wrapper covering every state and the progress event.
 
@@ -95,35 +95,39 @@ No image crates are needed, and `serde`/`serde_json` are already in the tree.
 
 ## 5. Android in sync (Rust core via JNI, thin Kotlin layer)
 
-Android today has only `MainActivity.java`, so this is the largest slice.
+Android now has `MainActivity.java` plus the Kotlin bridge under `android/app/src/main/java/in/thecontrarian/manorama/events/`; this was the largest slice.
 
-**Native library.** `crates/event-clustering` built with `cargo-ndk` for `arm64-v8a` and `x86_64` (emulator). `armeabi-v7a` is added only if Play device stats require it. The output `libmanorama_events.so` goes into `android/app/src/main/jniLibs/`. Gradle runs the Rust build via a `preBuild` task, and CI caches the target directory.
+**Native library.** `crates/event-clustering` is built with `cargo-ndk` for `arm64-v8a` and `x86_64`. The output `libmanorama_events.so` goes into `android/app/src/main/jniLibs/`. Gradle runs the Rust build through `preBuild`, and CI caches the target directory. `armeabi-v7a` is added only if Play device stats require it.
 
-The JNI surface is deliberately narrow: `cluster(itemsJson: String, configJson: String): String` and `decodeIndex` / `encodeIndex`. JSON is the boundary, so the Kotlin side stays thin and the wire matches the contract.
+The JNI surface is deliberately narrow: `cluster(itemsJson: String, configJson: String): String` and `decodeIndex` / `encodeIndex`. JSON is the boundary, so the Kotlin side stays thin and the wire matches the contract. Android uses bionic `localtime_r` and the device timezone database rather than embedding `chrono-tz` in each ABI. Fixed GMT offsets are applied directly; IANA wall times choose the earliest occurrence during an overlap and move forward by the gap during a DST transition.
 
-The rebuilt `.so` must be measured against the bundle-bloat rule. The target is under 1.5 MB per ABI after `strip` and `opt-level="z"`, recorded in the PR.
+The packaged debug APK contains 785,592-byte (`arm64-v8a`) and 863,672-byte (`x86_64`) libraries, both below the 1.5 MiB per-ABI budget. Both ABIs export all three JNI symbols.
 
-**Kotlin layer.** `android/app/src/main/java/in/thecontrarian/manorama/events/`:
-- `EventClusteringPlugin.kt` (`@CapacitorPlugin(name = "EventClustering")`), registered in `MainActivity`. It implements the four commands plus the fifth.
-- `MediaStoreSource.kt`: queries `MediaStore.Images` (and optionally `Video`) for `DATE_TAKEN`, `WIDTH`, `HEIGHT`, `BUCKET_ID`, `IS_PENDING`. GPS comes from `ExifInterface` on `MediaStore.setRequireOriginal` URIs. It never decodes bitmaps. The source is either the whole library or the camera bucket, chosen by the user; there is one source per device.
+**Kotlin layer.**
+- `EventClusteringPlugin.kt` (`@CapacitorPlugin(name = "EventClustering")`), registered in `MainActivity`, implements the 11 commands listed in section 1. A state worker owns source declarations, MediaStore, status and index work; a separate asset worker owns image requests and cloud confirmation so a dialog cannot block a scan or clear operation.
+- `MediaStoreSource.kt` queries `MediaStore.Images` for `DATE_TAKEN`, dimensions, bucket, pending/trashed state and file metadata. It never decodes bitmaps. The source is either all photos or one MediaStore bucket, chosen in a native folder picker; there is one source per device. API 36 rejects aggregate `COUNT(_id)` projections, so bucket/library counts query ordinary `_ID` rows and count the cursor in Kotlin.
+- GPS comes from MediaStore latitude/longitude columns first, then `ExifInterface` only on a verified local file. Denied location permission opens no EXIF/provider stream and forces a fresh time-only index; regranting location rereads metadata.
 - `RustBridge.kt`: `System.loadLibrary` plus the external functions above.
 - `MediaObserver.kt`: a `ContentObserver` with debounce, replacing `RawDumpWatcher`.
-- Index stored in `filesDir/events-index.json` (app-private). Thumbnails via `ContentResolver.loadThumbnail` into `cacheDir/event-thumbs` with the same 200 MB LRU, served by `convertFileSrc`. The viewer streams the original through a private temp copy.
+- `EventSourceState.kt`, `EventPrivateFiles.kt`: state and index live under `filesDir/EventClustering/`, with atomic private writes. Backup and device-to-device transfer exclude that directory.
+- `EventAssetService.kt`: thumbnails decode verified local files with `BitmapFactory`, apply EXIF orientation and bounded downsampling, and never upscale. They are cached under `cacheDir/event-thumbs` with a 200 MiB LRU. `ContentResolver.loadThumbnail` is deliberately not used because a local `_data` path does not prove provider-side thumbnail loading cannot delegate to the network. Viewer originals are copied byte-for-byte into read-only private leases under `cacheDir/event-originals/` and released by the shared viewer window.
 
 **Permissions and manifest.**
 - `READ_MEDIA_IMAGES` (API 33+).
-- `READ_MEDIA_VISUAL_USER_SELECTED` (API 34+): partial access, with UX mirroring the iOS limited state.
+- `READ_MEDIA_VISUAL_USER_SELECTED` (API 34+): partial access maps to `authorization: "limited"`; the event rail reports the selected-photo count and offers the system picker again.
 - `READ_EXTERNAL_STORAGE` with `maxSdkVersion="32"`.
-- `ACCESS_MEDIA_LOCATION`. If it is denied, clustering is time-only and trip merge is skipped. This path is tested.
-- minSdk stays at 24; `targetSdk 36` behaviour is verified.
+- `ACCESS_MEDIA_LOCATION`. Denial permits time-only clustering and skips trip merge; permission changes clear issued assets and invalidate cached coordinates.
+- minSdk stays at 24; `targetSdk 36` behaviour is verified on the API 36 emulator.
 
-**Bundle.** No changes beyond section 1, because the capability probe lights it up.
+**Bundle.** No changes beyond section 1, because the capability probe lights it up. The Camera Roll pill performs only that cheap probe; the event controller mounts only while Camera Roll mode is active. Settings selection writes declaration/count metadata only and does not scan or load previews.
 
 **Verification.**
-- `./gradlew test`: JVM tests, with Rust loaded on the host via a desktop build of the crate.
-- `./gradlew connectedAndroidTest` on `manorama_api36`, with fixtures loaded via `adb push` and a media scan broadcast.
-- A manual partial-access check on `Pixel_10a`.
-- The `cargo test` fixtures also run under the `android` feature.
+- `./gradlew :app:testDebugUnitTest`: 5 JVM tests, with Rust loaded on the host through a desktop build of the crate.
+- `./gradlew :app:connectedDebugAndroidTest` on `manorama_api36`: 11 instrumentation tests passed, including bucket scoping, API 36-safe counts, no-upscale thumbnails, byte-for-byte viewer leases, cloud-only/missing behaviour, unknown location state, deterministic clear/cancel races, failure settlement, vanished buckets, GMT offsets and a 50,000-item JNI run in 0.264 seconds off the main thread. Superseded requests cannot delete a newer request's partial files or leave a stale viewer lease issued.
+- The Android-target Rust calendar test also passed on the emulator for fixed GMT offsets, DST gaps and earliest ambiguous occurrences. The host feature-gated Android suite does not compile those target-specific branches.
+- `cargo test --locked -p event-clustering --features android`: 63 passed.
+- Full-app synthetic emulator flow: limited access scanned only selected fixtures; full access scanned all rows; denied photo access reported unavailable; location revocation produced zero cached coordinates and regrant restored fixture coordinates. A fresh post-review run declared All photos without scanning, then Camera Roll grouped six synthetic rows as 2/2/1/1 events, loaded four native covers at 80×40 intrinsic pixels without upscaling, opened a byte-identical viewer lease, returned to the active event rail and left the ordinary Library unchanged.
+- A physical Pixel partial-access check remains an owner/device gate; no physical-device result is claimed.
 
 ## 6. Run every suite on simulators and emulators
 
@@ -131,11 +135,11 @@ The rebuilt `.so` must be measured against the bundle-bloat rule. The target is 
 |---|---|---|
 | Swift engine | `scripts/test-event-clustering.sh` | 78 tests, including 37 golden timelines |
 | macOS boundary | `scripts/test-macos-boundary.sh` | 145 checks; scratch-isolated binary and fixtures |
-| Bun / TS | `bunx tsc --noEmit && bun test` | desktop, packages, native |
+| Bun / TS | `bunx tsc --noEmit && bun run test:unit` | desktop, packages, native; the mirror avoids nested worktree `node_modules` |
 | iOS | `xcodebuild -project ios/App/App.xcodeproj -scheme App -destination 'platform=iOS Simulator,name=iPhone 17 Pro Max,OS=27.1' -derivedDataPath /tmp/mano-dd -clonedSourcePackagesDirPath /tmp/mano-spm test` | Repeat for iPad Pro 13-inch (M5), iPhone 17e, iPad mini (A17 Pro). Seed media with `xcrun simctl addmedia`, grant with `xcrun simctl privacy <udid> grant photos <bundle id>`. Never pass `DEVELOPMENT_TEAM`. |
 | Rust | `cargo test --workspace`; Docker for Linux | Windows in CI |
-| Android unit | `JAVA_HOME=$(brew --prefix)/opt/openjdk@21 ./gradlew test` in `android/` | Install `openjdk@21` first (D3) |
-| Android device | `emulator -avd manorama_api36 -no-window &` then `./gradlew connectedAndroidTest` | needs `cargo-ndk` and the NDK |
+| Android unit | `JAVA_HOME="$(brew --prefix openjdk@21)/libexec/openjdk.jdk/Contents/Home" ./gradlew :app:testDebugUnitTest` in `android/` | Install `openjdk@21` first (D3) |
+| Android device | `emulator -avd manorama_api36 -no-window &` then `./gradlew :app:connectedDebugAndroidTest` | needs `cargo-ndk` and the NDK; app-scoped avoids unrelated library instrumentation tasks |
 | Playwright | existing e2e config | desktop bundle with event fixtures |
 
 `scripts/test-all-surfaces.sh` runs them in order and prints a summary. Each step either passes, fails or reports `SKIPPED: <reason>`; none passes silently.
@@ -150,7 +154,7 @@ Known environment needs:
 2. **CI.**
    - `verify.yml`: Swift engine and boundary suite on a macOS runner; `cargo test` on Linux.
    - `ios.yml`: simulator tests.
-   - New `android-verify.yml`: Java 21, NDK, `cargo-ndk` and `gradlew test`.
+   - New `android-verify.yml`: Java 21, NDK, `cargo-ndk`, app-scoped JVM tests, debug packaging, per-ABI size limits and all three JNI exports.
    - `desktop-windows.yml`: crate tests.
 3. **Contract §6.** Replace "one page drives both" with: two bundles (`desktop/`, `native/`) share `packages/core`; each surface names its bundle and transport.
 4. **Privacy declarations.**
@@ -185,7 +189,7 @@ Slices 2 and 3 run in parallel after 1; 4 and 5 run in parallel after 3.
 
 - **Large originals:** the temp-file viewer can be slow for large ProRAW/HEIC originals. The fallback is a scheme handler, which requires subclassing the Capacitor bridge.
 - **iCloud tests:** the iCloud-only state cannot be produced on a simulator. It is covered by an injected image-manager protocol and a manual check on a real device before release.
-- **JNI on Android:** JNI adds NDK, ABI and `.so` size concerns. The size budget is enforced in the slice 5 PR, and the JSON boundary keeps the surface to three functions.
+- **JNI on Android:** JNI adds NDK, ABI and `.so` size concerns. Slice 5 enforces the 1.5 MiB per-ABI budget in `android-verify.yml`; both packaged libraries and all three exports were verified locally.
 - **Android location access:** denial of `ACCESS_MEDIA_LOCATION` weakens trip merge. Time-only clustering is tested explicitly.
 - **Windows cloud placeholders:** detection varies by cloud provider, so it is unit-tested with synthetic attributes.
 - **Version churn:** AGP, Java 21 and Capacitor versions drift over time, so `JAVA_HOME` and the NDK version are pinned in `android/gradle.properties` and CI.
@@ -275,9 +279,11 @@ at 366; serialization uses a bounded writer and JNI output is prechecked. All
 three exports and public JSON helpers reject violations, while 50k inputs pass.
 These are transport bounds, not a completed Android peak-RAM/CPU budget gate.
 
-Six default dependencies: `serde`, `serde_json` (correctly rounded Double
+Six host/desktop dependencies: `serde`, `serde_json` (correctly rounded Double
 parsing), `sha2`, `chrono`, `chrono-tz` and `unicode-normalization` 0.1.26. Bundled
-IANA rules remain necessary for DST; clock features stay disabled. NFC character
+IANA rules remain necessary for DST on those targets; Android instead uses
+bionic's device timezone database through its target-only `libc` dependency.
+Clock features stay disabled. NFC character
 comparison with an ASCII fast path reproduces Swift String ordering without
 normalizing raw IDs or source hash bytes. Dates quantize through Foundation's
 2001 reference epoch; intervals/midpoints use that epoch too. Config thresholds
@@ -290,8 +296,11 @@ Android normal graph. No bitmap/ML, Tauri, network or Android-framework engine.
 Stripped LTO `opt-level="z"` **aarch64 macOS host JNI dylib: 1,891,328 bytes
 (1.804 MiB)**, +182,560 bytes from 1,708,768. An otherwise-identical temporary
 non-NFC control measured 1,775,600 bytes: NFC adds 115,728 bytes; the canonical
-comparator was restored and reverified afterward. The 1.5 MB target is still
-exceeded; Android per-ABI size remains **unmeasured**, not a passed gate.
+comparator was restored and reverified afterward. That host JNI dylib is a
+macOS diagnostic, not an Android shipping artifact. Slice 5 measured the stripped
+Android release libraries at **777,264 bytes (`arm64-v8a`)** and **856,856 bytes
+(`x86_64`)**, both below the 1.5 MiB per-ABI target; the packaged debug APK and
+all three JNI exports were verified for both ABIs.
 
 ### Executed verification and remaining gates
 
@@ -318,7 +327,10 @@ From the worktree root, using
 `verify.yml` now defines a credential-free Ubuntu cargo-test matrix for default,
 `fs-scan`, `android` and combined features, using the root locked manifest and an
 external target directory. It has been prepared, not executed remotely. Local
-Linux Docker execution passed; Windows runtime evidence, Android ABI builds/size/ART tests, Tauri wiring,
-private-store integration, watcher policy, performance budgets and any surface
-presentation remain subsequent-slice gates. No viewer change was made, so no
-Playwright or native screenshot evidence is claimed for this core-only slice.
+Linux Docker execution passed; these were the remaining gates at Slice 3's
+close. Slice 4 subsequently closed Tauri wiring and private-store integration,
+and Slice 5 closed Android ABI builds, size, ART instrumentation and the 50,000-
+item Android budget check. Windows runtime evidence and the consolidated
+cross-surface performance, localization and accessibility gates remain Slice
+6 work. No viewer change was made in the core-only slice, so no Playwright or
+native screenshot evidence is claimed for that slice.

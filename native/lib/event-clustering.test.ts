@@ -5,6 +5,7 @@ import { isEventAssetFileUrl, isEventAssetRequest, parseEventAssetImages, parseE
 
 const original = 'file:///private/container/tmp/event-originals/01234567-0123-0123-0123-012345678901/01234567-0123-0123-0123-012345678902.jpg'
 const thumbnail = `file:///private/container/Library/Caches/event-thumbs/${'a'.repeat(64)}.jpg`
+const androidThumbnail = `file:///data/user/0/in.thecontrarian.manorama/cache/event-thumbs/${'b'.repeat(64)}.jpg`
 const ready = (id: string) => ({ id, url: original, width: 1200, height: 800, state: 'ready' })
 const deferred = <T,>() => { let resolve!: (value: T) => void; const promise = new Promise<T>((r) => { resolve = r }); return { promise, resolve } }
 const fake = (overrides: Partial<EventClusteringBridge> = {}) => {
@@ -43,7 +44,8 @@ describe('event pixel contract', () => {
   test('only private issued-directory file URLs reach convertFileSrc', () => {
     expect(isEventAssetFileUrl(original)).toBe(true)
     expect(isEventAssetFileUrl(thumbnail)).toBe(true)
-    for (const url of ['https://example.test/image.jpg', 'file://remote/tmp/photo.jpg', 'file:///etc/passwd', `${original}?x=1`, original.replace('tmp/', 'tmp/../'), original.replace('tmp/', 'tmp/%2e%2e/'), original.replace('tmp/', 'tmp/%00/'), `${original}#fragment`]) expect(isEventAssetFileUrl(url)).toBe(false)
+    expect(isEventAssetFileUrl(androidThumbnail)).toBe(true)
+    for (const url of ['https://example.test/image.jpg', 'file://remote/tmp/photo.jpg', 'file:///etc/passwd', `${original}?x=1`, original.replace('tmp/', 'tmp/../'), original.replace('tmp/', 'tmp/%2e%2e/'), original.replace('tmp/', 'tmp/%00/'), `${original}#fragment`, androidThumbnail.replace('event-thumbs', 'event-thumbs/../')]) expect(isEventAssetFileUrl(url)).toBe(false)
   })
   test('all states retain order; no partial, duplicate or forged pixel reply', () => {
     const states = ['ready', 'cloudOnly', 'downloading', 'failed', 'missing']
@@ -95,9 +97,17 @@ describe('Capacitor event wrapper', () => {
     await client.close()
   })
   test('a thumbnail URL can never masquerade as a viewer original', async () => {
+    for (const url of [thumbnail, androidThumbnail]) {
+      let conversions = 0
+      const client = createEventClustering(fake({ getEventAssetImage: async () => ({ items: [{ ...ready('a'), url }] }) }).bridge, () => { conversions++; return '' })
+      await expect(client.images({ ids: ['a'], purpose: 'viewer' })).rejects.toThrow('wrong rendition')
+      expect(conversions).toBe(0)
+    }
+  })
+  test('an original URL can never masquerade as an Android thumbnail', async () => {
     let conversions = 0
-    const client = createEventClustering(fake({ getEventAssetImage: async () => ({ items: [{ ...ready('a'), url: thumbnail }] }) }).bridge, () => { conversions++; return '' })
-    await expect(client.images({ ids: ['a'], purpose: 'viewer' })).rejects.toThrow('wrong rendition')
+    const client = createEventClustering(fake({ getEventAssetImage: async () => ({ items: [{ ...ready('a'), url: original }] }) }).bridge, () => { conversions++; return '' })
+    await expect(client.images({ ids: ['a'], purpose: 'thumbnail' })).rejects.toThrow('wrong rendition')
     expect(conversions).toBe(0)
   })
   test('clear racing an original releases a late copy rather than reviving it', async () => {

@@ -1,4 +1,5 @@
 apply plugin: 'com.android.application'
+apply plugin: 'org.jetbrains.kotlin.android'
 
 // Release credentials arrive as -P properties or environment variables —
 // never a committed file. CI decodes ANDROID_KEYSTORE_BASE64 into a file
@@ -11,10 +12,14 @@ def uploadKeystore = releaseProp('MANORAMA_UPLOAD_KEYSTORE')
 android {
     namespace = "in.thecontrarian.manorama"
     compileSdk = rootProject.ext.compileSdkVersion
+    ndkVersion rootProject.ext.ndkVersion
     defaultConfig {
         applicationId "in.thecontrarian.manorama"
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
+        ndk {
+            abiFilters 'arm64-v8a', 'x86_64'
+        }
         // CI stamps the tag: -PMANORAMA_VERSION_NAME=0.4.0
         // -PMANORAMA_VERSION_CODE=400 (major·10000 + minor·100 + patch —
         // monotonic while minor and patch stay under 100; the workflow
@@ -44,6 +49,13 @@ android {
             }
         }
     }
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_21
+        targetCompatibility JavaVersion.VERSION_21
+    }
+    kotlinOptions {
+        jvmTarget = '21'
+    }
     buildTypes {
         release {
             minifyEnabled false
@@ -68,11 +80,34 @@ dependencies {
     implementation "androidx.appcompat:appcompat:$androidxAppCompatVersion"
     implementation "androidx.coordinatorlayout:coordinatorlayout:$androidxCoordinatorLayoutVersion"
     implementation "androidx.core:core-splashscreen:$coreSplashScreenVersion"
+    implementation "androidx.exifinterface:exifinterface:$exifInterfaceVersion"
     implementation project(':capacitor-android')
     testImplementation "junit:junit:$junitVersion"
     androidTestImplementation "androidx.test.ext:junit:$androidxJunitVersion"
     androidTestImplementation "androidx.test.espresso:espresso-core:$androidxEspressoCoreVersion"
+    androidTestImplementation "androidx.test:runner:$androidxJunitVersion"
+    androidTestImplementation "androidx.test:rules:$androidxJunitVersion"
     implementation project(':capacitor-cordova-android-plugins')
+}
+
+def repositoryRoot = rootDir.toPath().resolve('..').toFile()
+def nativeJniLibs = file('src/main/jniLibs')
+tasks.register('buildEventRust', Exec) {
+    workingDir repositoryRoot
+    commandLine 'cargo', 'ndk', '-t', 'arm64-v8a', '-t', 'x86_64', '-P', '24',
+        '-o', nativeJniLibs.absolutePath, 'build', '--locked', '--release',
+        '-p', 'event-clustering', '--features', 'android'
+}
+tasks.named('preBuild').configure { dependsOn 'buildEventRust' }
+
+def hostNativeDir = new File(repositoryRoot, 'target/debug')
+tasks.register('buildEventHostRust', Exec) {
+    workingDir repositoryRoot
+    commandLine 'cargo', 'build', '--locked', '-p', 'event-clustering', '--features', 'android'
+}
+tasks.withType(Test).configureEach {
+    dependsOn 'buildEventHostRust'
+    systemProperty 'java.library.path', hostNativeDir.absolutePath
 }
 
 apply from: 'capacitor.build.gradle'

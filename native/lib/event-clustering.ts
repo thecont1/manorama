@@ -59,7 +59,8 @@ export const createEventClustering = (
       const raw = await bridge.getEventAssetImage({ ...request, allowNetwork: request.allowNetwork === true })
       const items = parseEventAssetImages(raw, request.ids)
       if (!items) throw new Error('The event photograph reply could not be read')
-      if (items.some((item) => item.url && (item.url.includes('/Caches/event-thumbs/') !== (request.purpose === 'thumbnail')))) {
+      const isThumbnail = (url: string) => url.includes('/Caches/event-thumbs/') || url.includes('/cache/event-thumbs/')
+      if (items.some((item) => item.url && (isThumbnail(item.url) !== (request.purpose === 'thumbnail')))) {
         await release(items.flatMap((item) => item.url ? [item.url] : []))
         throw new Error('The event photograph reply has the wrong rendition')
       }
