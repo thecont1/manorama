@@ -29,13 +29,13 @@ enum NativeCapabilities {
         }
     }
 
-    /// The account-auth URLs the App Store shell must run inside
-    /// ASWebAuthenticationSession — App Review guideline 4.0.0 (macOS)
+    /// The account-auth URLs the App Store shell must run inside the
+    /// in-app auth sheet — App Review guideline 4.0.0 (macOS)
     /// rejects a sign-in or registration that leaves for the default
     /// browser. Matches `/auth/{apple,google,dropbox}` on manorama's own
     /// hosts carrying the `native=desktop` marker: both the sign-in flow
     /// and the Settings Connect (`?link=`) flow end at this app's scheme,
-    /// which the session intercepts instead of LaunchServices. Everything
+    /// which the sheet intercepts instead of LaunchServices. Everything
     /// else — privacy links, gallery URLs, provider-source OAuth on
     /// dropbox.com or accounts.google.com — stays a system-browser open.
     static func isAccountAuthURL(_ url: URL) -> Bool {

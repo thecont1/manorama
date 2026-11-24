@@ -324,8 +324,8 @@ final class BoundaryTests {
 
         // Account auth is the one opener case that must NOT reach the
         // system browser — App Review 4.0.0 keeps sign-in inside the app,
-        // so these URLs are recognised for the ASWebAuthenticationSession
-        // path. Everything else on the opener scope stays external.
+        // so these URLs are recognised for the in-app auth sheet path.
+        // Everything else on the opener scope stays external.
         check("auth session takes apple sign-in",
               NativeCapabilities.isAccountAuthURL(URL(string: "https://manorama.xyz/auth/apple?native=desktop&code_challenge=abc")!))
         check("auth session takes signin-host connect flow",
