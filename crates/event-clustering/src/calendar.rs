@@ -91,9 +91,10 @@ pub enum Calendar {
 }
 impl Default for Calendar {
     fn default() -> Self {
-        Self::Fixed(Utc.fix())
+        Self::Fixed(FixedOffset::east_opt(0).expect("UTC has a valid offset"))
     }
 }
+#[cfg(not(target_os = "android"))]
 use chrono::Offset;
 impl Calendar {
     pub fn fixed_offset(seconds: i32) -> Result<Self, Error> {

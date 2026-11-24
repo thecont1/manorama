@@ -92,7 +92,7 @@ afterEach(async () => {
 })
 
 const mountMode = async (deps: ReturnType<typeof fake>, onClose = () => {}, onOpenSettings = () => {}) => {
-  render(<CameraRoll client={deps.client} onClose={onClose} onOpenSettings={onOpenSettings} />, root)
+  render(<CameraRoll client={deps.client} presentation={{ locale: 'en-GB', calendar: 'gregory' }} onClose={onClose} onOpenSettings={onOpenSettings} />, root)
   await until(() => !!root.querySelector('[data-camera-roll-mode]'))
 }
 
@@ -191,7 +191,7 @@ describe('Camera Roll Library mode', () => {
     await until(() => root.querySelectorAll('.event-card').length === 2)
     expect(deps.scans).toBe(1)
     expect(overlayDepth()).toBe(0)
-    expect(root.textContent).toContain('12–13 Mar 2026')
+    expect(root.textContent).toContain('12 – 13 Mar 2026')
     expect(root.textContent).toContain('2 photographs')
     expect(root.textContent).toContain('1 Apr 2026')
     expect(root.textContent).toContain('1,201 photographs')

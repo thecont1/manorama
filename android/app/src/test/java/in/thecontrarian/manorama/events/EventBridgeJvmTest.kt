@@ -1,7 +1,11 @@
 package `in`.thecontrarian.manorama.events
 
 import java.io.File
+import java.io.IOException
 import java.nio.file.Files
+import java.util.concurrent.Executor
+import java.util.concurrent.Executors
+import java.util.concurrent.atomic.AtomicInteger
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -63,6 +67,25 @@ class EventBridgeJvmTest {
         assertTrue(eventSourceReachable(folder, true) { 1 })
         assertFalse(eventSourceReachable(folder, false) { 1 })
         assertTrue(eventSourceReachable(EventSourceState(enabled = true), true) { 0 })
+    }
+
+    @Test
+    fun workerFailuresAlwaysRejectExactlyOnce() {
+        val failures = mutableListOf<String>()
+        val direct = Executor { action -> action.run() }
+        submitSettled(direct, { failures += it }, "disk write failed") { throw IOException("disk full") }
+        submitSettled(direct, { failures += it }, "decode failed") { throw OutOfMemoryError("synthetic decode failure") }
+        assertEquals(listOf("disk write failed", "decode failed"), failures)
+
+        val completed = AtomicInteger()
+        submitSettled(direct, { failures += it }, "unexpected") { completed.incrementAndGet() }
+        assertEquals(1, completed.get())
+
+        val stopped = Executors.newSingleThreadExecutor().apply { shutdown() }
+        submitSettled(stopped, { failures += it }, "unexpected") { completed.incrementAndGet() }
+        assertEquals("The Camera Roll service is no longer available", failures.last())
+        assertEquals(3, failures.size)
+        assertEquals(1, completed.get())
     }
 
     @Test

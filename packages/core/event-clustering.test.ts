@@ -2,11 +2,17 @@ import { describe, expect, test } from 'bun:test'
 import {
   MAX_EVENT_MEMBERS,
   RAW_DUMP_NOT_CONFIGURED,
+  formatDaysLabel,
+  formatEventCardLabel,
   formatEventDateSpan,
+  formatEventDayLabel,
   formatEventFrameCount,
+  formatEventPreviewState,
   formatDateSpan,
   formatFrameCount,
   formatIndexedAgo,
+  formatMultiDayLabel,
+  formatSelectedPhotoCount,
   formatSubDayLabel,
   isEventAssetFileUrl,
   isEventAssetLeaseUrl,
@@ -243,7 +249,7 @@ describe('formatDateSpan', () => {
   })
 
   test('a run inside one month states the day range once', () => {
-    expect(formatDateSpan(at(2026, 3, 12, 9), at(2026, 3, 16, 18))).toBe('12–16 Mar 2026')
+    expect(formatDateSpan(at(2026, 3, 12, 9), at(2026, 3, 16, 18))).toBe('12 – 16 Mar 2026')
   })
 
   test('across a month boundary the year is stated once', () => {
@@ -375,11 +381,101 @@ describe('formatIndexedAgo', () => {
   })
 })
 
+describe('localized event presentation', () => {
+  const utc = { locale: 'en-GB', calendar: 'gregory', timeZone: 'UTC' }
+  const start = Date.UTC(2026, 2, 12, 12)
+  const end = Date.UTC(2026, 2, 13, 12)
+  const multi: EventCluster = {
+    id: 'evt_aaaaaaaaaaaaaaaaaaaa', startDate: start, endDate: end, isMultiDay: true,
+    coverItemId: 'a.jpg', itemIds: ['a.jpg', 'b.jpg'],
+    subDays: [
+      { id: '2026-03-12', date: start, itemIds: ['a.jpg'] },
+      { id: '2026-03-13', date: end, itemIds: ['b.jpg'] },
+    ],
+  }
+
+  test('uses the requested locale for range punctuation, digits and plural selection', () => {
+    const german = { locale: 'de-DE', calendar: 'gregory', timeZone: 'UTC' }
+    expect(formatDateSpan(start, end, german)).toBe('12.–13. März 2026')
+    expect(formatFrameCount(12345, { ...german, messages: { photographCount: { one: '{count} Foto', other: '{count} Fotos' } } })).toBe('12.345 Fotos')
+    const arabic = {
+      locale: 'ar-EG', calendar: 'gregory', timeZone: 'UTC',
+      messages: {
+        photographCount: { two: '{count} صورتان', other: '{count} صورة' },
+        selectedPhotoCount: { other: '{count} صورة' },
+      },
+    }
+    expect(formatFrameCount(2, arabic)).toBe('٢ صورتان')
+    expect(formatSelectedPhotoCount(12, arabic)).toBe('١٢ صورة')
+  })
+
+  test('uses the requested calendar for dates, same-day detection and year boundaries', () => {
+    const hebrew = { locale: 'en-US', calendar: 'hebrew', timeZone: 'UTC' }
+    expect(formatDateSpan(start, start, hebrew)).toBe('23 Adar 5786')
+    expect(formatSubDayLabel(multi.subDays![0], multi, hebrew)).toBe('23 Adar')
+    const newYear: EventCluster = {
+      ...multi,
+      startDate: Date.UTC(2025, 8, 22, 12), endDate: Date.UTC(2025, 8, 24, 12),
+      subDays: [
+        { id: '2025-09-22', date: Date.UTC(2025, 8, 22, 12), itemIds: ['a.jpg'] },
+        { id: '2025-09-24', date: Date.UTC(2025, 8, 24, 12), itemIds: ['b.jpg'] },
+      ],
+    }
+    expect(formatSubDayLabel(newYear.subDays![0], newYear, hebrew)).toBe('29 Elul 5785')
+    expect(formatSubDayLabel(newYear.subDays![1], newYear, hebrew)).toBe('2 Tishri 5786')
+  })
+
+  test('combines visible card and day text into localized accessible names', () => {
+    const german = {
+      locale: 'de-DE', calendar: 'gregory', timeZone: 'UTC',
+      messages: {
+        photographCount: { one: '{count} Foto', other: '{count} Fotos' },
+        multiDay: 'Mehrtägig', daysIn: 'Tage in {date}', eventDay: '{day} ({event})',
+      },
+    }
+    const span = formatEventDateSpan(multi, german)
+    expect(formatDaysLabel(span, german)).toBe(`Tage in ${span}`)
+    expect(formatEventDayLabel(multi.subDays![0], multi, span, german)).toBe(`12. März (${span})`)
+    expect(formatEventCardLabel(multi, 'cloudOnly', german)).toBe(
+      new Intl.ListFormat('de-DE', { style: 'long', type: 'conjunction' }).format([
+        span, '2 Fotos', 'Mehrtägig', 'Not downloaded',
+      ]),
+    )
+    expect(formatEventPreviewState('cloudOnly', { messages: { cloudOnly: 'In iCloud' } })).toBe('In iCloud')
+    expect(formatMultiDayLabel({ messages: { multiDay: 'Mehrtägig' } })).toBe('Mehrtägig')
+  })
+
+  test('localizes indexed-age boundaries and absolute fallback dates', () => {
+    const now = Date.UTC(2026, 10, 23, 12)
+    const german = {
+      locale: 'de-DE', calendar: 'gregory', timeZone: 'UTC',
+      messages: {
+        neverIndexed: 'Nie indexiert', indexedJustNow: 'Gerade indexiert',
+        indexedMinutesAgo: '{relative} indexiert', indexedHoursAgo: '{relative} indexiert',
+        indexedOn: 'Indexiert am {date}',
+      },
+    }
+    expect(formatIndexedAgo(null, now, german)).toBe('Nie indexiert')
+    expect(formatIndexedAgo(now - 5_000, now, german)).toBe('Gerade indexiert')
+    expect(formatIndexedAgo(now - 120_000, now, german)).toBe('vor 2 Minuten indexiert')
+    expect(formatIndexedAgo(now - 7_200_000, now, german)).toBe('vor 2 Stunden indexiert')
+    expect(formatIndexedAgo(now - 86_400_000, now, german)).toBe('Indexiert am 22. Nov. 2026')
+  })
+
+  test('malformed cluster boundaries cannot break a readable sub-day', () => {
+    expect(formatSubDayLabel(multi.subDays![0], { ...multi, startDate: Number.NaN, endDate: -1 }, utc)).toBe('12 Mar')
+  })
+})
+
 describe('event asset contract', () => {
-  test('accepts native local file URLs on macOS and Windows', () => {
-    expect(isEventAssetFileUrl('file:///Users/example/Photos/a.jpg')).toBe(true)
-    expect(isEventAssetFileUrl('file:///C:/Photos/a.jpg')).toBe(true)
-    expect(isEventAssetFileUrl('file:///Users/example/Photos/a%20b.jpg')).toBe(true)
+  test('accepts only private issued mobile thumbnail and original URLs', () => {
+    const thumbnail = 'a'.repeat(64)
+    const lease = '11111111-1111-4111-8111-111111111111'
+    expect(isEventAssetFileUrl(`file:///data/user/0/in.thecontrarian.manorama/cache/event-thumbs/${thumbnail}.jpg`)).toBe(true)
+    expect(isEventAssetFileUrl(`file:///Users/example/Library/Caches/event-thumbs/${thumbnail}.jpg`)).toBe(true)
+    expect(isEventAssetFileUrl(`file:///private/event-originals/${lease}/${lease}.HEIC`)).toBe(true)
+    expect(isEventAssetFileUrl('file:///Users/example/Photos/a.jpg')).toBe(false)
+    expect(isEventAssetFileUrl('file:///C:/Photos/a.jpg')).toBe(false)
   })
 
   test('refuses remote, query, hash, traversal and malformed URLs', () => {
@@ -437,7 +533,7 @@ describe('event asset contract', () => {
 
   test('preserves reply order and enforces truthful ready and unavailable states', () => {
     const parsed = parseEventAssetImages({ items: [
-      { id: 'a.jpg', url: 'file:///Users/example/a.jpg', width: 4032, height: 3024, state: 'ready' },
+      { id: 'a.jpg', url: `file:///data/user/0/in.thecontrarian.manorama/cache/event-thumbs/${'a'.repeat(64)}.jpg`, width: 4032, height: 3024, state: 'ready' },
       { id: 'b.jpg', url: null, width: 0, height: 0, state: 'cloudOnly' },
       { id: 'c.jpg', url: null, width: 0, height: 0, state: 'missing' },
     ] }, ['a.jpg', 'b.jpg', 'c.jpg'])
@@ -449,14 +545,14 @@ describe('event asset contract', () => {
     for (const item of [
       { id: 'a.jpg', url: null, width: 10, height: 10, state: 'ready' },
       { id: 'a.jpg', url: 'https://example.com/a.jpg', width: 10, height: 10, state: 'ready' },
-      { id: 'a.jpg', url: 'file:///tmp/a.jpg', width: 0, height: 10, state: 'ready' },
-      { id: 'a.jpg', url: 'file:///tmp/a.jpg', width: 10.5, height: 10, state: 'ready' },
-      { id: 'a.jpg', url: 'file:///tmp/a.jpg', width: 10, height: 10, state: 'cloudOnly' },
+      { id: 'a.jpg', url: `file:///data/user/0/in.thecontrarian.manorama/cache/event-thumbs/${'a'.repeat(64)}.jpg`, width: 0, height: 10, state: 'ready' },
+      { id: 'a.jpg', url: `file:///data/user/0/in.thecontrarian.manorama/cache/event-thumbs/${'a'.repeat(64)}.jpg`, width: 10.5, height: 10, state: 'ready' },
+      { id: 'a.jpg', url: `file:///data/user/0/in.thecontrarian.manorama/cache/event-thumbs/${'a'.repeat(64)}.jpg`, width: 10, height: 10, state: 'cloudOnly' },
     ]) expect(parseEventAssetImages({ items: [item] }, ['a.jpg'])).toBeNull()
   })
 
-  test('accepts native file URLs and opaque desktop leases as ready assets', () => {
-    for (const url of ['file:///Users/example/a.jpg', 'manorama-event://localhost/0123456789abcdef0123456789abcdef']) {
+  test('accepts issued mobile file URLs and opaque desktop leases as ready assets', () => {
+    for (const url of [`file:///data/user/0/in.thecontrarian.manorama/cache/event-thumbs/${'a'.repeat(64)}.jpg`, 'manorama-event://localhost/0123456789abcdef0123456789abcdef']) {
       const parsed = parseEventAssetImages({ items: [
         { id: 'a.jpg', url, width: 4032, height: 3024, state: 'ready' },
       ] }, ['a.jpg'])
@@ -465,7 +561,7 @@ describe('event asset contract', () => {
   })
 
   test('a reply cannot reorder, omit or duplicate requested members', () => {
-    const ready = { id: 'a.jpg', url: 'file:///tmp/a.jpg', width: 10, height: 10, state: 'ready' }
+    const ready = { id: 'a.jpg', url: `file:///data/user/0/in.thecontrarian.manorama/cache/event-thumbs/${'a'.repeat(64)}.jpg`, width: 10, height: 10, state: 'ready' }
     expect(parseEventAssetImages({ items: [ready] }, ['b.jpg'])).toBeNull()
     expect(parseEventAssetImages({ items: [] }, ['a.jpg'])).toBeNull()
     expect(parseEventAssetImages({ items: [ready, ready] }, ['a.jpg', 'b.jpg'])).toBeNull()

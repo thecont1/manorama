@@ -26,11 +26,26 @@ describe('native event presentation', () => {
     expect(String(<EventSection events={controller({ status: { configured: false, label: null, isAvailable: false, eventCount: 0, lastIndexedAt: null } })} onOpen={() => {}} />)).toBe('')
   })
   test('date, count and subday controls follow natural DOM order with no nested buttons', () => {
-    const html = String(<EventSection events={controller()} onOpen={() => {}} />)
-    expect(html).toContain('12–13 Mar 2026')
+    const html = String(<EventSection events={controller()} onOpen={() => {}} presentation={{ locale: 'en-GB', calendar: 'gregory' }} />)
+    expect(html).toMatch(/12\s*–\s*13 Mar 2026/)
     expect(html).toContain('2 photographs')
     expect(html.indexOf('12 Mar</button>')).toBeLessThan(html.indexOf('13 Mar</button>'))
+    expect(html).toContain('role="list"')
     expect(html).not.toMatch(/<button[^>]*>(?:(?!<\/button>)[\s\S])*<button/)
+  })
+  test('localized card and day names include all visible context', () => {
+    const html = String(<EventSection events={controller()} onOpen={() => {}} presentation={{
+      locale: 'de-DE', calendar: 'gregory',
+      messages: {
+        photographCount: { one: '{count} Foto', other: '{count} Fotos' }, multiDay: 'Mehrtägig',
+        daysIn: 'Tage in {date}', eventDay: '{day} ({event})',
+      },
+    }} />)
+    expect(html).toContain('2 Fotos')
+    expect(html).toContain('Mehrtägig')
+    expect(html).toMatch(/role="group" aria-label="Tage in 12\.\s*–\s*13\. März 2026"/)
+    expect(html).toMatch(/aria-label="12\. März \(12\.\s*–\s*13\. März 2026\)"/)
+    expect(html).toMatch(/aria-label="12\.\s*–\s*13\. März 2026, 2 Fotos und Mehrtägig"/)
   })
   test('indexing, empty, unavailable and scan failure are distinct', () => {
     expect(String(<EventSection events={controller({ scan: null })} onOpen={() => {}} />)).toContain('Reading events')
@@ -200,6 +215,8 @@ describe('native event presentation', () => {
     expect(css).toContain('object-fit: contain')
     expect(css).toContain(':focus-visible')
     expect(css).toContain('(hover: hover)')
+    expect(css).toContain('overflow-wrap: anywhere')
+    expect(css).toContain('min-block-size: 2.75rem')
     expect(css).not.toMatch(/grid-auto-flow:\s*dense|\border\s*:|object-fit:\s*cover/)
   })
 })

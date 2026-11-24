@@ -51,11 +51,18 @@ jobs:
       - name: Seed synthetic Photos media
         run: |
           set -euo pipefail
+          fixture_prefix="event-demo-$(date +%s)-${RANDOM}-"
           xcrun simctl bootstatus "$SIMULATOR_ID" -b
           xcrun simctl install "$SIMULATOR_ID" "$RUNNER_TEMP/event-derived/Build/Products/Debug-iphonesimulator/App.app"
+          app_data="$(xcrun simctl get_app_container "$SIMULATOR_ID" in.thecontrarian.manorama data)"
+          mkdir -p "$app_data/Documents"
+          printf '%s\n' "$fixture_prefix" > "$app_data/Documents/event-fixture-prefix.txt"
           xcrun simctl privacy "$SIMULATOR_ID" grant photos in.thecontrarian.manorama
           bun -e 'import sharp from "sharp"; await sharp({create:{width:1024,height:768,channels:3,background:"#da1680"}}).png().toFile(process.env.RUNNER_TEMP + "/event-synthetic.png")'
           xcrun simctl addmedia "$SIMULATOR_ID" "$RUNNER_TEMP/event-synthetic.png"
+          xcrun swiftc scripts/seed-ios-event-photos.swift -o "$RUNNER_TEMP/event-seed"
+          "$RUNNER_TEMP/event-seed" "$RUNNER_TEMP/event-photos" "$fixture_prefix"
+          xcrun simctl addmedia "$SIMULATOR_ID" "$RUNNER_TEMP/event-photos/"*.jpg
       - name: Run seeded PhotoKit and lifecycle tests
         run: |
           xcodebuild -project ios/App/App.xcodeproj -scheme App -configuration Debug \

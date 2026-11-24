@@ -12,13 +12,11 @@ use tauri_plugin_deep_link::DeepLinkExt;
 use tauri_plugin_dialog::DialogExt;
 use tauri_plugin_fs::FsExt;
 
-/// Grants both runtime scopes to one directory. The fs plugin scope lets
-/// `readDir`/`exists` list inside it; the asset protocol scope lets
-/// `convertFileSrc` URLs resolve. Neither scope ever contains `**`.
+/// Grants the gallery filesystem scope to one directory. The scope lets
+/// `readDir`/`exists` list inside it and never contains `**`; event media uses
+/// separate opaque leases instead of renderer-constructed file URLs.
 fn allow_root(app: &AppHandle, dir: &PathBuf) -> Result<(), String> {
-    app.asset_protocol_scope()
-        .allow_directory(dir, true)
-        .map_err(|e| e.to_string())?;
+    // Event assets have their own opaque leases; this scope is only for galleries.
     app.fs_scope()
         .allow_directory(dir, true)
         .map_err(|e| e.to_string())?;
@@ -67,10 +65,10 @@ fn register_saved_gallery_roots(app: AppHandle) -> Result<(), String> {
 // MARK: - Drag-and-drop folder add
 //
 // The dropped-directory counterpart of the macOS shell's pendingDrops. A
-// drop grants both scopes at once — the review sheet's `readDir` scan and
-// `convertFileSrc` thumbnails must work before any commit — and holds the
-// directories here, never in renderer-reachable state. `roots.json` is
-// touched only by commit, so an uncommitted drop can never become durable.
+// drop grants the gallery fs scope at once — the review sheet's `readDir`
+// scan must work before any commit — and holds the directories here, never in
+// renderer-reachable state. `roots.json` is touched only by commit, so an
+// uncommitted drop can never become durable.
 
 /// Directories the OS delivered on a drop that the page has not yet
 /// committed or discarded, plus the sequence that identifies this drop.

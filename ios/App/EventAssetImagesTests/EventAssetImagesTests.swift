@@ -496,6 +496,50 @@ final class EventAssetImagesTests: XCTestCase {
             XCTAssertFalse(EventClusteringPlugin.validPixelSize(value))
         }
     }
+    func testSeededPhotoKitEventsGroupByCaptureDate() throws {
+        XCTAssertEqual(PHPhotoLibrary.authorizationStatus(for: .readWrite), .authorized,
+                       "Grant simulator Photos permission before running this suite")
+        let all = PHAsset.fetchAssets(with: .image, options: nil)
+        let marker = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
+            .appendingPathComponent("event-fixture-prefix.txt")
+        let prefix = (try? String(contentsOf: marker, encoding: .utf8))
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .flatMap { $0.isEmpty ? nil : $0 }
+            ?? ProcessInfo.processInfo.environment["EVENT_FIXTURE_PREFIX"]
+            ?? "event-demo-"
+        var seeded: [PHAsset] = []
+        all.enumerateObjects { asset, _, _ in
+            if PHAssetResource.assetResources(for: asset).contains(where: {
+                let name = $0.originalFilename
+                return name.hasPrefix(prefix) && name.hasSuffix(".jpg")
+            }) {
+                seeded.append(asset)
+            }
+        }
+        XCTAssertEqual(seeded.count, 7, "Seed the seven event-demo JPEGs with simctl addmedia")
+        let expectedIds = Set(seeded.map(\.localIdentifier))
+        let plugin = EventClusteringPlugin()
+        defer { _ = invoke("clearRawDumpRoot", plugin.clearRawDumpRoot) }
+        _ = invoke("clearRawDumpRoot", plugin.clearRawDumpRoot)
+        let picked = invoke("pickRawDumpRoot", plugin.pickRawDumpRoot)
+        XCTAssertEqual(picked?["rootPath"] as? String, nil)
+        let scan = invoke("scanRawDumpEvents", plugin.scanRawDumpEvents)
+        let clusters = try XCTUnwrap(scan?["clusters"] as? [[String: Any]])
+        // Reusing a simulator adds earlier fixture batches on the same dates;
+        // those assets legitimately share events with the current batch.
+        let fixtureClusters = clusters.filter { cluster in
+            let ids = (cluster["itemIds"] as? [String]) ?? []
+            return ids.contains(where: expectedIds.contains)
+        }
+        let counts = fixtureClusters.map { cluster in
+            Set((cluster["itemIds"] as? [String]) ?? []).intersection(expectedIds).count
+        }.filter { $0 > 0 }.sorted()
+        XCTAssertEqual(counts, [2, 2, 3])
+        let actualIds = Set(fixtureClusters.flatMap { ($0["itemIds"] as? [String]) ?? [] })
+            .intersection(expectedIds)
+        XCTAssertEqual(actualIds, expectedIds)
+        XCTAssertEqual(actualIds.count, expectedIds.count)
+    }
     func testSeededPhotoKitPixelsAndOriginalBytes() throws {
         // CI/local runners install the app, grant Photos, then simctl addmedia
         // a synthetic PNG. No personal library or iCloud account is used.

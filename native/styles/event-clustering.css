@@ -15,6 +15,8 @@
 .event-card-cover img { display: block; inline-size: auto; block-size: auto; max-inline-size: 100%; max-block-size: 100%; object-fit: contain; }
 .event-card-open strong { font-size: 1rem; font-weight: 500; }
 .event-days { display: flex; flex-wrap: wrap; gap: .25rem; margin-block-start: .5rem; }
+.event-card-open { overflow-wrap: anywhere; }
+.event-days button { min-block-size: 2.75rem; }
 .event-card-open:focus-visible, .event-days button:focus-visible { outline: 2px solid var(--pink, #ff1493); outline-offset: 4px; }
 @media (hover: hover) { .event-card-open:hover strong { color: var(--pink, #ff1493); } }
 .event-cloud { position: fixed; inset: 20% 1rem auto; z-index: 30; display: grid; justify-items: center; gap: .6rem; margin-inline: auto; max-inline-size: 28rem; color: var(--text, inherit); text-align: center; }

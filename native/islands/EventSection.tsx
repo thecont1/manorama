@@ -1,10 +1,25 @@
 import { useEffect, useRef, useState } from 'hono/jsx'
-import { formatEventDateSpan, formatEventFrameCount, formatSubDayLabel, orderedSubDays, subDayStartIndex, type EventCluster } from '../../packages/core/event-clustering'
+import {
+  deviceEventPresentation,
+  formatDaysLabel,
+  formatEventCardLabel,
+  formatEventDateSpan,
+  formatEventDayLabel,
+  formatEventFrameCount,
+  formatEventPreviewState,
+  formatMultiDayLabel,
+  formatSelectedPhotoCount,
+  formatSubDayLabel,
+  orderedSubDays,
+  subDayStartIndex,
+  type EventCluster,
+  type EventPresentationOptions,
+} from '../../packages/core/event-clustering'
 import type { EventClusteringController } from '../lib/event-clustering-state'
 import type { EventClusteringClient, EventPhoto } from '../lib/event-clustering'
 import '../styles/event-clustering.css'
 
-function EventCard({ cluster, client, revision, onOpen }: { cluster: EventCluster; client: EventClusteringClient; revision: number; onOpen: (event: EventCluster, index: number, trigger?: HTMLElement) => void }) {
+function EventCard({ cluster, client, revision, onOpen, presentation }: { cluster: EventCluster; client: EventClusteringClient; revision: number; onOpen: (event: EventCluster, index: number, trigger?: HTMLElement) => void; presentation: EventPresentationOptions }) {
   const [cover, setCover] = useState<EventPhoto | null>(null)
   const ref = useRef<HTMLElement | null>(null)
   useEffect(() => {
@@ -34,31 +49,36 @@ function EventCard({ cluster, client, revision, onOpen }: { cluster: EventCluste
     else load()
     return () => { alive = false; observer?.disconnect() }
   }, [client, cluster.coverItemId, revision])
-  const span = formatEventDateSpan(cluster)
+  const span = formatEventDateSpan(cluster, presentation)
+  const days = orderedSubDays(cluster)
   const dpr = typeof window === 'undefined' ? 1 : Math.max(1, window.devicePixelRatio || 1)
   return <li ref={ref} class="event-card">
-    <button type="button" class="event-card-open" onClick={(event) => onOpen(cluster, 0, event.currentTarget as HTMLElement)} aria-label={`${span}, ${formatEventFrameCount(cluster)}`}>
+    <button type="button" class="event-card-open" onClick={(event) => onOpen(cluster, 0, event.currentTarget as HTMLElement)} aria-label={formatEventCardLabel(cluster, cover?.state, presentation)}>
       <span class="event-card-cover">
         {cover?.src ? <img src={cover.src} alt="" loading="lazy" width={cover.width} height={cover.height}
           style={{ maxInlineSize: `min(100%, ${cover.width / dpr}px)`, maxBlockSize: `min(100%, ${cover.height / dpr}px)`, aspectRatio: `${cover.width} / ${cover.height}` }} />
-          : <span class="m-note">{cover?.state === 'cloudOnly' ? 'In iCloud' : cover?.state === 'missing' ? 'Photo unavailable' : cover?.state === 'failed' ? 'Preview unavailable' : 'Reading preview…'}</span>}
+          : <span class="m-note">{formatEventPreviewState(cover?.state, presentation)}</span>}
       </span>
-      <strong>{span}</strong><span class="m-note">{formatEventFrameCount(cluster)}{cluster.isMultiDay ? ' · Multi-day' : ''}</span>
+      <strong>{span}</strong><span class="m-note">{formatEventFrameCount(cluster, presentation)}{cluster.isMultiDay ? ` · ${formatMultiDayLabel(presentation)}` : ''}</span>
     </button>
-    {orderedSubDays(cluster).length ? <div class="event-days" aria-label={`Days in ${span}`}>
-      {orderedSubDays(cluster).map((day) => <button type="button" key={day.id} class="m-btn m-btn--quiet" onClick={(event) => onOpen(cluster, subDayStartIndex(cluster, day.id), event.currentTarget as HTMLElement)}>{formatSubDayLabel(day, cluster)}</button>)}
+    {days.length ? <div class="event-days" role="group" aria-label={formatDaysLabel(span, presentation)}>
+      {days.map((day) => <button type="button" key={day.id} class="m-btn m-btn--quiet"
+        aria-label={formatEventDayLabel(day, cluster, span, presentation)}
+        onClick={(event) => onOpen(cluster, subDayStartIndex(cluster, day.id), event.currentTarget as HTMLElement)}>{formatSubDayLabel(day, cluster, presentation)}</button>)}
     </div> : null}
   </li>
 }
 
-export default function EventSection({ events, onOpen }: { events: EventClusteringController; onOpen: (event: EventCluster, index: number, trigger?: HTMLElement) => void }) {
+export default function EventSection({ events, onOpen, presentation }: { events: EventClusteringController; onOpen: (event: EventCluster, index: number, trigger?: HTMLElement) => void; presentation?: EventPresentationOptions }) {
   const [accessError, setAccessError] = useState<string | null>(null)
   if (!events.status?.configured) return null
   const limited = events.status.authorization === 'limited'
+  const resolved = presentation ?? deviceEventPresentation()
+  const formatted = { ...resolved, messages: { ...resolved.messages, cloudOnly: resolved.messages?.cloudOnly ?? 'In iCloud' } }
   return <section class="native-account event-section" aria-labelledby="native-events-title" data-event-section>
     <h3 class="lib-section-title" id="native-events-title">Event groups</h3>
     {limited ? <>
-      <p class="m-note">{events.status.selectedPhotoCount === null || events.status.selectedPhotoCount === undefined ? 'Selected photos only' : `Showing ${events.status.selectedPhotoCount} selected photos`}</p>
+      <p class="m-note">{formatSelectedPhotoCount(events.status.selectedPhotoCount, formatted)}</p>
       <button type="button" class="m-btn m-btn--quiet" onClick={() => {
         setAccessError(null)
         void events.client.limitedPicker().then(() => events.refresh(true)).catch(() => setAccessError('Selected photos could not be changed.'))
@@ -69,6 +89,6 @@ export default function EventSection({ events, onOpen }: { events: EventClusteri
       : events.error ? <><p class="m-note" role="alert">{events.error}</p><button type="button" class="m-btn m-btn--quiet" onClick={() => { void events.refresh() }}>Try again</button></>
       : !events.scan ? <p class="m-note" role="status">Reading events…</p>
       : !events.scan.clusters.length ? <p class="m-note">No events in the selected photos.</p>
-      : <ul class="event-grid">{events.scan.clusters.map((cluster) => <EventCard key={cluster.id} cluster={cluster} client={events.client} revision={events.sourceRevision} onOpen={onOpen} />)}</ul>}
+      : <ul class="event-grid" role="list">{events.scan.clusters.map((cluster) => <EventCard key={cluster.id} cluster={cluster} client={events.client} revision={events.sourceRevision} onOpen={onOpen} presentation={formatted} />)}</ul>}
   </section>
 }

@@ -89,62 +89,6 @@ export const isEventAssetFileUrl = (value: unknown): value is string => {
   } catch { return false }
 }
 
-export const parseEventAssetImages = (value: unknown, ids: readonly string[]): EventAssetImage[] | null => {
-  const body = asObject(value)
-  if (!body || !Array.isArray(body.items) || body.items.length !== ids.length || ids.length > MAX_EVENT_ASSET_BATCH) return null
-  const result: EventAssetImage[] = []
-  for (let index = 0; index < ids.length; index++) {
-    const item = asObject(body.items[index])
-    if (!item || item.id !== ids[index] || !isEventAssetId(item.id)
-      || !['ready', 'cloudOnly', 'downloading', 'failed', 'missing'].includes(String(item.state))
-      || !Number.isInteger(item.width) || !Number.isInteger(item.height)
-      || (item.width as number) < 0 || (item.height as number) < 0) return null
-    if (item.state === 'ready' ? (!isEventAssetFileUrl(item.url) || (item.width as number) <= 0 || (item.height as number) <= 0) : item.url !== null) return null
-    result.push(item as EventAssetImage)
-  }
-  return result
-}
-
-export const parseEventAssetProgress = (value: unknown): EventAssetProgress | null => {
-  const body = asObject(value)
-  return body && isEventAssetId(body.id) && typeof body.fraction === 'number'
-    && Number.isFinite(body.fraction) && body.fraction >= 0 && body.fraction <= 1
-    ? { id: body.id, fraction: body.fraction } : null
-}
-
-export type EventPhotosAuthorization = 'notDetermined' | 'denied' | 'restricted' | 'limited' | 'authorized'
-export type EventAssetState = 'ready' | 'cloudOnly' | 'downloading' | 'failed' | 'missing'
-export type EventAssetImage = { id: string; url: string | null; width: number; height: number; state: EventAssetState }
-export type EventAssetRequest = { ids: string[]; purpose: 'thumbnail' | 'viewer'; maxPixelSize?: number; allowNetwork?: boolean }
-export type EventAssetProgress = { id: string; fraction: number }
-export const MAX_EVENT_ASSET_BATCH = 64
-
-export const isEventAssetId = (value: unknown): value is string =>
-  typeof value === 'string' && value.length > 0 && value.length <= 4096
-  && !/[\u0000-\u001f\u007f\\\\:]/.test(value)
-  && !value.split('/').some((part) => !part || part === '.' || part === '..')
-
-export const isEventAssetRequest = (value: EventAssetRequest): boolean =>
-  Array.isArray(value.ids) && value.ids.length > 0 && value.ids.length <= MAX_EVENT_ASSET_BATCH
-  && value.ids.every(isEventAssetId) && new Set(value.ids).size === value.ids.length
-  && (value.purpose === 'thumbnail' || value.purpose === 'viewer')
-  && (value.maxPixelSize === undefined || (Number.isInteger(value.maxPixelSize) && value.maxPixelSize > 0 && value.maxPixelSize <= 8192))
-  && (value.allowNetwork === undefined || typeof value.allowNetwork === 'boolean')
-  && (value.allowNetwork !== true || (value.purpose === 'viewer' && value.ids.length === 1))
-
-/** A native-returned local file URL, never a grant constructed by the page.
- * Decode before URL normalization so encoded traversal cannot disappear. */
-export const isEventAssetFileUrl = (value: unknown): value is string => {
-  if (typeof value !== 'string' || value.length > 8192 || !value.startsWith('file:///')) return false
-  try {
-    const rawPath = decodeURIComponent(value.slice(7))
-    if (!rawPath.startsWith('/') || /[\u0000-\u001f\u007f\\\\]/.test(rawPath)) return false
-    if (rawPath.slice(1).split('/').some((part) => !part || part === '.' || part === '..')) return false
-    const url = new URL(value)
-    return url.protocol === 'file:' && !url.host && !url.search && !url.hash
-  } catch { return false }
-}
-
 /** Desktop originals are reachable only through opaque, native-issued leases. */
 export const isEventAssetLeaseUrl = (value: unknown): value is string =>
   typeof value === 'string'
@@ -418,74 +362,239 @@ export const parseRawDumpPick = (value: unknown): RawDumpPick | null => {
 }
 
 /* ── Presentation ────────────────────────────────────────────────────────
- * The engine never names a date; these do. Fixed English month abbreviations
- * rather than `toLocaleDateString`, because the same label is written into a
- * card, a sheet title and a storage key, and an ICU-less runtime must read
- * the trip the same way a full-ICU one does. Days are taken in the device's
- * own calendar: the shell clustered by the capture calendar and this page
- * runs on the same machine, so UTC would move an evening's last frame into
- * the following day.
+ * The engine never names a date; these do. Locale, calendar and time zone are
+ * explicit so a card, its accessible name and a test can read the same instant
+ * identically. The shells pass the device's resolved preferences; the stable
+ * English/Gregorian default keeps server-side rendering deterministic.
  * ───────────────────────────────────────────────────────────────────── */
 
-const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
+type EventPluralCategory = 'zero' | 'one' | 'two' | 'few' | 'many' | 'other'
 
-type CalendarDay = { day: number; month: number; year: number }
+export type EventPresentationMessages = {
+  photographCount: Partial<Record<EventPluralCategory, string>>
+  selectedPhotoCount: Partial<Record<EventPluralCategory, string>>
+  selectedPhotosOnly: string
+  multiDay: string
+  neverIndexed: string
+  indexedJustNow: string
+  indexedMinutesAgo: string
+  indexedHoursAgo: string
+  indexedOn: string
+  daysIn: string
+  eventDay: string
+  cloudOnly: string
+  missing: string
+  failed: string
+  readingPreview: string
+}
 
-const calendarDay = (epochMs: number): CalendarDay => {
-  const date = new Date(epochMs)
-  return { day: date.getDate(), month: date.getMonth(), year: date.getFullYear() }
+export type EventPresentationOptions = {
+  locale?: string
+  calendar?: string
+  timeZone?: string
+  messages?: Partial<EventPresentationMessages>
+}
+
+const DEFAULT_MESSAGES: EventPresentationMessages = {
+  photographCount: { one: '{count} photograph', other: '{count} photographs' },
+  selectedPhotoCount: { one: 'Showing {count} selected photo', other: 'Showing {count} selected photos' },
+  selectedPhotosOnly: 'Selected photos only',
+  multiDay: 'Multi-day',
+  neverIndexed: 'Never indexed',
+  indexedJustNow: 'Indexed just now',
+  indexedMinutesAgo: 'Indexed {relative}',
+  indexedHoursAgo: 'Indexed {relative}',
+  indexedOn: 'Indexed {date}',
+  daysIn: 'Days in {date}',
+  eventDay: '{event}, {day}',
+  cloudOnly: 'Not downloaded',
+  missing: 'Photo unavailable',
+  failed: 'Preview unavailable',
+  readingPreview: 'Reading preview…',
+}
+
+const dateFormatters = new Map<string, Intl.DateTimeFormat>()
+const numberFormatters = new Map<string, Intl.NumberFormat>()
+const pluralRules = new Map<string, Intl.PluralRules>()
+const relativeFormatters = new Map<string, Intl.RelativeTimeFormat>()
+const listFormatters = new Map<string, Intl.ListFormat>()
+
+const formatterKey = (options: EventPresentationOptions): string =>
+  `${options.locale ?? 'en-GB'}|${options.calendar ?? 'gregory'}|${options.timeZone ?? ''}`
+
+const dateFormatter = (options: EventPresentationOptions, includeYear: boolean): Intl.DateTimeFormat => {
+  const key = `${formatterKey(options)}|${includeYear}`
+  const cached = dateFormatters.get(key)
+  if (cached) return cached
+  const formatter = new Intl.DateTimeFormat(options.locale ?? 'en-GB', {
+    calendar: options.calendar ?? 'gregory',
+    ...(options.timeZone === undefined ? {} : { timeZone: options.timeZone }),
+    day: 'numeric',
+    month: 'short',
+    ...(includeYear ? { year: 'numeric' } : {}),
+  })
+  if (dateFormatters.size >= 8) dateFormatters.clear()
+  dateFormatters.set(key, formatter)
+  return formatter
+}
+
+const numberFormatter = (options: EventPresentationOptions): Intl.NumberFormat => {
+  const locale = options.locale ?? 'en-GB'
+  let formatter = numberFormatters.get(locale)
+  if (!formatter) {
+    formatter = new Intl.NumberFormat(locale)
+    if (numberFormatters.size >= 8) numberFormatters.clear()
+    numberFormatters.set(locale, formatter)
+  }
+  return formatter
+}
+
+const pluralRule = (options: EventPresentationOptions): Intl.PluralRules => {
+  const locale = options.locale ?? 'en-GB'
+  let rules = pluralRules.get(locale)
+  if (!rules) {
+    rules = new Intl.PluralRules(locale)
+    if (pluralRules.size >= 8) pluralRules.clear()
+    pluralRules.set(locale, rules)
+  }
+  return rules
+}
+
+const relativeFormatter = (options: EventPresentationOptions): Intl.RelativeTimeFormat => {
+  const locale = options.locale ?? 'en-GB'
+  let formatter = relativeFormatters.get(locale)
+  if (!formatter) {
+    formatter = new Intl.RelativeTimeFormat(locale, { numeric: 'always' })
+    if (relativeFormatters.size >= 8) relativeFormatters.clear()
+    relativeFormatters.set(locale, formatter)
+  }
+  return formatter
+}
+
+const listFormatter = (options: EventPresentationOptions): Intl.ListFormat => {
+  const locale = options.locale ?? 'en-GB'
+  let formatter = listFormatters.get(locale)
+  if (!formatter) {
+    formatter = new Intl.ListFormat(locale, { style: 'long', type: 'conjunction' })
+    if (listFormatters.size >= 8) listFormatters.clear()
+    listFormatters.set(locale, formatter)
+  }
+  return formatter
+}
+
+const messagesFor = (options: EventPresentationOptions): EventPresentationMessages => {
+  if (!options.messages) return DEFAULT_MESSAGES
+  return {
+    ...DEFAULT_MESSAGES,
+    ...options.messages,
+    photographCount: { ...DEFAULT_MESSAGES.photographCount, ...options.messages.photographCount },
+    selectedPhotoCount: { ...DEFAULT_MESSAGES.selectedPhotoCount, ...options.messages.selectedPhotoCount },
+  }
+}
+
+const formatMessage = (template: string, values: Record<string, string | number>): string =>
+  template.replace(/\{(\w+)\}/g, (match, key: string) => String(values[key] ?? match))
+
+const pluralTemplate = (
+  templates: Partial<Record<EventPluralCategory, string>>,
+  count: number,
+  rules: Intl.PluralRules,
+): string => templates[rules.select(count)] ?? templates.other ?? ''
+
+export const deviceEventPresentation = (): EventPresentationOptions => {
+  const resolved = new Intl.DateTimeFormat().resolvedOptions()
+  return { locale: resolved.locale, calendar: resolved.calendar, timeZone: resolved.timeZone }
+}
+
+type CalendarDay = { day: number; month: number; year: number; era: string }
+
+const calendarDay = (epochMs: number, options: EventPresentationOptions): CalendarDay => {
+  const parts = dateFormatter(options, true).formatToParts(epochMs)
+  const value = (type: Intl.DateTimeFormatPartTypes): string => parts.find((part) => part.type === type)?.value ?? ''
+  return { day: Number(value('day')), month: Number(value('month')), year: Number(value('year')), era: value('era') }
 }
 
 const sameDay = (a: CalendarDay, b: CalendarDay): boolean =>
-  a.day === b.day && a.month === b.month && a.year === b.year
+  a.day === b.day && a.month === b.month && a.year === b.year && a.era === b.era
 
-/**
- * The span an event is identified by — four shapes, no more:
- *
- *   `12 Mar 2026`                   one calendar day
- *   `12–16 Mar 2026`                same month
- *   `28 Feb – 3 Mar 2026`           across months, one year
- *   `30 Dec 2025 – 2 Jan 2026`      across years — both years stated
- *
- * Unreadable stamps answer the empty string. A card with no date is honest;
- * one that says `Invalid date` is a bug the user cannot dismiss.
- */
-export const formatDateSpan = (startDate: number, endDate: number): string => {
-  if (!isEpochMs(startDate) || !isEpochMs(endDate)) return ''
-  const start = calendarDay(startDate)
-  const end = calendarDay(Math.max(startDate, endDate))
-  if (sameDay(start, end)) return `${start.day} ${MONTHS[start.month]} ${start.year}`
-  if (start.year === end.year) {
-    if (start.month === end.month) return `${start.day}–${end.day} ${MONTHS[start.month]} ${start.year}`
-    return `${start.day} ${MONTHS[start.month]} – ${end.day} ${MONTHS[end.month]} ${start.year}`
-  }
-  return `${start.day} ${MONTHS[start.month]} ${start.year} – ${end.day} ${MONTHS[end.month]} ${end.year}`
+const isFormattableDate = (value: unknown): value is number =>
+  isEpochMs(value) && !Number.isNaN(new Date(value).getTime())
+
+/** A locale- and calendar-aware span. `Intl.DateTimeFormat` owns range
+ * punctuation and field elision; unreadable stamps answer the empty string. */
+export const formatDateSpan = (
+  startDate: number,
+  endDate: number,
+  options: EventPresentationOptions = {},
+): string => {
+  if (!isFormattableDate(startDate) || !isFormattableDate(endDate)) return ''
+  const end = Math.max(startDate, endDate)
+  const formatter = dateFormatter(options, true)
+  if (sameDay(calendarDay(startDate, options), calendarDay(end, options))) return formatter.format(startDate)
+  return formatter.formatRange(startDate, end)
 }
 
-export const formatEventDateSpan = (cluster: EventCluster): string =>
-  formatDateSpan(cluster.startDate, cluster.endDate)
-
-/** Grouped by hand for the same reason the month names are fixed: a
- *  50,000-frame dump must read the same in the Worker as in the shell. */
-const groupThousands = (value: number): string => {
-  const digits = String(value)
-  const head = digits.length > 3 ? digits.length % 3 : 0
-  const chunks: string[] = []
-  if (head) chunks.push(digits.slice(0, head))
-  for (let index = head; index < digits.length; index += 3) chunks.push(digits.slice(index, index + 3))
-  return chunks.join(',')
-}
+export const formatEventDateSpan = (cluster: EventCluster, options: EventPresentationOptions = {}): string =>
+  formatDateSpan(cluster.startDate, cluster.endDate, options)
 
 /** The frame count in the Library's own voice. Bursts count as the separate
  *  frames the engine kept — the collapse chooses a cover, it does not delete
  *  a photograph, and the card must not imply otherwise. */
-export const formatFrameCount = (count: number): string => {
+export const formatFrameCount = (count: number, options: EventPresentationOptions = {}): string => {
   const value = Number.isFinite(count) && count >= 0 ? Math.floor(count) : 0
-  return `${groupThousands(value)} ${value === 1 ? 'photograph' : 'photographs'}`
+  const messages = messagesFor(options)
+  const template = pluralTemplate(messages.photographCount, value, pluralRule(options))
+  return formatMessage(template, { count: numberFormatter(options).format(value) })
 }
 
-export const formatEventFrameCount = (cluster: EventCluster): string =>
-  formatFrameCount(cluster.itemIds.length)
+export const formatEventFrameCount = (cluster: EventCluster, options: EventPresentationOptions = {}): string =>
+  formatFrameCount(cluster.itemIds.length, options)
+
+export const formatSelectedPhotoCount = (count: number | null | undefined, options: EventPresentationOptions = {}): string => {
+  const messages = messagesFor(options)
+  if (count === null || count === undefined) return messages.selectedPhotosOnly
+  const value = Number.isFinite(count) && count >= 0 ? Math.floor(count) : 0
+  const template = pluralTemplate(messages.selectedPhotoCount, value, pluralRule(options))
+  return formatMessage(template, { count: numberFormatter(options).format(value) })
+}
+
+export const formatMultiDayLabel = (options: EventPresentationOptions = {}): string =>
+  messagesFor(options).multiDay
+
+export const formatEventPreviewState = (
+  state: EventAssetState | undefined,
+  options: EventPresentationOptions = {},
+): string => {
+  const messages = messagesFor(options)
+  if (state === 'cloudOnly') return messages.cloudOnly
+  if (state === 'missing') return messages.missing
+  if (state === 'failed') return messages.failed
+  return messages.readingPreview
+}
+
+export const formatDaysLabel = (span: string, options: EventPresentationOptions = {}): string =>
+  formatMessage(messagesFor(options).daysIn, { date: span })
+
+export const formatEventDayLabel = (
+  day: EventDayGroup,
+  cluster: EventCluster,
+  span: string,
+  options: EventPresentationOptions = {},
+): string => formatMessage(messagesFor(options).eventDay, {
+  event: span,
+  day: formatSubDayLabel(day, cluster, options),
+})
+
+export const formatEventCardLabel = (
+  cluster: EventCluster,
+  state: EventAssetState | undefined,
+  options: EventPresentationOptions = {},
+): string => {
+  const parts = [formatEventDateSpan(cluster, options), formatEventFrameCount(cluster, options)]
+  if (cluster.isMultiDay) parts.push(messagesFor(options).multiDay)
+  if (state && state !== 'ready') parts.push(formatEventPreviewState(state, options))
+  return listFormatter(options).format(parts)
+}
 
 /** Sub-days in the order the trip happened. The engine answers them in
  *  calendar order already; sorting here means a re-sorted index cannot make
@@ -502,11 +611,16 @@ export const orderedSubDays = (cluster: EventCluster): EventDayGroup[] => {
  *  year boundary — inside a trip that spans New Year the bare day is
  *  ambiguous and the year is the only thing that resolves it.
  */
-export const formatSubDayLabel = (day: EventDayGroup, cluster?: EventCluster): string => {
-  const date = calendarDay(day.date)
-  const crossesYear = cluster !== undefined
-    && calendarDay(cluster.startDate).year !== calendarDay(cluster.endDate).year
-  return `${date.day} ${MONTHS[date.month]}${crossesYear ? ` ${date.year}` : ''}`
+export const formatSubDayLabel = (
+  day: EventDayGroup,
+  cluster?: EventCluster,
+  options: EventPresentationOptions = {},
+): string => {
+  if (!isFormattableDate(day.date)) return ''
+  const start = cluster !== undefined && isFormattableDate(cluster.startDate) ? calendarDay(cluster.startDate, options) : undefined
+  const end = cluster !== undefined && isFormattableDate(cluster.endDate) ? calendarDay(cluster.endDate, options) : undefined
+  const crossesYear = start !== undefined && end !== undefined && (start.year !== end.year || start.era !== end.era)
+  return dateFormatter(options, crossesYear).format(day.date)
 }
 
 /**
@@ -527,21 +641,26 @@ export const subDayStartIndex = (cluster: EventCluster, dayId: string): number =
  * `now` is a parameter rather than `Date.now()` inside the call so the
  * boundaries read the same in a test as on a Mac at 23:59.
  */
-export const formatIndexedAgo = (lastIndexedAt: number | null, now: number): string => {
-  if (!isEpochMs(lastIndexedAt)) return 'Never indexed'
+export const formatIndexedAgo = (
+  lastIndexedAt: number | null,
+  now: number,
+  options: EventPresentationOptions = {},
+): string => {
+  const messages = messagesFor(options)
+  if (!isFormattableDate(lastIndexedAt)) return messages.neverIndexed
   const since = now - lastIndexedAt
-  if (since < 60_000) return 'Indexed just now'
+  if (since < 60_000) return messages.indexedJustNow
   if (since < 3_600_000) {
     const minutes = Math.floor(since / 60_000)
-    return `Indexed ${minutes} minute${minutes === 1 ? '' : 's'} ago`
+    return formatMessage(messages.indexedMinutesAgo, { relative: relativeFormatter(options).format(-minutes, 'minute') })
   }
   if (since < 86_400_000) {
     const hours = Math.floor(since / 3_600_000)
-    return `Indexed ${hours} hour${hours === 1 ? '' : 's'} ago`
+    return formatMessage(messages.indexedHoursAgo, { relative: relativeFormatter(options).format(-hours, 'hour') })
   }
   // Past a day the absolute date is the useful fact; "3 days ago" would age
   // out of meaning the moment the Mac sleeps over a weekend.
-  return `Indexed ${formatDateSpan(lastIndexedAt, lastIndexedAt)}`
+  return formatMessage(messages.indexedOn, { date: formatDateSpan(lastIndexedAt, lastIndexedAt, options) })
 }
 
 

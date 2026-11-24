@@ -30,9 +30,29 @@ import java.io.File
 import java.util.TimeZone
 import java.util.UUID
 import java.util.concurrent.CountDownLatch
+import java.util.concurrent.Executor
 import java.util.concurrent.Executors
 import java.util.concurrent.RejectedExecutionException
 import java.util.concurrent.TimeUnit
+
+internal fun submitSettled(
+    executor: Executor,
+    reject: (String) -> Unit,
+    failureMessage: String,
+    action: () -> Unit,
+) {
+    try {
+        executor.execute {
+            try {
+                action()
+            } catch (_: Throwable) {
+                reject(failureMessage)
+            }
+        }
+    } catch (_: RejectedExecutionException) {
+        reject("The Camera Roll service is no longer available")
+    }
+}
 
 @CapacitorPlugin(name = "EventClustering")
 class EventClusteringPlugin : Plugin() {
@@ -88,106 +108,98 @@ class EventClusteringPlugin : Plugin() {
 
     @PluginMethod
     fun getRawDumpStatus(call: PluginCall) {
-        worker.execute {
-            try {
-                val state = stateStore.read()
-                val reachable = eventSourceReachable(state, hasPhotoPermission(), source::count)
-                val payload = JSObject()
-                    .put("configured", state.enabled)
-                    .put("label", state.label ?: JSObject.NULL)
-                    .put("isAvailable", reachable)
-                    .put("lastIndexedAt", state.header?.lastIndexedAt?.times(1000)?.toLong()?.toDouble() ?: JSObject.NULL)
-                    .put("eventCount", state.header?.eventCount ?: 0)
-                    .put("authorization", authorizationName(state))
-                    .put("selectedPhotoCount", if (reachable) state.selectedPhotoCount ?: JSObject.NULL else JSObject.NULL)
-                    .put("downloadCloudOnOpen", state.downloadCloudOnOpen)
-                main.post { call.resolve(payload) }
-            } catch (_: Throwable) {
-                main.post { call.reject("The Camera Roll status could not be read") }
-            }
+        submitSettled(worker, { message -> main.post { call.reject(message) } }, "The Camera Roll status could not be read") {
+            val state = stateStore.read()
+            val reachable = eventSourceReachable(state, hasPhotoPermission(), source::count)
+            val payload = JSObject()
+                .put("configured", state.enabled)
+                .put("label", state.label ?: JSObject.NULL)
+                .put("isAvailable", reachable)
+                .put("lastIndexedAt", state.header?.lastIndexedAt?.times(1000)?.toLong()?.toDouble() ?: JSObject.NULL)
+                .put("eventCount", state.header?.eventCount ?: 0)
+                .put("authorization", authorizationName(state))
+                .put("selectedPhotoCount", if (reachable) state.selectedPhotoCount ?: JSObject.NULL else JSObject.NULL)
+                .put("downloadCloudOnOpen", state.downloadCloudOnOpen)
+            main.post { call.resolve(payload) }
         }
     }
 
     @PluginMethod
     fun scanRawDumpEvents(call: PluginCall) {
         val force = call.getBoolean("force") ?: false
-        worker.execute {
+        submitSettled(worker, { message -> main.post { call.reject(message) } }, "The Camera Roll event index could not be built") {
             val state = stateStore.read()
             if (!state.enabled || state.sourceId == null) {
                 main.post { call.reject("No Camera Roll source is declared on this device") }
-                return@execute
+                return@submitSettled
             }
             if (!hasPhotoPermission()) {
                 main.post { call.reject("Camera Roll access is not granted for this app") }
-                return@execute
+                return@submitSettled
             }
-            try {
-                if (state.bucketId != null && source.count(state.bucketId) == 0) {
-                    main.post { call.reject("The selected Camera Roll folder is no longer available. Choose it again in Library Settings.") }
-                    return@execute
+            if (state.bucketId != null && source.count(state.bucketId) == 0) {
+                main.post { call.reject("The selected Camera Roll folder is no longer available. Choose it again in Library Settings.") }
+                return@submitSettled
+            }
+            val id = stableDeviceId()
+            val location = hasLocationPermission()
+            val previous = readIndex(id, state.sourceId, force || state.locationRead != location)
+            val oldItems = previous?.optJSONObject("itemCache")
+            val oldConfig = previous?.optJSONObject("config") ?: JSONObject()
+            val items = source.metadata(state.bucketId, location) { record ->
+                val cached = oldItems?.optJSONObject(record.id) ?: return@metadata null
+                val cachedModified = cached.optDouble("fileModTime", Double.NaN)
+                val currentModified = record.fileModTime ?: Double.NaN
+                if (!cachedModified.isFinite() || !currentModified.isFinite() || currentModified - cachedModified >= 1.0 || cachedModified - currentModified >= 1.0) {
+                    return@metadata null
                 }
-                val id = stableDeviceId()
-                val location = hasLocationPermission()
-                val previous = readIndex(id, state.sourceId, force || state.locationRead != location)
-                val oldItems = previous?.optJSONObject("itemCache")
-                val oldConfig = previous?.optJSONObject("config") ?: JSONObject()
-                val items = source.metadata(state.bucketId, location) { record ->
-                    val cached = oldItems?.optJSONObject(record.id) ?: return@metadata null
-                    val cachedModified = cached.optDouble("fileModTime", Double.NaN)
-                    val currentModified = record.fileModTime ?: Double.NaN
-                    if (!cachedModified.isFinite() || !currentModified.isFinite() || currentModified - cachedModified >= 1.0 || cachedModified - currentModified >= 1.0) {
-                        return@metadata null
-                    }
-                    if (cached.has("latitude") && cached.has("longitude")) {
-                        cached.getDouble("latitude") to cached.getDouble("longitude")
-                    } else null
-                }
-                val indexedAt = System.currentTimeMillis() / 1000.0
-                val options = JSONObject()
+                if (cached.has("latitude") && cached.has("longitude")) {
+                    cached.getDouble("latitude") to cached.getDouble("longitude")
+                } else null
+            }
+            val indexedAt = System.currentTimeMillis() / 1000.0
+            val options = JSONObject()
+                .put("sourceId", state.sourceId)
+                .put("calendar", JSONObject()
+                    .put("identifier", "gregorian")
+                    .put("timeZoneIdentifier", TimeZone.getDefault().id))
+                .put("config", oldConfig)
+            val result = JSONObject(RustBridge.cluster(JSONArray(items).toString(), options.toString()))
+            val cache = JSONObject()
+            items.forEach { cache.put(it.getString("id"), it) }
+            val index = JSONObject()
+                .put("schemaVersion", 1)
+                .put("source", JSONObject()
+                    .put("deviceId", id)
                     .put("sourceId", state.sourceId)
-                    .put("calendar", JSONObject()
-                        .put("identifier", "gregorian")
-                        .put("timeZoneIdentifier", TimeZone.getDefault().id))
-                    .put("config", oldConfig)
-                val result = JSONObject(RustBridge.cluster(JSONArray(items).toString(), options.toString()))
-                val cache = JSONObject()
-                items.forEach { cache.put(it.getString("id"), it) }
-                val index = JSONObject()
-                    .put("schemaVersion", 1)
-                    .put("source", JSONObject()
-                        .put("deviceId", id)
-                        .put("sourceId", state.sourceId)
-                        .put("sourceKind", state.sourceKind ?: "library")
-                        .put("label", state.label ?: "Camera Roll")
-                        .put("lastIndexedAt", indexedAt))
-                    .put("config", oldConfig)
-                    .put("itemCache", cache)
-                    .put("events", result.getJSONArray("events"))
-                    .put("screenshotItemIds", result.getJSONArray("screenshotItemIds"))
-                val encoded = RustBridge.encodeIndex(index.toString())
-                EventPrivateFiles.writeAtomic(stateStore.indexFile, encoded.toByteArray(Charsets.UTF_8))
-                val events = result.getJSONArray("events")
-                stateStore.update {
-                    it.copy(
-                        selectedPhotoCount = items.size,
-                        locationRead = location,
-                        header = EventHeader(indexedAt, events.length()),
-                    )
-                }
-                val payload = JSObject()
-                    .put("clusters", wireClusters(events))
-                    .put("screenshotCount", result.getJSONArray("screenshotItemIds").length())
-                    .put("rootPath", JSObject.NULL)
-                main.post { call.resolve(payload) }
-            } catch (_: Exception) {
-                main.post { call.reject("The Camera Roll event index could not be built") }
+                    .put("sourceKind", state.sourceKind ?: "library")
+                    .put("label", state.label ?: "Camera Roll")
+                    .put("lastIndexedAt", indexedAt))
+                .put("config", oldConfig)
+                .put("itemCache", cache)
+                .put("events", result.getJSONArray("events"))
+                .put("screenshotItemIds", result.getJSONArray("screenshotItemIds"))
+            val encoded = RustBridge.encodeIndex(index.toString())
+            EventPrivateFiles.writeAtomic(stateStore.indexFile, encoded.toByteArray(Charsets.UTF_8))
+            val events = result.getJSONArray("events")
+            stateStore.update {
+                it.copy(
+                    selectedPhotoCount = items.size,
+                    locationRead = location,
+                    header = EventHeader(indexedAt, events.length()),
+                )
             }
+            val payload = JSObject()
+                .put("clusters", wireClusters(events))
+                .put("screenshotCount", result.getJSONArray("screenshotItemIds").length())
+                .put("rootPath", JSObject.NULL)
+            main.post { call.resolve(payload) }
         }
     }
 
     @PluginMethod
     fun clearRawDumpRoot(call: PluginCall) {
-        worker.execute {
+        submitSettled(worker, { message -> main.post { call.reject(message) } }, "The Camera Roll folder could not be cleared") {
             assets.clear()
             observer.stop()
             dismissDownloadDialog()
@@ -210,6 +222,7 @@ class EventClusteringPlugin : Plugin() {
 
     @PluginMethod
     fun getEventAssetImage(call: PluginCall) {
+        val assetGeneration = assets.generation()
         val request = runCatching { parseAssetRequest(call) }.getOrNull()
         if (request == null) {
             call.reject("Invalid event photograph request")
@@ -218,6 +231,10 @@ class EventClusteringPlugin : Plugin() {
         try {
             assetWorker.execute {
                 try {
+                    if (assets.generation() != assetGeneration) {
+                        main.post { call.reject("Event photograph request cancelled") }
+                        return@execute
+                    }
                     val state = stateStore.read()
                     if (!eventSourceReachable(state, hasPhotoPermission(), source::count)) {
                         main.post { call.reject("Camera Roll access is not available") }
@@ -231,6 +248,7 @@ class EventClusteringPlugin : Plugin() {
                         request.purpose,
                         request.maxPixelSize,
                         allowNetwork,
+                        requestGeneration = assetGeneration,
                     ) {
                         allowNetwork && confirmDownload(request.ids.single())
                     }
@@ -284,7 +302,7 @@ class EventClusteringPlugin : Plugin() {
             call.reject("A cloud download preference is required")
             return
         }
-        worker.execute {
+        submitSettled(worker, { message -> main.post { call.reject(message) } }, "The cloud download preference could not be changed") {
             stateStore.update { it.copy(downloadCloudOnOpen = enabled) }
             main.post { call.resolve() }
         }

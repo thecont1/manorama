@@ -1,3 +1,4 @@
+import Darwin
 import Foundation
 import WebKit
 
@@ -22,6 +23,9 @@ import WebKit
 ///  5. **Raw dump events** — the recursive, header-only walk; the cached
 ///     timeline it maintains; the `0600` file it lives in; the wire shape
 ///     the page reads; and the watch that nudges when the folder changes.
+///
+/// `--event-index-performance-50k` runs the separate performance gate. It gets
+/// a fresh process so the rest of this suite cannot inflate its peak RSS.
 ///
 /// Run:
 ///   swiftc -O macos/ManoramaMac/{LocalGallery,FolderStore,LocalSchemeHandler,Trace,OAuthLoopback,NativeBridge,InvokeReply,FolderDumpScanner,RawDumpEvents}.swift \
@@ -678,10 +682,26 @@ final class BoundaryTests {
         check("the index lands in the config directory it was given",
               dumpStore.indexURL.deletingLastPathComponent() == dumpConfig
                   && FileManager.default.fileExists(atPath: dumpStore.indexURL.path))
+        let unchangedStamp = Date(timeIntervalSince1970: 1_700_000_000)
+        try? FileManager.default.setAttributes(
+            [.modificationDate: unchangedStamp], ofItemAtPath: dumpStore.indexURL.path)
+        let indexDataBeforeRescan = (try? Data(contentsOf: dumpStore.indexURL)) ?? Data()
+        let indexedBeforeRescan = dumpStore.readIndex()?.source.lastIndexedAt
         let secondScan = try? dumpStore.scan(root: dumpRoot, deviceId: "boundary-device",
                                         sourceId: "boundary-source", label: "Boundary Dump", force: false)
         check("an unchanged rescan opens no header at all", secondScan?.report.metadataReadCount == 0,
               "read=\(secondScan?.report.metadataReadCount ?? -1)")
+        let indexStampAfterRescan = ((try? FileManager.default.attributesOfItem(
+            atPath: dumpStore.indexURL.path))?[.modificationDate] as? Date) ?? .distantPast
+        let indexDataAfterRescan = try? Data(contentsOf: dumpStore.indexURL)
+        let lastIndexedUnchanged = indexedBeforeRescan.map { before in
+            guard let after = secondScan?.report.lastIndexedAt else { return false }
+            return abs(after.timeIntervalSince(before)) < 0.001
+        } ?? false
+        check("an unchanged rescan does not rewrite or re-date the index",
+              abs(indexStampAfterRescan.timeIntervalSince(unchangedStamp)) < 0.001
+                  && indexDataAfterRescan == indexDataBeforeRescan && lastIndexedUnchanged,
+              "stamp=\(indexStampAfterRescan.timeIntervalSince1970)")
         // Touch one frame: its mod time moves, so its row alone is stale.
         let touchedFile = dumpRoot.appendingPathComponent("2026-03-14/IMG_0002.jpg")
         try? FileManager.default.setAttributes(
@@ -1000,6 +1020,262 @@ final class BoundaryTests {
     static func isRefusal(_ resolution: LocalMediaResolver.Resolution) -> Bool {
         if case .forbidden = resolution { return true }
         return false
+    }
+}
+
+/// The Slice 6 budget gate: a real 50,000-file dump through the same store
+/// call the shell makes, in a fresh process so WebKit and the other boundary
+/// checks cannot inflate the memory measurement.
+final class EventIndexPerformanceGate {
+    static let flag = "--event-index-performance-50k"
+    static let testName = "macOS event index 50,000-item performance"
+
+    private static let itemCount = 50_000
+    private static let photosPerEvent = 20
+    private static let expectedEventCount = itemCount / photosPerEvent
+    private static let initialScanLimitSeconds = 10.0
+    private static let rescanLimitSeconds = 1.0
+    /// Decimal MB, deliberately stricter than a 300 MiB interpretation.
+    private static let peakRSSLimitBytes = 300_000_000
+
+    static func run() -> Int32 {
+        print("== \(testName) ==")
+        let work = URL(fileURLWithPath: NSTemporaryDirectory(), isDirectory: true)
+            .appendingPathComponent("manorama-event-index-performance-\(UUID().uuidString)", isDirectory: true)
+        do {
+            try FileManager.default.createDirectory(at: work, withIntermediateDirectories: true)
+        } catch {
+            print("FAIL  \(testName) — could not create the synthetic fixture directory: \(error)")
+            return 1
+        }
+        // The runner also puts TMPDIR inside its own trapped scratch tree.
+        // This defer covers a throw; the explicit check below covers success.
+        defer { try? FileManager.default.removeItem(at: work) }
+
+        do {
+            let passed = try exercise(in: work)
+            print(passed ? "PASS  \(testName)" : "FAIL  \(testName)")
+            return passed ? 0 : 1
+        } catch {
+            print("FAIL  \(testName) — \(error)")
+            return 1
+        }
+    }
+
+    private static func exercise(in work: URL) throws -> Bool {
+        let fixtureStart = ProcessInfo.processInfo.systemUptime
+        let baseDate = try writeSyntheticDump(in: work)
+        let fixtureSeconds = ProcessInfo.processInfo.systemUptime - fixtureStart
+        print(String(format: "INFO  synthetic dump: 50,000 JPEGs; setup %.3f s (excluded from scan timings)",
+                     fixtureSeconds))
+
+        let dump = work.appendingPathComponent("dump", isDirectory: true)
+        let config = work.appendingPathComponent("config", isDirectory: true)
+        let store = RawDumpEventStore(configDir: config)
+        let deviceId = "performance-device"
+        let sourceId = "performance-source"
+
+        let initialPeak: UInt64
+        let rescanPeak: UInt64
+        let initialStart = ProcessInfo.processInfo.systemUptime
+        let initial = try store.scan(
+            root: dump, deviceId: deviceId, sourceId: sourceId,
+            label: "Synthetic 50k", force: false
+        )
+        let initialElapsed = ProcessInfo.processInfo.systemUptime - initialStart
+        // RUSAGE_SELF is the kernel's process high-water mark, not a
+        // sampled estimate. Capture both scans' peaks before verification
+        // allocates sets, JSON buffers or a second decoded index.
+        initialPeak = peakRSSBytes()
+
+        let rescanStart = ProcessInfo.processInfo.systemUptime
+        let rescan = try store.scan(
+            root: dump, deviceId: deviceId, sourceId: sourceId,
+            label: "Synthetic 50k", force: false
+        )
+        let rescanElapsed = ProcessInfo.processInfo.systemUptime - rescanStart
+        rescanPeak = peakRSSBytes()
+        let overallPeak = max(initialPeak, rescanPeak)
+
+        let initialSummary = try summarize(initial.report)
+        let rescanSummary = try summarize(rescan.report)
+        try validateInitialIndex(store: store, summary: initialSummary, baseDate: baseDate)
+
+        print(String(format: "INFO  initial production scan: %.3f s; peak RSS %.2f MB (%llu bytes)",
+                     initialElapsed, Double(initialPeak) / 1_000_000, initialPeak))
+        print(String(format: "INFO  unchanged production rescan: %.3f s; peak RSS %.2f MB (%llu bytes)",
+                     rescanElapsed, Double(rescanPeak) / 1_000_000, rescanPeak))
+        print(String(format: "INFO  production scan peak RSS: %.2f MB (%llu bytes); budget < %.2f MB",
+                     Double(overallPeak) / 1_000_000, overallPeak, Double(peakRSSLimitBytes) / 1_000_000))
+        print("INFO  initial headers=\(initialSummary.metadataReadCount); rescan headers=\(rescanSummary.metadataReadCount); events=\(rescanSummary.eventCount); members=\(rescanSummary.memberCount)")
+
+        var failures = 0
+        func check(_ label: String, _ condition: Bool, _ detail: String = "") {
+            if condition {
+                print("PASS  \(label)")
+            } else {
+                print("FAIL  \(label) \(detail)")
+                failures += 1
+            }
+        }
+
+        check("50,000 real files produce 50,000 cached items",
+              initialSummary.memberCount == itemCount && initialSummary.uniqueMemberCount == itemCount,
+              "members=\(initialSummary.memberCount) unique=\(initialSummary.uniqueMemberCount)")
+        check("the synthetic dump contains no screenshots",
+              initialSummary.screenshotCount == 0 && rescanSummary.screenshotCount == 0)
+        check("initial production scan reads all 50,000 headers",
+              initialSummary.metadataReadCount == itemCount,
+              "read=\(initialSummary.metadataReadCount)")
+        check("initial production scan is under 10 seconds",
+              initialElapsed < initialScanLimitSeconds,
+              String(format: "elapsed=%.3f s", initialElapsed))
+        check("actual peak RSS is under 300 MB",
+              overallPeak > 0 && overallPeak < UInt64(peakRSSLimitBytes),
+              String(format: "peak=%.2f MB", Double(overallPeak) / 1_000_000))
+        check("unchanged production rescan is under 1 second",
+              rescanElapsed < rescanLimitSeconds,
+              String(format: "elapsed=%.3f s", rescanElapsed))
+        check("unchanged production rescan reads zero headers",
+              rescanSummary.metadataReadCount == 0,
+              "read=\(rescanSummary.metadataReadCount)")
+        check("unchanged rescan preserves 2,500 events and 50,000 unique members",
+              rescanSummary.eventCount == expectedEventCount
+                  && rescanSummary.memberCount == itemCount
+                  && rescanSummary.uniqueMemberCount == itemCount,
+              "events=\(rescanSummary.eventCount) members=\(rescanSummary.memberCount) unique=\(rescanSummary.uniqueMemberCount)")
+        check("unchanged rescan preserves event ids and membership",
+              initialSummary.eventFingerprint == rescanSummary.eventFingerprint)
+
+        let cleaned: Bool
+        do {
+            try FileManager.default.removeItem(at: work)
+            cleaned = !FileManager.default.fileExists(atPath: work.path)
+        } catch {
+            cleaned = false
+        }
+        check("all synthetic fixture and index files are cleaned up", cleaned)
+        return failures == 0
+    }
+
+    /// Write one small camera JPEG once, then vary only its 19-byte EXIF
+    /// DateTimeOriginal field. Every file is real input to ImageIO; the flat
+    /// pixels are synthetic and no source photograph is copied or decoded.
+    /// Twenty one-minute frames are followed by a 24-hour gap, yielding
+    /// 2,500 unambiguous events without invoking the Vision tie-breaker.
+    private static func writeSyntheticDump(in work: URL) throws -> Date {
+        let dump = work.appendingPathComponent("dump", isDirectory: true)
+        try FileManager.default.createDirectory(at: dump, withIntermediateDirectories: true)
+
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.calendar = Calendar(identifier: .gregorian)
+        formatter.timeZone = TimeZone(identifier: "UTC")!
+        formatter.dateFormat = "yyyy:MM:dd HH:mm:ss"
+        let templateDate = "2020:01:01 00:00:00"
+        guard let baseDate = formatter.date(from: templateDate),
+              BoundaryTests.writeDumpPhoto(
+                in: work, at: "template.jpg", captured: templateDate,
+                offset: "+00:00", gps: nil, camera: true
+              ) else {
+            throw Failure(description: "could not write the synthetic JPEG template")
+        }
+        let template = try Data(contentsOf: work.appendingPathComponent("template.jpg"))
+        guard let dateRange = template.range(of: Data(templateDate.utf8)) else {
+            throw Failure(description: "the synthetic JPEG template has no DateTimeOriginal field")
+        }
+
+        for index in 0..<itemCount {
+            if index % (photosPerEvent * 100) == 0 {
+                let directory = dump.appendingPathComponent(
+                    String(format: "%04d", index / photosPerEvent / 100), isDirectory: true
+                )
+                try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+            }
+            let stamp = formatter.string(from: timestamp(for: index, baseDate: baseDate))
+            guard stamp.utf8.count == templateDate.utf8.count else {
+                throw Failure(description: "the EXIF fixture timestamp changed width")
+            }
+            var photo = template
+            photo.replaceSubrange(dateRange, with: Data(stamp.utf8))
+            try photo.write(to: dump.appendingPathComponent(id(for: index)))
+        }
+        return baseDate
+    }
+
+    private static func timestamp(for index: Int, baseDate: Date) -> Date {
+        let day = index / photosPerEvent
+        let minute = index % photosPerEvent
+        return baseDate.addingTimeInterval(Double(day * 86_400 + minute * 60))
+    }
+
+    private static func id(for index: Int) -> String {
+        String(format: "%04d/IMG_%05d.jpg", index / photosPerEvent / 100, index)
+    }
+
+    private static func validateInitialIndex(
+        store: RawDumpEventStore,
+        summary: ScanSummary,
+        baseDate: Date
+    ) throws {
+        guard let index = store.readIndex() else {
+            throw Failure(description: "the production scan did not leave a readable events-index.json")
+        }
+        guard index.itemCache.count == itemCount,
+              index.events.count == expectedEventCount,
+              index.screenshotItemIds.isEmpty,
+              index.itemCache.values.allSatisfy({ !$0.isScreenshot }) else {
+            throw Failure(description: "the persisted index does not contain the expected 50,000 photographs in 2,500 events")
+        }
+        guard summary.metadataReadCount == itemCount,
+              summary.eventCount == expectedEventCount,
+              summary.memberCount == itemCount,
+              summary.uniqueMemberCount == itemCount else {
+            throw Failure(description: "the production report does not account for every synthetic photograph")
+        }
+        for itemIndex in 0..<itemCount {
+            guard let item = index.itemCache[id(for: itemIndex)],
+                  abs(item.timestamp.timeIntervalSince(timestamp(for: itemIndex, baseDate: baseDate))) < 0.001 else {
+                throw Failure(description: "synthetic photograph \(itemIndex) did not retain its EXIF timestamp")
+            }
+        }
+    }
+
+    private static func summarize(_ report: RawDumpScanReport) throws -> ScanSummary {
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.sortedKeys]
+        let fingerprint = SHA256Digest.digest(try encoder.encode(report.clusters))
+        let members = report.clusters.flatMap(\.itemIds)
+        return ScanSummary(
+            metadataReadCount: report.metadataReadCount,
+            screenshotCount: report.screenshotCount,
+            eventCount: report.eventCount,
+            memberCount: members.count,
+            uniqueMemberCount: Set(members).count,
+            eventFingerprint: fingerprint
+        )
+    }
+
+    /// Darwin reports ru_maxrss in bytes (Linux reports KiB). Because this is
+    /// the process lifetime high-water mark, a short allocation spike inside
+    /// the synchronous scan cannot fall between samples.
+    private static func peakRSSBytes() -> UInt64 {
+        var usage = rusage()
+        guard getrusage(RUSAGE_SELF, &usage) == 0 else { return 0 }
+        return UInt64(max(0, usage.ru_maxrss))
+    }
+
+    private struct ScanSummary {
+        let metadataReadCount: Int
+        let screenshotCount: Int
+        let eventCount: Int
+        let memberCount: Int
+        let uniqueMemberCount: Int
+        let eventFingerprint: String
+    }
+
+    private struct Failure: Error, CustomStringConvertible {
+        let description: String
     }
 }
 

@@ -247,6 +247,26 @@ describe('Camera Roll rail', () => {
     expect(root.querySelector('.event-card')).toBeNull()
   })
 
+  test('localized event lists retain list, group and combined accessible names', async () => {
+    const deps = fake()
+    await mountMode(deps, { presentation: {
+      locale: 'de-DE', calendar: 'gregory',
+      messages: {
+        photographCount: { one: '{count} Foto', other: '{count} Fotos' }, multiDay: 'Mehrtägig',
+        daysIn: 'Tage in {date}', eventDay: '{day} ({event})',
+      },
+    } })
+    await until(() => root.querySelectorAll('.event-card img').length === 2)
+    expect(root.querySelector('.event-grid')?.getAttribute('role')).toBe('list')
+    expect(root.textContent).toContain('2 Fotos')
+    expect(root.textContent).toContain('Mehrtägig')
+    expect(root.querySelector('.event-days')?.getAttribute('aria-label')).toMatch(/^Tage in 12\.\s*–\s*13\. März 2026$/)
+    expect(root.querySelector('[data-event-day="2026-03-12"]')?.getAttribute('aria-label')).toMatch(/^12\. März \(12\.\s*–\s*13\. März 2026\)$/)
+    expect(root.querySelector('.event-card-open')?.getAttribute('aria-label')).toMatch(/^12\.\s*–\s*13\. März 2026, 2 Fotos und Mehrtägig$/)
+    const css = readFileSync(new URL('../styles.css', import.meta.url), 'utf8')
+    expect(css).toContain('overflow-wrap: anywhere')
+  })
+
   test('event covers are lazy, intrinsic and use only native-returned URLs', async () => {
     const deps = fake()
     await mountMode(deps)

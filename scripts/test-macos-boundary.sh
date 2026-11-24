@@ -38,3 +38,10 @@ for suite in BoundaryTests ManoramaMacTests; do
 
   "$SCRATCH/$suite"
 done
+
+# Slice 6's budget is part of the normal macOS boundary lane, not a silent
+# opt-in. It is a separate invocation of the same optimized binary and the
+# same production sources, so the other suites' WebKit/process allocations
+# cannot contaminate the kernel-reported peak RSS.
+printf '\n== macOS event index 50,000-item performance ==\n'
+"$SCRATCH/BoundaryTests" --event-index-performance-50k

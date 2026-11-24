@@ -55,8 +55,8 @@ impl Fixture {
         serde_json::json!({"version":1,"galleries":roots.iter().map(|root| serde_json::json!({"rootPath":root})).collect::<Vec<_>>()}).to_string()
     }
 }
-fn asset_item(root: &Dir, id: &str) -> AssetItem {
-    prepare_asset(root, id.to_string()).0
+fn asset_item(root: &Dir, root_path: &Path, id: &str) -> AssetItem {
+    prepare_asset(root, root_path, id.to_string()).0
 }
 
 fn png(w: u32, h: u32) -> Vec<u8> {
@@ -118,6 +118,18 @@ fn unconfigured_wire_fields_are_explicit_null() {
     assert!(!fixture.paths.config.join(DECLARATION_FILE).exists());
 }
 #[test]
+fn declaring_a_picked_folder_never_enumerates_it() {
+    let fixture = Fixture::new();
+    fixture.photo("one.jpg");
+    let state = fixture.state();
+    let mut inner = state.0.lock().unwrap();
+    let reply = declare_raw_dump_root(&mut inner, &fixture.a).unwrap();
+    assert_eq!(reply.item_count, 0);
+    assert_eq!(inner.status().event_count, 0);
+    assert!(!fixture.paths.config.join(INDEX_FILE).exists());
+}
+
+#[test]
 fn picker_checks_catalogue_not_old_grants() {
     let fixture = Fixture::new();
     private_store::record_roots(&fixture.paths, std::slice::from_ref(&fixture.a)).unwrap();
@@ -138,6 +150,26 @@ fn dump_picker_refuses_curated_root_before_persisting() {
     assert!(!fixture.paths.config.join(DECLARATION_FILE).exists());
     assert!(!fixture.paths.roots_path().exists());
 }
+
+#[test]
+fn selecting_or_clearing_dump_never_grants_a_gallery_root() {
+    let fixture = Fixture::new();
+    private_store::record_roots(&fixture.paths, std::slice::from_ref(&fixture.b)).unwrap();
+    let gallery_roots = fs::read(fixture.paths.roots_path()).unwrap();
+    let state = fixture.state();
+    state.0.lock().unwrap().replace_source(&fixture.a).unwrap();
+    assert_eq!(fs::read(fixture.paths.roots_path()).unwrap(), gallery_roots);
+    let dump_roots = private_store::raw_dump_roots_at(&fixture.paths).unwrap();
+    assert_eq!(dump_roots.len(), 1);
+    assert!(crate::same_path(Path::new(&dump_roots[0]), &fixture.a));
+    state.0.lock().unwrap().clear().unwrap();
+    assert_eq!(fs::read(fixture.paths.roots_path()).unwrap(), gallery_roots);
+    assert_eq!(
+        private_store::roots_at(&fixture.paths).unwrap(),
+        vec![fixture.b.to_str().unwrap()]
+    );
+}
+
 #[test]
 fn gallery_picker_and_catalogue_refuse_active_dump() {
     let fixture = Fixture::new();
@@ -156,6 +188,7 @@ fn gallery_picker_and_catalogue_refuse_active_dump() {
 #[test]
 fn rejected_drop_batch_does_not_commit_earlier_root() {
     let fixture = Fixture::new();
+    private_store::record_roots(&fixture.paths, std::slice::from_ref(&fixture.b)).unwrap();
     let state = fixture.picked();
     let before = fs::read(fixture.paths.roots_path()).unwrap();
     let inner = state.0.lock().unwrap();
@@ -211,7 +244,7 @@ fn unprovenanced_native_declaration_never_restores() {
     let fixture = Fixture::new();
     let state = fixture.picked();
     drop(state);
-    private_store::remove_private(&fixture.paths.roots_path()).unwrap();
+    private_store::remove_private(&fixture.paths.raw_dump_roots_path()).unwrap();
     let restored = fixture.state();
     assert!(!restored.0.lock().unwrap().status().configured);
 }
@@ -415,7 +448,8 @@ fn clear_wins_late_scan_and_does_not_recreate_index() {
         .is_err());
     assert!(!fixture.paths.config.join(INDEX_FILE).exists());
     assert!(!fixture.state().0.lock().unwrap().status().configured);
-    assert!(fixture.paths.roots_path().exists());
+    assert!(fixture.paths.raw_dump_roots_path().exists());
+    assert!(!fixture.paths.roots_path().exists());
     assert!(fixture.a.join("one.png").exists());
 }
 #[test]
@@ -475,7 +509,7 @@ fn private_state_and_index_are_0600() {
         for path in [
             fixture.paths.config.join(INDEX_FILE),
             fixture.paths.config.join(DECLARATION_FILE),
-            fixture.paths.roots_path(),
+            fixture.paths.raw_dump_roots_path(),
         ] {
             assert_eq!(
                 fs::metadata(path).unwrap().permissions().mode() & 0o777,
@@ -520,7 +554,7 @@ fn asset_returns_opaque_verified_lease_and_honest_pixel_extent() {
     let mut inner = state.0.lock().unwrap();
     let source = inner.source.clone().unwrap();
     let root = open_source_root(&source).unwrap();
-    let (mut item, member) = prepare_asset(&root, "space #.png".to_string());
+    let (mut item, member) = prepare_asset(&root, &fixture.a, "space #.png".to_string());
     let member = member.unwrap();
     item.url = Some(lease_asset(
         inner.generation,
@@ -560,7 +594,7 @@ fn asset_protocol_supports_head_and_bounded_ranges_without_rewriting_bytes() {
     let mut inner = state.0.lock().unwrap();
     let source = inner.source.clone().unwrap();
     let root = open_source_root(&source).unwrap();
-    let (_, member) = prepare_asset(&root, "one.png".to_string());
+    let (_, member) = prepare_asset(&root, &fixture.a, "one.png".to_string());
     let asset = VerifiedAsset {
         generation: inner.generation,
         root_identity: source.root_identity.unwrap(),
@@ -614,7 +648,7 @@ fn whole_root_replacement_invalidates_status_scans_and_existing_leases() {
     let state = fixture.picked();
     let source = state.0.lock().unwrap().source.clone().unwrap();
     let root = open_source_root(&source).unwrap();
-    let (_, member) = prepare_asset(&root, "one.png".to_string());
+    let (_, member) = prepare_asset(&root, &fixture.a, "one.png".to_string());
     let asset = VerifiedAsset {
         generation: state.0.lock().unwrap().generation,
         root_identity: source.root_identity.unwrap(),
@@ -650,7 +684,7 @@ fn asset_lease_rejects_leaf_swap_after_pinned_read() {
     let mut inner = state.0.lock().unwrap();
     let source = inner.source.clone().unwrap();
     let root = open_source_root(&source).unwrap();
-    let (_, member) = prepare_asset(&root, "one.png".to_string());
+    let (_, member) = prepare_asset(&root, &fixture.a, "one.png".to_string());
     let asset = VerifiedAsset {
         generation: inner.generation,
         root_identity: source.root_identity.unwrap(),
@@ -672,18 +706,17 @@ fn asset_lease_rejects_leaf_swap_after_pinned_read() {
 }
 #[cfg(unix)]
 #[test]
-fn asset_lease_stays_on_original_object_during_ancestor_replacement() {
+fn asset_lease_rejects_ancestor_replacement() {
     use std::os::unix::fs::symlink;
     let fixture = Fixture::new();
     fs::create_dir(fixture.a.join("sub")).unwrap();
     fixture.photo("sub/one.png");
-    let before = fs::read(fixture.a.join("sub/one.png")).unwrap();
     fs::write(fixture.b.join("one.png"), b"foreign bytes").unwrap();
     let state = fixture.picked();
     let mut inner = state.0.lock().unwrap();
     let source = inner.source.clone().unwrap();
     let root = open_source_root(&source).unwrap();
-    let (_, member) = prepare_asset(&root, "sub/one.png".to_string());
+    let (_, member) = prepare_asset(&root, &fixture.a, "sub/one.png".to_string());
     let asset = VerifiedAsset {
         generation: inner.generation,
         root_identity: source.root_identity.unwrap(),
@@ -699,9 +732,68 @@ fn asset_lease_stays_on_original_object_during_ancestor_replacement() {
     symlink(&fixture.b, fixture.a.join("sub")).unwrap();
     let request = Request::builder().uri(url).body(Vec::new()).unwrap();
     let response = asset_response(&asset, &request);
-    assert_eq!(response.status(), StatusCode::OK);
-    assert_eq!(response.body(), &before);
+    assert_eq!(response.status(), StatusCode::NOT_FOUND);
+    assert!(response.body().is_empty());
+    assert!(!lease_is_current(&inner, &asset));
 }
+#[test]
+fn clear_cannot_complete_before_an_asset_response_is_handed_off() {
+    use std::sync::mpsc;
+    let fixture = Fixture::new();
+    fixture.photo("one.png");
+    let state = fixture.picked();
+    let shared = state.0.clone();
+    let url = {
+        let mut inner = shared.lock().unwrap();
+        let source = inner.source.clone().unwrap();
+        let root = open_source_root(&source).unwrap();
+        let (_, member) = prepare_asset(&root, &fixture.a, "one.png".to_string());
+        lease_asset(
+            inner.generation,
+            source.root_identity.unwrap(),
+            member.unwrap(),
+            &mut inner.assets,
+        )
+    };
+    let request = Request::builder()
+        .uri(url.clone())
+        .body(Vec::new())
+        .unwrap();
+    let (entered_tx, entered_rx) = mpsc::channel();
+    let (release_tx, release_rx) = mpsc::channel();
+    let responder = std::thread::spawn({
+        let shared = shared.clone();
+        move || {
+            respond_event_asset(&shared, &request, |response| {
+                entered_tx.send(response).unwrap();
+                release_rx.recv().unwrap();
+            });
+        }
+    });
+    let response = entered_rx.recv().unwrap();
+    let (cleared_tx, cleared_rx) = mpsc::channel();
+    let clearer = std::thread::spawn({
+        let shared = shared.clone();
+        move || {
+            shared.lock().unwrap().clear().unwrap();
+            cleared_tx.send(()).unwrap();
+        }
+    });
+    let cleared_early = cleared_rx.recv_timeout(Duration::from_millis(100)).is_ok();
+    release_tx.send(()).unwrap();
+    responder.join().unwrap();
+    clearer.join().unwrap();
+    assert!(
+        !cleared_early,
+        "clear completed while the response callback was still running"
+    );
+    assert_eq!(response.status(), StatusCode::OK);
+    let request = Request::builder().uri(url).body(Vec::new()).unwrap();
+    respond_event_asset(&shared, &request, |response| {
+        assert_eq!(response.status(), StatusCode::NOT_FOUND);
+    });
+}
+
 #[test]
 fn reveal_revalidates_the_verified_member_at_the_opener_boundary() {
     let fixture = Fixture::new();
@@ -722,11 +814,11 @@ fn reveal_revalidates_the_verified_member_at_the_opener_boundary() {
 fn missing_or_failed_assets_have_no_uri() {
     let fixture = Fixture::new();
     let root = open_root(&fixture.a).unwrap();
-    let missing = asset_item(&root, "absent.png");
+    let missing = asset_item(&root, &fixture.a, "absent.png");
     assert_eq!(missing.state, "missing");
     assert!(missing.url.is_none());
     fs::write(fixture.a.join("bad.png"), b"corrupt").unwrap();
-    let failed = asset_item(&root, "bad.png");
+    let failed = asset_item(&root, &fixture.a, "bad.png");
     assert_eq!(failed.state, "failed");
     assert!(failed.url.is_none());
 }
@@ -739,7 +831,7 @@ fn sparse_cloud_placeholder_never_opens_pixels_or_returns_uri() {
         .unwrap()
         .set_len(512 * 1024)
         .unwrap();
-    let item = asset_item(&root, "cloud.png");
+    let item = asset_item(&root, &fixture.a, "cloud.png");
     assert_eq!(item.state, "cloudOnly");
     assert!(item.url.is_none());
     assert_eq!((item.width, item.height), (0, 0));
@@ -767,7 +859,7 @@ fn capability_member_rejects_leaf_and_parent_symlink_escape() {
     symlink(fixture.b.join("outside.png"), fixture.a.join("leaf.png")).unwrap();
     let root = open_root(&fixture.a).unwrap();
     for id in ["alias/outside.png", "leaf.png"] {
-        let item = asset_item(&root, id);
+        let item = asset_item(&root, &fixture.a, id);
         assert!(item.url.is_none());
         assert_eq!(item.state, "missing");
     }
@@ -781,7 +873,7 @@ fn capability_parent_stays_pinned_during_ancestor_replacement() {
     fixture.photo("sub/one.png");
     fs::write(fixture.b.join("one.png"), b"foreign bytes").unwrap();
     let root = open_root(&fixture.a).unwrap();
-    let (parent, name) = bound_member(&root, "sub/one.png").unwrap();
+    let (parent, name, _) = bound_member(&root, &fixture.a, "sub/one.png").unwrap();
     fs::rename(fixture.a.join("sub"), fixture.a.join("old-sub")).unwrap();
     symlink(&fixture.b, fixture.a.join("sub")).unwrap();
     let mut options = OpenOptions::new();
@@ -793,7 +885,7 @@ fn capability_parent_stays_pinned_during_ancestor_replacement() {
         .read_to_end(&mut bytes)
         .unwrap();
     assert_eq!(header_dimensions(&bytes), Some((640, 480)));
-    assert!(asset_item(&root, "sub/one.png").url.is_none());
+    assert!(asset_item(&root, &fixture.a, "sub/one.png").url.is_none());
 }
 #[test]
 fn jpeg_and_png_header_dimensions_respect_orientation() {
@@ -872,7 +964,7 @@ fn windows_offline_asset_is_metadata_only_without_an_original_uri() {
         0
     );
     let root = open_root(&fixture.a).unwrap();
-    let item = asset_item(&root, "offline.png".into());
+    let item = asset_item(&root, &fixture.a, "offline.png".into());
     assert_eq!(item.state, "cloudOnly");
     assert!(item.url.is_none());
     assert_eq!((item.width, item.height), (0, 0));

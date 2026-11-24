@@ -8,7 +8,9 @@
 	     or shared. Opt-in iCloud downloads are performed by Photos using
 	     the user's account, never a Manorama endpoint. File timestamps
 	     support only the app-private thumbnail LRU (C617.1); the source
-	     declaration and download preference use UserDefaults (CA92.1).
+	     declaration and download preference live in protected app-private
+	     state, not UserDefaults. CA92.1 covers only unrelated Preferences
+	     and vault/display settings.
 	     Photo-library permission belongs in Info.plist, not an invented
 	     required-reason API category in this manifest. -->
 	<key>NSPrivacyTracking</key>

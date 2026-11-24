@@ -183,6 +183,20 @@ class EventBridgeInstrumentationTest {
     }
 
     @Test
+    fun clearRejectsARequestQueuedBeforeThePurge() {
+        val record = localRecord("109", 8, 4)
+        val staleGeneration = assets.generation()
+        assets.clear()
+        val reply = assets.request(
+            listOf(record.id), listOf(record), "thumbnail", 64, false,
+            requestGeneration = staleGeneration,
+        ) { error("No network") }.getJSONObject(0)
+        assertEquals("failed", reply.getString("state"))
+        assertTrue(reply.isNull("url"))
+        assertTrue(File(context.cacheDir, "event-thumbs").listFiles().isNullOrEmpty())
+    }
+
+    @Test
     fun aVanishedBucketBecomesUnavailable() {
         assumeTrue(Build.VERSION.SDK_INT >= 29)
         val id = insertFixture("EventBridgeVanishing", 12.5, 34.5)

@@ -15,6 +15,7 @@ const PRIVATE_FILES: &[&str] = &[
     "device.json",
 ];
 const ROOTS_FILE: &str = "roots.json";
+const DUMP_ROOTS_FILE: &str = "raw-dump-roots.json";
 
 #[derive(Clone, Debug)]
 pub(crate) struct StorePaths {
@@ -53,6 +54,9 @@ impl StorePaths {
     }
     pub fn roots_path(&self) -> PathBuf {
         self.store.join(ROOTS_FILE)
+    }
+    pub fn raw_dump_roots_path(&self) -> PathBuf {
+        self.config.join(DUMP_ROOTS_FILE)
     }
 }
 
@@ -266,6 +270,33 @@ pub(crate) fn saved_gallery_roots(app: &AppHandle) -> Vec<String> {
     roots_at(&app.state::<StorePaths>()).unwrap_or_default()
 }
 
+pub(crate) fn raw_dump_roots_at(paths: &StorePaths) -> Result<Vec<String>, String> {
+    match read_optional(&paths.raw_dump_roots_path())? {
+        Some(bytes) => serde_json::from_slice(&bytes).map_err(|e| e.to_string()),
+        None => Ok(vec![]),
+    }
+}
+
+// Dump approval survives clearing the declaration but never becomes a renderer
+// filesystem or asset-protocol grant.
+pub(crate) fn record_raw_dump_root(paths: &StorePaths, selected: &Path) -> Result<(), String> {
+    let mut roots = raw_dump_roots_at(paths)?;
+    let text = selected
+        .to_str()
+        .ok_or("Root path is not UTF-8")?
+        .to_owned();
+    if !roots
+        .iter()
+        .any(|saved| crate::same_path(Path::new(saved), selected))
+    {
+        roots.push(text);
+    }
+    write_0600(
+        &paths.raw_dump_roots_path(),
+        &serde_json::to_vec(&roots).map_err(|e| e.to_string())?,
+    )
+}
+
 #[tauri::command]
 pub fn delete_private_file(app: AppHandle, name: String) -> Result<(), String> {
     let path = private_path(&app, &name)?;
@@ -314,6 +345,7 @@ mod tests {
     fn native_documents_are_not_renderer_writable() {
         for name in [
             "roots.json",
+            "raw-dump-roots.json",
             "raw-dump.json",
             "events-index.json",
             "../session.json",

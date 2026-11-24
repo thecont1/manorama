@@ -103,6 +103,7 @@ struct VerifiedMember {
     name: PathBuf,
     identity: FileIdentity,
     mime: &'static str,
+    ancestors: Vec<(PathBuf, FileIdentity)>,
 }
 
 pub(crate) struct Inner {
@@ -141,7 +142,7 @@ impl EventState {
             assets: AssetLeases::default(),
         };
         if let Some(source) = &inner.source {
-            let approved = private_store::roots_at(&inner.paths)?
+            let approved = private_store::raw_dump_roots_at(&inner.paths)?
                 .iter()
                 .any(|root| crate::same_path(Path::new(root), &source.root_path));
             if !approved
@@ -314,8 +315,9 @@ impl Inner {
         } else {
             label.trim().to_owned()
         };
-        // Approval comes from the OS picker, never from the renderer catalogue.
-        private_store::record_roots(&self.paths, std::slice::from_ref(&root))?;
+        // The picker grants access only to this declaration. Generic renderer
+        // fs and asset scopes never include the raw dump.
+        private_store::record_raw_dump_root(&self.paths, &root)?;
         self.generation += 1;
         self.assets.clear();
         self.watcher = None;
@@ -343,7 +345,7 @@ impl Inner {
         self.source = None;
         self.index = None;
         self.assets.clear();
-        // Keep device UUID and grant provenance; only this source is forgotten.
+        // Forget only this source; its selection was never a generic renderer grant.
         let saved = self.save_declaration();
         let removed = private_store::remove_private(&self.paths.config.join(INDEX_FILE));
         saved.and(removed)
@@ -505,6 +507,11 @@ fn scan_reply(index: &EventIndex, root: &Path, reads: usize) -> ScanReply {
     }
 }
 
+fn declare_raw_dump_root(inner: &mut Inner, root: &Path) -> Result<PickReply, String> {
+    // Selecting a folder declares it only; Camera Roll activation owns the scan.
+    inner.replace_source(root)
+}
+
 #[tauri::command]
 pub(crate) async fn pick_raw_dump_root(app: AppHandle) -> Result<Option<PickReply>, String> {
     let Some(picked) = app.dialog().file().blocking_pick_folder() else {
@@ -516,14 +523,8 @@ pub(crate) async fn pick_raw_dump_root(app: AppHandle) -> Result<Option<PickRepl
     let worker = app.clone();
     tauri::async_runtime::spawn_blocking(move || {
         let state = worker.state::<EventState>();
-        // Picker count enumerates metadata only, off the main thread and without
-        // holding the state lock. The declaration rechecks the catalogue below.
-        let item_count = fs_scan::enumerate(&root)
-            .map_err(|_| "Raw dump is unavailable")?
-            .len();
         let mut inner = state.0.lock().map_err(|e| e.to_string())?;
-        let mut reply = inner.replace_source(&root)?;
-        reply.item_count = item_count;
+        let reply = declare_raw_dump_root(&mut inner, &root)?;
         install_watcher(&mut inner, Arc::downgrade(&state.0), worker.clone());
         Ok(Some(reply))
     })
@@ -692,23 +693,44 @@ fn local(metadata: &Metadata) -> bool {
     }
     true
 }
-// Traverse no-follow directory handles and return a pinned parent + leaf, never
-// a canonicalize-then-ambient-open pair susceptible to ancestor replacement.
-fn bound_member(root: &Dir, id: &str) -> Result<(Dir, PathBuf), String> {
+type BoundMember = (Dir, PathBuf, Vec<(PathBuf, FileIdentity)>);
+
+// Traverse no-follow directory handles and return a pinned parent + leaf. The
+// pathname identities let a later request reject an ancestor replacement even
+// though the pinned handle still refers to the original directory.
+fn bound_member(root: &Dir, root_path: &Path, id: &str) -> Result<BoundMember, String> {
     if !valid_id(id) {
         return Err("Invalid event asset id".into());
     }
+    let root_identity =
+        FileIdentity::from_handle(&root.dir_metadata().map_err(|_| "Raw dump is unavailable")?)?;
     let mut parent = root.try_clone().map_err(|_| "Raw dump is unavailable")?;
+    let mut parent_path = root_path.to_path_buf();
+    let mut ancestors = vec![(parent_path.clone(), root_identity)];
     let mut parts = id.split('/').peekable();
     while let Some(part) = parts.next() {
         if parts.peek().is_none() {
-            return Ok((parent, PathBuf::from(part)));
+            return Ok((parent, PathBuf::from(part), ancestors));
         }
         parent = parent
             .open_dir_nofollow(part)
             .map_err(|_| "Event asset parent is unavailable")?;
+        parent_path.push(part);
+        let identity = FileIdentity::from_handle(
+            &parent
+                .dir_metadata()
+                .map_err(|_| "Event asset parent is unavailable")?,
+        )?;
+        ancestors.push((parent_path.clone(), identity));
     }
     Err("Invalid event asset id".into())
+}
+
+fn member_chain_is_current(member: &VerifiedMember) -> bool {
+    member
+        .ancestors
+        .iter()
+        .all(|(path, expected)| root_path_identity(path).ok() == Some(*expected))
 }
 
 impl FileIdentity {
@@ -800,12 +822,18 @@ fn open_for_identity(parent: &Dir, name: &Path) -> Result<cap_std::fs::File, Str
 }
 
 fn open_verified_file(member: &VerifiedMember) -> Result<cap_std::fs::File, String> {
+    if !member_chain_is_current(member) {
+        return Err("Event asset directory changed since it was verified".into());
+    }
     let mut options = OpenOptions::new();
     options.read(true).follow(FollowSymlinks::No);
     let file = member
         .parent
         .open_with(&member.name, &options)
         .map_err(|_| "Event asset is unavailable".to_string())?;
+    if !member_chain_is_current(member) {
+        return Err("Event asset directory changed since it was verified".into());
+    }
     let metadata = file.metadata().map_err(|_| "Event asset is unavailable")?;
     if !local(&metadata) || FileIdentity::from_handle(&metadata)? != member.identity {
         return Err("Event asset changed since it was verified".into());
@@ -813,7 +841,7 @@ fn open_verified_file(member: &VerifiedMember) -> Result<cap_std::fs::File, Stri
     Ok(file)
 }
 
-fn prepare_asset(root: &Dir, id: String) -> (AssetItem, Option<VerifiedMember>) {
+fn prepare_asset(root: &Dir, root_path: &Path, id: String) -> (AssetItem, Option<VerifiedMember>) {
     let mut item = AssetItem {
         id: id.clone(),
         url: None,
@@ -821,7 +849,7 @@ fn prepare_asset(root: &Dir, id: String) -> (AssetItem, Option<VerifiedMember>) 
         height: 0,
         state: "missing",
     };
-    let Some((parent, name)) = bound_member(root, &id).ok() else {
+    let Some((parent, name, ancestors)) = bound_member(root, root_path, &id).ok() else {
         return (item, None);
     };
     let Ok(meta) = parent.symlink_metadata(&name) else {
@@ -870,6 +898,7 @@ fn prepare_asset(root: &Dir, id: String) -> (AssetItem, Option<VerifiedMember>) 
             name,
             identity,
             mime: image_mime(&id),
+            ancestors,
         }),
     )
 }
@@ -923,6 +952,7 @@ fn request_token(raw: &str) -> Option<&str> {
 
 fn lease_is_current(inner: &Inner, asset: &VerifiedAsset) -> bool {
     inner.generation == asset.generation
+        && member_chain_is_current(&asset.member)
         && inner.source.as_ref().is_some_and(|source| {
             source.root_identity == Some(asset.root_identity)
                 && root_path_identity(&source.root_path).ok() == Some(asset.root_identity)
@@ -1030,7 +1060,32 @@ fn asset_response(asset: &VerifiedAsset, request: &Request<Vec<u8>>) -> Response
     if file.take(end - start + 1).read_to_end(&mut bytes).is_err() {
         return asset_error(StatusCode::INTERNAL_SERVER_ERROR);
     }
+    if !member_chain_is_current(&asset.member) {
+        return asset_error(StatusCode::NOT_FOUND);
+    }
     builder.body(bytes).expect("valid asset response")
+}
+
+fn respond_event_asset(
+    state: &Arc<Mutex<Inner>>,
+    request: &Request<Vec<u8>>,
+    respond: impl FnOnce(Response<Vec<u8>>),
+) {
+    // Keep clear/change serialized through the response handoff. A cloned lease
+    // must not return bytes after the source has already been forgotten.
+    let Ok(inner) = state.lock() else {
+        respond(asset_error(StatusCode::NOT_FOUND));
+        return;
+    };
+    let response = inner
+        .assets
+        .get(request_token(request.uri().to_string().as_str()).unwrap_or_default())
+        .filter(|asset| lease_is_current(&inner, asset))
+        .map_or_else(
+            || asset_error(StatusCode::NOT_FOUND),
+            |asset| asset_response(asset, request),
+        );
+    respond(response);
 }
 
 pub(crate) fn serve_event_asset<R: Runtime>(
@@ -1038,28 +1093,14 @@ pub(crate) fn serve_event_asset<R: Runtime>(
     request: Request<Vec<u8>>,
     responder: UriSchemeResponder,
 ) {
-    let Some(token) = request_token(request.uri().to_string().as_str()).map(str::to_owned) else {
+    if request_token(request.uri().to_string().as_str()).is_none() {
         responder.respond(asset_error(StatusCode::NOT_FOUND));
         return;
-    };
+    }
     let app = context.app_handle().clone();
     tauri::async_runtime::spawn_blocking(move || {
-        let asset = {
-            let state = app.state::<EventState>();
-            let Ok(inner) = state.0.lock() else {
-                responder.respond(asset_error(StatusCode::NOT_FOUND));
-                return;
-            };
-            inner
-                .assets
-                .get(&token)
-                .filter(|asset| lease_is_current(&inner, asset))
-                .cloned()
-        };
-        match asset {
-            Some(asset) => responder.respond(asset_response(&asset, &request)),
-            None => responder.respond(asset_error(StatusCode::NOT_FOUND)),
-        }
+        let state = app.state::<EventState>();
+        respond_event_asset(&state.0, &request, |response| responder.respond(response));
     });
 }
 
@@ -1072,6 +1113,9 @@ struct VerifiedReveal<'a> {
 
 impl VerifiedReveal<'_> {
     fn path_at_handoff(&self) -> Result<PathBuf, String> {
+        if !member_chain_is_current(self.member) {
+            return Err("Event asset directory changed since it was verified".into());
+        }
         let expected = self
             .source
             .root_identity
@@ -1086,7 +1130,7 @@ impl VerifiedReveal<'_> {
         {
             return Err("Raw dump changed since it was selected".into());
         }
-        let (parent, name) = bound_member(self.root, self.id)?;
+        let (parent, name, _) = bound_member(self.root, &self.source.root_path, self.id)?;
         let metadata = parent
             .symlink_metadata(&name)
             .map_err(|_| "Event asset is missing")?;
@@ -1111,7 +1155,7 @@ fn reveal_verified_member(
     id: &str,
     reveal: impl FnOnce(VerifiedReveal<'_>) -> Result<(), String>,
 ) -> Result<(), String> {
-    let (parent, name) = bound_member(root, id)?;
+    let (parent, name, ancestors) = bound_member(root, &source.root_path, id)?;
     let metadata = parent
         .symlink_metadata(&name)
         .map_err(|_| "Event asset is missing")?;
@@ -1121,6 +1165,7 @@ fn reveal_verified_member(
         name,
         identity,
         mime: image_mime(id),
+        ancestors,
     };
     reveal(VerifiedReveal {
         root,
@@ -1177,7 +1222,7 @@ pub(crate) async fn get_event_asset_image(
             .ok_or("Raw dump grant must be selected again")?;
         let prepared = ids
             .into_iter()
-            .map(|id| prepare_asset(&root, id))
+            .map(|id| prepare_asset(&root, &source.root_path, id))
             .collect::<Vec<_>>();
         let mut items = Vec::with_capacity(prepared.len());
         let mut inner = state.0.lock().map_err(|e| e.to_string())?;
@@ -1188,6 +1233,9 @@ pub(crate) async fn get_event_asset_image(
         }
         for (mut item, member) in prepared {
             if let Some(member) = member {
+                if !member_chain_is_current(&member) {
+                    return Err("Raw dump changed during asset read".into());
+                }
                 item.url = Some(lease_asset(
                     generation,
                     root_identity,

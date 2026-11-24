@@ -21,6 +21,11 @@ import { readdirSync } from 'node:fs'
 import { join } from 'node:path'
 
 import type { Page } from '@playwright/test'
+import type {
+  EventAssetState,
+  EventCluster,
+  RawDumpStatus,
+} from '../packages/core/event-clustering'
 
 /** A 1x1 transparent GIF — the asset protocol's stand-in, so a thumbnail
  *  paints without reaching for a file the browser cannot read. */
@@ -79,6 +84,42 @@ export type FixtureDirEntry = {
   height?: number
 }
 
+/** One synthetic event asset. Ready assets receive a deterministic opaque
+ * desktop lease; callers cannot supply a filesystem or provider URL. */
+export type FixtureEventAsset = {
+  state?: EventAssetState
+  width?: number
+  height?: number
+  /** Holds the native reply until the spec releases it, so cancellation is
+   *  deterministic rather than a race against a timer. */
+  hold?: boolean
+  /** Omit to hold both purposes; `viewer` lets the lazy cover paint first. */
+  holdPurpose?: 'thumbnail' | 'viewer'
+}
+
+/** Optional Camera Roll fixture. Supplying it enables only the six event
+ * commands; an existing spec that omits it keeps the bridge's old answers. */
+export type FixtureEvents = {
+  status?: Partial<RawDumpStatus>
+  clusters?: EventCluster[]
+  assets?: Record<string, FixtureEventAsset>
+  scanHold?: boolean
+  pickCancelled?: boolean
+}
+
+export type EventBridgeCall = { command: string; args?: Record<string, unknown> }
+
+/** Synthetic controls used to model a source becoming reachable again and to
+ * observe listener teardown. They never stand in for production state. */
+export type EventBridgeControls = {
+  setStatus(status: Partial<RawDumpStatus>): void
+  rawDumpListenerCount(): number
+  pendingEventAssetCount(): number
+  pendingEventScanCount(): number
+  releaseEventAssets(): void
+  releaseEventScans(): void
+}
+
 type BridgePayload = {
   catalogue: string
   session: string
@@ -90,6 +131,9 @@ type BridgePayload = {
   /** Per-path read_dir delay in ms — holds a scan mid-flight so a spec can
    *  photograph the sheet's skeleton state deterministically. */
   dirDelay?: Record<string, number>
+  /** Camera Roll/event commands, answered entirely with synthetic metadata
+   *  and opaque local leases. Omit to leave those commands unanswered. */
+  events?: FixtureEvents
 }
 
 /** Injected into the page before any script runs. Its payload arrives as an
@@ -108,13 +152,55 @@ export const installBridge = (payload: BridgePayload) => {
   const eventCallbacks = new Map<number, (payload: unknown) => void>()
   const dropCalls: { command: string; args?: Record<string, unknown> }[] = []
   ;(window as unknown as Record<string, unknown>).__dropCalls = dropCalls
-  let nextEventCallback = 1
-  let nextEventId = 1
-  ;(window as unknown as Record<string, unknown>).__manoramaEmitEvent = (event: string, eventPayload: unknown) => {
+  const fixtureEvents = payload.events
+  const eventCalls: EventBridgeCall[] = []
+  const eventClusters = structuredClone(fixtureEvents?.clusters ?? [])
+  const eventAssets = structuredClone(fixtureEvents?.assets ?? {})
+  let eventStatus: RawDumpStatus = {
+    configured: true,
+    label: 'Synthetic Camera Roll',
+    isAvailable: true,
+    lastIndexedAt: Date.UTC(2026, 2, 21, 12),
+    eventCount: eventClusters.length,
+    ...structuredClone(fixtureEvents?.status ?? {}),
+  }
+  const eventLeaseUrls = new Map<string, string>()
+  let pendingEventAssets = 0
+  let pendingEventScans = 0
+  const heldEventAssets: (() => void)[] = []
+  const heldEventScans: (() => void)[] = []
+  const eventLease = (id: string): string => {
+    const existing = eventLeaseUrls.get(id)
+    if (existing) return existing
+    // FNV-1a is only a deterministic fixture token, not an identity or a
+    // security primitive. The lease carries no path, name or provider data.
+    let hash = 0x811c9dc5
+    for (let index = 0; index < id.length; index++) hash = Math.imul(hash ^ id.charCodeAt(index), 0x01000193)
+    const token = (hash >>> 0).toString(16).padStart(8, '0').repeat(4)
+    const url = `http://manorama-event.localhost/${token}`
+    eventLeaseUrls.set(id, url)
+    return url
+  }
+  const deliverEvent = (event: string, eventPayload: unknown) => {
     for (const id of eventHandlers.get(event) ?? []) {
       eventCallbacks.get(id)?.({ event, id, payload: eventPayload })
     }
   }
+  const emitRawDumpChanged = () => deliverEvent('manorama://raw-dump-changed', null)
+  if (fixtureEvents) {
+    ;(window as unknown as Record<string, unknown>).__eventCalls = eventCalls
+    ;(window as unknown as Record<string, unknown>).__eventControl = {
+      setStatus(next: Partial<RawDumpStatus>) { eventStatus = { ...eventStatus, ...structuredClone(next) } },
+      rawDumpListenerCount: () => eventHandlers.get('manorama://raw-dump-changed')?.size ?? 0,
+      pendingEventAssetCount: () => pendingEventAssets,
+      pendingEventScanCount: () => pendingEventScans,
+      releaseEventAssets() { for (const release of heldEventAssets.splice(0)) release() },
+      releaseEventScans() { for (const release of heldEventScans.splice(0)) release() },
+    } satisfies EventBridgeControls
+  }
+  let nextEventCallback = 1
+  let nextEventId = 1
+  ;(window as unknown as Record<string, unknown>).__manoramaEmitEvent = deliverEvent
   const internals = {
     transformCallback: (callback: unknown, once?: boolean) => {
       const id = nextEventCallback++
@@ -169,6 +255,73 @@ export const installBridge = (payload: BridgePayload) => {
       if (cmd === 'write_private_file' || cmd === 'delete_private_file') return null
       if (cmd === 'register_saved_gallery_roots') return null
       if (cmd === 'pick_gallery_root') return null
+      if (fixtureEvents) {
+        const eventCommand = [
+          'get_raw_dump_status',
+          'pick_raw_dump_root',
+          'clear_raw_dump_root',
+          'scan_raw_dump_events',
+          'get_event_asset_image',
+          'reveal_event_asset',
+        ].includes(cmd)
+        if (eventCommand) eventCalls.push({ command: cmd, args: args ? structuredClone(args) : undefined })
+        if (cmd === 'get_raw_dump_status') return structuredClone(eventStatus)
+        if (cmd === 'pick_raw_dump_root') {
+          if (fixtureEvents.pickCancelled) return null
+          const label = eventStatus.label ?? 'Synthetic Camera Roll'
+          eventStatus = { ...eventStatus, configured: true, label, isAvailable: true, lastIndexedAt: null, eventCount: eventClusters.length }
+          emitRawDumpChanged()
+          return { label, itemCount: new Set(eventClusters.flatMap((cluster) => cluster.itemIds)).size, rootPath: '/synthetic/camera-roll' }
+        }
+        if (cmd === 'clear_raw_dump_root') {
+          eventStatus = { ...eventStatus, configured: false, label: null, isAvailable: false, lastIndexedAt: null, eventCount: 0 }
+          emitRawDumpChanged()
+          return null
+        }
+        if (cmd === 'scan_raw_dump_events') {
+          pendingEventScans++
+          try {
+            if (fixtureEvents.scanHold) await new Promise<void>((resolve) => { heldEventScans.push(resolve) })
+            if (!eventStatus.configured || !eventStatus.isAvailable) return { clusters: [], screenshotCount: 0, rootPath: null }
+            eventStatus = { ...eventStatus, eventCount: eventClusters.length, lastIndexedAt: Date.now() }
+            return { clusters: structuredClone(eventClusters), screenshotCount: 0, rootPath: '/synthetic/camera-roll' }
+          } finally {
+            pendingEventScans--
+          }
+        }
+        if (cmd === 'get_event_asset_image') {
+          const ids = args?.ids
+          if (args?.allowNetwork !== false || !Array.isArray(ids) || ids.length === 0
+            || !ids.every((id) => typeof id === 'string')
+            || (args.purpose !== 'thumbnail' && args.purpose !== 'viewer')) {
+            throw new Error('Synthetic event assets are local-only')
+          }
+          const items = await Promise.all(ids.map(async (id: string) => {
+            const asset = eventAssets[id] ?? {}
+            pendingEventAssets++
+            try {
+              if (asset.hold && (!asset.holdPurpose || asset.holdPurpose === args.purpose)) {
+                await new Promise<void>((resolve) => { heldEventAssets.push(resolve) })
+              }
+              const state = asset.state ?? 'ready'
+              return {
+                id,
+                state,
+                url: state === 'ready' ? eventLease(id) : null,
+                width: asset.width ?? 640,
+                height: asset.height ?? 480,
+              }
+            } finally {
+              pendingEventAssets--
+            }
+          }))
+          return { items }
+        }
+        if (cmd === 'reveal_event_asset') {
+          if (typeof args?.id !== 'string' || !args.id) throw new Error('Missing synthetic event asset identifier')
+          return null
+        }
+      }
       if (cmd === 'plugin:event|listen') {
         const record = args as Record<string, unknown> | undefined
         const event = String(record?.event ?? '')
@@ -179,12 +332,14 @@ export const installBridge = (payload: BridgePayload) => {
           if (!set) { set = new Set(); eventHandlers.set(event, set) }
           set.add(handler)
           eventListeners.set(eventId, { event, handler })
+          if (fixtureEvents && event === 'manorama://raw-dump-changed') eventCalls.push({ command: cmd, args })
         }
         return eventId
       }
       if (cmd === 'plugin:event|unlisten') {
         const record = args as Record<string, unknown> | undefined
         const listener = eventListeners.get(Number(record?.eventId))
+        if (fixtureEvents && listener?.event === 'manorama://raw-dump-changed') eventCalls.push({ command: cmd, args })
         if (listener) {
           eventListeners.delete(Number(record?.eventId))
           eventHandlers.get(listener.event)?.delete(listener.handler)
@@ -236,6 +391,25 @@ export const blockProductionApi = async (page: Pick<Page, 'route'>): Promise<{ c
   await page.route('https://downloads.manorama.xyz/latest.json', (route) =>
     route.fulfill({ status: 200, contentType: 'application/json', body: '{}' }))
   return { calls: () => calls }
+}
+
+/** Answers only the HTTP form of the desktop opaque lease. The bytes are a
+ * generated SVG, so event acceptance never needs a provider account or a real
+ * photograph. A malformed token fails closed instead of falling through to
+ * the network. */
+export const serveEventLeases = async (page: Pick<Page, 'route'>): Promise<void> => {
+  await page.route('http://manorama-event.localhost/**', (route) => {
+    const url = new URL(route.request().url())
+    if (url.search || url.hash || !/^\/[0-9a-f]{32}$/.test(url.pathname)) {
+      return route.fulfill({ status: 404, body: 'not an event lease' })
+    }
+    return route.fulfill({
+      status: 200,
+      contentType: 'image/svg+xml',
+      headers: { 'cache-control': 'no-store' },
+      body: '<svg xmlns="http://www.w3.org/2000/svg" width="640" height="480" viewBox="0 0 640 480"><rect width="640" height="480" fill="#182431"/><circle cx="320" cy="240" r="150" fill="#e68ba7"/><path d="M0 390 210 210l140 130 100-90 190 170v60H0Z" fill="#8bb5c8"/></svg>',
+    })
+  })
 }
 
 // --- the rail's real-photograph catalogue -----------------------------------

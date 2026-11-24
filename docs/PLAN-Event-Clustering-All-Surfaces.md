@@ -1,6 +1,6 @@
 # Plan: Event Clustering on All Surfaces
 
-Status: **slices 1–5 verified locally; slice 6 in progress** · Branch: `chore/event-clustering-hardening` · Normative contract: `docs/event-clustering-bridge-contract.md`
+Status: **slices 1–6 verified locally; owner/device release gates remain** · Branch: `chore/event-clustering-hardening` · Normative contract: `docs/event-clustering-bridge-contract.md`
 
 This plan takes camera-roll event clustering from "macOS complete, iOS plugin dormant" to every Manorama surface: iPhone, iPad, Windows, Linux and Android. The standing non-negotiables of `PLAN-Event-Clustering-Camera-Roll.md` apply throughout: 100% on-device (no EXIF, GPS, thumbnails or paths leave the device), no ML frameworks or bundle bloat, no semantic labels, one raw-dump source per device, no full-bitmap decode during indexing, safe handling of cloud placeholders, private files written 0600 / complete file protection, and `--config`/`--store` isolation.
 
@@ -32,12 +32,12 @@ The native side already answers the four contract commands; the `native/` bundle
 
 - **Bridge wrapper.** `native/lib/event-clustering.ts`, modelled on `native/lib/local-gallery.ts`: `registerPlugin('EventClustering')` exposing `pickRawDumpRoot`, `getRawDumpStatus`, `scanRawDumpEvents`, `clearRawDumpRoot`, `getEventAssetImage`, `cancelEventAssetImage`, `releaseEventAssetImages`, `setEventCloudDownload`, `presentLimitedLibraryPicker`, `openEventPhotosSettings` and `openEventAssetInPhotos`. Every reply goes through the validators in `packages/core/event-clustering.ts`. `isEventClusteringAvailable()` is a capability probe (`getRawDumpStatus` resolves), not a platform check, so Android lights up without bundle changes.
 - **Shared presentation.** Lift span formatting and sub-day grouping out of `desktop/islands/EventClusters.tsx` into `packages/core`, with one test file used by both bundles.
-- **Settings row.** In `native/islands/Settings.tsx`: declare, change or clear the source; show authorisation state, event count and last indexed time; hold the iCloud download toggle (section 2).
+- **Settings row.** In `native/islands/Settings.tsx`: declare, change or clear the source; show authorisation state, event count and last indexed time. Cloud download preference remains native-protected and defaults off; the Viewer carries the explicit one-photo download action rather than adding a Settings toggle.
 - **Event section.** New `native/islands/EventSection.tsx` imported by `GalleryList.tsx` (2,895 lines; nothing added inline).
 - **iPad.** Multi-column grid at regular width, Split View and Stage Manager resizing, pointer hover, keyboard focus order.
 - **Photos access.** Handle `.notDetermined`, `.denied` (link to Settings) and `.limited` ("Showing N selected photos", `presentLimitedLibraryPicker`, rescan on `PHPhotoLibraryChangeObserver`). Review the `NSPhotoLibraryUsageDescription` wording against the on-device promise.
 
-**Acceptance.** On the iPhone 17 Pro Max and iPad Pro 13 (M5) simulators with seeded media: declaring shows events; clearing removes them and deletes `events-index.json` and the thumbnail cache; limited access shows only selected frames; the Web Inspector network log is empty for the whole flow while the download toggle is off.
+**Acceptance.** On the iPhone 17 Pro Max and iPad Pro 13 (M5) simulators with seeded media: declaring shows events; clearing removes them and deletes `Application Support/EventClustering/events-index.json` and the thumbnail cache; limited access shows only selected frames; the event flow performs no provider or media-network request for indexing, thumbnails or the default viewer. Existing app API/account traffic is outside that event-media assertion.
 
 ## 2. Spec: the fifth method, a photograph from an event
 
@@ -51,7 +51,7 @@ PhotoKit assets have no file URL, so `convertFileSrc` cannot reach them today. T
 
 **iCloud-only photos (D2).**
 1. Default: `allowNetwork` is false everywhere and the reply is `cloudOnly`. The UI shows a placeholder card ("In iCloud") and an "Open in Photos" action.
-2. Opt-in: a Settings toggle "Download iCloud photos when I open them", off by default. A one-off "Download this photo" action on the placeholder is available even with the toggle off.
+2. Opt-in: the persisted native preference defaults to false. A one-off "Download this photo" action on the placeholder is always available and enables network access only for that viewer request; there is no Settings toggle.
 3. When allowed, the request sets `isNetworkAccessAllowed = true` for that asset only and reports progress through a `eventAssetProgress` plugin event (`{ id, fraction }`); the card shows progress and supports cancel (`PHImageManager.cancelImageRequest`).
 4. Downloads are performed by the OS from the user's own iCloud account into the device's Photos library. Manorama sends nothing anywhere; the on-device invariant holds. The copy says this plainly.
 5. Thumbnails never trigger downloads, even with the toggle on: only an explicit open does. Indexing never downloads.
@@ -100,7 +100,7 @@ Writes are atomic 0600 on Unix; Windows parents receive a protected current-user
 - `scripts/test-macos-boundary.sh` compiles both tracked Swift suites in isolated scratch binaries: 262 PASS / 0 FAIL. The event-asset suite is included, and a real headless `WKWebView` using the production configuration served an unchanged original through `manorama-event`.
 - A fresh signed, unsandboxed evidence-only macOS bundle ran the synthetic 3/2/2 Camera Roll flow without foreground stealing. Full-pixel 3456×2168 frames cover the event rail, Viewer, picker and Library Settings folder controls. Production entitlements were unchanged; a complete packaged sandboxed six-state matrix remains a release gate.
 - `cargo check -p event-clustering --features fs-scan --target x86_64-pc-windows-msvc --lib --tests` and the equivalent `x86_64-unknown-linux-gnu` check pass. Full Tauri cross-checks stopped in host dependencies: this Mac lacks MSVC C headers/linker and a configured Linux pkg-config sysroot. Linux Docker and Windows CI paths are prepared, not run.
-- Independent round-3 reviewer `qfmodel` returned **“Verdict: APPROVED as a local checkpoint.”** P1/P2/P3 are closed. P1 persists the originally selected root's device/inode identity, rejects whole-root replacement, removes pathname-based event asset scope, delivers opaque descriptor-backed leases and revalidates reveal at the OS handoff. The documented Rust FIFO-256/no-TTL versus Swift capacity-128/30-minute-TTL registry difference is non-blocking.
+- Independent round-3 reviewer `qfmodel` returned **“Verdict: APPROVED as a local checkpoint.”** with 0 P0/P1/P2 findings and three non-blocking P3 observations: large-response handoff latency, gallery-confined Tauri drag-drop scope, and inert filesystem-scope drift from pre-release Slice 4 developer declarations. P1 persists the originally selected root's device/inode identity, rejects whole-root replacement, removes pathname-based event asset scope, delivers opaque descriptor-backed leases and revalidates reveal at the OS handoff. The documented Rust FIFO-256/no-TTL versus Swift capacity-128/30-minute-TTL registry difference is non-blocking.
 - The broad Playwright run finished **61 failed / 386 passed / 8 skipped**. The clean-base comparison reproduced 60 exact failures; the one Slice-4-only observation and two base-only observations passed an isolated warm base rerun. No Slice 4-specific regression is demonstrated, but the matrix is not green. Packaged Windows/Linux behavior and complete native release evidence remain separate gates.
 
 ## 5. Android in sync (Rust core via JNI, thin Kotlin layer)
@@ -364,8 +364,51 @@ From the worktree root, using
 external target directory. It has been prepared, not executed remotely. Local
 Linux Docker execution passed; these were the remaining gates at Slice 3's
 close. Slice 4 subsequently closed Tauri wiring and private-store integration,
-and Slice 5 closed Android ABI builds, size, ART instrumentation and the 50,000-
-item Android budget check. Windows runtime evidence and the consolidated
-cross-surface performance, localization and accessibility gates remain Slice
-6 work. No viewer change was made in the core-only slice, so no Playwright or
-native screenshot evidence is claimed for that slice.
+Slice 5 closed Android ABI builds, size, ART instrumentation and the 50,000-item
+Android budget check, and Slice 6 closed the available consolidated performance,
+localization, browser-accessibility and fail-closed runner gates. No viewer
+change was made in the core-only slice, so no Playwright or native screenshot
+evidence is claimed for that slice.
+
+## 7. Slice 6 hardening outcome
+
+The consolidated runner is `scripts/test-all-surfaces.sh`; it reports every lane
+as PASS, FAIL or an explicit SKIP and exits nonzero on any failure. The full run
+passed 17 lanes. Its seeded iPad lane exposed a fixture-isolation defect: a reused
+simulator's earlier synthetic batches share the same dates and legitimately join
+the current batch's events. The assertion now checks the current prefix's exact
+membership and `[2, 2, 3]` partition within mixed-library events without deleting
+existing media; the isolated iOS rerun passed 28/28. Windows is explicitly skipped
+because this host has no Windows runner.
+
+| Local gate | Final result |
+| :--- | :--- |
+| TypeScript | `bunx tsc --noEmit` clean |
+| Bun | 2,757 passed, 0 failed; 34,949 expectations; 218 files |
+| Rust core | default, `fs-scan`, `android`, combined and strict Clippy all passed |
+| Swift event engine | 78 passed, 0 failed |
+| macOS native boundary | ALL PASS; 262 checks, including production `WKWebView` protocol delivery |
+| macOS 50,000-file budget | initial 4.142 s; unchanged rescan 0.899 s; 193.50 MB peak RSS; zero rescan header reads; 2,500 events / 50,000 members |
+| Tauri | desktop bundle built; 48 shell tests passed; strict Clippy passed |
+| Desktop Camera Roll Playwright | 10 passed, including axe, 200% text, reflow, 44 px targets and controller-retirement races |
+| Seeded iOS/iPadOS | 28 iPhone and 28 iPad XCTest checks passed; synthetic-only evidence retained |
+| Android | Java 21 JVM/debug build passed; 12 emulator instrumentation tests passed; both packaged JNI ABIs export all three symbols |
+| Android JNI size | `arm64-v8a` 785,592 bytes; `x86_64` 863,672 bytes; each below 1.5 MiB |
+| Linux Rust core | cached `rust:1` Docker all-features run passed 74 tests |
+| Whitespace / shell | `git diff --check` and shell syntax checks passed |
+
+The synthetic-only large-text captures are under
+`outputs/slice6-accessibility/`. Browser axe, reflow and target-size checks are
+useful automated evidence, not a substitute for real assistive technology.
+
+Still unclaimed owner/device or packaging gates:
+
+* Complete six-state visual evidence from a packaged sandboxed macOS release.
+* Real-device iCloud-only behavior, per-download Low Data/cellular consent and
+  locked-device behavior.
+* Physical Pixel partial access and real VoiceOver, Dynamic Type and TalkBack
+  sweeps.
+* Packaged Windows and Linux application runtime evidence; Linux verification
+  here covers the Rust core, not a packaged desktop app.
+* The broad pre-existing Playwright matrix remains red as documented above; the
+  focused event surface is green.

@@ -1,8 +1,8 @@
 # Event clustering: the bridge contract
 
 One device-local interface, shared by the macOS Swift shell, the iOS Capacitor
-shell and the Tauri desktop shell. Android will consume the same wire contract
-through a thin Kotlin plugin and the portable Rust engine.
+shell, the Android Capacitor shell and the Tauri desktop shell. Android consumes
+the same wire contract through a thin Kotlin plugin and the portable Rust engine.
 
 The repository has two web roots. `desktop/` is loaded by the macOS and Tauri
 shells; `native/dist` is loaded by Capacitor. They share the platform-free
@@ -10,7 +10,7 @@ types, validators and presentation helpers in `packages/core/event-clustering.ts
 but each owns its transport and island components.
 
 The engines are Swift (`native/EventClustering/`) on Apple surfaces and Rust
-(`crates/event-clustering/`) on Tauri and, later, Android. Neither engine uses
+(`crates/event-clustering/`) on Tauri and Android. Neither engine uses
 ML or network access. See `docs/PLAN-Event-Clustering-Camera-Roll.md` for why
 these boundaries sit where they do.
 
@@ -25,7 +25,7 @@ Event clustering runs on exactly **one user-declared raw dump per device**:
 | macOS | one security-scoped folder (a Drive/Proton/iCloud camera backup) | path relative to that folder, e.g. `2026/03/IMG_4821.jpg` |
 | Windows / Linux (Tauri) | one picker-approved folder | path relative to that folder |
 | iOS / iPadOS | the system Photos library | `PHAsset.localIdentifier` |
-| Android (planned) | MediaStore selection | MediaStore id |
+| Android | MediaStore selection | MediaStore id |
 
 Normal curated galleries are never re-grouped. Gallery roots scan only their
 top level. The user-declared raw dump alone recurses: its subfolders are never
@@ -200,9 +200,13 @@ Semantics shared by the shells:
 * **`pick_raw_dump_root`** replaces any previous raw dump. macOS opens the
   `NSOpenPanel`, marks one `FolderStore.Entry` as the dump, clears the flag on
   every other entry and persists a security-scoped bookmark. Tauri accepts only
-  a directory returned by its native picker/drop provenance, rejects gallery
-  roots and aliases before committing, and stores a Rust-only declaration. iOS
-  records the system library as `label: "Camera Roll"`, `rootPath: null`.
+  a directory returned by its native picker, rejects gallery roots and aliases
+  before committing, and stores a Rust-only declaration plus separate dump
+  approval provenance. That provenance never enters the gallery `roots.json`
+  grants or the renderer filesystem/asset scopes. A declaration saved by an
+  earlier build without that separate approval fails closed and requires folder
+  reselection; it is never migrated from a gallery grant. iOS records the system library
+  as `label: "Camera Roll"`, `rootPath: null`.
   Android selects the complete MediaStore library or one bucket and records the
   source in native-owned private state. Selection itself performs no scan and
   loads no preview.
@@ -217,7 +221,9 @@ Semantics shared by the shells:
   cleared. Clearing never modifies the provider or source folder.
 * A source revision invalidates in-flight scans and asset replies. A late scan
   cannot repopulate a cleared or replaced source, and a late asset reply cannot
-  become a URL under a new declaration.
+  become a URL under a new declaration. Desktop serializes clear/change with the
+  asset-response handoff, so an already-authorized read cannot answer after clear
+  has completed.
 ### `get_event_asset_image`
 
 Batch cap: **64** distinct, non-empty source-relative ids. `purpose` is
@@ -265,11 +271,12 @@ non-hex tokens and wrong-length tokens are rejected. The native lease registry i
 bounded and process-local. Swift uses capacity 128 with a 30-minute TTL; Rust uses
 FIFO capacity 256 with no TTL. Both revoke by source generation, and tokens are
 128-bit random, so this is a documented parity difference rather than a pathname
-or token-guessing gap. Each lease retains the selected root identity, a pinned
-parent directory handle, the leaf name, expected leaf device/inode identity and
-MIME type. Every protocol read revalidates those identities and reopens the leaf
-through the pinned parent with no-follow semantics. Replacing the root, an
-ancestor or the leaf revokes the lease.
+or token-guessing gap. Each lease retains the selected root identity, every
+ancestor pathname/device/inode identity, a pinned parent directory handle, the
+leaf name, expected leaf device/inode identity and MIME type. Every protocol read
+revalidates those identities and reopens the leaf through the pinned parent with
+no-follow semantics. Replacing the root, an ancestor or the leaf revokes the
+lease.
 
 The asynchronous custom protocol supports `GET` and `HEAD`, unchanged original
 bytes, one bounded byte range including suffix and open-ended ranges, truthful
@@ -395,12 +402,14 @@ member authorization, opaque leases and reveal revalidation. Desktop and mobile
 share lazy intrinsic covers, the existing Viewer, source-revision race guards and
 validated native asset replies.
 
-Independent round-3 reviewer `qfmodel` returned **“Verdict: APPROVED as a local
-checkpoint.”** P1/P2/P3 are closed. The desktop renderer accepts only exact opaque
-lease URLs; shared-core file-URL support remains for iOS. The tracked Swift suites
-pass 262 checks, including a real headless `WKWebView` using the production
-configuration and an issued `manorama-event` URL that served unchanged original
-bytes.
+Independent round-3 reviewer returned **“Verdict: APPROVED as a local
+checkpoint.”** with 0 P0/P1/P2 findings and three non-blocking P3 observations:
+large-response handoff latency, gallery-confined Tauri drag-drop scope, and inert
+filesystem-scope drift from pre-release Slice 4 developer declarations. The
+desktop renderer accepts only exact opaque lease URLs; shared-core file-URL
+support remains for iOS. The tracked Swift suites pass 262 checks, including a
+real headless `WKWebView` using the production configuration and an issued
+`manorama-event` URL that served unchanged original bytes.
 
 The ordinary Library mounts no event controller and performs no event scan.
 Library Settings owns one source declaration/clear action. The capability-gated
@@ -419,10 +428,25 @@ base rerun. No Slice 4-specific regression is demonstrated, but the matrix is no
 green. Synthetic browser evidence, real headless WKWebView protocol evidence and
 partial signed/unsandboxed native GUI evidence are recorded separately.
 
-Slice 6 gates still being closed:
+Slice 6 local gates completed:
+
+* `scripts/test-all-surfaces.sh` records PASS/FAIL/SKIP per lane, fails closed and
+  passed 17 lanes; Windows is explicitly skipped without a Windows runner.
+* TypeScript is clean and 2,757 Bun tests pass. The Rust feature matrix, strict
+  Clippy, 78 Swift engine tests and 262 macOS boundary checks pass.
+* The real 50,000-file macOS gate completes its initial scan in 4.142 s and an
+  unchanged rescan in 0.899 s with zero rescan header reads and 193.50 MB peak
+  RSS, below the 300 MB budget.
+* Tauri builds cleanly with 48 shell tests and strict Clippy. Focused desktop
+  Playwright passes 10/10, including axe, 200% text, reflow and 44 px targets.
+* Seeded iPhone and iPad runs each pass 28 XCTest checks. Android passes its JVM,
+  packaged JNI and 12-test emulator lanes; both ABI libraries are below 1.5 MiB
+  and export all three JNI symbols. The Linux Docker core passes 74 tests.
+
+Owner/device and packaging gates remain unclaimed:
 
 * Complete six-state native release evidence from a packaged sandboxed app.
 * Real iCloud-only behavior, Low Data/cellular consent and locked-device checks.
-* Physical Pixel partial-access and real-device accessibility checks.
-* 50,000-item macOS performance budget, localization and accessibility sweep.
-* Windows/Linux packaged-app runs and the cross-surface verification runner.
+* Physical Pixel partial-access and real VoiceOver/Dynamic Type/TalkBack sweeps.
+* Packaged Windows/Linux application runtime evidence; the local Linux lane
+  verifies the Rust core only.

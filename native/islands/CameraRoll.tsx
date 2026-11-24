@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'hono/jsx'
 import { ActionRow } from '../../app/components/ui/ActionRow'
-import type { EventCluster } from '../../packages/core/event-clustering'
+import type { EventCluster, EventPresentationOptions } from '../../packages/core/event-clustering'
 import { eventClusteringClient, isEventClusteringAvailable, type EventClusteringClient } from '../lib/event-clustering'
 import { useEventClustering } from '../lib/event-clustering-state'
 import EventSection from './EventSection'
@@ -67,8 +67,9 @@ export function CameraRollFolderAction({ client }: { client?: EventClusteringCli
   </>
 }
 
-export default function CameraRoll({ client, onClose, onOpenSettings }: {
+export default function CameraRoll({ client, presentation, onClose, onOpenSettings }: {
   client?: EventClusteringClient
+  presentation?: EventPresentationOptions
   onClose: () => void
   onOpenSettings: () => void
 }) {
@@ -99,7 +100,7 @@ export default function CameraRoll({ client, onClose, onOpenSettings }: {
         <button type="button" class="m-btn m-btn--secondary" onClick={() => { void events.client.settings().catch(() => {}) }}>Photos settings</button>
         <button type="button" class="m-btn m-btn--quiet" onClick={() => { void events.refresh(true) }}>Try again</button>
       </div>
-      : <EventSection events={events} onOpen={openEvent} />}
+      : <EventSection events={events} onOpen={openEvent} presentation={presentation} />}
     {validSelection && selected ? <EventViewer key={selected.cluster.id} cluster={selected.cluster} initialIndex={selected.index}
       client={events.client} downloadCloudOnOpen={events.status?.downloadCloudOnOpen === true}
       returnFocus={viewerReturnFocus.current} onClose={() => setSelected(null)} /> : null}

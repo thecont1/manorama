@@ -1,5 +1,6 @@
 import CoreFoundation
 import Darwin
+import Dispatch
 import Foundation
 import ImageIO
 import Security
@@ -87,53 +88,60 @@ enum FolderDumpScanner {
     ///   A partial walk is never reported as success: half a timeline that
     ///   the page cannot tell from a whole one is worse than an error.
     static func enumerate(root: URL) throws -> [DumpedFile] {
-        let keys: Set<URLResourceKey> = [
-            .isRegularFileKey, .isDirectoryKey, .isSymbolicLinkKey, .isPackageKey,
-            .contentModificationDateKey, .creationDateKey,
-            .ubiquitousItemDownloadingStatusKey, .totalFileSizeKey, .totalFileAllocatedSizeKey,
-        ]
-        let base = root.standardizedFileURL.path
-        // `.skipsHiddenFiles` answers both kinds of hidden the dump
-        // collects: the dot files a sync client scatters around its
-        // contents, and the folders whose name begins with one.
-        // `.skipsPackageDescendants` treats a `.photoslibrary`, a `.app` or
-        // an `.imoviewindow` as the single object the Finder shows rather
-        // than as a tree to walk into.
-        guard let walker = FileManager.default.enumerator(
-            at: root,
-            includingPropertiesForKeys: Array(keys),
-            options: [.skipsHiddenFiles, .skipsPackageDescendants]
-        ) else {
-            throw BridgeError.failed("the raw dump folder could not be opened for reading")
+        try autoreleasepool {
+            let base = root.standardizedFileURL.path
+            var found: [DumpedFile] = []
+
+            // Leaf resource values query provider metadata; stat reads local fields without hydration.
+            func walk(_ directory: String, relativeDirectory: String) throws {
+                guard let handle = opendir(directory) else {
+                    throw BridgeError.failed("the raw dump folder could not be opened for reading")
+                }
+                defer { closedir(handle) }
+                while let entry = readdir(handle) {
+                    let name = withUnsafeBytes(of: entry.pointee.d_name) { bytes in
+                        String(cString: bytes.bindMemory(to: CChar.self).baseAddress!)
+                    }
+                    if name.hasPrefix(".") || !LocalScanner.isImageName(name) && entry.pointee.d_type == DT_REG {
+                        continue
+                    }
+                    let path = directory + "/" + name
+                    let relative = relativeDirectory.isEmpty ? name : relativeDirectory + "/" + name
+                    var info = stat()
+                    guard lstat(path, &info) == 0 else {
+                        if errno == ENOENT { continue }
+                        throw BridgeError.failed("the raw dump folder could not be read completely")
+                    }
+                    if (info.st_flags & UInt32(UF_HIDDEN)) != 0 { continue }
+                    if (info.st_mode & S_IFMT) == S_IFLNK { continue }
+                    if (info.st_mode & S_IFMT) == S_IFDIR {
+                        let isPackage = try? URL(fileURLWithPath: path, isDirectory: true)
+                            .resourceValues(forKeys: [.isPackageKey]).isPackage
+                        if isPackage != true { try walk(path, relativeDirectory: relative) }
+                        continue
+                    }
+                    guard (info.st_mode & S_IFMT) == S_IFREG, LocalScanner.isImageName(name) else { continue }
+                    let logicalSize = Int64(info.st_size)
+                    let allocatedSize = Int64(info.st_blocks) * 512
+                    found.append(DumpedFile(
+                        url: URL(fileURLWithPath: path),
+                        relativePath: relative,
+                        modificationDate: Date(
+                            timeIntervalSince1970: TimeInterval(info.st_mtimespec.tv_sec)
+                                + TimeInterval(info.st_mtimespec.tv_nsec) / 1_000_000_000
+                        ),
+                        creationDate: Date(
+                            timeIntervalSince1970: TimeInterval(info.st_birthtimespec.tv_sec)
+                                + TimeInterval(info.st_birthtimespec.tv_nsec) / 1_000_000_000
+                        ),
+                        pixelsAreLocal: logicalSize <= 0 || allocatedSize > 0
+                    ))
+                }
+            }
+
+            try walk(base, relativeDirectory: "")
+            return found.sorted { $0.relativePath.localizedStandardCompare($1.relativePath) == .orderedAscending }
         }
-        var found: [DumpedFile] = []
-        for case let url as URL in walker {
-            let values = try? url.resourceValues(forKeys: keys)
-            guard values?.isRegularFile == true else { continue }
-            // A symlink is skipped rather than followed. `LocalSchemeHandler`
-            // resolves them and refuses any that leaves the granted root,
-            // so a cached row for an escaping link would be an event member
-            // that opens as nothing; and a link into another part of the
-            // same dump would be the same photograph twice.
-            guard values?.isSymbolicLink != true else { continue }
-            let name = url.lastPathComponent
-            guard LocalScanner.isImageName(name) else { continue }
-            let path = url.standardizedFileURL.path
-            let relative = path.hasPrefix(base + "/")
-                ? String(path.dropFirst(base.count + 1))
-                : name
-            found.append(DumpedFile(
-                url: url,
-                relativePath: relative,
-                modificationDate: values?.contentModificationDate,
-                creationDate: values?.creationDate,
-                pixelsAreLocal: pixelsAreLocal(values)
-            ))
-        }
-        // The same collation `LocalScanner` uses, so a rescan of an
-        // unchanged dump hands back the same sequence, and so a directory
-        // named `2` sorts after `10` the way a human reads a year folder.
-        return found.sorted { $0.relativePath.localizedStandardCompare($1.relativePath) == .orderedAscending }
     }
 
     /// The same walk with the selected directory pinned for its duration.
@@ -187,6 +195,27 @@ enum FolderDumpScanner {
         }
         let header = headerProperties(at: file.url)
         return DumpIngest(item: item(from: file, header: header), headerWasOpened: true)
+    }
+
+    /// Chunked reads keep ImageIO memory bounded while preserving the walk's deterministic order.
+    static func ingestMany(_ files: [DumpedFile]) -> [DumpIngest] {
+        let chunkSize = 128
+        guard files.count > chunkSize else { return autoreleasepool { files.map(ingest) } }
+        let chunkCount = (files.count + chunkSize - 1) / chunkSize
+        let workerCount = min(8, ProcessInfo.processInfo.activeProcessorCount, chunkCount)
+        var chunks = [[DumpIngest]?](repeating: nil, count: chunkCount)
+        let lock = NSLock()
+        DispatchQueue.concurrentPerform(iterations: workerCount) { worker in
+            for chunk in stride(from: worker, to: chunkCount, by: workerCount) {
+                let start = chunk * chunkSize
+                let end = min(start + chunkSize, files.count)
+                let values = autoreleasepool { files[start..<end].map(ingest) }
+                lock.lock()
+                chunks[chunk] = values
+                lock.unlock()
+            }
+        }
+        return chunks.flatMap { $0 ?? [] }
     }
 
     /// The item for one file, from its header when there is one.

@@ -34,6 +34,7 @@ internal class EventAssetService(
     private val originals = EventPrivateFiles.directory(File(context.cacheDir, "event-originals"))
     private val executor: ExecutorService = Executors.newFixedThreadPool(2)
     private val lock = Any()
+    @Volatile private var purgeGeneration = 0L
     private val generations = mutableMapOf<String, Int>()
     private val pending = mutableMapOf<String, Future<*>>()
     private val partial = mutableMapOf<Pair<String, Int>, MutableSet<File>>()
@@ -45,18 +46,22 @@ internal class EventAssetService(
         purpose: String,
         maxPixelSize: Int,
         allowNetwork: Boolean,
+        requestGeneration: Long = generation(),
         confirmNetwork: () -> Boolean,
     ): JSONArray = JSONArray().also { replies ->
         ids.forEachIndexed { index, id ->
             val record = records.getOrNull(index)
-            replies.put(submit(id) { generation ->
-                record?.let { reply(it, purpose, maxPixelSize, allowNetwork, confirmNetwork, generation) }
+            replies.put(submit(id, requestGeneration) { generation ->
+                if (purgeGeneration != requestGeneration) EventAssetReply.failed(id).json()
+                else record?.let { reply(it, purpose, maxPixelSize, allowNetwork, confirmNetwork, generation) }
                     ?: EventAssetReply.missing(id).json()
             })
         }
     }
 
-    private fun submit(id: String, operation: (Int) -> JSONObject): JSONObject {
+    fun generation(): Long = synchronized(lock) { purgeGeneration }
+
+    private fun submit(id: String, requestGeneration: Long, operation: (Int) -> JSONObject): JSONObject {
         val generation = synchronized(lock) {
             val next = (generations[id] ?: 0) + 1
             generations[id] = next
@@ -74,7 +79,7 @@ internal class EventAssetService(
                         EventAssetReply.failed(id).json()
                     }
                     synchronized(lock) { deletePartial(id, generation) }
-                    if (synchronized(lock) { generations[id] == generation }) result else {
+                    if (synchronized(lock) { generations[id] == generation && purgeGeneration == requestGeneration }) result else {
                         result.optString("url").takeIf { it.isNotBlank() && it != "null" }?.let { release(listOf(it)) }
                         EventAssetReply(id, "failed", 0, 0).json()
                     }
@@ -87,11 +92,11 @@ internal class EventAssetService(
             return EventAssetReply.failed(id).json()
         }
         synchronized(lock) {
-            if (generations[id] == generation) pending[id] = future else future.cancel(true)
+            if (generations[id] == generation && purgeGeneration == requestGeneration) pending[id] = future else future.cancel(true)
         }
         return try {
             val result = future.get()
-            if (synchronized(lock) { generations[id] == generation }) result else {
+            if (synchronized(lock) { generations[id] == generation && purgeGeneration == requestGeneration }) result else {
                 result.optString("url").takeIf { it.isNotBlank() && it != "null" }?.let { release(listOf(it)) }
                 EventAssetReply(id, "failed", 0, 0).json()
             }
@@ -104,7 +109,7 @@ internal class EventAssetService(
             EventAssetReply.failed(id).json()
         } finally {
             synchronized(lock) {
-                if (generations[id] == generation) pending.remove(id)
+                if (generations[id] == generation && purgeGeneration == requestGeneration) pending.remove(id)
                 deletePartial(id, generation)
             }
         }
@@ -265,6 +270,7 @@ internal class EventAssetService(
 
     fun clear() {
         synchronized(lock) {
+            purgeGeneration++
             generations.keys.toList().forEach { id ->
                 val current = generations[id] ?: 0
                 generations[id] = current + 1

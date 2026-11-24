@@ -179,7 +179,7 @@ export default function EventViewer({ cluster, initialIndex, client, onClose, re
   return <div ref={hostRef} class="event-viewer" role="dialog" aria-modal="true" aria-label="Event photographs">
     <div>
       <button ref={returnRef} type="button" class="admin-button event-viewer-return" aria-label="Back to Camera Roll" onClick={closeViewer}>‹ Camera Roll</button>
-      <GalleryShell settings={settings} mediaCount={{ stills: cluster.itemIds.length, videos: 0 }} entered>
+      <GalleryShell settings={settings} mediaCount={{ stills: cluster.itemIds.length, videos: 0 }} entered landmark={false}>
         <Viewer slug={cluster.id} galleryTitle={settings.title} images={eventViewerImages(cluster, photos)} settings={settings}
           allowFullscreen={false} onReturnToGalleries={closeViewer} initialIndex={currentRef.current}
           navigationRef={navigation} chromeRef={chromeRef} onChromeFocus={onChromeFocus}

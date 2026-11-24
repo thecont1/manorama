@@ -2,12 +2,19 @@ import { useEffect, useRef, useState } from 'hono/jsx'
 import { ActionGroup, ActionRow } from '../../app/components/ui/ActionRow'
 import type { ViewerChromeControl, ViewerChromeHandle } from '../../app/islands/Viewer'
 import {
+  deviceEventPresentation,
+  formatDaysLabel,
+  formatEventCardLabel,
   formatEventDateSpan,
+  formatEventDayLabel,
   formatEventFrameCount,
+  formatEventPreviewState,
+  formatMultiDayLabel,
   formatSubDayLabel,
   orderedSubDays,
   subDayStartIndex,
   type EventCluster,
+  type EventPresentationOptions,
 } from '../../packages/core/event-clustering'
 import {
   eventClusteringClient,
@@ -26,6 +33,7 @@ const nativeGate = (native: boolean | undefined): boolean =>
 type SharedProps = {
   client?: EventClusteringClient
   native?: boolean
+  presentation?: EventPresentationOptions
 }
 
 export function CameraRollPill({ client, native, active, onActivate }: SharedProps & {
@@ -97,7 +105,7 @@ export function CameraRollFolderAction({ client, native, onDeclarationChanged }:
     }
   }
 
-  return <ActionGroup label="Camera Roll">
+  return <ActionGroup label="Camera Roll" class="camera-roll-settings">
     <ActionRow label="Folder" value={status.configured ? status.label || 'Folder set' : 'Choose folder'} onClick={() => { void choose() }} disabled={busy} />
     {status.configured ? <ActionRow label="Clear folder" tone="destructive" onClick={() => { void clear() }} disabled={busy} /> : null}
     {error ? <p class="m-note m-panel-note" role="alert">{error}</p> : null}
@@ -106,11 +114,12 @@ export function CameraRollFolderAction({ client, native, onDeclarationChanged }:
 
 const MAX_COVER_CANCELLATIONS = 2
 
-function EventCard({ cluster, client, revision, onOpen }: {
+function EventCard({ cluster, client, revision, onOpen, presentation }: {
   cluster: EventCluster
   client: EventClusteringClient
   revision: number
   onOpen: (event: EventCluster, index: number, trigger?: HTMLElement) => void
+  presentation: EventPresentationOptions
 }) {
   const [cover, setCover] = useState<EventPhoto | null>(null)
   const ref = useRef<HTMLElement | null>(null)
@@ -153,27 +162,29 @@ function EventCard({ cluster, client, revision, onOpen }: {
     else load()
     return () => { alive = false; observer?.disconnect() }
   }, [client, cluster.coverItemId, revision])
-  const span = formatEventDateSpan(cluster)
+  const span = formatEventDateSpan(cluster, presentation)
   const days = orderedSubDays(cluster)
   const dpr = typeof window === 'undefined' ? 1 : Math.max(1, window.devicePixelRatio || 1)
   return <li ref={ref} class="lib-compact-card event-card" data-event-card={cluster.id}>
-    <button type="button" class="event-card-open" onClick={(event) => onOpen(cluster, 0, event.currentTarget as HTMLElement)} aria-label={`${span}, ${formatEventFrameCount(cluster)}`}>
+    <button type="button" class="event-card-open" onClick={(event) => onOpen(cluster, 0, event.currentTarget as HTMLElement)} aria-label={formatEventCardLabel(cluster, cover?.state, presentation)}>
       <span class="event-card-cover">
         {cover?.src ? <img src={cover.src} alt="" loading="lazy" width={cover.width} height={cover.height}
           style={{ maxInlineSize: `min(100%, ${cover.width / dpr}px)`, maxBlockSize: `min(100%, ${cover.height / dpr}px)`, aspectRatio: `${cover.width} / ${cover.height}` }} />
-          : <span class="m-note">{cover?.state === 'cloudOnly' ? 'Not downloaded' : cover?.state === 'missing' ? 'Photo unavailable' : cover?.state === 'failed' ? 'Preview unavailable' : 'Reading preview…'}</span>}
+          : <span class="m-note">{formatEventPreviewState(cover?.state, presentation)}</span>}
       </span>
       <strong>{span}</strong>
-      <span class="m-note">{formatEventFrameCount(cluster)}{cluster.isMultiDay ? ' · Multi-day' : ''}</span>
+      <span class="m-note">{formatEventFrameCount(cluster, presentation)}{cluster.isMultiDay ? ` · ${formatMultiDayLabel(presentation)}` : ''}</span>
     </button>
-    {days.length ? <div class="event-days" role="group" aria-label={`Days in ${span}`}>
+    {days.length ? <div class="event-days" role="group" aria-label={formatDaysLabel(span, presentation)}>
       {days.map((day) => <button type="button" key={day.id} class="admin-button" data-event-day={day.id}
-        onClick={(event) => onOpen(cluster, subDayStartIndex(cluster, day.id), event.currentTarget as HTMLElement)}>{formatSubDayLabel(day, cluster)}</button>)}
+        aria-label={formatEventDayLabel(day, cluster, span, presentation)}
+        onClick={(event) => onOpen(cluster, subDayStartIndex(cluster, day.id), event.currentTarget as HTMLElement)}>{formatSubDayLabel(day, cluster, presentation)}</button>)}
     </div> : null}
   </li>
 }
 
-function EventSection({ events, onOpen }: { events: EventClusteringController; onOpen: (event: EventCluster, index: number, trigger?: HTMLElement) => void }) {
+function EventSection({ events, onOpen, presentation }: { events: EventClusteringController; onOpen: (event: EventCluster, index: number, trigger?: HTMLElement) => void; presentation?: EventPresentationOptions }) {
+  const formatted = presentation ?? deviceEventPresentation()
   if (events.error) return <div class="lib-empty">
     <p class="m-note" role="alert">{events.error}</p>
     <button type="button" class="admin-button" onClick={() => { void events.refresh() }}>Try again</button>
@@ -185,12 +196,12 @@ function EventSection({ events, onOpen }: { events: EventClusteringController; o
       <span>Folder changed since this was indexed.</span>
       <button type="button" class="admin-button" disabled={events.busy} onClick={() => { void events.refresh(true) }}>Re-scan</button>
     </div> : null}
-    <ul class="lib-compact-grid event-grid">{events.scan.clusters.map((cluster) =>
-      <EventCard key={cluster.id} cluster={cluster} client={events.client} revision={events.sourceRevision} onOpen={onOpen} />)}</ul>
+    <ul class="lib-compact-grid event-grid" role="list">{events.scan.clusters.map((cluster) =>
+      <EventCard key={cluster.id} cluster={cluster} client={events.client} revision={events.sourceRevision} onOpen={onOpen} presentation={formatted} />)}</ul>
   </>
 }
 
-export default function CameraRoll({ client, native, onClose, onOpenSettings, navigationRef, chromeRef, onChromeFocus, onPositionChange, onViewerOpenChange }: SharedProps & {
+export default function CameraRoll({ client, native, presentation, onClose, onOpenSettings, navigationRef, chromeRef, onChromeFocus, onPositionChange, onViewerOpenChange }: SharedProps & {
   onClose: () => void
   onOpenSettings: () => void
   navigationRef?: { current: { goTo(index: number): void } | null }
@@ -225,7 +236,7 @@ export default function CameraRoll({ client, native, onClose, onOpenSettings, na
         <p class="m-note">Camera Roll is unavailable</p>
         <button type="button" class="admin-button" onClick={() => { void events.refresh(true) }}>Try again</button>
       </div>
-      : <EventSection events={events} onOpen={openEvent} />}
+      : <EventSection events={events} onOpen={openEvent} presentation={presentation} />}
     {validSelection && selected ? <EventViewer key={selected.cluster.id} cluster={selected.cluster} initialIndex={selected.index}
       client={events.client} returnFocus={viewerReturnFocus.current} onClose={() => setSelected(null)}
       navigationRef={navigationRef} chromeRef={chromeRef} onChromeFocus={onChromeFocus}

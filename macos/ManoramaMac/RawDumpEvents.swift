@@ -70,6 +70,7 @@ final class RawDumpEventStore: @unchecked Sendable {
         }
         let stamp: Stamp?
         let summary: RawDumpIndexSummary
+        let index: EventIndex?
     }
 
     init(configDir: URL) {
@@ -91,8 +92,9 @@ final class RawDumpEventStore: @unchecked Sendable {
         if let memo, memo.stamp == stamp {
             return memo.summary
         }
-        let summary = Self.summary(of: readIndex())
-        memo = Memo(stamp: stamp, summary: summary)
+        let index = readIndex()
+        let summary = Self.summary(of: index)
+        memo = Memo(stamp: stamp, summary: summary, index: index)
         // A missing file is not a decode; the cold answer for "no cache
         // yet" costs nothing.
         if stamp != nil { summaryDecodes += 1 }
@@ -104,7 +106,7 @@ final class RawDumpEventStore: @unchecked Sendable {
     private func remember(_ index: EventIndex) {
         stateLock.lock()
         defer { stateLock.unlock() }
-        memo = Memo(stamp: Self.stamp(of: indexURL), summary: Self.summary(of: index))
+        memo = Memo(stamp: Self.stamp(of: indexURL), summary: Self.summary(of: index), index: index)
     }
 
     private static func summary(of index: EventIndex?) -> RawDumpIndexSummary {
@@ -130,6 +132,13 @@ final class RawDumpEventStore: @unchecked Sendable {
     func readIndex() -> EventIndex? {
         guard let data = try? Data(contentsOf: indexURL) else { return nil }
         return try? EventIndex.decode(data)
+    }
+
+    private func cachedIndex() -> EventIndex? {
+        stateLock.lock()
+        defer { stateLock.unlock() }
+        guard let memo, memo.stamp == Self.stamp(of: indexURL) else { return nil }
+        return memo.index
     }
 
     /// Write at mode 0600, atomically, through the shell's one writer —
@@ -202,13 +211,15 @@ final class RawDumpEventStore: @unchecked Sendable {
         guard root.isStillCurrent() else { throw EventAssetSupportError.reselectionRequired }
         let files = try FolderDumpScanner.enumerate(root: root)
         let indexedAt = Date()
-        let existing = readIndex()
+        let existing = cachedIndex() ?? readIndex()
         // A fingerprint mismatch is a rebuild, not a merge. The frames in
         // such a cache were read for another device, another folder, or
         // under a schema that no longer means what it says, and mixing a
         // foreign timeline into this one would produce events about a
         // camera roll nobody has here.
         let reusable = !force && (existing?.matches(deviceId: deviceId, sourceId: sourceId) ?? false)
+        let configChanged = existing.map { reusable && $0.config != config } ?? false
+        let labelChanged = existing.map { reusable && $0.source.label != label } ?? false
         var base = reusable ? existing! : EventIndex(
             source: EventIndex.SourceFingerprint(
                 deviceId: deviceId,
@@ -231,22 +242,16 @@ final class RawDumpEventStore: @unchecked Sendable {
         // core's own words; events are rebuilt below rather than edited by
         // hand.
         let present = Set(files.map(\.relativePath))
-        var cache = base.pruning(absentIds: Set(previous.keys).subtracting(present)).itemCache
-        if force {
-            cache = [:]
+        let hasAbsent = previous.keys.contains { !present.contains($0) }
+        var cache = previous
+        if hasAbsent { cache = cache.filter { present.contains($0.key) } }
+        if force { cache = [:] }
+        let pending = files.filter { file in
+            force || base.needsMetadataRead(id: file.relativePath, fileModTime: file.modificationDate?.timeIntervalSince1970)
         }
+        let records = FolderDumpScanner.ingestMany(pending)
         var headersRead = 0
-        for file in files {
-            let modTime = file.modificationDate?.timeIntervalSince1970
-            // The incremental rule, asked per file: an unchanged frame costs
-            // a dictionary lookup, and only a new, touched or never-seen
-            // file costs a header.
-            if !force, !base.needsMetadataRead(id: file.relativePath, fileModTime: modTime),
-               let cached = previous[file.relativePath] {
-                cache[file.relativePath] = cached
-                continue
-            }
-            let record = FolderDumpScanner.ingest(file)
+        for (file, record) in zip(pending, records) {
             if record.headerWasOpened { headersRead += 1 }
             if let item = record.item {
                 cache[file.relativePath] = item
@@ -255,6 +260,25 @@ final class RawDumpEventStore: @unchecked Sendable {
                 // be built around a guess.
                 cache.removeValue(forKey: file.relativePath)
             }
+        }
+
+        func outcome(for index: EventIndex, reads: Int) -> RawDumpScanOutcome {
+            RawDumpScanOutcome(
+                report: RawDumpScanReport(
+                    clusters: index.events,
+                    screenshotCount: index.screenshotItemIds.count,
+                    metadataReadCount: reads,
+                    eventCount: index.events.count,
+                    lastIndexedAt: index.source.lastIndexedAt
+                ),
+                rootPath: root.url.path,
+                label: label
+            )
+        }
+        let changed = force || !reusable || configChanged || labelChanged || hasAbsent || !pending.isEmpty
+        if !changed, let existing {
+            guard root.isStillCurrent() else { throw EventAssetSupportError.reselectionRequired }
+            return outcome(for: existing, reads: 0)
         }
 
         // Clustering always runs over the whole cached timeline. Half a
@@ -276,17 +300,7 @@ final class RawDumpEventStore: @unchecked Sendable {
             throw EventAssetSupportError.reselectionRequired
         }
         remember(next)
-        return RawDumpScanOutcome(
-            report: RawDumpScanReport(
-                clusters: next.events,
-                screenshotCount: next.screenshotItemIds.count,
-                metadataReadCount: headersRead,
-                eventCount: next.events.count,
-                lastIndexedAt: next.source.lastIndexedAt
-            ),
-            rootPath: root.url.path,
-            label: label
-        )
+        return outcome(for: next, reads: headersRead)
     }
 }
 
