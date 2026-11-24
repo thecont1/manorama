@@ -1,8 +1,10 @@
 # Plan: Event Clustering on All Surfaces
 
-Status: **slices 1–5 verified locally; slice 6 pending** · Branch base: `feat/event-clustering-camera-roll` (on `b4a91f29`) · Normative contract: `docs/event-clustering-bridge-contract.md`
+Status: **slices 1–5 verified locally; slice 6 in progress** · Branch: `chore/event-clustering-hardening` · Normative contract: `docs/event-clustering-bridge-contract.md`
 
 This plan takes camera-roll event clustering from "macOS complete, iOS plugin dormant" to every Manorama surface: iPhone, iPad, Windows, Linux and Android. The standing non-negotiables of `PLAN-Event-Clustering-Camera-Roll.md` apply throughout: 100% on-device (no EXIF, GPS, thumbnails or paths leave the device), no ML frameworks or bundle bloat, no semantic labels, one raw-dump source per device, no full-bitmap decode during indexing, safe handling of cloud placeholders, private files written 0600 / complete file protection, and `--config`/`--store` isolation.
+
+The original slice briefs below are retained as design history. The owner's later Library direction controls presentation: Settings owns one folder action, a Camera Roll pill replaces only the gallery-list rail, and the ordinary Library never scans or shows event contents. The slice checkpoints record what actually shipped.
 
 ## Locked decisions
 
@@ -19,9 +21,9 @@ This plan takes camera-roll event clustering from "macOS complete, iOS plugin do
 
 | Surface | Engine | Shell commands | Pixels for an event | UI visible | Tests |
 |---|---|---|---|---|---|
-| macOS | Swift core | Done | Done (local scheme) | Done | Slice 1 engine, boundary and Bun suites |
+| macOS | Swift core | Done | Done (opaque verified leases) | Done | Slice 1 engine, boundary and Bun suites |
 | iOS / iPadOS | Swift core | Done, registered | Done (native leases) | Done | Slice 2 unit, boundary and simulator checks |
-| Windows / Linux (Tauri) | Rust core | Done | Done (opaque leases) | Done | Slice 4 Rust, Tauri and Linux Docker checks; Windows CI prepared |
+| Windows / Linux (Tauri) | Rust core | Done (6 commands) | Done (opaque leases) | Done | Slice 4 Rust, Tauri and Linux Docker checks; Windows CI prepared |
 | Android | Rust core via JNI | Done (11 commands) | Done (local and explicit cloud reveal) | Done | 5 JVM + 11 instrumentation + 63 Rust + Bun; API 36 emulator verified |
 
 ## 1. Make the feature visible on iPhone and iPad
@@ -83,15 +85,23 @@ The crate has two layers:
 
 No image crates are needed, and `serde`/`serde_json` are already in the tree.
 
-**Tauri shell.** `src-tauri/src/event_clustering.rs` with `pick_raw_dump_root`, `get_raw_dump_status`, `scan_raw_dump_events`, `clear_raw_dump_root` and `get_event_asset_image`, registered in `generate_handler!`. Writes go through `private_store.rs` (0600 on Unix; user-only default ACL on Windows). Paths honour `--config`/`--store`. Windows cloud placeholders with `FILE_ATTRIBUTE_RECALL_ON_DATA_ACCESS` or `OFFLINE` are skipped during indexing. The fs capability scope covers the declared dump root only. Thumbnails reuse `read_file_range` plus WebView decode; no Rust-side image work.
+**Tauri shell — slice 4 Rust implementation.** `src-tauri/src/event_clustering.rs` registers the four dump commands plus `get_event_asset_image` and `reveal_event_asset` in `generate_handler!`, using the verified `manorama_events` path dependency with `fs-scan`. The shell resolves the actual OS IANA timezone (including historical DST). Index dates remain seconds; bridge event/sub-day/status dates are milliseconds. The picker/drop provenance file is not a catalogue declaration: picker, gallery drop batches and catalogue writes reject the active dump's canonical root, including aliases, before durable gallery commits.
 
-**Bundle.** Add the Tauri `invoke` transport to `desktop/lib/event-clustering.ts` so the existing island renders unchanged.
+Rust-only `raw-dump.json` retains an install-private UUID and an optional source declaration; `events-index.json` is source-fingerprint/schema/config checked. `--config <absolute directory>` isolates app-private files, declaration and index; `--store <absolute directory>` separately isolates `roots.json`. Both defaults remain the old app config directory. Clearing preserves the UUID and grants, removes the source and index, and stops its watcher. Mutex/generation/scan-sequence gates prevent late scans from rewriting cleared or changed-source caches. Scans run on blocking workers; status reads only root availability and the memoized summary. The `notify` watcher emits debounced `manorama://raw-dump-changed` with `{}`, never paths, GPS or dates.
+
+Writes are atomic 0600 on Unix; Windows parents receive a protected current-user-only DACL before temporary file creation, and replacement uses `MoveFileExW`. Native declaration/index/provenance names remain outside the renderer allowlist. Existing filesystem capabilities stay read-only and unchanged. The asset command accepts at most 64 source-relative ids plus `purpose: 'thumbnail' | 'viewer'`, optional `maxPixelSize`, and `allowNetwork: false`. Handle-relative no-follow reads and bounded JPEG/PNG/WebP/HEIF/AVIF headers yield orientation-aware dimensions. Local originals are returned only as opaque `manorama-event` leases backed by a pinned directory handle and expected device/inode identity; the asynchronous protocol reopens the leaf without following links and serves unchanged bytes with GET/HEAD/range support. Cloud placeholders remain indexed as metadata-only rows, but the asset reply is `cloudOnly` with a null URL; missing/failed assets also have null URLs. No bitmap/ML decoder, re-encoding or download is introduced. Reveal consumes a verified member and revalidates immediately before the public OS pathname handoff. Renderer work and GUI evidence are tracked independently.
+
+**Bundle.** `desktop/lib/event-clustering.ts` owns the validated Tauri `invoke` transport. `desktop/islands/EventClusters.tsx` provides the pill, one Settings folder action and event cards; `EventViewer.tsx` opens members asynchronously through the shared Viewer. `Catalogue.tsx` mounts the controller only in Camera Roll mode and swaps only the right-hand gallery list. No renderer path is joined into a media URL.
 
 **Verification.**
 - `cargo test -p event-clustering` against the golden fixtures.
-- `cargo test` in `src-tauri`.
-- Linux build and tests in Docker (`rust:1` image).
-- Windows build and tests in `desktop-windows.yml`. Local Windows cross-tooling is not added.
+- `CARGO_TARGET_DIR=/tmp/manorama-events-tauri-target cargo test --locked --manifest-path src-tauri/Cargo.toml --all-targets` (45 shell tests passed) and all-target Clippy with warnings denied.
+- `bunx tsc --noEmit` and `bun run test:unit` (2,715 tests passed).
+- `scripts/test-macos-boundary.sh` compiles both tracked Swift suites in isolated scratch binaries: 262 PASS / 0 FAIL. The event-asset suite is included, and a real headless `WKWebView` using the production configuration served an unchanged original through `manorama-event`.
+- A fresh signed, unsandboxed evidence-only macOS bundle ran the synthetic 3/2/2 Camera Roll flow without foreground stealing. Full-pixel 3456×2168 frames cover the event rail, Viewer, picker and Library Settings folder controls. Production entitlements were unchanged; a complete packaged sandboxed six-state matrix remains a release gate.
+- `cargo check -p event-clustering --features fs-scan --target x86_64-pc-windows-msvc --lib --tests` and the equivalent `x86_64-unknown-linux-gnu` check pass. Full Tauri cross-checks stopped in host dependencies: this Mac lacks MSVC C headers/linker and a configured Linux pkg-config sysroot. Linux Docker and Windows CI paths are prepared, not run.
+- Independent round-3 reviewer `qfmodel` returned **“Verdict: APPROVED as a local checkpoint.”** P1/P2/P3 are closed. P1 persists the originally selected root's device/inode identity, rejects whole-root replacement, removes pathname-based event asset scope, delivers opaque descriptor-backed leases and revalidates reveal at the OS handoff. The documented Rust FIFO-256/no-TTL versus Swift capacity-128/30-minute-TTL registry difference is non-blocking.
+- The broad Playwright run finished **61 failed / 386 passed / 8 skipped**. The clean-base comparison reproduced 60 exact failures; the one Slice-4-only observation and two base-only observations passed an isolated warm base rerun. No Slice 4-specific regression is demonstrated, but the matrix is not green. Packaged Windows/Linux behavior and complete native release evidence remain separate gates.
 
 ## 5. Android in sync (Rust core via JNI, thin Kotlin layer)
 
@@ -134,7 +144,7 @@ The packaged debug APK contains 785,592-byte (`arm64-v8a`) and 863,672-byte (`x8
 | Suite | Command | Notes |
 |---|---|---|
 | Swift engine | `scripts/test-event-clustering.sh` | 78 tests, including 37 golden timelines |
-| macOS boundary | `scripts/test-macos-boundary.sh` | 145 checks; scratch-isolated binary and fixtures |
+| macOS boundary | `scripts/test-macos-boundary.sh` | both scratch-isolated Swift suites, including event asset tests |
 | Bun / TS | `bunx tsc --noEmit && bun run test:unit` | desktop, packages, native; the mirror avoids nested worktree `node_modules` |
 | iOS | `xcodebuild -project ios/App/App.xcodeproj -scheme App -destination 'platform=iOS Simulator,name=iPhone 17 Pro Max,OS=27.1' -derivedDataPath /tmp/mano-dd -clonedSourcePackagesDirPath /tmp/mano-spm test` | Repeat for iPad Pro 13-inch (M5), iPhone 17e, iPad mini (A17 Pro). Seed media with `xcrun simctl addmedia`, grant with `xcrun simctl privacy <udid> grant photos <bundle id>`. Never pass `DEVELOPMENT_TEAM`. |
 | Rust | `cargo test --workspace`; Docker for Linux | Windows in CI |
@@ -161,7 +171,7 @@ Known environment needs:
    - iOS `PrivacyInfo.xcprivacy`: photo library use, required-reason APIs and no tracking.
    - Play data-safety form: photos are accessed but not collected or shared.
    - Store copy explaining iCloud downloads as OS-performed.
-5. **Hygiene.** Make `scripts/build-macos.sh` work from worktrees by resolving the `node_modules` symlink or building from the main checkout. Add a CI check that `scripts/*.sh` are executable. Keep `.build`, `.swiftpm` and Rust `target/` ignored.
+5. **Hygiene.** `scripts/build-macos.sh` uses Vite's runner config loader and supports isolated `MANORAMA_MACOS_BUILD_DIR` output from linked worktrees. CI checks tracked shell-script executable bits. Keep `.build`, `.swiftpm` and Rust `target/` ignored.
 6. **Real runs, not summaries.** Every slice closes with a run of the actual app on its surface, with screenshots. Typechecks missed the unregistered iOS plugin and the reentrant `queue.sync` crash.
 7. **Performance budget.** A 50,000-item synthetic dump:
    - Mac: index under 10 s, peak memory under 300 MB, incremental rescan under 1 s.
@@ -193,6 +203,31 @@ Slices 2 and 3 run in parallel after 1; 4 and 5 run in parallel after 3.
 - **Android location access:** denial of `ACCESS_MEDIA_LOCATION` weakens trip merge. Time-only clustering is tested explicitly.
 - **Windows cloud placeholders:** detection varies by cloud provider, so it is unit-tested with synthetic attributes.
 - **Version churn:** AGP, Java 21 and Capacitor versions drift over time, so `JAVA_HOME` and the NDK version are pinned in `android/gradle.properties` and CI.
+
+## Slice 2 checkpoint — iOS Camera Roll mode (verified locally)
+
+Completed in `feat/event-clustering-ios-visible` at `889dfd66`, based on the
+Apple/macOS slice. The ordinary Library stays gallery-only. Settings owns one
+Camera Roll folder action; the capability-gated pill activates a conditional
+event rail; multi-day entry and event cards open the existing shared Viewer and
+return to the same rail.
+
+The native boundary gained limited-library controls, protected source/index
+preferences, encrypted on-device thumbnails and original-file streaming with
+real cancellation, current ±1 original retention, launch sweeping and
+source-revision invalidation. Originals are never re-encoded, thumbnails never
+upscale, and cloud downloads remain explicit.
+
+Verification: clean typecheck; **2,749 mirrored Bun tests passed**; **27 iOS
+simulator XCTest checks passed**; native production Vite build passed;
+`git diff --check` passed. A seeded iPhone 17 Pro Max run grouped seven
+synthetic PhotoKit images into **3 / 2 / 2** events, decoded the seeded cover at
+**512×341**, proved `libraryPolluted: false`, `settingsClean: true` and
+`railReplaced: true`, and recorded an empty implicit-download path. Independent
+review round 2 returned `APPROVED`. Evidence lives in that worktree's
+`outputs/slice2-demo-report.json`, `outputs/slice2-camera-roll.png` and
+`outputs/slice2-review-verdict.md`. No push, PR, deployment or remote migration
+was performed.
 
 ## Slice 3 checkpoint — Rust core (verified locally and on Linux)
 

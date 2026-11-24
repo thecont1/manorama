@@ -15,17 +15,26 @@ CORE="$ROOT/native/EventClustering/Sources/ManoramaEventClustering"
 SWIFTC="$(xcrun --sdk macosx --find swiftc)"
 SDK_PATH="$(xcrun --sdk macosx --show-sdk-path)"
 
-"$SWIFTC" -O \
-  -sdk "$SDK_PATH" \
-  -module-cache-path "$CLANG_MODULE_CACHE_PATH" \
-  "$APP"/{LocalGallery,FolderStore,LocalSchemeHandler,Trace,OAuthLoopback,NativeBridge,InvokeReply,FolderDumpScanner,RawDumpEvents}.swift \
-  "$CORE"/*.swift \
-  "$ROOT/macos/BoundaryTests"/{BoundaryTests,main}.swift \
-  -framework AppKit \
-  -framework WebKit \
-  -framework Security \
-  -framework Vision \
-  -framework CoreServices \
-  -o "$SCRATCH/boundary"
+SWIFT_SOURCES=(
+  "$APP"/{LocalGallery,FolderStore,LocalSchemeHandler,Trace,OAuthLoopback,NativeBridge,InvokeReply,FolderDumpScanner,RawDumpEvents}.swift
+  "$CORE"/*.swift
+)
 
-"$SCRATCH/boundary"
+for suite in BoundaryTests ManoramaMacTests; do
+  if [[ "$suite" == ManoramaMacTests ]]; then
+    SWIFT_SOURCES+=("$APP"/{AppModel,ViewerWebView}.swift)
+  fi
+  "$SWIFTC" -O \
+    -sdk "$SDK_PATH" \
+    -module-cache-path "$CLANG_MODULE_CACHE_PATH" \
+    "${SWIFT_SOURCES[@]}" \
+    "$ROOT/macos/$suite"/*.swift \
+    -framework AppKit \
+    -framework WebKit \
+    -framework Security \
+    -framework Vision \
+    -framework CoreServices \
+    -o "$SCRATCH/$suite"
+
+  "$SCRATCH/$suite"
+done
