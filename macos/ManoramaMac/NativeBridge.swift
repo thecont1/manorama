@@ -1,5 +1,6 @@
 import AppKit
 import ApplicationServices
+import AuthenticationServices
 import Carbon.HIToolbox
 import Foundation
 import ImageIO
@@ -111,6 +112,14 @@ final class NativeBridge {
 
     /// Ephemeral loopback HTTP server for Google Drive installed-app OAuth.
     private let oauthLoopback = OAuthLoopbackServer()
+
+    /// The account sign-in sheet — App Review's macOS design rule keeps
+    /// authentication inside the app, so the auth URLs the bundle opens
+    /// run here instead of the system browser. The system does not retain
+    /// the session; the bridge holds it until its completion fires.
+    private var authSession: ASWebAuthenticationSession?
+    /// The window the auth sheet anchors to — the Library web view's own.
+    private let authAnchor = AuthPresentationContext()
 
     /// Custom-scheme deep links (`in.thecontrarian.manorama.desktop://...`) received by the app.
     private var currentDeepLinks: [String] = []
@@ -306,6 +315,56 @@ final class NativeBridge {
         }
     }
 
+    // MARK: - Account auth
+
+    /// Runs an account-auth URL in ASWebAuthenticationSession — the
+    /// in-app sheet App Review requires for sign-in on macOS. The
+    /// provider flow ends by redirecting to this app's registered scheme;
+    /// the session hands that URL back instead of LaunchServices
+    /// delivering it, and deliverDeepLink gives the page the same callback
+    /// an OS deep link would have, so the exchange never learns which
+    /// door the URL came through.
+    ///
+    /// Returns false only when the session refuses to start — the caller
+    /// then keeps the system-browser open rather than stranding sign-in.
+    private func openAuthSession(_ url: URL) -> Bool {
+        authAnchor.webView = webView
+        let session = ASWebAuthenticationSession(
+            url: url,
+            callbackURLScheme: "in.thecontrarian.manorama.desktop"
+        ) { [weak self] callbackURL, error in
+            guard let self else { return }
+            Task { @MainActor in
+                self.authSession = nil
+                if let callbackURL {
+                    self.deliverDeepLink(callbackURL.absoluteString)
+                    return
+                }
+                // A cancelled sheet is the user's own choice — the page's
+                // in-memory PKCE verifier simply goes unused. Any other
+                // failure means the in-app sheet could not run the flow,
+                // so the browser keeps sign-in working the way it did
+                // before this path existed.
+                let cancelled = (error as? ASWebAuthenticationSessionError)?.code == .canceledLogin
+                if error != nil, !cancelled {
+                    _ = NSWorkspace.shared.open(url)
+                }
+            }
+        }
+        session.presentationContextProvider = authAnchor
+        // Shared Safari state, not an ephemeral jar — the provider
+        // cookies a user already holds are what make a returning
+        // sign-in one tap.
+        session.prefersEphemeralWebBrowserSession = false
+        authSession = session
+        guard session.start() else {
+            authSession = nil
+            return false
+        }
+        Trace.log("auth session started \(url.host ?? "")\(url.path)")
+        return true
+    }
+
     // MARK: - The channel
 
     /// Answer one command from the page.
@@ -386,6 +445,14 @@ final class NativeBridge {
             guard let raw = args["url"] as? String,
                   let url = NativeCapabilities.isAllowedOpenerURL(raw) else {
                 throw BridgeError.failed("URL is not allowed by opener capability")
+            }
+            // Account auth stays inside the app — App Review 4.0.0
+            // rejects a sign-in that hands the user to the default
+            // browser. The session intercepts the provider's redirect to
+            // our scheme and returns it through deliverDeepLink, the same
+            // path an OS-opened deep link takes.
+            if NativeCapabilities.isAccountAuthURL(url), openAuthSession(url) {
+                return nil
             }
             guard NSWorkspace.shared.open(url) else {
                 throw BridgeError.failed("The system browser could not open that URL")
@@ -1499,6 +1566,23 @@ final class NativeBridge {
     private func decodeBytes(_ args: [String: Any]) -> Data? {
         guard let encoded = args["__bytes"] as? String else { return nil }
         return Data(base64Encoded: encoded)
+    }
+}
+
+/// The window an ASWebAuthenticationSession sheet anchors to on macOS.
+/// A separate object because the protocol's anchor callback is
+/// nonisolated while the bridge is main-actor isolated; the web view is
+/// handed over weakly so a closed Library window never keeps it alive.
+private final class AuthPresentationContext: NSObject, ASWebAuthenticationPresentationContextProviding {
+    weak var webView: WKWebView?
+
+    func presentationAnchor(for session: ASWebAuthenticationSession) -> ASPresentationAnchor {
+        webView?.window
+            ?? NSApp.keyWindow
+            ?? NSApp.mainWindow
+            ?? NSApp.windows.first
+            ?? NSWindow(contentRect: NSRect(x: 0, y: 0, width: 480, height: 320),
+                        styleMask: [.titled], backing: .buffered, defer: false)
     }
 }
 

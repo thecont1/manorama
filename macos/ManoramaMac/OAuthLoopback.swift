@@ -29,6 +29,33 @@ enum NativeCapabilities {
         }
     }
 
+    /// The account-auth URLs the App Store shell must run inside
+    /// ASWebAuthenticationSession — App Review guideline 4.0.0 (macOS)
+    /// rejects a sign-in or registration that leaves for the default
+    /// browser. Matches `/auth/{apple,google,dropbox}` on manorama's own
+    /// hosts carrying the `native=desktop` marker: both the sign-in flow
+    /// and the Settings Connect (`?link=`) flow end at this app's scheme,
+    /// which the session intercepts instead of LaunchServices. Everything
+    /// else — privacy links, gallery URLs, provider-source OAuth on
+    /// dropbox.com or accounts.google.com — stays a system-browser open.
+    static func isAccountAuthURL(_ url: URL) -> Bool {
+        guard let host = url.host?.lowercased() else { return false }
+        switch host {
+        case "manorama.xyz", "signin.manorama.xyz":
+            break
+        case "localhost", "127.0.0.1":
+            // Dev only — the opener scope admits http on exactly this port.
+            guard url.scheme?.lowercased() == "http", url.port == 5173 else { return false }
+        default:
+            return false
+        }
+        let parts = url.path.split(separator: "/")
+        guard parts.count == 2, parts[0] == "auth",
+              ["apple", "google", "dropbox"].contains(parts[1].lowercased()) else { return false }
+        return URLComponents(url: url, resolvingAgainstBaseURL: false)?
+            .queryItems?.contains { $0.name == "native" && $0.value == "desktop" } == true
+    }
+
     /// Matches `src-tauri/capabilities/default.json` `http:default`:
     /// `https://*.proton.me`, `https://*.protonvpn.com`,
     /// `https://g.api.mega.co.nz` and `https://*.userstorage.mega.co.nz` —
