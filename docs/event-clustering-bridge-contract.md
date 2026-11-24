@@ -112,6 +112,60 @@ carries no path: it is the command a page may poll.
 | `get_raw_dump_status` | `{}` | `RawDumpStatus` | never throws for "not configured" — answers `configured: false` |
 | `scan_raw_dump_events` | `{ force?: boolean }` | `RawDumpScanResult` | throws when no root is configured, or the root cannot be reached |
 | `clear_raw_dump_root` | `{}` | `null` | — |
+| `get_event_asset_image` / Capacitor `getEventAssetImage` | `{ ids: string[], purpose: 'thumbnail' \| 'viewer', maxPixelSize?: number, allowNetwork?: boolean }` | `{ items: EventAssetImage[] }` | invalid arguments; no declaration or Photos grant |
+
+`EventAssetImage` is `{ id, url: string | null, width, height, state }`, where
+`state` is `ready | cloudOnly | downloading | failed | missing`. At most 64
+unique opaque source ids per request; ids are nonempty, at most 4096 characters,
+without controls, absolute prefixes, backslashes or `.` / `..` / empty path
+segments. Exactly one ordered reply per requested id, including missing assets.
+Only `ready` carries a URL and positive intrinsic pixel dimensions. Other states
+carry a null URL (zero dimensions when the asset is unknown). The renderer
+validates private `file:///` URLs before `convertFileSrc`; no HTTP media endpoint.
+
+Thumbnails use opportunistic/fast PhotoKit requests, **never network**, with a
+physical-pixel long-edge cap of 512 and no target larger than the source. One
+JPEG per `sha256(id|modificationDate|targetSize)` lives in protected
+`Caches/event-thumbs`, with 0600 files and a 200 MB LRU bound. Viewer copies are
+original-resource bytes, not thumbnails or renders: `PHAssetResourceManager.requestData`
+streams unchanged chunks into an already-0600, completely protected file in
+`tmp/event-originals/<lease>/`. Both cache and temporary directories are 0700,
+completely protected and explicitly excluded from backup before children are
+written; files are explicitly excluded too. Release on close; sweep on launch
+and clear. These attributes never change the original Photos library. Simulator
+attribute checks do not prove hardware encryption or locked-device behavior.
+Never use a thumbnail as an original-sized stage image.
+
+Capacitor lifecycle extensions (other shells need not offer iCloud download):
+
+| Method / event | Payload | Semantics |
+| :--- | :--- | :--- |
+| `cancelEventAssetImage` | `{ ids: string[] }` → `null` | cancel PhotoKit data/image requests immediately; close and remove partial and completed temp copies; ignore subsequent chunks, progress and completion |
+| `releaseEventAssetImages` | `{ urls: string[] }` → `null` | unlink only issued viewer URLs, never cache paths or arbitrary files; idempotent |
+| `setEventCloudDownload` | `{ enabled: boolean }` → `null` | device-only preference, default false; grants no network access by itself |
+| `presentLimitedLibraryPicker` | `{}` → `null` | system picker on the main thread, only when permission is limited |
+| `openEventPhotosSettings` | `{}` → `null` | public app Settings URL |
+| `openEventAssetInPhotos` | `{ id: string }` → `null` | public Photos application URL; no private per-asset URL API |
+| `eventAssetProgress` | `{ id: string, fraction: number }` | fraction in [0,1], only for an active explicitly requested original |
+| `eventLibraryChanged` | `{}` | declaration, permission, preference or Photos membership changed; invalidate and rescan, never carries ids |
+
+The cheap status adds optional `authorization: 'notDetermined' | 'denied' |
+'restricted' | 'limited' | 'authorized'`, `selectedPhotoCount: number | null`,
+and `downloadCloudOnOpen: boolean`. The selected count is a mirrored scan/pick
+count, null before selection; status itself never fetches photographs. The
+authorization field is a live OS permission read, not an asset request. These
+fields are absent on older/non-Photos shells.
+
+`allowNetwork` defaults to false. True is accepted **only** for `purpose:
+'viewer'` with one id: an explicit current-photo open/download, never a batch.
+Even with the preference on, thumbnails and indexing cannot download. The OS
+uses the user's iCloud account, not a Manorama endpoint. Each expensive,
+constrained or not-yet-known network path requires a native confirmation before
+starting that one download. Cancellation/clear also retire pending confirmations.
+The native owner queue retains PhotoKit's `PHAssetResourceDataRequestID` and calls
+`cancelDataRequest` on cancellation, clear and service close. It closes/removes
+the partial file immediately and retires the promise once; late callbacks cannot
+write more bytes, report progress or publish a cancelled copy.
 
 Semantics that all three shells owe each other:
 
@@ -120,7 +174,7 @@ Semantics that all three shells owe each other:
   `isRawDump = true`, clears the flag on every other entry, records the
   root in `roots.json`, and persists the grant as a security-scoped
   bookmark. iOS asks for `.readWrite` photo permission, records
-  `cameraRollDumpEnabled` in `library-prefs.json`, and answers
+  the declaration in native-owned `Application Support/EventClustering/source-state.json`, and answers
   `label: "Camera Roll"`, `rootPath: null` — there is no path on iOS, and
   the viewer resolves `PHAsset.localIdentifier` through the existing
   asset-protocol path.
@@ -144,11 +198,30 @@ Semantics that all three shells owe each other:
 ## 4. `events-index.json`
 
 Written into `configDir` (`Application Support/in.thecontrarian.manorama.desktop`
-on macOS; the app container on iOS) through the shell's atomic `0600`
-writer, never through `write_private_file`, and deliberately **not** added
+on macOS; `Application Support/EventClustering/events-index.json` on iOS)
+through the shell's atomic `0600` writer, never through `write_private_file`,
+and deliberately **not** added
 to the private-file allowlist: the page reads events from the scan
 command's answer, not from the file, so the index stays a cache the shell
 owns rather than a second source of truth a renderer can write.
+
+On iOS the dedicated `EventClustering` directory is 0700, completely protected
+and explicitly excluded from backup **before** any child write. Both the index
+and tiny `source-state.json` are atomically replaced using already-0600,
+completely protected, explicitly backup-excluded staging files. The native state
+holds `enabled`, `downloadCloudOnOpen` (default false), `selectedPhotoCount`, and
+the mirrored index `header` (`lastIndexedAt` in seconds, `eventCount`). Warm status
+reads use cached state plus an index-existence check and the current OS
+authorization status; they never fetch Photos assets or decode the index.
+No event state belongs to renderer preferences or ordinary `UserDefaults`.
+First access removes only the four legacy keys (`manorama.cameraRollDumpEnabled`,
+`manorama.cameraRollIndexHeader`, `manorama.eventCloudDownload`,
+`manorama.eventSelectedPhotoCount`) and the backup-eligible legacy
+`Application Support/events-index.json`. Declaration/download preference and
+selected count are retained in protected state; the old index and its header
+are discarded and rebuilt, not schema-migrated. Clearing the source deletes the
+private index and clears declaration/count/header, retaining the download preference.
+Unrelated preferences and their backup policy are untouched.
 
 ```jsonc
 {
@@ -240,7 +313,7 @@ checklist rather than an assumption. Ordered by what unblocks the most.
 | Surface | Bundle loaded | Engine | Four commands | Event UI | Pixels for a member |
 | :--- | :--- | :--- | :--- | :--- | :--- |
 | macOS | `desktop/` | linked into the binary | all four | Library section + Settings row | granted root, `manorama://media/local/…` |
-| iOS / iPadOS | `native/dist` | compiled into the target | all four, registered | **none** | **no route** |
+| iOS / iPadOS | `native/dist` | compiled into the target | all commands | Library Camera Roll mode + Settings folder row | bounded PhotoKit thumbnails; explicit unchanged-original streaming |
 | Android | `native/dist` | **absent** (Swift only) | none | none | n/a |
 | Tauri desktop | `desktop/` | **absent** (Swift only) | none | hidden by design | n/a |
 | Web app | `app/` | n/a | n/a | none, per invariant 7 | n/a |
@@ -251,20 +324,23 @@ macOS boundary suite runs both scanners over the same nested tree and
 checks picker, catalogue-write and drop-batch source conflicts, including
 symlink aliases at the picker and catalogue boundaries.
 
-1. **Mobile event UI (`native/`).** A wrapper over
-   `registerPlugin<EventClusteringBridge>('EventClustering')`, a Settings row
-   mirroring `RawDumpSettings`, and the cards themselves. The pure
-   presentation maths and validators are already platform-free in
-   `packages/core/event-clustering.ts`, which is what makes this a port of
-   layout rather than of logic.
-2. **An iOS pixel route.** Without it an event is a list of identifiers the
-   page cannot draw. The shape the contract wants is a thumbnail request
-   addressed by `PHAsset.localIdentifier` at a bounded pixel size, served
-   through the existing asset scheme, with `PHImageManager` asked in a mode
-   that will not download from iCloud — the same refusal that keeps the
-   indexer from ever touching `requestImageData`. This is a fifth plugin
-   method and deliberately not part of the four commands above, because it
-   moves pixels rather than describing them.
+1. **Mobile event UI (`native/`, implemented in slice 2).** Library
+   Settings contains one folder declaration/clear row. A capability-gated
+   Camera Roll pill beside Add Gallery mounts the event controller and replaces
+   the gallery-list pane with event cards only while active; the ordinary
+   Library mounts no event controller and performs no scan. Cards open the
+   existing viewer, and closing it returns to the active Camera Roll list.
+   The pure presentation maths and validators are platform-free in
+   `packages/core/event-clustering.ts`, so this remains a port of layout rather
+   than clustering logic.
+2. **An iOS pixel route (implemented in slice 2).** Thumbnail requests are
+   addressed by `PHAsset.localIdentifier` at a bounded pixel size and always
+   disable iCloud network access. Viewer originals stream unchanged through
+   `PHAssetResourceManager.requestData`; only the explicitly opened current
+   photo may request network after separate confirmation, and real PhotoKit
+   cancellation stops the transfer. The fifth-method contract deliberately
+   remains separate from the four source commands because it moves pixels
+   rather than describing them.
 3. **Traversal policy (completed in slice 1).** The bullet under
    "Source link expectations" in `docs/manorama-operations.md` states that
    only the top level of a folder is scanned and subfolders are not

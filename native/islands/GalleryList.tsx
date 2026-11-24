@@ -77,6 +77,7 @@ import { readRuntimeFoldLayout, subscribeToRuntimeFoldLayout } from '../lib/fold
 import Paywall from './Paywall'
 import Privacy from './Privacy'
 import Settings from './Settings'
+import CameraRoll, { CameraRollPill } from './CameraRoll'
 import Welcome from './Welcome'
 import Diptych, { type DiptychFrame } from './Diptych'
 import GlobalView from './GlobalView'
@@ -369,6 +370,12 @@ export default function GalleryList({ apiBase, owner, slug, deepLinkSelection, o
   const [sourceName, setSourceName] = useState('')
   const [sourceCaption, setSourceCaption] = useState('')
   const [addOpen, setAddOpen] = useState(false)
+  const [cameraRollOpen, setCameraRollOpen] = useState(false)
+  const cameraRollTriggerRef = useRef<HTMLElement | null>(null)
+  const closeCameraRoll = () => {
+    setCameraRollOpen(false)
+    requestAnimationFrame(() => cameraRollTriggerRef.current?.focus())
+  }
   // The link is verified before the optional fields appear — the scanned
   // title doubles as the flag and the Name placeholder.
   const [addVerifiedTitle, setAddVerifiedTitle] = useState<string | null>(null)
@@ -1211,6 +1218,7 @@ export default function GalleryList({ apiBase, owner, slug, deepLinkSelection, o
 
   const returnToGalleries = () => {
     setGlobalViewOpen(false)
+    setCameraRollOpen(false)
     dispatchNav({ type: 'open-library' })
     positionRef.current = null
     setManifest(null)
@@ -1300,6 +1308,10 @@ export default function GalleryList({ apiBase, owner, slug, deepLinkSelection, o
       // Either way the press is swallowed so the editor underneath never
       // closes silently with a draft on screen.
       if (requestReorderClose()) return
+      if (cameraRollOpen && navRef.current.screen.kind === 'library' && overlayDepth() === 0) {
+        closeCameraRoll()
+        return
+      }
       const decision = decideBack({
         globalViewOpen,
         viewerModalOpen: document.querySelector('.m-sheet-host') !== null,
@@ -1321,7 +1333,7 @@ export default function GalleryList({ apiBase, owner, slug, deepLinkSelection, o
       else void listener.remove()
     })
     return () => { active = false; void remove?.() }
-  }, [globalViewOpen])
+  }, [globalViewOpen, cameraRollOpen])
 
   /** The newest intent per gallery, which is what a queued write persists.
    *  State alone lags a tap by a render, and a write that reads it can land
@@ -2509,6 +2521,11 @@ export default function GalleryList({ apiBase, owner, slug, deepLinkSelection, o
         <div class="native-library-heading"><h1>Library</h1></div>
         <div class="native-library-actions">
         <button type="button" class="m-btn m-btn--primary" onClick={() => { setError(null); setAddChooserOpen(true) }}><svg viewBox="0 0 24 24" aria-hidden="true" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 5v14M5 12h14"/></svg>Add Gallery</button>
+        <CameraRollPill active={cameraRollOpen} onActivate={(trigger) => {
+          cameraRollTriggerRef.current = trigger
+          if (cameraRollOpen) closeCameraRoll()
+          else setCameraRollOpen(true)
+        }} />
         {/* Quiet view: sinks every word on the Library to a whisper so only
             the photographs remain. The topbar carries it and stays legible —
             it is the way back. */}
@@ -2583,7 +2600,8 @@ export default function GalleryList({ apiBase, owner, slug, deepLinkSelection, o
         </footer>
         </div>
       </aside>
-      <section ref={observeLibraryPane} tabIndex={-1} class={quiet ? 'native-list-card lib-quiet' : 'native-list-card'} style={libraryRegionStyle(galleryRegion)} aria-label="Galleries" aria-live="polite" aria-busy={status === 'loading'} hidden={nav.screen.kind === 'settings' || undefined}>
+      <section ref={observeLibraryPane} tabIndex={-1} class={quiet ? 'native-list-card lib-quiet' : 'native-list-card'} style={libraryRegionStyle(galleryRegion)} aria-label={cameraRollOpen ? 'Camera Roll events' : 'Galleries'} aria-live="polite" aria-busy={status === 'loading'} hidden={nav.screen.kind === 'settings' || undefined} data-library-mode={cameraRollOpen ? 'camera-roll' : 'galleries'}>
+        {cameraRollOpen && nav.screen.kind === 'library' ? <CameraRoll onClose={closeCameraRoll} onOpenSettings={() => dispatchNav({ type: 'open-settings' })} /> : <>
         {pendingUpdate ? (
           <div class="app-update-banner" role="status">
             <span class="app-update-text">manorama <strong>v{pendingUpdate.version}</strong> is available.</span>
@@ -2703,6 +2721,7 @@ export default function GalleryList({ apiBase, owner, slug, deepLinkSelection, o
             </ul> : null}
           </section>
         ) : null}
+        </>}
       </section>
       {settingsView}
     </main>

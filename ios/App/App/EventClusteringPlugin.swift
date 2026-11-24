@@ -1,7 +1,10 @@
 import Capacitor
 import Foundation
 import Photos
+import PhotosUI
 import Security
+import UIKit
+import Network
 
 /*
  * The iOS and iPadOS half of `docs/event-clustering-bridge-contract.md`.
@@ -19,12 +22,80 @@ import Security
  * answer, never the file.
  */
 
-/// The declaration's memory: the warm metadata cache and the persisted
-/// index, kept apart from the plugin so the queue discipline has one owner.
-///
-/// Every method runs on the plugin's serial queue and touches nothing
-/// outside it — which is also why there is no lock anywhere in this file.
-private final class RawDumpStore {
+/// Native-owned declaration, preferences and mirrored header. All access
+/// runs on the plugin's serial queue, apart from isolated storage tests.
+final class EventSourceStateStore {
+    struct Header: Codable, Equatable {
+        var lastIndexedAt: Date
+        var eventCount: Int
+    }
+    struct State: Codable, Equatable {
+        var enabled = false
+        var downloadCloudOnOpen = false
+        var selectedPhotoCount: Int?
+        var header: Header?
+    }
+    static let legacyKeys = ["manorama.cameraRollDumpEnabled", "manorama.cameraRollIndexHeader",
+                             "manorama.eventCloudDownload", "manorama.eventSelectedPhotoCount"]
+    let directory: URL
+    let indexURL: URL
+    let stateURL: URL
+    private let legacyIndexURL: URL
+    private let defaults: UserDefaults
+    private var cached: State?
+
+    init(support: URL, defaults: UserDefaults = .standard) {
+        directory = support.appendingPathComponent("EventClustering", isDirectory: true)
+        indexURL = directory.appendingPathComponent("events-index.json")
+        stateURL = directory.appendingPathComponent("source-state.json")
+        legacyIndexURL = support.appendingPathComponent("events-index.json")
+        self.defaults = defaults
+    }
+
+    /// First access retires only this feature's legacy storage. Never import
+    /// the old metadata index: rebuild it, regardless of its schema version.
+    /// Subsequent status reads use this tiny cached state, not PhotoKit.
+    func read() throws -> State {
+        if let cached { return cached }
+        var next = State()
+        defer {
+            for key in Self.legacyKeys { defaults.removeObject(forKey: key) }
+            try? removeIfPresent(legacyIndexURL)
+        }
+        if FileManager.default.fileExists(atPath: stateURL.path) {
+            let data = try Data(contentsOf: stateURL)
+            let decoder = JSONDecoder(); decoder.dateDecodingStrategy = .secondsSince1970
+            if let decoded = try? decoder.decode(State.self, from: data) { next = decoded }
+            else { try removeIfPresent(indexURL) }
+        } else {
+            next.enabled = defaults.bool(forKey: Self.legacyKeys[0])
+            next.downloadCloudOnOpen = defaults.bool(forKey: Self.legacyKeys[2])
+            next.selectedPhotoCount = defaults.object(forKey: Self.legacyKeys[3]) as? Int
+        }
+        try removeIfPresent(legacyIndexURL)
+        try EventPrivateFiles.directory(directory)
+        if !FileManager.default.fileExists(atPath: indexURL.path) { next.header = nil }
+        try save(next)
+        return next
+    }
+    func update(_ change: (inout State) -> Void) throws {
+        var next = try read()
+        change(&next)
+        try save(next)
+    }
+    private func save(_ next: State) throws {
+        let encoder = JSONEncoder(); encoder.dateEncodingStrategy = .secondsSince1970
+        encoder.outputFormatting = [.sortedKeys]
+        try EventPrivateFiles.write(encoder.encode(next), to: stateURL)
+        cached = next
+    }
+    private func removeIfPresent(_ url: URL) throws {
+        if FileManager.default.fileExists(atPath: url.path) { try FileManager.default.removeItem(at: url) }
+    }
+}
+
+/// The warm metadata cache and persisted index share the plugin's owner queue.
+final class RawDumpStore {
     /// The one label this source ever answers with; it is a name, not a
     /// path, and it is the only wording about the source the page sees.
     static let cameraRollLabel = "Camera Roll"
@@ -61,7 +132,10 @@ private final class RawDumpStore {
         guard index == nil else { return }
         guard let data = try? Data(contentsOf: url),
               let decoded = try? EventIndex.decode(data),
-              decoded.matches(deviceId: deviceId, sourceId: EventIndex.photokitSourceId) else { return }
+              decoded.matches(deviceId: deviceId, sourceId: EventIndex.photokitSourceId) else {
+            try? FileManager.default.removeItem(at: url)
+            return
+        }
         index = decoded
     }
 
@@ -129,18 +203,15 @@ private final class RawDumpStore {
     /// Atomic, fully protected write — this platform's counterpart of the
     /// macOS shell's `0600` writer.
     ///
-    /// A POSIX mode would buy nothing: every file in the container already
-    /// belongs to this app alone. The data-protection class is what means
-    /// something here, and `completeFileProtection` is the strongest one —
+    /// Owner-only mode matches the cross-shell contract. On a device the
+    /// data-protection class also matters: `completeFileProtection` is the
+    /// strongest one —
     /// the index is unreadable while the phone is locked, which is the
     /// honest price for a file holding where the user was every evening.
-    /// `.atomic` swaps a temp copy into place, so the class travels with
-    /// the content rather than being applied to a half-written name.
+    /// Atomic rename swaps an already-protected inode into place, so its
+    /// protection, 0600 mode and backup exclusion travel with the content.
     private static func write(data: Data, to url: URL) throws {
-        try FileManager.default.createDirectory(
-            at: url.deletingLastPathComponent(), withIntermediateDirectories: true
-        )
-        try data.write(to: url, options: [.atomic, .completeFileProtection])
+        try EventPrivateFiles.write(data, to: url)
     }
 }
 
@@ -153,22 +224,18 @@ public class EventClusteringPlugin: CAPPlugin, CAPBridgedPlugin {
         CAPPluginMethod(name: "getRawDumpStatus", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "scanRawDumpEvents", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "clearRawDumpRoot", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "getEventAssetImage", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "cancelEventAssetImage", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "releaseEventAssetImages", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "setEventCloudDownload", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "presentLimitedLibraryPicker", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "openEventPhotosSettings", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "openEventAssetInPhotos", returnType: CAPPluginReturnPromise),
     ]
 
-    /// The declaration lives in `UserDefaults`, not in
-    /// `library-prefs.json` as the plan's macOS sketch suggests: the web
-    /// bundle owns that file, reads it whole and writes it whole, so a
-    /// second writer in Swift would lose either its own flag on the page's
-    /// next save or the page's settings on ours. One key, one owner. The
-    /// app's privacy manifest already declares this storage under the
-    /// `CA92.1` reason.
-    private static let enabledDefaultsKey = "manorama.cameraRollDumpEnabled"
-    /// A mirror of the index header — `lastIndexedAt` and `eventCount` —
-    /// written beside the file, so the status command can answer without
-    /// decoding a fifty-thousand-entry cache to read two numbers off its
-    /// top. It is a mirror and nothing more: every number in it came from
-    /// an index write.
-    private static let headerDefaultsKey = "manorama.cameraRollIndexHeader"
+    /// Swift owns both the index and this tiny state file. They never enter
+    /// renderer-owned preferences, ordinary defaults, or device backups.
+    private lazy var sourceState = EventSourceStateStore(support: Self.supportURL)
 
     /// The one lane. Scans, status reads, index writes and PhotoKit's own
     /// change callbacks all queue up here, which is what lets a library
@@ -176,7 +243,25 @@ public class EventClusteringPlugin: CAPPlugin, CAPBridgedPlugin {
     /// racing, and what keeps the scan off the main queue.
     private let queue = DispatchQueue(label: "in.thecontrarian.manorama.event-clustering", qos: .userInitiated)
     private lazy var scanner = PhotoKitDumpScanner(queue: queue)
-    private lazy var store = RawDumpStore(url: Self.indexURL)
+    private lazy var store = RawDumpStore(url: sourceState.indexURL)
+    private let pathMonitor = NWPathMonitor()
+    private var pathNeedsConfirmation = true // Unknown path is not consent to spend data.
+    private var declarationGeneration = 0
+    private var downloadGenerations: [String: Int] = [:]
+    private var lastAuthorization = PHPhotoLibrary.authorizationStatus(for: .readWrite)
+    private var foregroundObserver: NSObjectProtocol?
+    // Presentation state is main-thread-only; generations remain on queue.
+    private var downloadConfirmation: (id: String, alert: UIAlertController, resolve: (Bool) -> Void)?
+    private lazy var assetImages: EventAssetImages = {
+        let caches = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0]
+        let service = EventAssetImages(queue: queue,
+            thumbs: caches.appendingPathComponent("event-thumbs"),
+            originals: FileManager.default.temporaryDirectory.appendingPathComponent("event-originals"))
+        service.progress = { [weak self] id, fraction in
+            DispatchQueue.main.async { self?.notifyListeners("eventAssetProgress", data: ["id": id, "fraction": fraction]) }
+        }
+        return service
+    }()
 
     /// Whether the cached metadata describes the library as it stands.
     ///
@@ -198,8 +283,34 @@ public class EventClusteringPlugin: CAPPlugin, CAPBridgedPlugin {
     /// launch takes is the last one that has to guess.
     public override func load() {
         super.load()
+        pathMonitor.pathUpdateHandler = { [weak self] path in
+            self?.queue.async { self?.pathNeedsConfirmation = path.isExpensive || path.isConstrained || path.status != .satisfied }
+        }
+        pathMonitor.start(queue: queue)
+        foregroundObserver = NotificationCenter.default.addObserver(forName: UIApplication.didBecomeActiveNotification, object: nil, queue: .main) { [weak self] _ in
+            self?.queue.async {
+                guard let self else { return }
+                let authorization = PHPhotoLibrary.authorizationStatus(for: .readWrite)
+                guard authorization != self.lastAuthorization else { return }
+                self.lastAuthorization = authorization
+                self.declarationGeneration += 1
+                self.cacheDescribesLibrary = false
+                self.assetImages.clear()
+                if Self.isReachable(authorization), ((try? self.sourceState.read())?.enabled ?? false) {
+                    self.observeLibrary()
+                } else {
+                    self.scanner.stopObserving()
+                    try? self.sourceState.update { $0.selectedPhotoCount = nil }
+                }
+                DispatchQueue.main.async {
+                    self.dismissDownloadConfirmation()
+                    self.notifyListeners("eventLibraryChanged", data: [:])
+                }
+            }
+        }
         queue.async {
-            guard UserDefaults.standard.bool(forKey: Self.enabledDefaultsKey) else { return }
+            self.assetImages.sweepLaunch()
+            guard ((try? self.sourceState.read())?.enabled ?? false) else { return }
             guard Self.isLibraryReachable() else { return }
             self.observeLibrary()
         }
@@ -217,6 +328,8 @@ public class EventClusteringPlugin: CAPPlugin, CAPBridgedPlugin {
     /// macOS shell implements by clearing other entries' flags has no
     /// counterpart here.
     @objc func pickRawDumpRoot(_ call: CAPPluginCall) {
+        queue.async {
+        let generation = self.declarationGeneration
         PHPhotoLibrary.requestAuthorization(for: .readWrite) { [weak self] status in
             guard let self else { return }
             guard Self.isReachable(status) else {
@@ -230,9 +343,17 @@ public class EventClusteringPlugin: CAPPlugin, CAPBridgedPlugin {
                 return
             }
             self.queue.async {
-                UserDefaults.standard.set(true, forKey: Self.enabledDefaultsKey)
-                self.observeLibrary()
+                guard generation == self.declarationGeneration else {
+                    DispatchQueue.main.async { call.resolve() }; return
+                }
                 let count = self.scanner.itemCount()
+                do {
+                    try self.sourceState.update { $0.enabled = true; $0.selectedPhotoCount = count }
+                } catch {
+                    DispatchQueue.main.async { call.reject("The private event state could not be written") }; return
+                }
+                self.lastAuthorization = status
+                self.observeLibrary()
                 DispatchQueue.main.async {
                     call.resolve([
                         "label": RawDumpStore.cameraRollLabel,
@@ -248,6 +369,8 @@ public class EventClusteringPlugin: CAPPlugin, CAPBridgedPlugin {
         }
     }
 
+        }
+
     // MARK: - getRawDumpStatus
 
     /// The cheap command: one flag, one authorization answer, two numbers
@@ -255,7 +378,8 @@ public class EventClusteringPlugin: CAPPlugin, CAPBridgedPlugin {
     /// never opens the index file, so a page may call it on every mount.
     @objc func getRawDumpStatus(_ call: CAPPluginCall) {
         queue.async {
-            let configured = UserDefaults.standard.bool(forKey: Self.enabledDefaultsKey)
+            let state = try? self.sourceState.read()
+            let configured = state?.enabled ?? false
             let header = configured ? self.storedHeader() : nil
             let payload: [String: Any] = [
                 "configured": configured,
@@ -263,6 +387,9 @@ public class EventClusteringPlugin: CAPPlugin, CAPBridgedPlugin {
                 "isAvailable": configured && Self.isLibraryReachable(),
                 "lastIndexedAt": Self.millisecondsOrNull(header?.lastIndexedAt),
                 "eventCount": header?.eventCount ?? 0,
+                "authorization": Self.authorizationName(),
+                "selectedPhotoCount": configured ? (state?.selectedPhotoCount as Any? ?? NSNull()) : NSNull(),
+                "downloadCloudOnOpen": state?.downloadCloudOnOpen ?? false,
             ]
             DispatchQueue.main.async { call.resolve(payload) }
         }
@@ -282,7 +409,7 @@ public class EventClusteringPlugin: CAPPlugin, CAPBridgedPlugin {
     @objc func scanRawDumpEvents(_ call: CAPPluginCall) {
         let force = call.getBool("force") ?? false
         queue.async {
-            guard UserDefaults.standard.bool(forKey: Self.enabledDefaultsKey) else {
+            guard ((try? self.sourceState.read())?.enabled ?? false) else {
                 DispatchQueue.main.async { call.reject("No raw dump is declared on this device") }
                 return
             }
@@ -308,7 +435,10 @@ public class EventClusteringPlugin: CAPPlugin, CAPBridgedPlugin {
                     .cluster(self.store.items())
                 let indexedAt = Date()
                 try self.store.commit(result, indexedAt: indexedAt)
-                self.rememberHeader(lastIndexedAt: indexedAt, eventCount: result.events.count)
+                try self.sourceState.update {
+                    $0.header = EventSourceStateStore.Header(lastIndexedAt: indexedAt, eventCount: result.events.count)
+                    $0.selectedPhotoCount = self.store.itemCount
+                }
                 DispatchQueue.main.async {
                     call.resolve([
                         "clusters": Self.wireClusters(result.events),
@@ -334,12 +464,186 @@ public class EventClusteringPlugin: CAPPlugin, CAPBridgedPlugin {
     /// macOS command leaves a folder's gallery grant alone.
     @objc func clearRawDumpRoot(_ call: CAPPluginCall) {
         queue.async {
-            UserDefaults.standard.set(false, forKey: Self.enabledDefaultsKey)
-            UserDefaults.standard.removeObject(forKey: Self.headerDefaultsKey)
+            self.declarationGeneration += 1
+            self.downloadGenerations.removeAll()
+            self.assetImages.clear()
             self.scanner.stopObserving()
             self.cacheDescribesLibrary = false
             self.store.forget()
+            do {
+                try self.sourceState.update { $0.enabled = false; $0.selectedPhotoCount = nil; $0.header = nil }
+                DispatchQueue.main.async {
+                    self.dismissDownloadConfirmation()
+                    call.resolve()
+                }
+            } catch {
+                DispatchQueue.main.async {
+                    self.dismissDownloadConfirmation()
+                    call.reject("The private event state could not be cleared")
+                }
+            }
+        }
+    }
+
+    // MARK: - Event pixels and lifecycle
+
+    private static func authorizationName() -> String {
+        switch PHPhotoLibrary.authorizationStatus(for: .readWrite) {
+        case .notDetermined: return "notDetermined"
+        case .restricted: return "restricted"
+        case .denied: return "denied"
+        case .limited: return "limited"
+        case .authorized: return "authorized"
+        @unknown default: return "restricted"
+        }
+    }
+
+    deinit {
+        pathMonitor.cancel()
+        if let foregroundObserver { NotificationCenter.default.removeObserver(foregroundObserver) }
+    }
+
+    private func dismissDownloadConfirmation(ids: Set<String>? = nil) {
+        guard let confirmation = downloadConfirmation, ids == nil || ids!.contains(confirmation.id) else { return }
+        downloadConfirmation = nil
+        confirmation.alert.dismiss(animated: false)
+        confirmation.resolve(false)
+    }
+
+    static func validPixelSize(_ value: Any?) -> Bool {
+        guard let value else { return true }
+        guard let number = value as? NSNumber, CFGetTypeID(number) != CFBooleanGetTypeID() else { return false }
+        let size = number.doubleValue
+        return size.isFinite && size.rounded() == size && size >= 1 && size <= 8192
+    }
+
+    @objc func getEventAssetImage(_ call: CAPPluginCall) {
+        guard let ids = call.getArray("ids", String.self), !ids.isEmpty, ids.count <= 64,
+              Set(ids).count == ids.count, ids.allSatisfy(EventAssetImages.validId),
+              let purpose = call.getString("purpose"), purpose == "thumbnail" || purpose == "viewer",
+              call.getValue("allowNetwork") == nil || call.getBool("allowNetwork") != nil,
+              Self.validPixelSize(call.getValue("maxPixelSize")) else {
+            call.reject("Invalid event photograph request"); return
+        }
+        let network = call.getBool("allowNetwork") ?? false
+        let size = call.getInt("maxPixelSize") ?? 512
+        guard size > 0, size <= 8192, !network || (purpose == "viewer" && ids.count == 1) else {
+            call.reject("Only an explicitly opened photograph may download"); return
+        }
+        queue.async {
+            guard ((try? self.sourceState.read())?.enabled ?? false), Self.isLibraryReachable() else {
+                DispatchQueue.main.async { call.reject("No reachable Camera Roll is declared") }; return
+            }
+            let declaration = self.declarationGeneration
+            let download = (self.downloadGenerations[ids[0]] ?? 0) + 1
+            if network { self.downloadGenerations[ids[0]] = download }
+            let start: (Bool) -> Void = { accepted in
+                self.queue.async {
+                    guard declaration == self.declarationGeneration,
+                          !network || self.downloadGenerations[ids[0]] == download,
+                          Self.isLibraryReachable() else {
+                        DispatchQueue.main.async { call.reject("Event photograph request cancelled") }; return
+                    }
+                    guard accepted else {
+                        let items = ids.map { EventAssetImages.Reply(id: $0, url: nil, width: 0, height: 0, state: "cloudOnly").wire }
+                        DispatchQueue.main.async { call.resolve(["items": items]) }; return
+                    }
+                    self.assetImages.request(ids: ids, purpose: purpose, maxPixelSize: size, allowNetwork: network) { replies in
+                        DispatchQueue.main.async { call.resolve(["items": replies.map(\.wire)]) }
+                    }
+                }
+            }
+            if network && (self.pathNeedsConfirmation || ProcessInfo.processInfo.isLowPowerModeEnabled) {
+                DispatchQueue.main.async {
+                    guard let presenter = self.bridge?.viewController, presenter.presentedViewController == nil else {
+                        start(false); return
+                    }
+                    let alert = UIAlertController(title: "Download this photo?",
+                        message: "Photos will download from your iCloud account. This connection may use metered data or Low Data Mode.", preferredStyle: .alert)
+                    let answer: (Bool) -> Void = { accepted in
+                        self.downloadConfirmation = nil
+                        start(accepted)
+                    }
+                    self.downloadConfirmation = (ids[0], alert, answer)
+                    alert.addAction(UIAlertAction(title: "Cancel", style: .cancel) { _ in answer(false) })
+                    alert.addAction(UIAlertAction(title: "Download", style: .default) { _ in answer(true) })
+                    presenter.present(alert, animated: true)
+                }
+            } else { start(true) }
+        }
+    }
+
+    @objc func cancelEventAssetImage(_ call: CAPPluginCall) {
+        guard let ids = call.getArray("ids", String.self), !ids.isEmpty, ids.count <= 64,
+              Set(ids).count == ids.count, ids.allSatisfy(EventAssetImages.validId) else {
+            call.reject("Invalid event photograph identifiers"); return
+        }
+        queue.async {
+            for id in ids { self.downloadGenerations[id] = (self.downloadGenerations[id] ?? 0) + 1 }
+            self.assetImages.cancel(ids: ids)
+            DispatchQueue.main.async {
+                self.dismissDownloadConfirmation(ids: Set(ids))
+                call.resolve()
+            }
+        }
+    }
+
+    @objc func releaseEventAssetImages(_ call: CAPPluginCall) {
+        guard let strings = call.getArray("urls", String.self), strings.count <= 64,
+              strings.allSatisfy({ $0.count <= 8192 && URL(string: $0)?.isFileURL == true }) else {
+            call.reject("Invalid event photograph URLs"); return
+        }
+        queue.async {
+            self.assetImages.release(urls: strings.compactMap(URL.init(string:)))
             DispatchQueue.main.async { call.resolve() }
+        }
+    }
+
+    @objc func setEventCloudDownload(_ call: CAPPluginCall) {
+        guard let enabled = call.getBool("enabled") else { call.reject("Invalid download setting"); return }
+        queue.async {
+            do {
+                try self.sourceState.update { $0.downloadCloudOnOpen = enabled }
+                DispatchQueue.main.async { call.resolve() }
+            } catch {
+                DispatchQueue.main.async { call.reject("The private download preference could not be written") }
+            }
+        }
+    }
+
+    @objc func presentLimitedLibraryPicker(_ call: CAPPluginCall) {
+        DispatchQueue.main.async {
+            guard PHPhotoLibrary.authorizationStatus(for: .readWrite) == .limited,
+                  let presenter = self.bridge?.viewController else {
+                call.reject("Selected photo access is not active"); return
+            }
+            PHPhotoLibrary.shared().presentLimitedLibraryPicker(from: presenter) { _ in
+                self.queue.async {
+                    self.cacheDescribesLibrary = false
+                    self.assetImages.clear()
+                    DispatchQueue.main.async {
+                        self.notifyListeners("eventLibraryChanged", data: [:])
+                        call.resolve()
+                    }
+                }
+            }
+        }
+    }
+
+    @objc func openEventPhotosSettings(_ call: CAPPluginCall) {
+        DispatchQueue.main.async {
+            guard let url = URL(string: UIApplication.openSettingsURLString) else { call.reject("Settings unavailable"); return }
+            UIApplication.shared.open(url) { opened in opened ? call.resolve() : call.reject("Settings unavailable") }
+        }
+    }
+
+    @objc func openEventAssetInPhotos(_ call: CAPPluginCall) {
+        guard let id = call.getString("id"), EventAssetImages.validId(id) else { call.reject("Invalid photograph identifier"); return }
+        DispatchQueue.main.async {
+            // Photos exposes no public deep link to a localIdentifier.
+            UIApplication.shared.open(URL(string: "photos-redirect://")!) { opened in
+                opened ? call.resolve() : call.reject("Photos unavailable")
+            }
         }
     }
 
@@ -357,6 +661,8 @@ public class EventClusteringPlugin: CAPPlugin, CAPBridgedPlugin {
             guard let self else { return }
             if delta.needsFullRescan { self.cacheDescribesLibrary = false }
             self.store.apply(delta)
+            self.assetImages.clear() // Changed/deleted originals must not retain a stale lease.
+            DispatchQueue.main.async { self.notifyListeners("eventLibraryChanged", data: [:]) }
         }
     }
 
@@ -415,38 +721,15 @@ public class EventClusteringPlugin: CAPPlugin, CAPBridgedPlugin {
         isReachable(PHPhotoLibrary.authorizationStatus(for: .readWrite))
     }
 
-    /// Application Support — the container location the contract names for
-    /// iOS. Same file name and same `EventIndex` schema as macOS, because
-    /// two devices must not remember a camera roll differently.
-    private static var indexURL: URL {
-        let support = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
-        return support.appendingPathComponent("events-index.json")
+    private static var supportURL: URL {
+        FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
     }
 
-    private struct IndexHeader {
-        let lastIndexedAt: Date?
-        let eventCount: Int
-    }
-
-    /// The mirrored header, answered as nothing when the file behind it has
-    /// gone: a deleted cache is a never-indexed device, not an indexed one
-    /// whose events merely stopped being readable.
-    private func storedHeader() -> IndexHeader? {
-        guard let stored = UserDefaults.standard.dictionary(forKey: Self.headerDefaultsKey),
-              FileManager.default.fileExists(atPath: Self.indexURL.path) else { return nil }
-        let seconds = (stored["lastIndexedAt"] as? Double)
-            ?? Double(stored["lastIndexedAt"] as? Int ?? 0)
-        return IndexHeader(
-            lastIndexedAt: seconds > 0 ? Date(timeIntervalSince1970: seconds) : nil,
-            eventCount: stored["eventCount"] as? Int ?? 0
-        )
-    }
-
-    private func rememberHeader(lastIndexedAt: Date, eventCount: Int) {
-        UserDefaults.standard.set(
-            ["lastIndexedAt": lastIndexedAt.timeIntervalSince1970, "eventCount": eventCount],
-            forKey: Self.headerDefaultsKey
-        )
+    /// The mirrored header is cached native state, not a metadata-index read.
+    /// A missing index is never reported as an indexed source.
+    private func storedHeader() -> EventSourceStateStore.Header? {
+        guard FileManager.default.fileExists(atPath: sourceState.indexURL.path) else { return nil }
+        return (try? sourceState.read())?.header
     }
 
     // MARK: - Device identity
