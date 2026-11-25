@@ -5,7 +5,8 @@ import { fileURLToPath } from 'node:url'
 import type { D1Database } from '@cloudflare/workers-types'
 import { Hono } from 'hono'
 import {
-  consumeAppleOnboarding,
+  deleteAppleOnboarding,
+  readAppleOnboarding,
   stashAppleOnboarding,
 } from './identity-repository'
 import { confirmPendingAccount, stateCookieName } from './oauth-flow'
@@ -76,23 +77,30 @@ const postConfirm = async (attempt: { token: string; cookie: string }) => {
 }
 
 describe('the apple onboarding stash', () => {
-  test('a stashed name is consumed once, then gone', async () => {
+  test('a read preserves the row until the success path deletes it', async () => {
     await stashAppleOnboarding('apple-sub-once', 'Meera Krishnan', { DB: db() })
-    expect(await consumeAppleOnboarding('apple-sub-once', { DB: db() })).toBe('Meera Krishnan')
-    expect(await consumeAppleOnboarding('apple-sub-once', { DB: db() })).toBeNull()
+    expect(await readAppleOnboarding('apple-sub-once', { DB: db() })).toBe('Meera Krishnan')
+    // A retry after a failed creation must still find the name — the read
+    // is not a consume.
+    expect(await readAppleOnboarding('apple-sub-once', { DB: db() })).toBe('Meera Krishnan')
+    await deleteAppleOnboarding('apple-sub-once', { DB: db() })
+    expect(await readAppleOnboarding('apple-sub-once', { DB: db() })).toBeNull()
   })
 
-  test('an expired row answers absent', async () => {
+  test('an expired row answers absent and is reaped', async () => {
     await stashAppleOnboarding('apple-sub-stale', 'Stale Name', { DB: db() })
     await db().prepare("UPDATE apple_onboarding SET expires_at = datetime('now', '-1 minute') WHERE subject = ?")
       .bind('apple-sub-stale').run()
-    expect(await consumeAppleOnboarding('apple-sub-stale', { DB: db() })).toBeNull()
+    expect(await readAppleOnboarding('apple-sub-stale', { DB: db() })).toBeNull()
+    expect(await db().prepare('SELECT COUNT(*) AS n FROM apple_onboarding WHERE subject = ?')
+      .bind('apple-sub-stale').first<{ n: number }>()).toEqual({ n: 0 })
   })
 
-  test('a neighbouring subject cannot consume it', async () => {
+  test('a neighbouring subject cannot read it', async () => {
     await stashAppleOnboarding('apple-sub-mine', 'Mine Alone', { DB: db() })
-    expect(await consumeAppleOnboarding('apple-sub-other', { DB: db() })).toBeNull()
-    expect(await consumeAppleOnboarding('apple-sub-mine', { DB: db() })).toBe('Mine Alone')
+    expect(await readAppleOnboarding('apple-sub-other', { DB: db() })).toBeNull()
+    expect(await readAppleOnboarding('apple-sub-mine', { DB: db() })).toBe('Mine Alone')
+    await deleteAppleOnboarding('apple-sub-mine', { DB: db() })
   })
 
   test('a nameless confirm mints the account under the stashed name', async () => {

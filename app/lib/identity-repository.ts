@@ -101,21 +101,40 @@ export const stashAppleOnboarding = async (
   ).bind(validated.subject, validated.displayName).run()
 }
 
-/** Read-and-delete for the interstitial: a name is consumed exactly once,
- *  expired rows answer as absent, and the deletion rides every read so a
- *  spent or stale row never accumulates. */
-export const consumeAppleOnboarding = async (
+/** Read for the interstitial — deliberately NOT a delete. Account creation
+ *  can fail after this read, and a row already consumed would lose the name
+ *  to a transient fault the user can simply retry past; the delete belongs
+ *  to the success path. Expired rows answer absent and are reaped here as
+ *  they are the only rows reads can prove dead. */
+export const readAppleOnboarding = async (
   subject: string,
   env: UserRepositoryEnv,
 ): Promise<string | null> => {
   const db = requireDb(env)
   const validated = checked({ provider: 'apple', subject })
   const row = await db.prepare(
-    `SELECT display_name, expires_at, (expires_at > datetime('now')) AS live FROM apple_onboarding WHERE subject = ?`,
+    `SELECT display_name, (expires_at > datetime('now')) AS live FROM apple_onboarding WHERE subject = ?`,
   ).bind(validated.subject).first<{ display_name: string; live: number }>()
   if (!row) return null
+  if (!row.live) {
+    await db.prepare("DELETE FROM apple_onboarding WHERE subject = ? AND expires_at <= datetime('now')")
+      .bind(validated.subject).run()
+    return null
+  }
+  return row.display_name
+}
+
+/** The success-half of the read: once the account exists the stash can never
+ *  serve again — a later sign-in for the subject finds the account and skips
+ *  the interstitial entirely. Best-effort at the call site; a missed delete
+ *  leaves a row that expires in minutes. */
+export const deleteAppleOnboarding = async (
+  subject: string,
+  env: UserRepositoryEnv,
+): Promise<void> => {
+  const db = requireDb(env)
+  const validated = checked({ provider: 'apple', subject })
   await db.prepare('DELETE FROM apple_onboarding WHERE subject = ?').bind(validated.subject).run()
-  return row.live ? row.display_name : null
 }
 
 export const findAccountByIdentity = async (
