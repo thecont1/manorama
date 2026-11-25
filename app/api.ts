@@ -21,7 +21,7 @@ import { createDeviceGalleryApi } from './device-gallery-api'
 import { createDeviceApi } from './device-api'
 import { getGalleryKey, getOwnerVault, putGalleryKey, putOwnerVault } from './lib/key-vault-repository'
 import { createDesktopHandoffToken, isDesktopChallenge, verifyDesktopHandoffToken } from './lib/desktop-auth'
-import { AccountDisabledError, findAccountByIdentity, LastIdentityError, listIdentities, unlinkIdentity, upsertIdentitySignIn, type AuthProvider } from './lib/identity-repository'
+import { AccountDisabledError, findAccountByIdentity, LastIdentityError, listIdentities, stashAppleOnboarding, unlinkIdentity, upsertIdentitySignIn, type AuthProvider } from './lib/identity-repository'
 import { PROXY_RESPONSE_CSP } from './lib/security-headers'
 import { ENCRYPTED_MANIFEST_VERSION, encryptedGalleryGate, isEncryptedSourceUrl, keylessSourceUrl } from '../packages/core/encrypted-source'
 import { stripLegacyDeliveryCapabilities } from './lib/encrypted-public'
@@ -364,7 +364,16 @@ export const createManoramaApi = () => {
     const displayName = boundedName(body.fullName)
     if (displayName) verified.displayName = displayName
     const existing = await findAccountByIdentity('apple', verified.subject, dbEnv(c))
-    if (!existing) return c.json({ error: 'unknown-identity' }, 404)
+    if (!existing) {
+      // The name rode the first consent this far — losing it here would
+      // force the web round trip that follows to mint a random-slug account,
+      // because Apple never sends it twice. Best-effort: a failed stash
+      // must not hold up the fallback the user is waiting on.
+      if (verified.displayName) {
+        await stashAppleOnboarding(verified.subject, verified.displayName, dbEnv(c)).catch(() => undefined)
+      }
+      return c.json({ error: 'unknown-identity' }, 404)
+    }
     let user
     try {
       user = await upsertIdentitySignIn(verified, dbEnv(c))

@@ -76,6 +76,48 @@ const refreshIdentityMetadata = async (
   ).bind(input.email ?? null, input.displayName ?? null, provider, subject).run()
 }
 
+/** Onboarding rows outlive the native 404 by minutes, not days — the web
+ *  round trip either completes promptly or the name was never owed. */
+export const APPLE_ONBOARDING_TTL_MINUTES = 15
+
+/** Stash the verified name Apple sent with the first native consent, keyed
+ *  by the subject it belongs to. Only ever written for an identity no
+ *  account knows — once the account exists the ordinary metadata refresh
+ *  carries the name. Consumption is keyed by the same subject completing a
+ *  full provider round trip, so nothing here is forgeable: the row only
+ *  ever reaches the person the name describes. */
+export const stashAppleOnboarding = async (
+  subject: string,
+  displayName: string,
+  env: UserRepositoryEnv,
+): Promise<void> => {
+  const db = requireDb(env)
+  const validated = checked({ provider: 'apple', subject, displayName })
+  if (!validated.displayName) return
+  await db.prepare(
+    `INSERT INTO apple_onboarding (subject, display_name, expires_at)
+     VALUES (?, ?, datetime('now', '+${APPLE_ONBOARDING_TTL_MINUTES} minutes'))
+     ON CONFLICT (subject) DO UPDATE SET display_name = excluded.display_name, expires_at = excluded.expires_at`,
+  ).bind(validated.subject, validated.displayName).run()
+}
+
+/** Read-and-delete for the interstitial: a name is consumed exactly once,
+ *  expired rows answer as absent, and the deletion rides every read so a
+ *  spent or stale row never accumulates. */
+export const consumeAppleOnboarding = async (
+  subject: string,
+  env: UserRepositoryEnv,
+): Promise<string | null> => {
+  const db = requireDb(env)
+  const validated = checked({ provider: 'apple', subject })
+  const row = await db.prepare(
+    `SELECT display_name, expires_at, (expires_at > datetime('now')) AS live FROM apple_onboarding WHERE subject = ?`,
+  ).bind(validated.subject).first<{ display_name: string; live: number }>()
+  if (!row) return null
+  await db.prepare('DELETE FROM apple_onboarding WHERE subject = ?').bind(validated.subject).run()
+  return row.live ? row.display_name : null
+}
+
 export const findAccountByIdentity = async (
   provider: AuthProvider,
   subject: string,
