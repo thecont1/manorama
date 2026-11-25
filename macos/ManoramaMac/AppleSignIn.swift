@@ -51,6 +51,7 @@ final class AppleSignInController: NSObject, ASAuthorizationControllerDelegate, 
         controller.presentationContextProvider = self
         self.controller = controller
         controller.performRequests()
+        Trace.log("native apple sign-in requested")
     }
 
     func presentationAnchor(for controller: ASAuthorizationController) -> ASPresentationAnchor {
@@ -76,7 +77,9 @@ final class AppleSignInController: NSObject, ASAuthorizationControllerDelegate, 
     }
 
     func authorizationController(controller: ASAuthorizationController, didCompleteWithError error: Error) {
-        if (error as? ASAuthorizationError)?.code == .canceled {
+        let code = (error as? ASAuthorizationError)?.code
+        Trace.log("native apple sign-in error code=\(code?.rawValue ?? -1) \(error.localizedDescription)")
+        if code == .canceled {
             finish(.cancelled)
         } else {
             finish(.failed)

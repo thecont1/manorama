@@ -405,33 +405,40 @@ final class NativeBridge {
         return true
     }
 
+
     /// Posts the credential to the server's native exchange and feeds the
     /// minted handoff to the deep-link path. Any failure — an unknown
     /// identity included — falls back to the web sheet, whose flow owns
-    /// first-time sign-in and recovery.
+    /// first-time sign-in and recovery. The trace records which step
+    /// failed: a server refuse carries its status, a network failure its
+    /// error, since the two have opposite owners.
     private func exchangeNativeApple(credential: AppleSignInController.Credential, nonce: String, challenge: String, origin: String, fallbackURL: URL) async {
-        if let endpoint = URL(string: "\(origin)/api/auth/native/apple") {
-            var request = URLRequest(url: endpoint)
-            request.httpMethod = "POST"
-            request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-            var body: [String: Any] = [
-                "identityToken": credential.identityToken,
-                "nonce": nonce,
-                "codeChallenge": challenge,
-            ]
-            if let fullName = credential.fullName { body["fullName"] = fullName }
-            if let email = credential.email { body["email"] = email }
-            request.httpBody = try? JSONSerialization.data(withJSONObject: body)
-            if let (data, response) = try? await URLSession.shared.data(for: request),
-               (response as? HTTPURLResponse)?.statusCode == 200,
+        guard let endpoint = URL(string: "\(origin)/api/auth/native/apple") else { return }
+        var request = URLRequest(url: endpoint)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        var body: [String: Any] = [
+            "identityToken": credential.identityToken,
+            "nonce": nonce,
+            "codeChallenge": challenge,
+        ]
+        if let fullName = credential.fullName { body["fullName"] = fullName }
+        if let email = credential.email { body["email"] = email }
+        request.httpBody = try? JSONSerialization.data(withJSONObject: body)
+        do {
+            let (data, response) = try await URLSession.shared.data(for: request)
+            let status = (response as? HTTPURLResponse)?.statusCode ?? -1
+            if status == 200,
                let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
                let handoff = json["handoffToken"] as? String {
                 Trace.log("native apple sign-in exchanged")
                 deliverDeepLink("in.thecontrarian.manorama.desktop://auth/callback?handoff=\(handoff)")
                 return
             }
+            Trace.log("native apple exchange refused status=\(status) — falling back to the web sheet")
+        } catch {
+            Trace.log("native apple exchange network error \(error.localizedDescription) — falling back to the web sheet")
         }
-        Trace.log("native apple exchange failed — falling back to the web sheet")
         _ = openAuthSheet(fallbackURL)
     }
 
