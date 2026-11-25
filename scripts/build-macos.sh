@@ -30,6 +30,15 @@ APP="macos/ManoramaMac"
 # the bundle's own id, not a launch argument.
 BUILD_DIR="${MANORAMA_MACOS_BUILD_DIR:-$APP/build}"
 BUNDLE_ID="${MANORAMA_MACOS_BUNDLE_ID:-in.thecontrarian.manorama.desktop}"
+# Versioning knobs: App Store uploads need CFBundleShortVersionString matching
+# the version record (1.0) and a CFBundleVersion ahead of every build already
+# uploaded — the direct channel keeps the development defaults.
+MARKETING_VERSION="${MANORAMA_MACOS_VERSION:-0.5.2}"
+BUILD_NUMBER="${MANORAMA_MACOS_BUILD:-$MARKETING_VERSION}"
+# The deep-link scheme is NOT the bundle id: the desktop client and the
+# server's OAuth callback both hardcode in.thecontrarian.manorama.desktop,
+# while the App Store build's bundle id is the shared record's base id.
+URL_SCHEME="${MANORAMA_MACOS_URL_SCHEME:-in.thecontrarian.manorama.desktop}"
 
 echo "==> building the Library bundle"
 bunx vite build --config vite.config.desktop-shell.ts
@@ -120,8 +129,8 @@ cat > "$APP_BUNDLE/Contents/Info.plist" <<PLIST
   <key>CFBundleIdentifier</key><string>$BUNDLE_ID</string>
   <key>CFBundleIconFile</key><string>icon.icns</string>
   <key>CFBundlePackageType</key><string>APPL</string>
-  <key>CFBundleShortVersionString</key><string>0.5.2</string>
-  <key>CFBundleVersion</key><string>0.5.2</string>
+  <key>CFBundleShortVersionString</key><string>$MARKETING_VERSION</string>
+  <key>CFBundleVersion</key><string>$BUILD_NUMBER</string>
   <key>LSMinimumSystemVersion</key><string>15.0</string>
   <key>LSApplicationCategoryType</key><string>public.app-category.photography</string>
   <!-- Mass-market exemption (5D992): the app encrypts user data at rest but
@@ -136,7 +145,7 @@ cat > "$APP_BUNDLE/Contents/Info.plist" <<PLIST
       <key>CFBundleURLName</key><string>$BUNDLE_ID</string>
       <key>CFBundleURLSchemes</key>
       <array>
-        <string>$BUNDLE_ID</string>
+        <string>$URL_SCHEME</string>
       </array>
     </dict>
   </array>
