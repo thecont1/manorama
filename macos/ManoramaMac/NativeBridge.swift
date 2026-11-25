@@ -112,6 +112,21 @@ final class NativeBridge {
     /// Ephemeral loopback HTTP server for Google Drive installed-app OAuth.
     private let oauthLoopback = OAuthLoopbackServer()
 
+    /// The account-auth sheet — App Review's macOS design rule keeps
+    /// authentication inside the app. ASWebAuthenticationSession does not
+    /// qualify on macOS: it hands the page to the default browser, the
+    /// exact symptom guideline 4.0.0 names. The sheet is a WKWebView
+    /// window whose navigation delegate intercepts the provider's
+    /// redirect to this app's scheme and feeds it to deliverDeepLink —
+    /// the same path an OS deep link takes.
+    private var authSheet: AuthSheetController?
+
+    /// The in-flight native Sign in with Apple — Apple's own system
+    /// sheet, preferred over the web sheet whenever the provider is
+    /// apple. The system does not retain the controller; the bridge
+    /// holds it until its completion fires.
+    private var appleSignIn: AppleSignInController?
+
     /// Custom-scheme deep links (`in.thecontrarian.manorama.desktop://...`) received by the app.
     private var currentDeepLinks: [String] = []
     /// URLs buffered for get_current whose live emit has not yet confirmed —
@@ -306,6 +321,127 @@ final class NativeBridge {
         }
     }
 
+    // MARK: - Account auth
+
+    /// Runs an account-auth URL in the in-app sheet — the only
+    /// presentation that keeps sign-in inside the app on macOS.
+    ///
+    /// The provider flow ends by redirecting to this app's registered
+    /// scheme; the sheet's navigation delegate hands that URL to
+    /// deliverDeepLink, the same path an OS deep link would have taken,
+    /// so the page's exchange never learns which door the URL came
+    /// through. Closing the sheet is the user's own cancel — the page's
+    /// in-memory PKCE verifier simply goes unused.
+    ///
+    /// Returns false only when the Library window is not there to anchor
+    /// the sheet — the caller then keeps the system-browser open rather
+    /// than stranding sign-in.
+    private func openAuthSheet(_ url: URL) -> Bool {
+        guard let parent = webView?.window else { return false }
+        if let sheet = authSheet, !sheet.isFinished {
+            sheet.load(url)
+            return true
+        }
+        authSheet = AuthSheetController(url: url, parent: parent, title: Self.authSheetTitle(for: url)) { [weak self] callback in
+            guard let self else { return }
+            self.authSheet = nil
+            if let callback {
+                self.deliverDeepLink(callback.absoluteString)
+            }
+        }
+        Trace.log("auth sheet opened \(url.host ?? "")\(url.path)")
+        return true
+    }
+
+    /// What the sheet's titlebar says — the provider when the path names
+    /// one, and Connect rather than Sign in for the `?link=` flow.
+    private static func authSheetTitle(for url: URL) -> String {
+        let query = URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems ?? []
+        if query.contains(where: { $0.name == "link" }) { return "Connect account" }
+        let parts = url.path.split(separator: "/")
+        guard parts.count == 2 else { return "Sign in" }
+        return "Sign in with \(String(parts[1]).capitalized)"
+    }
+
+    // MARK: - Native Sign in with Apple
+
+    /// Runs Apple's own system sign-in for an `/auth/apple` URL. The web
+    /// layer is untouched: the same beginDesktopSignIn click reaches here,
+    /// and the server exchange mints the same desktop handoff the web
+    /// callback would have — fed to deliverDeepLink, the page's PKCE
+    /// exchange completes exactly as before.
+    ///
+    /// Returns false when the flow cannot even start (no window, no
+    /// challenge in the URL) — the caller then uses the web sheet, which
+    /// is also where the completion sends first-time sign-ins, whose
+    /// interstitial owns account creation.
+    private func runNativeAppleSignIn(_ url: URL, parent: NSWindow) -> Bool {
+        guard appleSignIn == nil,
+              let challenge = URLComponents(url: url, resolvingAgainstBaseURL: false)?
+                .queryItems?.first(where: { $0.name == "code_challenge" })?.value,
+              !challenge.isEmpty,
+              let scheme = url.scheme, let host = url.host else { return false }
+        var origin = "\(scheme)://\(host)"
+        if let port = url.port { origin += ":\(port)" }
+        let nonce = UUID().uuidString
+        let controller = AppleSignInController(anchor: parent, nonce: nonce) { [weak self] outcome in
+            guard let self else { return }
+            self.appleSignIn = nil
+            switch outcome {
+            case .cancelled:
+                // The user's own dismissal — the in-memory verifier simply
+                // goes unused, exactly like closing the web sheet.
+                break
+            case .failed:
+                Trace.log("native apple sign-in failed — falling back to the web sheet")
+                _ = self.openAuthSheet(url)
+            case .success(let credential):
+                Task { await self.exchangeNativeApple(credential: credential, nonce: nonce, challenge: challenge, origin: origin, fallbackURL: url) }
+            }
+        }
+        appleSignIn = controller
+        controller.start()
+        Trace.log("native apple sign-in started")
+        return true
+    }
+
+
+    /// Posts the credential to the server's native exchange and feeds the
+    /// minted handoff to the deep-link path. Any failure — an unknown
+    /// identity included — falls back to the web sheet, whose flow owns
+    /// first-time sign-in and recovery. The trace records which step
+    /// failed: a server refuse carries its status, a network failure its
+    /// error, since the two have opposite owners.
+    private func exchangeNativeApple(credential: AppleSignInController.Credential, nonce: String, challenge: String, origin: String, fallbackURL: URL) async {
+        guard let endpoint = URL(string: "\(origin)/api/auth/native/apple") else { return }
+        var request = URLRequest(url: endpoint)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        var body: [String: Any] = [
+            "identityToken": credential.identityToken,
+            "nonce": nonce,
+            "codeChallenge": challenge,
+        ]
+        if let fullName = credential.fullName { body["fullName"] = fullName }
+        if let email = credential.email { body["email"] = email }
+        request.httpBody = try? JSONSerialization.data(withJSONObject: body)
+        do {
+            let (data, response) = try await URLSession.shared.data(for: request)
+            let status = (response as? HTTPURLResponse)?.statusCode ?? -1
+            if status == 200,
+               let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+               let handoff = json["handoffToken"] as? String {
+                Trace.log("native apple sign-in exchanged")
+                deliverDeepLink("in.thecontrarian.manorama.desktop://auth/callback?handoff=\(handoff)")
+                return
+            }
+            Trace.log("native apple exchange refused status=\(status) — falling back to the web sheet")
+        } catch {
+            Trace.log("native apple exchange network error \(error.localizedDescription) — falling back to the web sheet")
+        }
+        _ = openAuthSheet(fallbackURL)
+    }
+
     // MARK: - The channel
 
     /// Answer one command from the page.
@@ -386,6 +522,25 @@ final class NativeBridge {
             guard let raw = args["url"] as? String,
                   let url = NativeCapabilities.isAllowedOpenerURL(raw) else {
                 throw BridgeError.failed("URL is not allowed by opener capability")
+            }
+            // Account auth stays inside the app — App Review 4.0.0
+            // rejects a sign-in that hands the user to the default
+            // browser. Apple gets the native system sheet when it can
+            // start; everything else — and any native failure — uses the
+            // in-app web sheet, which intercepts the provider's redirect
+            // to our scheme and returns it through deliverDeepLink, the
+            // same path an OS-opened deep link takes.
+            if NativeCapabilities.isAccountAuthURL(url) {
+                let isApple = url.path.split(separator: "/").last == "apple"
+                let isLink = URLComponents(url: url, resolvingAgainstBaseURL: false)?
+                    .queryItems?.contains(where: { $0.name == "link" }) == true
+                if isApple, !isLink, let parent = webView?.window,
+                   runNativeAppleSignIn(url, parent: parent) {
+                    return nil
+                }
+                if openAuthSheet(url) {
+                    return nil
+                }
             }
             guard NSWorkspace.shared.open(url) else {
                 throw BridgeError.failed("The system browser could not open that URL")
@@ -1499,6 +1654,204 @@ final class NativeBridge {
     private func decodeBytes(_ args: [String: Any]) -> Data? {
         guard let encoded = args["__bytes"] as? String else { return nil }
         return Data(base64Encoded: encoded)
+    }
+}
+
+/// The in-app window account auth runs in.
+///
+/// App Review 4.0.0 (macOS) keeps sign-in inside the app, and
+/// ASWebAuthenticationSession does not do that on macOS — it hands the
+/// page to the default browser, the exact symptom the guideline names.
+/// This sheet is a plain WKWebView window instead: the provider's web
+/// flow renders inside it, and the final redirect to this app's
+/// registered scheme is intercepted in decidePolicyFor and handed to the
+/// bridge's deep-link path.
+///
+/// The class stays nonisolated like ViewerCoordinator — WebKit and
+/// AppKit call its delegates on the main thread, and the completion is
+/// typed @MainActor so the bridge hears it synchronously.
+private final class AuthSheetController: NSObject, WKNavigationDelegate, WKUIDelegate, NSWindowDelegate {
+    /// This app's own scheme — the destination every auth flow ends on.
+    private static let callbackScheme = "in.thecontrarian.manorama.desktop"
+
+    private let window: NSWindow
+    private let webView: WKWebView
+    private let backButton: NSButton
+    private let forwardButton: NSButton
+    private let reloadButton: NSButton
+    /// Called once, with the callback URL — nil when the user closed the
+    /// sheet first. @MainActor so the bridge can settle state directly.
+    private var onFinish: (@MainActor (URL?) -> Void)?
+    private var finished = false
+
+    init(url: URL, parent: NSWindow, title: String, onFinish: @escaping @MainActor (URL?) -> Void) {
+        self.onFinish = onFinish
+        let size = NSSize(width: 980, height: 720)
+        window = NSWindow(
+            contentRect: NSRect(origin: .zero, size: size),
+            styleMask: [.titled, .closable, .resizable, .miniaturizable],
+            backing: .buffered,
+            defer: false
+        )
+        window.title = title
+        window.isReleasedWhenClosed = false
+        window.contentMinSize = NSSize(width: 520, height: 420)
+
+        // A slim header above the page: auth flows are linear, but error
+        // pages offer "try again" links and a web view with no chrome
+        // would strand the user on one.
+        let header = NSView(frame: NSRect(x: 0, y: size.height - 34, width: size.width, height: 34))
+        header.autoresizingMask = [.width, .minYMargin]
+        backButton = Self.navButton("chevron.left", action: #selector(goBack))
+        forwardButton = Self.navButton("chevron.right", action: #selector(goForward))
+        reloadButton = Self.navButton("arrow.clockwise", action: #selector(reloadPage))
+        backButton.frame = NSRect(x: 10, y: 7, width: 20, height: 20)
+        forwardButton.frame = NSRect(x: 34, y: 7, width: 20, height: 20)
+        reloadButton.frame = NSRect(x: 58, y: 7, width: 20, height: 20)
+        header.addSubview(backButton)
+        header.addSubview(forwardButton)
+        header.addSubview(reloadButton)
+        window.contentView?.addSubview(header)
+
+        webView = WKWebView(frame: NSRect(x: 0, y: 0, width: size.width, height: size.height - 34),
+                            configuration: WKWebViewConfiguration())
+        webView.autoresizingMask = [.width, .height]
+        window.contentView?.addSubview(webView)
+
+        super.init()
+        webView.navigationDelegate = self
+        webView.uiDelegate = self
+        backButton.target = self
+        forwardButton.target = self
+        reloadButton.target = self
+        window.delegate = self
+
+        parent.addChildWindow(window, ordered: .above)
+        // Centre on the Library window rather than the screen.
+        window.setFrameOrigin(NSPoint(
+            x: parent.frame.midX - size.width / 2,
+            y: parent.frame.midY - size.height / 2
+        ))
+        window.makeKeyAndOrderFront(nil)
+        window.makeFirstResponder(webView)
+        webView.load(URLRequest(url: url))
+        updateNavButtons()
+    }
+
+    /// A second auth request while the sheet is up reuses it — the new
+    /// provider's page simply replaces whatever was on screen.
+    func load(_ url: URL) {
+        guard !finished else { return }
+        window.makeKeyAndOrderFront(nil)
+        webView.load(URLRequest(url: url))
+    }
+
+    var isFinished: Bool { finished }
+
+    private static func navButton(_ symbol: String, action: Selector) -> NSButton {
+        let button = NSButton(
+            image: NSImage(systemSymbolName: symbol, accessibilityDescription: nil)
+                ?? NSImage(),
+            target: nil,
+            action: action
+        )
+        button.bezelStyle = .toolbar
+        button.isBordered = false
+        button.imageScaling = .scaleProportionallyDown
+        button.contentTintColor = .secondaryLabelColor
+        return button
+    }
+
+    @objc private func goBack() { webView.goBack() }
+    @objc private func goForward() { webView.goForward() }
+    @objc private func reloadPage() { webView.reload() }
+
+    private func updateNavButtons() {
+        backButton.isEnabled = webView.canGoBack
+        forwardButton.isEnabled = webView.canGoForward
+    }
+
+    // MARK: WKNavigationDelegate
+
+    func webView(_ webView: WKWebView,
+                 decidePolicyFor navigationAction: WKNavigationAction,
+                 decisionHandler: @escaping (WKNavigationActionPolicy) -> Void) {
+        guard let url = navigationAction.request.url else {
+            decisionHandler(.cancel)
+            return
+        }
+        // The provider's redirect back to this app's scheme is the
+        // callback — stop the load and hand the URL to the deep-link path.
+        if url.scheme?.lowercased() == Self.callbackScheme {
+            decisionHandler(.cancel)
+            finish(with: url)
+            return
+        }
+        // Outbound links on auth pages (help, legal, provider pickers)
+        // belong to the user's browser — a page that navigates itself
+        // somewhere it cannot return from would strand the flow, and the
+        // opener scope still decides what may leave at all. Subframes are
+        // left alone: consent and ad iframes navigate constantly and none
+        // of them is the user's intent.
+        let mainFrame = navigationAction.targetFrame?.isMainFrame ?? true
+        if mainFrame {
+            let scheme = url.scheme?.lowercased() ?? ""
+            let inline = ["https", "http", "about", "blob", "data"].contains(scheme)
+            if !inline {
+                decisionHandler(.cancel)
+                if NativeCapabilities.isAllowedOpenerURL(url.absoluteString) != nil {
+                    NSWorkspace.shared.open(url)
+                }
+                return
+            }
+        }
+        decisionHandler(.allow)
+    }
+
+    func webView(_ webView: WKWebView, didCommit navigation: WKNavigation!) {
+        updateNavButtons()
+    }
+
+    func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
+        updateNavButtons()
+    }
+
+    // MARK: WKUIDelegate — links that want a new window
+
+    /// target=_blank and window.open stay inside the sheet — an auth page
+    /// that pops a provider chooser must not lose the flow to Safari.
+    func webView(_ webView: WKWebView,
+                 createWebViewWith configuration: WKWebViewConfiguration,
+                 for navigationAction: WKNavigationAction,
+                 windowFeatures: WKWindowFeatures) -> WKWebView? {
+        if let url = navigationAction.request.url,
+           (navigationAction.request.httpMethod ?? "GET").uppercased() == "GET" {
+            self.webView.load(URLRequest(url: url))
+        }
+        return nil
+    }
+
+    // MARK: NSWindowDelegate
+
+    func windowWillClose(_ notification: Notification) {
+        finish(with: nil)
+    }
+
+    // MARK: finish
+
+    /// Close once and report — the callback URL on success, nil on cancel.
+    /// Both delegate paths funnel here so a close during a navigation
+    /// cannot report twice.
+    private func finish(with url: URL?) {
+        guard !finished else { return }
+        finished = true
+        let callback = onFinish
+        onFinish = nil
+        window.delegate = nil
+        window.close()
+        if let callback {
+            MainActor.assumeIsolated { callback(url) }
+        }
     }
 }
 

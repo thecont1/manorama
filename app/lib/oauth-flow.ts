@@ -14,6 +14,8 @@ import { dropboxAuthorizeUrl, fetchDropboxAccount, type DropboxOauthEnv } from '
 import { fetchGoogleIdentity, googleAuthorizeUrl, type GoogleAuthEnv } from './google-auth'
 import {
   AccountDisabledError,
+  deleteAppleOnboarding,
+  readAppleOnboarding,
   findAccountByIdentity,
   IdentityConflictError,
   IdentityStorageUnavailableError,
@@ -385,12 +387,26 @@ export const confirmPendingAccount = async (c: Context) => {
   // confirm could mint the attacker's fresh account in a victim's jar.
   if (!(await stateCookieMatches(c, token.state, token.stateCookieHash))) return finishFailure(c)
   try {
+    // A first consent that happened in the native sheet delivered the name
+    // to the desktop endpoint, not this flow — Apple never sends it twice,
+    // so the stashed copy fills the gap the web round trip cannot. The
+    // token's own name wins wherever the consent still carried one, and a
+    // stash fault must not hold account creation hostage.
+    const stashedName = token.provider === 'apple' && !token.name
+      ? await readAppleOnboarding(token.subject, env).catch(() => null)
+      : null
     const user = await upsertIdentitySignIn({
       provider: token.provider,
       subject: token.subject,
-      displayName: token.name,
+      displayName: token.name ?? stashedName ?? undefined,
       email: token.email,
     }, env)
+    // Only creation's success retires the stash — deleting it any earlier
+    // would lose the name to a transient fault the user retries past, and a
+    // missed delete costs nothing but a row that expires in minutes.
+    if (token.provider === 'apple') {
+      await deleteAppleOnboarding(token.subject, env).catch(() => undefined)
+    }
     return completeSignIn(c, user, {
       native: token.native === '1' || token.native === 'desktop' ? token.native : '',
       nextUrl: token.next,

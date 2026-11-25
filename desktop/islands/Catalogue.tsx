@@ -2535,6 +2535,15 @@ export default function Catalogue({ apiBase }: { apiBase: string }) {
     closePostToX()
     vaultOpenAbortRef.current?.abort()
     disposeOpenLease()
+    // The account pane is session chrome: it dies with the session, or the
+    // next sign-in — which never reloads the page — resurrects it open over
+    // the Library exactly where the user left it.
+    if (settingsCloseTimerRef.current) {
+      clearTimeout(settingsCloseTimerRef.current)
+      settingsCloseTimerRef.current = null
+    }
+    setSettingsOpen(false)
+    setSettingsClosing(false)
     setSession(null)
     setSyncState('idle')
   }

@@ -66,7 +66,7 @@ export const remoteKeyResolver = (jwksUrl: string): JWTVerifyGetKey => {
 export const verifyOidcToken = async (
   token: string,
   keyResolver: JWTVerifyGetKey,
-  expected: { issuer: string | string[]; clientId: string; nonce: string },
+  expected: { issuer: string | string[]; clientId: string | string[]; nonce: string },
 ): Promise<JWTPayload> => {
   const nonce = expected.nonce
   if (typeof nonce !== 'string' || !nonce.trim()) throw new Error(VERIFY_ERROR)
@@ -79,8 +79,8 @@ export const verifyOidcToken = async (
   if (typeof payload.sub !== 'string' || !payload.sub.trim() || payload.sub.length > 1024
     || payload.nonce !== nonce
     || typeof payload.iat !== 'number' || payload.iat > Math.floor(Date.now() / 1000) + 60
-    || (payload.azp !== undefined && payload.azp !== expected.clientId)
-    || (Array.isArray(payload.aud) && payload.aud.length > 1 && payload.azp !== expected.clientId)) {
+    || (payload.azp !== undefined && ![expected.clientId].flat().includes(payload.azp as string))
+    || (Array.isArray(payload.aud) && payload.aud.length > 1 && ![expected.clientId].flat().includes(payload.azp as string))) {
     throw new Error(VERIFY_ERROR)
   }
   return payload

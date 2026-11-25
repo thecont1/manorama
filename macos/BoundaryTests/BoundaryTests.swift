@@ -322,6 +322,31 @@ final class BoundaryTests {
         check("opener refuses file URL", NativeCapabilities.isAllowedOpenerURL("file:///etc/passwd") == nil)
         check("opener refuses arbitrary http URL", NativeCapabilities.isAllowedOpenerURL("http://example.com/") == nil)
 
+        // Account auth is the one opener case that must NOT reach the
+        // system browser — App Review 4.0.0 keeps sign-in inside the app,
+        // so these URLs are recognised for the in-app auth sheet path.
+        // Everything else on the opener scope stays external.
+        check("auth session takes apple sign-in",
+              NativeCapabilities.isAccountAuthURL(URL(string: "https://manorama.xyz/auth/apple?native=desktop&code_challenge=abc")!))
+        check("auth session takes signin-host connect flow",
+              NativeCapabilities.isAccountAuthURL(URL(string: "https://signin.manorama.xyz/auth/google?link=tok&native=desktop")!))
+        check("auth session takes dropbox sign-in",
+              NativeCapabilities.isAccountAuthURL(URL(string: "https://manorama.xyz/auth/dropbox?native=desktop&code_challenge=abc")!))
+        check("auth session takes dev auth",
+              NativeCapabilities.isAccountAuthURL(URL(string: "http://localhost:5173/auth/dropbox?native=desktop&code_challenge=abc")!))
+        check("auth session refuses bare auth URL",
+              !NativeCapabilities.isAccountAuthURL(URL(string: "https://manorama.xyz/auth/apple")!))
+        check("auth session refuses non-provider auth path",
+              !NativeCapabilities.isAccountAuthURL(URL(string: "https://manorama.xyz/auth/logout?native=desktop")!))
+        check("auth session refuses gallery page",
+              !NativeCapabilities.isAccountAuthURL(URL(string: "https://manorama.xyz/thecontrarian/italy")!))
+        check("auth session refuses provider-source OAuth",
+              !NativeCapabilities.isAccountAuthURL(URL(string: "https://www.dropbox.com/oauth2/authorize?client_id=x")!))
+        check("auth session refuses lookalike host",
+              !NativeCapabilities.isAccountAuthURL(URL(string: "https://manorama.xyz.evil.example/auth/apple?native=desktop")!))
+        check("auth session refuses foreign dev port",
+              !NativeCapabilities.isAccountAuthURL(URL(string: "http://localhost:9999/auth/apple?native=desktop")!))
+
         check("http capability allows proton.me", NativeCapabilities.isAllowedHttpURL("https://drive-api.proton.me/drive/urls/abc") != nil)
         check("http capability allows protonvpn.com", NativeCapabilities.isAllowedHttpURL("https://api.protonvpn.com/test") != nil)
         check("http capability allows mega api", NativeCapabilities.isAllowedHttpURL("https://g.api.mega.co.nz/cs?n=abc") != nil)

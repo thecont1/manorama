@@ -6,6 +6,13 @@
 	<key>com.apple.security.app-sandbox</key>
 	<true/>
 
+
+	<!-- Sign in with Apple is NOT declared here: like keychain-access-groups
+	     it is a restricted entitlement, and an unprofiled direct build that
+	     declares it is killed at exec. It lives in the App Store file, where
+	     the embedded distribution profile authorises it. A profiled
+	     development build that wants to exercise the native sheet must embed
+	     the profile AND declare the key — both pieces together. -->
 	<!-- Outbound: manorama.xyz API, provider APIs/CDNs (Dropbox, Drive, MEGA,
 	     Proton), all via URLSession + WKWebView. -->
 	<key>com.apple.security.network.client</key>
