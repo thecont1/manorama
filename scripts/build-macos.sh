@@ -198,6 +198,23 @@ ENTITLEMENTS="${MANORAMA_MACOS_ENTITLEMENTS:-$APP/ManoramaMac.entitlements}"
 # together: an embedded Developer ID profile carrying the group AND an
 # entitlements file that declares it — the profile alone changes nothing.
 # Until then the bridge's legacy file-keychain path serves them unchanged.
+# com.apple.developer.applesignin is restricted the same way: it lives in
+# ManoramaMac-DevProfiled.entitlements, which a local build may only use
+# together with MANORAMA_MACOS_PROFILE below.
+#
+# MANORAMA_MACOS_PROFILE embeds a provisioning profile at the location AMFI
+# reads it from, so restricted entitlements declared in the entitlements
+# file can be validated. The pair for local native-Sign-in-with-Apple
+# testing is the manorama-mac-development-desktop profile (regenerate via
+# the App Store Connect API when it expires) and the dev signing identity:
+#   MANORAMA_MACOS_PROFILE=macos/ManoramaMac/build/manorama-dev.provisionprofile \
+#   MANORAMA_MACOS_ENTITLEMENTS=macos/ManoramaMac/ManoramaMac-DevProfiled.entitlements \
+#   MACOS_SIGN_IDENTITY="Apple Development: Mahesh Shantaram (TRF3R33X88)" \
+#   scripts/build-macos.sh debug
+if [ -n "${MANORAMA_MACOS_PROFILE:-}" ]; then
+  cp "$MANORAMA_MACOS_PROFILE" "$APP_BUNDLE/Contents/embedded.provisionprofile"
+  echo "    embedded provisioning profile: $MANORAMA_MACOS_PROFILE"
+fi
 codesign --force --sign "$IDENTITY" --options runtime --timestamp \
   --entitlements "$ENTITLEMENTS" "$APP_BUNDLE"
 

@@ -1,0 +1,48 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<!-- Development signature with an embedded MAC_APP_DEVELOPMENT profile
+	     (manorama-mac-development-desktop, on the explicit App ID
+	     in.thecontrarian.manorama.desktop). The identifiers match that
+	     profile exactly — AMFI validates declared entitlements against the
+	     embedded profile, so the two must agree. -->
+	<key>com.apple.application-identifier</key>
+	<string>373K7W3LKU.in.thecontrarian.manorama.desktop</string>
+	<key>com.apple.developer.team-identifier</key>
+	<string>373K7W3LKU</string>
+
+	<!-- Required for App Store distribution. -->
+	<key>com.apple.security.app-sandbox</key>
+	<true/>
+
+	<!-- Sign in with Apple: declared here because this build embeds the
+	     development provisioning profile that authorises it — both pieces
+	     together, per the note in ManoramaMac.entitlements. This is what
+	     lets a local build exercise the native ASAuthorizationController
+	     sheet; builds without the embedded profile must keep using the
+	     base entitlements file. -->
+	<key>com.apple.developer.applesignin</key>
+	<array>
+		<string>Default</string>
+	</array>
+
+	<!-- Outbound: manorama.xyz API, provider APIs/CDNs (Dropbox, Drive, MEGA,
+	     Proton), all via URLSession + WKWebView. -->
+	<key>com.apple.security.network.client</key>
+	<true/>
+
+	<!-- Inbound: the OAuth loopback listener on 127.0.0.1 (oauth_loopback_*). -->
+	<key>com.apple.security.network.server</key>
+	<true/>
+
+	<!-- User-picked local gallery roots via NSOpenPanel. -->
+	<key>com.apple.security.files.user-selected.read-write</key>
+	<true/>
+
+	<!-- Persist those picks as security-scoped bookmarks so folder access
+	     survives relaunches without re-prompting. -->
+	<key>com.apple.security.files.bookmarks.app-scope</key>
+	<true/>
+</dict>
+</plist>
