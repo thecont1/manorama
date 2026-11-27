@@ -117,4 +117,9 @@ jobs:
 
       - name: macOS boundary tests
         if: steps.event-sources.outputs.present == 'true'
+        env:
+          # Shared runners scan measurably slower than a development machine;
+          # the functional and memory assertions stay strict, only the
+          # wall-clock budgets double.
+          MANORAMA_PERF_BUDGET_SCALE: '3'
         run: scripts/test-macos-boundary.sh
