@@ -370,7 +370,7 @@ mod tests {
     }
     #[cfg(windows)]
     #[test]
-    fn windows_parent_and_replaced_file_have_only_the_current_user_ace() {
+    fn windows_file_keeps_user_only_acl_and_parent_is_untouched() {
         use std::{os::windows::ffi::OsStrExt, ptr};
         use windows_sys::Win32::{
             Foundation::LocalFree,
@@ -383,18 +383,7 @@ mod tests {
                 DACL_SECURITY_INFORMATION,
             },
         };
-        let temp = tempfile::tempdir().unwrap();
-        let parent = temp.path().join("private");
-        let file = parent.join("index.json");
-        write_0600(&file, b"first").unwrap();
-        write_0600(&file, b"replacement").unwrap();
-        let sid = windows_current_user_sid().unwrap();
-        let sid: Vec<u16> = sid.encode_utf16().chain(Some(0)).collect();
-        let mut expected_sid = ptr::null_mut();
-        unsafe {
-            assert_ne!(ConvertStringSidToSidW(sid.as_ptr(), &mut expected_sid), 0);
-        }
-        for path in [&parent, &file] {
+        let read_sddl = |path: &Path| -> (String, Vec<usize>) {
             let wide: Vec<u16> = path.as_os_str().encode_wide().chain(Some(0)).collect();
             unsafe {
                 let mut size = 0;
@@ -434,32 +423,57 @@ mod tests {
                 }
                 let sddl = String::from_utf16_lossy(std::slice::from_raw_parts(text, len));
                 LocalFree(text.cast());
-                assert_eq!(sddl.matches("(A;").count(), 1, "{sddl}");
-                assert_eq!(sddl.matches("(").count(), 1, "{sddl}");
-                let mut present = 0;
-                let mut dacl = ptr::null_mut();
-                let mut defaulted = 0;
-                assert_ne!(
-                    GetSecurityDescriptorDacl(
-                        bytes.as_mut_ptr().cast(),
-                        &mut present,
-                        &mut dacl,
-                        &mut defaulted
-                    ),
-                    0
-                );
-                assert_ne!(present, 0, "{sddl}");
-                let mut ace = ptr::null_mut();
-                assert_ne!(GetAce(dacl, 0, &mut ace), 0, "{sddl}");
-                let ace = &*ace.cast::<ACCESS_ALLOWED_ACE>();
-                assert_ne!(
-                    EqualSid(expected_sid, &ace.SidStart as *const u32 as *mut _),
-                    0,
-                    "{sddl}"
-                );
+                (sddl, bytes)
             }
+        };
+        let temp = tempfile::tempdir().unwrap();
+        let parent = temp.path().join("private");
+        let file = parent.join("index.json");
+        write_0600(&file, b"first").unwrap();
+        write_0600(&file, b"replacement").unwrap();
+        let sid = windows_current_user_sid().unwrap();
+        let sid: Vec<u16> = sid.encode_utf16().chain(Some(0)).collect();
+        let mut expected_sid = ptr::null_mut();
+        unsafe {
+            assert_ne!(ConvertStringSidToSidW(sid.as_ptr(), &mut expected_sid), 0);
         }
-        unsafe { LocalFree(expected_sid.cast()) };
+        // The file itself carries exactly one ACE, for the current user —
+        // the Windows mirror of the POSIX 0600 mode.
+        let (sddl, mut bytes) = read_sddl(&file);
+        assert_eq!(sddl.matches("(A;").count(), 1, "{sddl}");
+        assert_eq!(sddl.matches("(").count(), 1, "{sddl}");
+        unsafe {
+            let mut present = 0;
+            let mut dacl = ptr::null_mut();
+            let mut defaulted = 0;
+            assert_ne!(
+                GetSecurityDescriptorDacl(
+                    bytes.as_mut_ptr().cast(),
+                    &mut present,
+                    &mut dacl,
+                    &mut defaulted
+                ),
+                0
+            );
+            assert_ne!(present, 0, "{sddl}");
+            let mut ace = ptr::null_mut();
+            assert_ne!(GetAce(dacl, 0, &mut ace), 0, "{sddl}");
+            let ace = &*ace.cast::<ACCESS_ALLOWED_ACE>();
+            assert_ne!(
+                EqualSid(expected_sid, &ace.SidStart as *const u32 as *mut _),
+                0,
+                "{sddl}"
+            );
+            LocalFree(expected_sid.cast());
+        }
+        // The parent directory is not ours to lock down — a caller-selected
+        // --store directory keeps its own policy. Its ACL must be byte-for-byte
+        // what a plain newly created sibling directory carries.
+        let control = temp.path().join("control");
+        fs::create_dir_all(&control).unwrap();
+        let (parent_sddl, _) = read_sddl(&parent);
+        let (control_sddl, _) = read_sddl(&control);
+        assert_eq!(parent_sddl, control_sddl);
     }
 
     #[test]
