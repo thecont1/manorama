@@ -372,9 +372,13 @@ mod tests {
         use windows_sys::Win32::{
             Foundation::LocalFree,
             Security::Authorization::{
-                ConvertSecurityDescriptorToStringSecurityDescriptorW, SDDL_REVISION_1,
+                ConvertSecurityDescriptorToStringSecurityDescriptorW, ConvertStringSidToSidW,
+                SDDL_REVISION_1,
             },
-            Security::{GetFileSecurityW, DACL_SECURITY_INFORMATION},
+            Security::{
+                EqualSid, GetAce, GetFileSecurityW, GetSecurityDescriptorDacl, ACCESS_ALLOWED_ACE,
+                DACL_SECURITY_INFORMATION,
+            },
         };
         let temp = tempfile::tempdir().unwrap();
         let parent = temp.path().join("private");
@@ -382,6 +386,9 @@ mod tests {
         write_0600(&file, b"first").unwrap();
         write_0600(&file, b"replacement").unwrap();
         let sid = windows_current_user_sid().unwrap();
+        let sid: Vec<u16> = sid.encode_utf16().chain(Some(0)).collect();
+        let mut expected_sid = ptr::null_mut();
+        assert_ne!(ConvertStringSidToSidW(sid.as_ptr(), &mut expected_sid), 0);
         for path in [&parent, &file] {
             let wide: Vec<u16> = path.as_os_str().encode_wide().chain(Some(0)).collect();
             unsafe {
@@ -424,9 +431,30 @@ mod tests {
                 LocalFree(text.cast());
                 assert_eq!(sddl.matches("(A;").count(), 1, "{sddl}");
                 assert_eq!(sddl.matches("(").count(), 1, "{sddl}");
-                assert!(sddl.contains(&format!(";;;{sid})")), "{sddl}");
+                let mut present = 0;
+                let mut dacl = ptr::null_mut();
+                let mut defaulted = 0;
+                assert_ne!(
+                    GetSecurityDescriptorDacl(
+                        bytes.as_mut_ptr().cast(),
+                        &mut present,
+                        &mut dacl,
+                        &mut defaulted
+                    ),
+                    0
+                );
+                assert_ne!(present, 0, "{sddl}");
+                let mut ace = ptr::null_mut();
+                assert_ne!(GetAce(dacl, 0, &mut ace), 0, "{sddl}");
+                let ace = &*ace.cast::<ACCESS_ALLOWED_ACE>();
+                assert_ne!(
+                    EqualSid(expected_sid, &ace.SidStart as *const u32 as *mut _),
+                    0,
+                    "{sddl}"
+                );
             }
         }
+        unsafe { LocalFree(expected_sid.cast()) };
     }
 
     #[test]
