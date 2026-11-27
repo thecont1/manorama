@@ -18,20 +18,18 @@ permissions:
 jobs:
   test-events-windows:
     runs-on: windows-latest
-    env:
-      CARGO_TARGET_DIR: ${{ runner.temp }}/manorama-events-tauri-target
     steps:
       - uses: actions/checkout@v7
         with:
           persist-credentials: false
       - uses: dtolnay/rust-toolchain@stable
       - name: Test portable metadata engine and Windows cloud flags
+        env:
+          CARGO_TARGET_DIR: ${{ runner.temp }}/manorama-events-tauri-target
         run: cargo test --locked --manifest-path Cargo.toml -p event-clustering --all-features
 
   test-shell-windows:
     runs-on: windows-latest
-    env:
-      CARGO_TARGET_DIR: ${{ runner.temp }}/manorama-events-tauri-target
     steps:
       - uses: actions/checkout@v7
         with:
@@ -42,6 +40,8 @@ jobs:
       - name: Build local frontend for Tauri context (no provider credentials)
         run: bun run build:desktop
       - name: Test Rust shell private storage and event boundaries
+        env:
+          CARGO_TARGET_DIR: ${{ runner.temp }}/manorama-events-tauri-target
         run: cargo test --locked --manifest-path src-tauri/Cargo.toml --all-targets
 
   build-windows:
