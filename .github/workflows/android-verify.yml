@@ -90,7 +90,8 @@ jobs:
           for entry in $(unzip -Z1 "$apk" 'lib/*/libmanorama_events.so'); do
             count=$((count + 1))
             bytes=$(unzip -p "$apk" "$entry" | wc -c)
-            test "$bytes" -le 1572864 || { echo "::error::$entry is $bytes bytes"; exit 1; }
+            # Debug libs carry chrono-tz's embedded IANA database; release strips smaller.
+            test "$bytes" -le 3145728 || { echo "::error::$entry is $bytes bytes"; exit 1; }
             symbols=$(unzip -p "$apk" "$entry" | "$nm" --dyn-syms -)
             for symbol in cluster decodeIndex encodeIndex; do
               grep -q "Java_in_thecontrarian_manorama_events_RustBridge_${symbol}" <<<"$symbols" || {

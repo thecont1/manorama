@@ -4,7 +4,11 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 APK="$ROOT/android/app/build/outputs/apk/debug/app-debug.apk"
 NDK="${ANDROID_NDK_HOME:-${ANDROID_SDK_ROOT:-${ANDROID_HOME:-$HOME/Library/Android/sdk}}/ndk/27.2.12479018}"
-LIMIT=1572864
+# The floor is the debug crate plus chrono-tz's embedded IANA database, which
+# Android needs because bionic has no usable tzdata before API 35. The release
+# profile strips and size-optimizes well below this; the debug-package budget
+# exists to catch accidental bloat, not to police intended data.
+LIMIT=3145728
 
 [[ -f "$APK" ]] || { printf 'Missing Android debug package: %s\n' "$APK" >&2; exit 1; }
 READELF="$(find "$NDK/toolchains/llvm/prebuilt" -path '*/bin/llvm-readelf' -print -quit)"
@@ -24,4 +28,4 @@ while IFS= read -r entry; do
   printf '%s: %s bytes; three JNI exports present\n' "$entry" "$bytes"
 done < <(unzip -Z1 "$APK" 'lib/*/libmanorama_events.so')
 
-[[ "$count" -eq 2 ]] || { printf 'Expected two ABI libraries, found %s\n' "$count" >&2; exit 1; }
+[[ "$count" -eq 3 ]] || { printf 'Expected three ABI libraries, found %s\n' "$count" >&2; exit 1; }
