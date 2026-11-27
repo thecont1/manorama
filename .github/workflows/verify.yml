@@ -49,37 +49,53 @@ jobs:
 
   rust-event-core:
     name: Rust event core (${{ matrix.features || 'default' }})
-    if: ${{ hashFiles('crates/event-clustering/Cargo.toml') != '' }}
     runs-on: ubuntu-latest
     timeout-minutes: 15
     strategy:
       matrix:
         features: ['', 'fs-scan', 'android', 'fs-scan,android']
-    env:
-      CARGO_TARGET_DIR: ${{ runner.temp }}/manorama-events-rust-target
     steps:
       - uses: actions/checkout@v7
         with:
           persist-credentials: false
+      - id: event-sources
+        name: Check event core sources
+        run: |
+          if [ -f crates/event-clustering/Cargo.toml ]; then
+            echo "present=true" >> "$GITHUB_OUTPUT"
+            echo "CARGO_TARGET_DIR=$RUNNER_TEMP/manorama-events-rust-target" >> "$GITHUB_ENV"
+          else
+            echo "present=false" >> "$GITHUB_OUTPUT"
+          fi
       - uses: dtolnay/rust-toolchain@stable
+        if: steps.event-sources.outputs.present == 'true'
       - name: Test root workspace and shared golden fixtures
+        if: steps.event-sources.outputs.present == 'true'
         run: cargo test --locked -p event-clustering --features '${{ matrix.features }}'
 
   macos-boundary:
     name: Swift engine and macOS boundary
-    if: ${{ hashFiles('native/EventClustering/Package.swift') != '' }}
     runs-on: xcode-27
     timeout-minutes: 20
     env:
       DEVELOPER_DIR: /Applications/Xcode_27.1.app/Contents/Developer
-      MANORAMA_SWIFT_SCRATCH: ${{ runner.temp }}/event-clustering-build
-      MANORAMA_SWIFT_MODULE_CACHE: ${{ runner.temp }}/event-clustering-modules
     steps:
       - uses: actions/checkout@v7
         with:
           persist-credentials: false
+      - id: event-sources
+        name: Check Swift event sources
+        run: |
+          if [ -f native/EventClustering/Package.swift ]; then
+            echo "present=true" >> "$GITHUB_OUTPUT"
+            echo "MANORAMA_SWIFT_SCRATCH=$RUNNER_TEMP/event-clustering-build" >> "$GITHUB_ENV"
+            echo "MANORAMA_SWIFT_MODULE_CACHE=$RUNNER_TEMP/event-clustering-modules" >> "$GITHUB_ENV"
+          else
+            echo "present=false" >> "$GITHUB_OUTPUT"
+          fi
 
       - name: Require Xcode 27.1 and the macOS SDK
+        if: steps.event-sources.outputs.present == 'true'
         shell: bash
         run: |
           set -euo pipefail
@@ -96,7 +112,9 @@ jobs:
           fi
 
       - name: Swift event-clustering tests
+        if: steps.event-sources.outputs.present == 'true'
         run: scripts/test-event-clustering.sh
 
       - name: macOS boundary tests
+        if: steps.event-sources.outputs.present == 'true'
         run: scripts/test-macos-boundary.sh
