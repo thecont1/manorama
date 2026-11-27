@@ -165,9 +165,13 @@ function EventCard({ cluster, client, revision, onOpen, presentation }: {
   const span = formatEventDateSpan(cluster, presentation)
   const days = orderedSubDays(cluster)
   const dpr = typeof window === 'undefined' ? 1 : Math.max(1, window.devicePixelRatio || 1)
+  const intrinsicCover = cover !== null && cover.src !== null && cover.width > 0 && cover.height > 0
   return <li ref={ref} class="lib-compact-card event-card" data-event-card={cluster.id}>
     <button type="button" class="event-card-open" onClick={(event) => onOpen(cluster, 0, event.currentTarget as HTMLElement)} aria-label={formatEventCardLabel(cluster, cover?.state, presentation)}>
-      <span class="event-card-cover">
+      <span class="event-card-cover" style={intrinsicCover ? {
+        aspectRatio: `${cover.width} / ${cover.height}`,
+        maxInlineSize: `min(100%, ${cover.width / dpr}px, calc(var(--event-cover-max-block) * ${cover.width / cover.height}))`,
+      } : undefined}>
         {cover?.src ? <img src={cover.src} alt="" loading="lazy" width={cover.width} height={cover.height}
           style={{ maxInlineSize: `min(100%, ${cover.width / dpr}px)`, maxBlockSize: `min(100%, ${cover.height / dpr}px)`, aspectRatio: `${cover.width} / ${cover.height}` }} />
           : <span class="m-note">{formatEventPreviewState(cover?.state, presentation)}</span>}

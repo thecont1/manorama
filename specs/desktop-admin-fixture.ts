@@ -109,6 +109,14 @@ export type FixtureEvents = {
 
 export type EventBridgeCall = { command: string; args?: Record<string, unknown> }
 
+export const fixtureEventLease = (id: string): string => {
+  // FNV-1a is only a deterministic fixture token, not an identity or a
+  // security primitive. The lease carries no path, name or provider data.
+  let hash = 0x811c9dc5
+  for (let index = 0; index < id.length; index++) hash = Math.imul(hash ^ id.charCodeAt(index), 0x01000193)
+  return `http://manorama-event.localhost/${(hash >>> 0).toString(16).padStart(8, '0').repeat(4)}`
+}
+
 /** Synthetic controls used to model a source becoming reachable again and to
  * observe listener teardown. They never stand in for production state. */
 export type EventBridgeControls = {
@@ -164,22 +172,15 @@ export const installBridge = (payload: BridgePayload) => {
     eventCount: eventClusters.length,
     ...structuredClone(fixtureEvents?.status ?? {}),
   }
-  const eventLeaseUrls = new Map<string, string>()
   let pendingEventAssets = 0
   let pendingEventScans = 0
   const heldEventAssets: (() => void)[] = []
   const heldEventScans: (() => void)[] = []
   const eventLease = (id: string): string => {
-    const existing = eventLeaseUrls.get(id)
-    if (existing) return existing
-    // FNV-1a is only a deterministic fixture token, not an identity or a
-    // security primitive. The lease carries no path, name or provider data.
+    // Init scripts are serialized, so this cannot close over fixtureEventLease.
     let hash = 0x811c9dc5
     for (let index = 0; index < id.length; index++) hash = Math.imul(hash ^ id.charCodeAt(index), 0x01000193)
-    const token = (hash >>> 0).toString(16).padStart(8, '0').repeat(4)
-    const url = `http://manorama-event.localhost/${token}`
-    eventLeaseUrls.set(id, url)
-    return url
+    return `http://manorama-event.localhost/${(hash >>> 0).toString(16).padStart(8, '0').repeat(4)}`
   }
   const deliverEvent = (event: string, eventPayload: unknown) => {
     for (const id of eventHandlers.get(event) ?? []) {
@@ -397,17 +398,27 @@ export const blockProductionApi = async (page: Pick<Page, 'route'>): Promise<{ c
  * generated SVG, so event acceptance never needs a provider account or a real
  * photograph. A malformed token fails closed instead of falling through to
  * the network. */
-export const serveEventLeases = async (page: Pick<Page, 'route'>): Promise<void> => {
+export const serveEventLeases = async (page: Pick<Page, 'route'>, events: FixtureEvents): Promise<void> => {
+  const dimensions = new Map<string, { width: number; height: number }>()
+  for (const [id, asset] of Object.entries(events.assets ?? {})) {
+    if ((asset.state ?? 'ready') !== 'ready') continue
+    dimensions.set(new URL(fixtureEventLease(id)).pathname, {
+      width: asset.width ?? 640,
+      height: asset.height ?? 480,
+    })
+  }
   await page.route('http://manorama-event.localhost/**', (route) => {
     const url = new URL(route.request().url())
     if (url.search || url.hash || !/^\/[0-9a-f]{32}$/.test(url.pathname)) {
       return route.fulfill({ status: 404, body: 'not an event lease' })
     }
+    const { width, height } = dimensions.get(url.pathname) ?? { width: 640, height: 480 }
+    const radius = Math.min(width, height) * 0.3
     return route.fulfill({
       status: 200,
       contentType: 'image/svg+xml',
       headers: { 'cache-control': 'no-store' },
-      body: '<svg xmlns="http://www.w3.org/2000/svg" width="640" height="480" viewBox="0 0 640 480"><rect width="640" height="480" fill="#182431"/><circle cx="320" cy="240" r="150" fill="#e68ba7"/><path d="M0 390 210 210l140 130 100-90 190 170v60H0Z" fill="#8bb5c8"/></svg>',
+      body: `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}"><rect width="${width}" height="${height}" fill="#182431"/><circle cx="${width / 2}" cy="${height / 2}" r="${radius}" fill="#e68ba7"/></svg>`,
     })
   })
 }

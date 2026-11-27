@@ -783,7 +783,7 @@ body.manorama-desktop .app-update-dismiss:hover { color: rgba(var(--ink), 1); }
 .event-grid { inline-size: 100%; padding: 0; list-style: none; grid-template-columns: repeat(auto-fit, minmax(min(100%, 16rem), 1fr)); gap: 28px 16px; }
 .event-card { min-inline-size: 0; }
 .event-card-open { display: flex; flex-direction: column; align-items: flex-start; gap: 5px; inline-size: 100%; margin: 0; padding: 0; border: 0; background: none; color: inherit; font: inherit; text-align: start; cursor: pointer; }
-.event-card-cover { display: grid; place-items: center; inline-size: 100%; aspect-ratio: 3 / 2; margin-block-end: 5px; overflow: hidden; border-radius: 10px; background: var(--m-surface); }
+.event-card-cover { --event-cover-max-block: clamp(12rem, 50vh, 24rem); display: grid; place-items: center; inline-size: 100%; aspect-ratio: 3 / 2; margin-block-end: 5px; background: var(--m-surface); }
 .event-card-cover img { display: block; inline-size: auto; block-size: auto; max-inline-size: 100%; max-block-size: 100%; object-fit: contain; }
 .event-card-open strong { font-size: 15px; font-weight: 600; }
 .event-days { display: flex; flex-wrap: wrap; gap: 5px; margin-block-start: 7px; }

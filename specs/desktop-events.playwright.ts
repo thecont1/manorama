@@ -129,7 +129,7 @@ const expectNoRealNetwork = (network: NetworkWatch) => {
 
 const openFixture = async (page: Page, events: FixtureEvents) => {
   const network = await watchNetwork(page)
-  await serveEventLeases(page)
+  await serveEventLeases(page, events)
   await blockProductionApi(page)
   const errors: string[] = []
   page.on('pageerror', (error) => errors.push(error.message))
@@ -561,6 +561,92 @@ test('a source revision cancels a late viewer reply before it reaches the DOM or
   await expect.poll(() => rawDumpListenerCount(page)).toBe(0)
   await page.keyboard.press('Escape')
   await expect(page.locator('[data-camera-roll-mode]')).toHaveCount(0)
+})
+
+test.describe('intrinsic event covers', () => {
+  test.use({ deviceScaleFactor: 2 })
+
+  test('intrinsic covers stay honest and bounded at desktop and phone widths', async ({ page }, testInfo) => {
+    const shapes = [
+      { name: 'landscape', width: 1600, height: 1000 },
+      { name: 'portrait', width: 1000, height: 1600 },
+      { name: 'square', width: 800, height: 800 },
+      { name: 'tiny', width: 32, height: 24 },
+      { name: 'panorama', width: 1000, height: 5000 },
+    ]
+    const clusters: EventCluster[] = shapes.map((shape, index) => {
+      const id = `synthetic/covers/${shape.name}.jpg`
+      const startDate = Date.UTC(2026, 2, index + 1, 9)
+      return {
+        id: `evt_${String(index + 1).repeat(20)}`,
+        startDate,
+        endDate: Date.UTC(2026, 2, index + 1, 10),
+        isMultiDay: false,
+        coverItemId: id,
+        itemIds: [id],
+        subDays: [],
+      }
+    })
+    const assets = Object.fromEntries(shapes.map((shape) => [
+      `synthetic/covers/${shape.name}.jpg`,
+      { state: 'ready' as const, width: shape.width, height: shape.height },
+    ]))
+    const { network, errors } = await openFixture(page, { clusters, assets, status: configuredStatus(clusters) })
+    await activateCameraRoll(page)
+    await expect(page.locator('.event-card img')).toHaveCount(shapes.length)
+
+    const assertHonestGeometry = async () => {
+      const covers = await page.locator('.event-card').evaluateAll((cards) => cards.map((card) => {
+        const frame = card.querySelector<HTMLElement>('.event-card-cover')!
+        const image = frame.querySelector<HTMLImageElement>('img')!
+        const frameBox = frame.getBoundingClientRect()
+        const imageBox = image.getBoundingClientRect()
+        const frameStyle = getComputedStyle(frame)
+        return {
+          naturalWidth: image.naturalWidth,
+          naturalHeight: image.naturalHeight,
+          frameWidth: frameBox.width,
+          frameHeight: frameBox.height,
+          imageWidth: imageBox.width,
+          imageHeight: imageBox.height,
+          viewportHeight: window.innerHeight,
+          objectFit: getComputedStyle(image).objectFit,
+          overflow: frameStyle.overflow,
+          borderRadius: frameStyle.borderRadius,
+        }
+      }))
+      expect(covers).toHaveLength(shapes.length)
+      for (const [index, cover] of covers.entries()) {
+        const shape = shapes[index]!
+        expect(cover.naturalWidth).toBe(shape.width)
+        expect(cover.naturalHeight).toBe(shape.height)
+        expect(cover.frameWidth / cover.frameHeight).toBeCloseTo(shape.width / shape.height, 2)
+        expect(cover.imageWidth / cover.imageHeight).toBeCloseTo(shape.width / shape.height, 2)
+        expect(cover.frameWidth).toBeLessThanOrEqual(shape.width / 2 + 1)
+        expect(cover.frameHeight).toBeLessThanOrEqual(shape.height / 2 + 1)
+        expect(cover.frameHeight).toBeLessThanOrEqual(Math.min(384, cover.viewportHeight / 2) + 1)
+        expect(cover.imageWidth).toBeLessThanOrEqual(shape.width / 2 + 1)
+        expect(cover.imageHeight).toBeLessThanOrEqual(shape.height / 2 + 1)
+        expect(cover.objectFit).toBe('contain')
+        expect(cover.overflow).toBe('visible')
+        expect(cover.borderRadius).toBe('0px')
+      }
+    }
+
+    await expect.poll(() => page.locator('.event-card img').evaluateAll((images) =>
+      images.every((image) => (image as HTMLImageElement).complete && (image as HTMLImageElement).naturalWidth > 0))).toBe(true)
+    await assertHonestGeometry()
+    await page.locator('[data-camera-roll-mode]').screenshot({ path: testInfo.outputPath('camera-roll-intrinsic-desktop.png'), animations: 'disabled' })
+
+    await page.setViewportSize({ width: 390, height: 844 })
+    await assertHonestGeometry()
+    const width = await page.locator('[data-camera-roll-mode]').evaluate((element) => ({ client: element.clientWidth, scroll: element.scrollWidth }))
+    expect(width.scroll).toBeLessThanOrEqual(width.client + 1)
+    await page.locator('[data-camera-roll-mode]').screenshot({ path: testInfo.outputPath('camera-roll-intrinsic-phone.png'), animations: 'disabled' })
+    await expectLocalAssetsOnly(page)
+    expectNoRealNetwork(network)
+    expect(errors).toEqual([])
+  })
 })
 
 test('opening Settings retires the controller; a late scan cannot mount events or previews', async ({ page }) => {

@@ -284,6 +284,38 @@ describe('Camera Roll rail', () => {
     expect(requests.every((call) => !String(call.args?.ids).includes('/Users/example'))).toBe(true)
   })
 
+  test('ready covers adopt intrinsic ratios and small images are never upscaled', async () => {
+    const dimensions: Record<string, { width: number; height: number }> = {
+      '2026/03/a.jpg': { width: 1200, height: 1800 },
+      '2026/04/c.jpg': { width: 64, height: 64 },
+    }
+    const deps = fake({ asset: async (request) => ({ items: request.ids.map((id) => ({
+      id,
+      url: lease,
+      ...dimensions[id],
+      state: 'ready',
+    })) }) })
+    await mountMode(deps)
+    await until(() => root.querySelectorAll('.event-card img').length === 2)
+    const portrait = root.querySelector<HTMLImageElement>('.event-card img')!
+    const square = root.querySelectorAll<HTMLImageElement>('.event-card img')[1]
+    const portraitFrame = portrait.closest<HTMLElement>('.event-card-cover')!
+    const squareFrame = square.closest<HTMLElement>('.event-card-cover')!
+    expect(portraitFrame.style.aspectRatio).toBe('1200 / 1800')
+    expect(squareFrame.style.aspectRatio).toBe('64 / 64')
+    expect(portraitFrame.style.maxInlineSize).toBe('min(100%, 600px, calc(var(--event-cover-max-block) * 0.6666666666666666))')
+    expect(squareFrame.style.maxInlineSize).toBe('min(100%, 32px, calc(var(--event-cover-max-block) * 1))')
+    expect(portrait.style.maxInlineSize).toBe('min(100%, 600px)')
+    expect(portrait.style.maxBlockSize).toBe('min(100%, 900px)')
+    expect(square.style.maxInlineSize).toBe('min(100%, 32px)')
+    expect(square.style.maxBlockSize).toBe('min(100%, 32px)')
+    const css = readFileSync(new URL('../styles.css', import.meta.url), 'utf8')
+    const coverRule = css.match(/\.event-card-cover \{([^}]*)\}/)?.[1]
+    expect(coverRule).toBeDefined()
+    expect(coverRule).not.toContain('overflow: hidden')
+    expect(coverRule).not.toContain('border-radius')
+  })
+
   test('repeated request cancellation retries the cover instead of reporting a failure', async () => {
     let attempts = 0
     const deps = fake({ asset: async (request) => {
