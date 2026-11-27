@@ -26,6 +26,14 @@ const tauriBridge = (): RawDumpBridge => ({
     return invoke(command, args ?? {})
   },
   listen: async (event, handler) => {
+    // Tauri's listen() unwinds through floating promises when the event plugin
+    // internals are absent, so the failure escapes every try/catch as an
+    // unhandled rejection — in a plain browser or test DOM it poisons whatever
+    // happens to be running. Refuse before importing when the runtime cannot
+    // possibly deliver events.
+    if (typeof window === 'undefined' || !('__TAURI_EVENT_PLUGIN_INTERNALS__' in window)) {
+      throw new Error('Event listening needs the native runtime')
+    }
     const { listen } = await import('@tauri-apps/api/event')
     const unlisten = await listen<unknown>(event, (message) => handler(message.payload))
     return unlisten
