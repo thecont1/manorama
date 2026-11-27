@@ -628,6 +628,13 @@ button { color: inherit; }
 .m-sheet-field > .m-sheet-hint { grid-area: 1 / 2; justify-self: end; }
 .m-sheet-field > .m-switch ~ .m-sheet-hint { align-self: center; }
 .m-sheet-field > .m-segmented { grid-area: 2 / 1 / auto / -1; margin-top: 8px; }
+/* The sheet already supplies the surface; keep only selected pills and the switch outline. */
+[data-settings-view] .m-segmented { background: transparent; }
+[data-settings-view] .m-switch-track {
+  background: transparent;
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--m-ink) 28%, transparent);
+}
+[data-settings-view] .m-switch[aria-checked='true'] .m-switch-track { background: var(--m-primary); box-shadow: none; }
 @media (max-width: 30em) {
   .m-sheet-field > .m-sheet-hint { grid-area: 3 / 1 / auto / -1; justify-self: start; align-self: auto; text-align: left; }
 }
