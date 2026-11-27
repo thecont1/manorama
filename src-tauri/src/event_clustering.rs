@@ -207,11 +207,12 @@ fn root_path_identity(root: &Path) -> Result<FileIdentity, String> {
     }
     #[cfg(windows)]
     {
-        use std::os::windows::fs::MetadataExt;
-        Ok(FileIdentity {
-            device: u64::from(metadata.volume_serial_number()),
-            inode: metadata.file_index(),
-        })
+        let dir = Dir::open_ambient_dir(root, cap_std::ambient_authority())
+            .map_err(|_| "Raw dump is unavailable")?;
+        let metadata = dir
+            .dir_metadata()
+            .map_err(|_| "Raw dump is unavailable")?;
+        FileIdentity::from_handle(&metadata)
     }
 }
 
@@ -744,16 +745,10 @@ impl FileIdentity {
 
     #[cfg(windows)]
     fn from_handle(metadata: &Metadata) -> Result<Self, String> {
-        use cap_std::fs::MetadataExt;
-        let device = metadata
-            .volume_serial_number()
-            .ok_or("Event identity is unavailable")?;
-        let inode = metadata
-            .file_index()
-            .ok_or("Event identity is unavailable")?;
+        use cap_fs_ext::MetadataExt;
         Ok(Self {
-            device: u64::from(device),
-            inode,
+            device: metadata.dev(),
+            inode: metadata.ino(),
         })
     }
 
@@ -772,7 +767,7 @@ impl FileIdentity {
     #[cfg(windows)]
     fn from_path(path: &Path) -> Result<Self, String> {
         let parent = path.parent().ok_or("Event asset is missing")?;
-        let name = path.file_name().ok_or("Event asset is missing")?;
+        let name = Path::new(path.file_name().ok_or("Event asset is missing")?);
         let parent = Dir::open_ambient_dir(parent, cap_std::ambient_authority())
             .map_err(|_| "Event asset parent is unavailable")?;
         let file = open_for_identity(&parent, name)?;

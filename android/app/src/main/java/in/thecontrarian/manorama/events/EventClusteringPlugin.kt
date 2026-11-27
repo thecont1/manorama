@@ -579,11 +579,13 @@ class EventClusteringPlugin : Plugin() {
     private fun validIds(ids: List<String>): Boolean =
         ids.isNotEmpty() && ids.size <= 64 && ids.toSet().size == ids.size && ids.all(MediaStoreSource::isMediaStoreId)
 
-    private fun PluginCall.stringList(name: String): List<String>? = try {
-        val array = data.optJSONArray(name) ?: return null
-        List(array.length()) { array.getString(it) }
-    } catch (_: Exception) {
-        null
+    private fun PluginCall.stringList(name: String): List<String>? {
+        return try {
+            val array = data.optJSONArray(name) ?: return null
+            List(array.length()) { array.getString(it) }
+        } catch (_: Exception) {
+            null
+        }
     }
 
     private fun libraryChanged() {
