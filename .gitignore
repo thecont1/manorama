@@ -18,6 +18,9 @@ out/
 .devin/
 .qodo/
 
+# Root Rust workspace artifacts (core tests use an external CARGO_TARGET_DIR).
+/target/
+
 # Tauri build artifacts and generated capability schemas
 src-tauri/target/
 src-tauri/gen/
@@ -54,6 +57,7 @@ outputs/**/*.zip
 # Loose captures dropped at the top level are evidence, not content; curated
 # capture sets live in their own outputs/<name>/ subdirectories.
 outputs/*.png
+outputs/slice2-*
 
 # Capture output. The harnesses under .work/stocktake are tracked; the
 # screenshots they produce are evidence, not repository content.
@@ -90,6 +94,13 @@ macos/ManoramaMac/build-focus-test/
 # Local styled-DMG preview output
 /build/dmg-preview/
 macos/ManoramaMac/build-*/
+
+# SwiftPM scratch for the shared event-clustering core. What makes the package
+# reproducible is `Package.swift`, which is checked in; the `.build` tree is
+# this machine's object files and locks, and a `.lock` committed by one runner
+# is a stale claim about somebody else's build directory.
+native/EventClustering/.build/
+native/EventClustering/.swiftpm/
 
 # Local working copy of the procedural-illustrator sampling engine — scratch;
 # its provenance ships as the tool-source zip under outputs/procedural-illustrator.

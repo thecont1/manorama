@@ -81,6 +81,12 @@ private final class ManoramaBridgeViewController: CAPBridgeViewController {
         // registers as an instance so JS sees "LocalGallery" alongside the
         // package plugins the config list loads.
         bridge?.registerPluginInstance(LocalGalleryPlugin())
+        /* Event Clustering: the raw-dump commands have no folder picker to
+         * open, so the only reason the page can reach them at all is this
+         * line. Registration also runs the plugin's load(), which is where a
+         * dump declared in an earlier launch starts watching the library
+         * again before the first scan. */
+        bridge?.registerPluginInstance(EventClusteringPlugin())
         if #available(iOS 26.0, *), let glassModel, let webView {
             // The capsules ride above the webView in a pass-through
             // container; touches off-capsule belong to the page.

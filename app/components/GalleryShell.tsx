@@ -13,6 +13,7 @@ type Props = {
    *  absent curtain as already entered, so Back from owner surfaces returns
    *  to the open frame rather than the veil. */
   entered?: boolean
+  landmark?: boolean
   settings: Pick<GallerySettings, 'title' | 'caption'>
   status?: string
   children: Child
@@ -65,9 +66,10 @@ export function GalleryCurtain({ settings, status, mediaCount, hidden = false }:
 }
 
 /** Shared public gallery chrome for SSR and the native client. */
-export default function GalleryShell({ settings, status, viewerRole, libraryHref, mediaCount, entered = false, children }: Props) {
+export default function GalleryShell({ settings, status, viewerRole, libraryHref, mediaCount, entered = false, landmark = true, children }: Props) {
+  const Shell = landmark ? 'main' : 'div'
   return (
-    <main class="gallery-shell" data-viewer-role={viewerRole} data-library-href={libraryHref}>
+    <Shell class="gallery-shell" data-viewer-role={viewerRole} data-library-href={libraryHref}>
       <h1 class="sr-only" dangerouslySetInnerHTML={{ __html: escapeHtml(settings.title) }} />
       {entered ? null : (
         <>
@@ -79,7 +81,7 @@ export default function GalleryShell({ settings, status, viewerRole, libraryHref
         </>
       )}
       {children}
-    </main>
+    </Shell>
   )
 }
 

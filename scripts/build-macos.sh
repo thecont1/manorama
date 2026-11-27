@@ -1,3 +1,4 @@
+#!/usr/bin/env bash
 # macOS native shell build
 #
 # The Library bundle is built by vite (see vite.config.desktop-shell.ts) and
@@ -24,6 +25,13 @@ case "$CONFIG" in
   *) echo "usage: scripts/build-macos.sh [debug|release]" >&2; exit 2 ;;
 esac
 APP="macos/ManoramaMac"
+# The shared event-clustering core, compiled straight into this binary.
+# It is a SwiftPM package for the iOS app and for the core's own tests, but
+# the shell and the engine must not be able to drift into two builds of the
+# same clustering decision — and the core has no dependencies to link,
+# which is what makes taking its sources here cheap rather than a packaging
+# problem. Nothing is added to the bundle: these are eight Swift files.
+CORE="native/EventClustering/Sources/ManoramaEventClustering"
 # Test builds may override the bundle id and output directory — a suite
 # that must coexist with an installed copy needs a REAL distinct
 # CFBundleIdentifier, since AX probes and `tell application id` resolve
@@ -32,7 +40,8 @@ BUILD_DIR="${MANORAMA_MACOS_BUILD_DIR:-$APP/build}"
 BUNDLE_ID="${MANORAMA_MACOS_BUNDLE_ID:-in.thecontrarian.manorama.desktop}"
 
 echo "==> building the Library bundle"
-bunx vite build --config vite.config.desktop-shell.ts
+# Avoid bundling the config through a worktree's shared node_modules symlink.
+bunx vite build --config vite.config.desktop-shell.ts --configLoader runner
 
 echo "==> staging the viewer bundle into the app resources"
 rm -rf "$APP/Resources/ViewerBundle"
@@ -80,8 +89,9 @@ mkdir -p "$BUILD_DIR"
   -framework SwiftUI \
   -framework WebKit \
   -framework Security \
+  -framework Vision \
   -o "$BUILD_DIR/manorama" \
-  "$APP"/*.swift
+  "$APP"/*.swift "$CORE"/*.swift
 
 # The Mach-O headers are the truth about what the compiler emitted: the
 # build fails if the minimum-OS version or the SDK it linked against does

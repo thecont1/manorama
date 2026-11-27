@@ -69,6 +69,8 @@ import { SIGN_IN_PROVIDERS } from '../../app/lib/signin'
 import { desktopScreen, showPasteFallback } from '../lib/welcome'
 import ShareFlow from './ShareFlow'
 import LocalGalleryDetails from './LocalGalleryDetails'
+import CameraRoll, { CameraRollFolderAction, CameraRollPill } from './EventClusters'
+import type { EventViewerOpenChange } from './EventViewer'
 import { DropFoldersSheet, DropVeil } from './DropFoldersSheet'
 import { Sheet } from '../../app/components/ui/Sheet'
 import { QuietIcon, SettingsIcon, LinkIcon, SourceIcon } from '../../app/components/admin-icons'
@@ -519,6 +521,18 @@ export default function Catalogue({ apiBase }: { apiBase: string }) {
   const [availability, setAvailability] = useState<Record<string, GalleryAvailability>>({})
   const [viewerState, setViewerState] = useState<ViewerState | null>(null)
   const [accountViewer, setAccountViewer] = useState<AccountViewerState | null>(null)
+  const [cameraRollOpen, setCameraRollOpen] = useState(false)
+  const cameraRollTriggerRef = useRef<HTMLElement | null>(null)
+  const closeCameraRoll = () => {
+    setCameraRollOpen(false)
+    requestAnimationFrame(() => cameraRollTriggerRef.current?.focus())
+  }
+  const [eventViewerOpen, setEventViewerOpen] = useState(false)
+  const eventViewerCloseRef = useRef<(() => void) | null>(null)
+  const handleEventViewerOpenChange: EventViewerOpenChange = (open, close) => {
+    eventViewerCloseRef.current = open ? close ?? null : null
+    setEventViewerOpen(open)
+  }
   // The native shell's Gallery menu drives the mounted Viewer through this
   // handle. The Viewer keeps sole ownership of the index — the handle asks it
   // to move, it never sets it. Under Tauri there is no shell, so the handle
@@ -537,6 +551,7 @@ export default function Catalogue({ apiBase }: { apiBase: string }) {
     // The shell's Gallery menu has a Close Gallery item; the page owns
     // what closing means, so the shell asks the page.
     publishClose(() => {
+      if (eventViewerCloseRef.current) { eventViewerCloseRef.current(); return }
       if (accountViewer) { disposeOpenLease(); setAccountViewer(null) }
       setViewerState(null)
     })
@@ -550,9 +565,9 @@ export default function Catalogue({ apiBase }: { apiBase: string }) {
   })
 
   useEffect(() => {
-    const open = accountViewer !== null || viewerState !== null
+    const open = accountViewer !== null || viewerState !== null || eventViewerOpen
     shellPost({ type: 'gallery', open, title: accountViewer?.manifest.title })
-  }, [accountViewer, viewerState])
+  }, [accountViewer, viewerState, eventViewerOpen])
 
   // Escape leaves the gallery, and only the native shell hears it: the
   // Tauri build has no shell on the other end, so its behaviour is
@@ -861,7 +876,7 @@ export default function Catalogue({ apiBase }: { apiBase: string }) {
   // during render so the mount-stable subscription always reads the live
   // answer.
   dropContextRef.current = {
-    blocked: Boolean(viewerState || accountViewer) || catalogue === null,
+    blocked: Boolean(viewerState || accountViewer || eventViewerOpen) || catalogue === null,
     tier: accountTier,
   }
 
@@ -1739,7 +1754,7 @@ export default function Catalogue({ apiBase }: { apiBase: string }) {
     // still loading the drop waits instead: the grants stay pending and
     // the paths replay through here once the Library can act on them.
     if (blocked) {
-      if (catalogueRef.current === null && !viewerState && !accountViewer) {
+      if (catalogueRef.current === null && !viewerState && !accountViewer && !eventViewerOpen) {
         pendingDropPaths.current = { paths, drop: seq }
       } else {
         // Named, not all — a later drop may already own the pending set
@@ -1799,10 +1814,10 @@ export default function Catalogue({ apiBase }: { apiBase: string }) {
   // the ones the drop actually sees.
   useEffect(() => {
     const pending = pendingDropPaths.current
-    if (!pending || catalogue === null || viewerState || accountViewer) return
+    if (!pending || catalogue === null || viewerState || accountViewer || eventViewerOpen) return
     pendingDropPaths.current = null
     dropHandlerRef.current(pending.paths, pending.drop)
-  }, [catalogue, viewerState, accountViewer])
+  }, [catalogue, viewerState, accountViewer, eventViewerOpen])
 
   const toggleDropCandidate = (path: string) => {
     const candidate = dropCandidates.find((c) => c.path === path)
@@ -3019,8 +3034,10 @@ export default function Catalogue({ apiBase }: { apiBase: string }) {
   // would snap every mode choice back to strip on the next unrelated
   // render. Rebuild only when the catalogue or the open target moves.
   const localViewerBundle = useMemo(() => {
-    if (!viewerState || !catalogue || accountTier !== 'pro') return null
-    const record = catalogue.galleries.find((gallery) => gallery.id === viewerState.galleryId)
+    if (!viewerState || !catalogue) return null
+    const record = accountTier === 'pro'
+      ? catalogue.galleries.find((gallery) => gallery.id === viewerState.galleryId) ?? null
+      : null
     if (!record) return null
     const withDims = (item: LocalGalleryItem): LocalGalleryItem => {
       const dims = dimsRef.current.get(item.id)
@@ -3185,7 +3202,7 @@ export default function Catalogue({ apiBase }: { apiBase: string }) {
             plate={plate}
             initialIndex={viewerState?.index ?? 0}
             initialEdit={viewerState?.edit ?? false}
-            editStore={localEditStore}
+            editStore={localEditStore ?? undefined}
             allowFullscreen={false}
             navigationRef={navigationRef}
             readMetadata={async (image) => {
@@ -3718,6 +3735,11 @@ export default function Catalogue({ apiBase }: { apiBase: string }) {
             <h1 class="admin-galleries-heading" id="galleries-heading">Library</h1>
             <div class="admin-heading-actions">
               <button type="button" class="admin-button admin-button--solid admin-add-pill" onClick={() => setAddChooserOpen(true)} disabled={busy}><span aria-hidden="true">+</span> Add Gallery</button>
+              <CameraRollPill active={cameraRollOpen} onActivate={(trigger) => {
+                cameraRollTriggerRef.current = trigger
+                if (cameraRollOpen) closeCameraRoll()
+                else setCameraRollOpen(true)
+              }} />
               {/* Quiet view: sinks every word in the gallery list to a
                   whisper so only the photographs remain. The rail dims to
                   half — the toggle stays the way back. */}
@@ -3803,6 +3825,16 @@ export default function Catalogue({ apiBase }: { apiBase: string }) {
           <p class="admin-copyright">© 2026 Mahesh Shantaram / <a {...externalAnchor(AUTHOR_URL)}>thecontrarian.in</a><br />Photographs in galleries belong to their respective owners.</p>
         </aside>
         <section class={quiet ? 'gallery-list lib-quiet' : 'gallery-list'} aria-labelledby="galleries-heading" hidden={settingsOpen || undefined}>
+          {cameraRollOpen && !settingsOpen && !settingsClosing ? (
+            <CameraRoll
+              onClose={closeCameraRoll}
+              onOpenSettings={openSettings}
+              navigationRef={navigationRef}
+              {...chromeProps}
+              onPositionChange={(position) => shellPost({ type: 'position', index: position.index, total: position.total })}
+              onViewerOpenChange={handleEventViewerOpenChange}
+            />
+          ) : <>
           {pendingUpdate ? (
             <div class="app-update-banner" role="status">
               <span class="app-update-text">manorama <strong>v{pendingUpdate.version}</strong> is available.</span>
@@ -4024,6 +4056,7 @@ export default function Catalogue({ apiBase }: { apiBase: string }) {
           {!galleries.length && !accountGalleries?.length && !remoteDeviceGalleries.length ? (
             <p class="desktop-empty">Choose a folder or a mounted memory card. Manorama references the originals in place — nothing is copied, uploaded, or moved.</p>
           ) : null}
+          </>}
         </section>
         {/* Settings takes over the galleries column itself — the rail stays
             mounted beside it and the gear becomes the way back. Anchors in it
@@ -4114,6 +4147,7 @@ export default function Catalogue({ apiBase }: { apiBase: string }) {
                       </>
                     ) : null}
                   </ActionGroup>
+                  <CameraRollFolderAction />
                   {/* The same vault card the iOS Settings hosts: usage, cap,
                       load policy, per-gallery purge, Forget everything. The
                       controller resolves the live tier on every call. */}

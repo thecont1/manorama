@@ -43,4 +43,11 @@ describe('GalleryShell curtain status accessibility', () => {
     expect(html).not.toContain('aria-describedby')
     expect(html).not.toContain('gallery-curtain-status')
   })
+
+  test('embedded viewers keep the surrounding page as its only main landmark', () => {
+    expect(render()).toMatch(/^<main class="gallery-shell"/)
+    const embedded = String(GalleryShell({ settings, entered: true, landmark: false, children: '' }))
+    expect(embedded).toMatch(/^<div class="gallery-shell"/)
+    expect(embedded).not.toContain('<main')
+  })
 })

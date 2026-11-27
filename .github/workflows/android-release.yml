@@ -80,6 +80,10 @@ jobs:
           distribution: temurin
           java-version: '21'
 
+      - uses: dtolnay/rust-toolchain@39008827e6b4319a349e9a42dfc90579dd25f1ca # stable
+        with:
+          targets: aarch64-linux-android,armv7-linux-androideabi,x86_64-linux-android
+
       - run: bun install --frozen-lockfile
 
       # Names what the run can actually see, without printing any value, and
@@ -133,7 +137,9 @@ jobs:
         run: |
           sdkmanager=sdkmanager
           command -v sdkmanager >/dev/null || sdkmanager="$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager"
-          yes | "$sdkmanager" "platforms;android-36" "build-tools;36.0.0" >/dev/null
+          yes | "$sdkmanager" "platforms;android-36" "build-tools;36.0.0" "ndk;27.2.12479018" >/dev/null
+          echo "ANDROID_NDK_HOME=$ANDROID_HOME/ndk/27.2.12479018" >> "$GITHUB_ENV"
+          cargo install cargo-ndk --locked --version 4.1.2
           echo "build-tools: $(ls "$ANDROID_HOME/build-tools" | tr '\n' ' ')"
 
       - name: Build the signed release APK and AAB

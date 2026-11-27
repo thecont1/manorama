@@ -1,3 +1,4 @@
+mod event_clustering;
 mod private_store;
 
 use std::io::{Read, Seek, Write};
@@ -11,10 +12,14 @@ use tauri_plugin_deep_link::DeepLinkExt;
 use tauri_plugin_dialog::DialogExt;
 use tauri_plugin_fs::FsExt;
 
-/// Grants both runtime scopes to one directory. The fs plugin scope lets
-/// `readDir`/`exists` list inside it; the asset protocol scope lets
-/// `convertFileSrc` URLs resolve. Neither scope ever contains `**`.
+/// Grants the gallery filesystem scope to one directory. The scope lets
+/// `readDir`/`exists` list inside it and never contains `**`; event media uses
+/// separate opaque leases instead of renderer-constructed file URLs.
 fn allow_root(app: &AppHandle, dir: &PathBuf) -> Result<(), String> {
+    // The raw dump can never reach here — picker and drop both guard against
+    // it before granting — so gallery roots keep the asset-protocol grant
+    // their convertFileSrc display path needs. Event media stays behind the
+    // opaque manorama-event leases either way.
     app.asset_protocol_scope()
         .allow_directory(dir, true)
         .map_err(|e| e.to_string())?;
@@ -42,8 +47,11 @@ async fn pick_gallery_root(app: AppHandle) -> Result<Option<String>, String> {
     let Some(dir) = picked.as_path().map(|p| p.to_path_buf()) else {
         return Ok(None);
     };
+    let state = app.state::<event_clustering::EventState>();
+    let inner = state.0.lock().map_err(|e| e.to_string())?;
+    inner.guard_gallery_roots(std::slice::from_ref(&dir))?;
     allow_root(&app, &dir)?;
-    private_store::record_gallery_root(&app, &dir.to_string_lossy())?;
+    private_store::record_roots(&inner.paths, std::slice::from_ref(&dir))?;
     Ok(Some(dir.to_string_lossy().to_string()))
 }
 
@@ -63,10 +71,10 @@ fn register_saved_gallery_roots(app: AppHandle) -> Result<(), String> {
 // MARK: - Drag-and-drop folder add
 //
 // The dropped-directory counterpart of the macOS shell's pendingDrops. A
-// drop grants both scopes at once — the review sheet's `readDir` scan and
-// `convertFileSrc` thumbnails must work before any commit — and holds the
-// directories here, never in renderer-reachable state. `roots.json` is
-// touched only by commit, so an uncommitted drop can never become durable.
+// drop grants the gallery fs scope at once — the review sheet's `readDir`
+// scan must work before any commit — and holds the directories here, never in
+// renderer-reachable state. `roots.json` is touched only by commit, so an
+// uncommitted drop can never become durable.
 
 /// Directories the OS delivered on a drop that the page has not yet
 /// committed or discarded, plus the sequence that identifies this drop.
@@ -115,11 +123,7 @@ fn handle_folder_drag(app: &AppHandle, event: &tauri::DragDropEvent) {
             );
         }
         tauri::DragDropEvent::Drop { paths, .. } => {
-            let dirs: Vec<PathBuf> = paths
-                .iter()
-                .filter(|path| path.is_dir())
-                .cloned()
-                .collect();
+            let dirs: Vec<PathBuf> = paths.iter().filter(|path| path.is_dir()).cloned().collect();
             let files = paths.len() - dirs.len();
             let drop = {
                 let pending = app.state::<PendingDrops>();
@@ -134,9 +138,23 @@ fn handle_folder_drag(app: &AppHandle, event: &tauri::DragDropEvent) {
                 pending.0
             };
             // Scope first, emit second — the page scans the moment the event
-            // lands, and the scan must not race its grant.
+            // lands, and the scan must not race its grant. The raw-dump
+            // conflict is checked before granting, not only at commit: event
+            // media must stay behind opaque leases, never a renderer scope.
             for dir in &dirs {
-                let _ = allow_root(app, dir);
+                let conflicted = app
+                    .state::<event_clustering::EventState>()
+                    .0
+                    .lock()
+                    .map(|inner| {
+                        inner
+                            .guard_gallery_roots(std::slice::from_ref(dir))
+                            .is_err()
+                    })
+                    .unwrap_or(true);
+                if !conflicted {
+                    let _ = allow_root(app, dir);
+                }
             }
             let emitted: Vec<String> = dirs
                 .iter()
@@ -177,6 +195,21 @@ fn commit_dropped_roots(
             return Err("the drop was replaced".to_string());
         }
     }
+    let events = app.state::<event_clustering::EventState>();
+    let inner = events.0.lock().map_err(|e| e.to_string())?;
+    // Validate the whole provenanced batch before the first durable commit.
+    // A dump alias later in the list cannot leave earlier gallery roots saved.
+    let selected: Vec<PathBuf> = paths
+        .iter()
+        .filter_map(|named| {
+            pending
+                .1
+                .iter()
+                .find(|dir| same_path(dir, Path::new(named)))
+                .cloned()
+        })
+        .collect();
+    inner.guard_gallery_roots(&selected)?;
     let mut committed = Vec::new();
     for named in &paths {
         let candidate = PathBuf::from(named);
@@ -190,9 +223,12 @@ fn commit_dropped_roots(
         // stays pending — the page's discard collects it and a retry can
         // still name it — while the reply lists only what committed.
         if let Err(error) = allow_root(&app, &dir)
-            .and_then(|_| private_store::record_gallery_root(&app, &dir.to_string_lossy()))
+            .and_then(|_| private_store::record_roots(&inner.paths, std::slice::from_ref(&dir)))
         {
-            eprintln!("commit_dropped_roots: {} failed to commit: {error}", dir.display());
+            eprintln!(
+                "commit_dropped_roots: {} failed to commit: {error}",
+                dir.display()
+            );
             continue;
         }
         pending.1.remove(index);
@@ -217,9 +253,11 @@ fn discard_dropped_roots(
     let mut pending = state.0.lock().map_err(|e| e.to_string())?;
     match paths {
         None => pending.1.clear(),
-        Some(named) => {
-            pending.1.retain(|dir| !named.iter().any(|path| same_path(dir, &PathBuf::from(path))))
-        }
+        Some(named) => pending.1.retain(|dir| {
+            !named
+                .iter()
+                .any(|path| same_path(dir, &PathBuf::from(path)))
+        }),
     }
     Ok(())
 }
@@ -371,7 +409,9 @@ fn vault_entry_path(app: &AppHandle, path: &str) -> Result<PathBuf, String> {
         .ok_or_else(|| "Vault paths must stay inside the vault root".to_string())?;
     if relative.is_empty()
         || relative.contains('\\')
-        || relative.split('/').any(|part| part.is_empty() || part == "." || part == "..")
+        || relative
+            .split('/')
+            .any(|part| part.is_empty() || part == "." || part == "..")
     {
         return Err("Vault paths must stay inside the vault root".to_string());
     }
@@ -470,7 +510,11 @@ fn walk_vault(dir: &PathBuf, prefix: &str, files: &mut Vec<VaultFileStat>) -> Re
     for entry in entries {
         let entry = entry.map_err(|e| e.to_string())?;
         let name = entry.file_name().to_string_lossy().to_string();
-        let logical = if prefix.is_empty() { name.clone() } else { format!("{prefix}/{name}") };
+        let logical = if prefix.is_empty() {
+            name.clone()
+        } else {
+            format!("{prefix}/{name}")
+        };
         if entry.file_type().map_err(|e| e.to_string())?.is_dir() {
             walk_vault(&entry.path(), &logical, files)?;
         } else {
@@ -535,8 +579,11 @@ async fn vault_log(app: AppHandle, line: String) -> Result<(), String> {
             .map(|d| d.as_millis())
             .unwrap_or(0);
         if oversized {
-            writeln!(file, "{millis} vault-debug.log rotated past {VAULT_LOG_MAX_BYTES} bytes")
-                .map_err(|e| e.to_string())?;
+            writeln!(
+                file,
+                "{millis} vault-debug.log rotated past {VAULT_LOG_MAX_BYTES} bytes"
+            )
+            .map_err(|e| e.to_string())?;
         }
         writeln!(file, "{millis} {line}").map_err(|e| e.to_string())
     })
@@ -577,12 +624,10 @@ async fn device_id() -> Result<String, String> {
 /// error must surface, never read back as a deleted key.
 #[tauri::command]
 async fn vault_key_get(name: String) -> Result<Option<String>, String> {
-    tauri::async_runtime::spawn_blocking(move || {
-        match vault_key_entry(&name)?.get_password() {
-            Ok(value) => Ok(Some(value)),
-            Err(keyring::Error::NoEntry) => Ok(None),
-            Err(error) => Err(error.to_string()),
-        }
+    tauri::async_runtime::spawn_blocking(move || match vault_key_entry(&name)?.get_password() {
+        Ok(value) => Ok(Some(value)),
+        Err(keyring::Error::NoEntry) => Ok(None),
+        Err(error) => Err(error.to_string()),
     })
     .await
     .map_err(|e| e.to_string())?
@@ -620,10 +665,7 @@ async fn vault_key_remove(name: String) -> Result<(), String> {
 #[tauri::command]
 fn oauth_loopback_begin(state: tauri::State<LoopbackState>) -> Result<u16, String> {
     let listener = TcpListener::bind("127.0.0.1:0").map_err(|e| e.to_string())?;
-    let port = listener
-        .local_addr()
-        .map_err(|e| e.to_string())?
-        .port();
+    let port = listener.local_addr().map_err(|e| e.to_string())?.port();
     let handle = Arc::new(LoopbackHandle {
         listener,
         claimed: AtomicBool::new(false),
@@ -754,11 +796,18 @@ pub fn run() {
         // The saved size/position still apply the moment fullscreen is left.
         .plugin(
             tauri_plugin_window_state::Builder::new()
-                .with_state_flags(tauri_plugin_window_state::StateFlags::all() - tauri_plugin_window_state::StateFlags::FULLSCREEN)
+                .with_state_flags(
+                    tauri_plugin_window_state::StateFlags::all()
+                        - tauri_plugin_window_state::StateFlags::FULLSCREEN,
+                )
                 .build(),
         )
         .manage(LoopbackState(Mutex::new(None)))
         .manage(PendingDrops(Mutex::new((0, Vec::new()))))
+        .register_asynchronous_uri_scheme_protocol(
+            event_clustering::EVENT_SCHEME,
+            event_clustering::serve_event_asset,
+        )
         .invoke_handler(tauri::generate_handler![
             device_label,
             device_kind,
@@ -774,6 +823,12 @@ pub fn run() {
             private_store::read_private_file,
             private_store::write_private_file,
             private_store::delete_private_file,
+            event_clustering::pick_raw_dump_root,
+            event_clustering::get_raw_dump_status,
+            event_clustering::scan_raw_dump_events,
+            event_clustering::clear_raw_dump_root,
+            event_clustering::get_event_asset_image,
+            event_clustering::reveal_event_asset,
             vault_read,
             vault_write,
             vault_move,
@@ -785,6 +840,18 @@ pub fn run() {
             vault_log,
         ])
         .setup(|app| {
+            let paths = private_store::StorePaths::from_args(
+                app.path().app_config_dir()?,
+                std::env::args_os().skip(1),
+            )
+            .map_err(std::io::Error::other)?;
+            let events =
+                event_clustering::EventState::load(paths.clone()).map_err(std::io::Error::other)?;
+            app.manage(paths);
+            app.manage(events);
+            app.state::<event_clustering::EventState>()
+                .restore_watcher(app.handle().clone())
+                .map_err(std::io::Error::other)?;
             // A cold start via the custom scheme delivers the launch URLs
             // here instead of through on_open_url — forward them so the
             // front end sees one delivery path either way.

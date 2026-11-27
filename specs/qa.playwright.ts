@@ -84,6 +84,9 @@ async function dismissCurtain(
   await page.goto(url, { waitUntil: "domcontentloaded" });
   const curtain = page.locator("[data-curtain]");
   await expect(curtain).toBeVisible();
+  await expect(
+    page.locator('[component-name="/app/islands/Viewer.tsx"]'),
+  ).toHaveAttribute("data-hono-live", "");
   await curtain.click();
   await expect(curtain).toBeHidden();
 }
@@ -2422,6 +2425,38 @@ test.describe("display and info sheets", () => {
     const hint2 = await field.locator(".m-sheet-hint").boundingBox();
     const fieldBox = await field.boundingBox();
     expect(hint2!.x + hint2!.width).toBeLessThanOrEqual(fieldBox!.x + fieldBox!.width + 1);
+  });
+
+  test("display controls keep only selected fills on the sheet surface", async ({
+    page,
+    request,
+  }) => {
+    const slug = "display-controls";
+    const spawn = await request.post(`${BASE}/.dev-seed/spawn`, {
+      data: { accountId: DEV_ACCOUNT, galleries: [{ slug }] },
+    });
+    expect(spawn.status()).toBe(200);
+    expect((await spawn.json()).results[0].ok).toBe(true);
+    await dismissCurtain(page, `${BASE}/${OWNER}/${slug}`);
+    await showChrome(page);
+    await page.getByRole("button", { name: "Gallery Settings", exact: true }).click();
+    const dialog = page.getByRole("dialog", { name: "Settings" });
+    const view = dialog.locator("[data-settings-view]");
+
+    for (const name of ["Layout", "Canvas"]) {
+      const group = view.getByRole("radiogroup", { name, exact: true });
+      await expect(group).toHaveCSS("background-color", "rgba(0, 0, 0, 0)");
+      const selected = group.getByRole("radio", { checked: true });
+      await expect(selected).not.toHaveCSS("background-color", "rgba(0, 0, 0, 0)");
+    }
+
+    const arrows = view.getByRole("switch", { name: "Arrows" });
+    if ((await arrows.getAttribute("aria-checked")) === "true") await arrows.click();
+    const track = arrows.locator(".m-switch-track");
+    await expect(track).toHaveCSS("background-color", "rgba(0, 0, 0, 0)");
+    await arrows.click();
+    await expect(arrows).toHaveAttribute("aria-checked", "true");
+    await expect(track).not.toHaveCSS("background-color", "rgba(0, 0, 0, 0)");
   });
 
   test("axe is clean with the display sheet and the info sheet open", async ({
