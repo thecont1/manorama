@@ -32,7 +32,7 @@ Free-tier owners keep at most 3 `retained` galleries; creates beyond that insert
 
 - Accepted image formats: JPEG, WebP, AVIF, HEIC, and HEIF. PNG, GIF, TIFF, and all non-image files are consciously ignored at scan time. Video is ignored too, except in iCloud shared albums — see the Video section below.
 
-- Only the top level of a folder is scanned; subfolders are not descended into. Exception: the user-declared camera-roll dump (event clustering) is indexed recursively, because it is a single dump rather than a curated gallery. It never becomes a gallery source and its subfolders are never published. A folder cannot be both a gallery root and the dump; clear one declaration before making the other.
+- Only the top level of a folder is scanned; subfolders are not descended into.
 
 - Files that are not images are ignored, not deleted.
 

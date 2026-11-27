@@ -67,15 +67,9 @@ rsync -a --delete \
   --exclude 'src-tauri/target/' \
   "$repo/" "$root/"
 
-# One dependency tree, shared. Nested worktrees may have had their regenerable
-# dependency directory removed; use the primary checkout's tree in that case.
-dependencies="$repo/node_modules"
-if [[ ! -d "$dependencies" ]]; then
-  common_git_dir="$(git -C "$repo" rev-parse --path-format=absolute --git-common-dir)"
-  dependencies="$(dirname "$common_git_dir")/node_modules"
-fi
-[[ -d "$dependencies" ]] || { printf 'Missing dependency tree: %s\n' "$dependencies" >&2; exit 1; }
-ln -sfn "$dependencies" "$root/node_modules"
+# One dependency tree, shared. A spec that resolves `hono` here gets exactly the
+# same files it would get in the checkout.
+ln -sfn "$repo/node_modules" "$root/node_modules"
 
 cd "$root"
 bun test "$@"
