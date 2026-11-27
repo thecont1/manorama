@@ -16,7 +16,7 @@ SWIFTC="$(xcrun --sdk macosx --find swiftc)"
 SDK_PATH="$(xcrun --sdk macosx --show-sdk-path)"
 
 SWIFT_SOURCES=(
-  "$APP"/{LocalGallery,FolderStore,LocalSchemeHandler,Trace,OAuthLoopback,NativeBridge,InvokeReply,FolderDumpScanner,RawDumpEvents}.swift
+  "$APP"/{LocalGallery,FolderStore,LocalSchemeHandler,Trace,OAuthLoopback,AppleSignIn,NativeBridge,InvokeReply,FolderDumpScanner,RawDumpEvents}.swift
   "$CORE"/*.swift
 )
 
