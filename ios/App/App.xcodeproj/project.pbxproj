@@ -466,6 +466,7 @@
 				CODE_SIGN_STYLE = Automatic;
 				DEVELOPMENT_TEAM = 373K7W3LKU;
 				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_KEY_NSPhotoLibraryUsageDescription = "Manorama's event tests read synthetic photos on this simulator; no photographs leave the device.";
 				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
 				LD_RUNPATH_SEARCH_PATHS = ("$(inherited)", "@executable_path/Frameworks", "@loader_path/Frameworks",);
 				PRODUCT_BUNDLE_IDENTIFIER = in.thecontrarian.manorama.EventAssetImagesTests;
@@ -483,6 +484,7 @@
 				CODE_SIGN_STYLE = Automatic;
 				DEVELOPMENT_TEAM = 373K7W3LKU;
 				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_KEY_NSPhotoLibraryUsageDescription = "Manorama's event tests read synthetic photos on this simulator; no photographs leave the device.";
 				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
 				LD_RUNPATH_SEARCH_PATHS = ("$(inherited)", "@executable_path/Frameworks", "@loader_path/Frameworks",);
 				PRODUCT_BUNDLE_IDENTIFIER = in.thecontrarian.manorama.EventAssetImagesTests;

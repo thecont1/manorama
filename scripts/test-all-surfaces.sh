@@ -2,6 +2,7 @@
 set -uo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+cd "$ROOT"
 RESULTS=()
 PASS_COUNT=0
 FAIL_COUNT=0
@@ -210,7 +211,12 @@ if lane_enabled IOS; then
       app_data="$(xcrun simctl get_app_container "$MANORAMA_IOS_SIMULATOR_ID" in.thecontrarian.manorama data)"
       mkdir -p "$app_data/Documents"
       printf '%s\n' "$EVENT_FIXTURE_PREFIX" > "$app_data/Documents/event-fixture-prefix.txt"
+      # A fresh simulator install has no TCC client until its first launch, and
+      # the injected XCTest bundle has its own Photos client identity.
+      xcrun simctl launch "$MANORAMA_IOS_SIMULATOR_ID" in.thecontrarian.manorama >/dev/null
+      xcrun simctl terminate "$MANORAMA_IOS_SIMULATOR_ID" in.thecontrarian.manorama >/dev/null
       xcrun simctl privacy "$MANORAMA_IOS_SIMULATOR_ID" grant photos in.thecontrarian.manorama
+      xcrun simctl privacy "$MANORAMA_IOS_SIMULATOR_ID" grant photos in.thecontrarian.manorama.EventAssetImagesTests
       EVENT_FIXTURE="$ios_derived/event-synthetic.png" bun -e 'import sharp from "sharp"; await sharp({create:{width:1024,height:768,channels:3,background:"#da1680"}}).png().toFile(process.env.EVENT_FIXTURE)'
       xcrun simctl addmedia "$MANORAMA_IOS_SIMULATOR_ID" "$ios_derived/event-synthetic.png"
       xcrun swiftc "$ROOT/scripts/seed-ios-event-photos.swift" -o "$ios_derived/event-seed"
@@ -230,6 +236,7 @@ if lane_enabled IOS; then
       ios_status=$?
       record FAIL 'iOS seeded simulator tests' "simulator $MANORAMA_IOS_SIMULATOR_ID; exit $ios_status"
     fi
+    xcrun simctl terminate "$MANORAMA_IOS_SIMULATOR_ID" in.thecontrarian.manorama >/dev/null 2>&1 || true
     rm -rf "$ios_derived"
   fi
 else
