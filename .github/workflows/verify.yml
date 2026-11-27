@@ -15,6 +15,19 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
+      - name: Require executable tracked shell scripts
+        shell: bash
+        run: |
+          set -euo pipefail
+          git ls-files -s -z -- 'scripts/*.sh' | while IFS= read -r -d '' entry; do
+            mode="${entry%% *}"
+            path="${entry#*$'\t'}"
+            if [ "$mode" != "100755" ]; then
+              echo "::error::$path is tracked with mode $mode, expected 100755"
+              exit 1
+            fi
+          done
+
       - uses: oven-sh/setup-bun@v2
 
       - run: bun install --frozen-lockfile
@@ -33,3 +46,57 @@ jobs:
 
       - name: Build desktop bundle
         run: bun run build:desktop
+
+  rust-event-core:
+    name: Rust event core (${{ matrix.features || 'default' }})
+    if: ${{ hashFiles('crates/event-clustering/Cargo.toml') != '' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    strategy:
+      matrix:
+        features: ['', 'fs-scan', 'android', 'fs-scan,android']
+    env:
+      CARGO_TARGET_DIR: ${{ runner.temp }}/manorama-events-rust-target
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Test root workspace and shared golden fixtures
+        run: cargo test --locked -p event-clustering --features '${{ matrix.features }}'
+
+  macos-boundary:
+    name: Swift engine and macOS boundary
+    if: ${{ hashFiles('native/EventClustering/Package.swift') != '' }}
+    runs-on: xcode-27
+    timeout-minutes: 20
+    env:
+      DEVELOPER_DIR: /Applications/Xcode_27.1.app/Contents/Developer
+      MANORAMA_SWIFT_SCRATCH: ${{ runner.temp }}/event-clustering-build
+      MANORAMA_SWIFT_MODULE_CACHE: ${{ runner.temp }}/event-clustering-modules
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - name: Require Xcode 27.1 and the macOS SDK
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ ! -d "$DEVELOPER_DIR" ]; then
+            echo "::error::Xcode 27.1 is not installed at $DEVELOPER_DIR"
+            exit 1
+          fi
+          xcodebuild -version
+          sdk="$(xcrun --sdk macosx --show-sdk-version)"
+          echo "macOS SDK: $sdk"
+          if [ "${sdk%%.*}" -lt 26 ]; then
+            echo "::error::$DEVELOPER_DIR provides macOS SDK $sdk, expected 26 or newer"
+            exit 1
+          fi
+
+      - name: Swift event-clustering tests
+        run: scripts/test-event-clustering.sh
+
+      - name: macOS boundary tests
+        run: scripts/test-macos-boundary.sh

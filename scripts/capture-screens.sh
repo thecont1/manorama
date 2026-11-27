@@ -49,6 +49,7 @@ KEEP_CONFIG_BACKUP=""
 SERVER_PID=""
 REQUESTED_UDID=""
 DISPLAY=""
+CAPTURE_QUERY="${CAPTURE_QUERY:-owner=thecontrarian&slug=italy}"
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -165,18 +166,19 @@ if [[ "$SKIP_BUILD" -eq 0 ]]; then
   log "building the harness app (temporary server.url)"
   KEEP_CONFIG_BACKUP="$(mktemp /tmp/capacitor.config.ts.XXXXXX)"
   cp "$CONFIG" "$KEEP_CONFIG_BACKUP"
-  python3 - "$CONFIG" "$PORT" <<'PY'
-import pathlib, sys
-path, port = pathlib.Path(sys.argv[1]), sys.argv[2]
+  python3 - "$CONFIG" "$PORT" "$CAPTURE_QUERY" <<'PY'
+import json, pathlib, sys
+path, port, query = pathlib.Path(sys.argv[1]), sys.argv[2], sys.argv[3]
 s = path.read_text()
 marker = "  plugins: {"
 assert s.count(marker) == 1, "capacitor.config.ts shape changed"
+url = json.dumps(f"http://localhost:{port}/?{query}")
 s = s.replace(marker, (
     "  // TEMPORARY - written and restored by scripts/capture-screens.sh.\n"
-    "  server: {\n"
-    "    url: 'http://localhost:%s/?owner=thecontrarian&slug=italy',\n"
+    f"  server: {{\n"
+    f"    url: {url},\n"
     "    cleartext: true,\n"
-    "  },\n" % port
+    "  },\n"
 ) + marker, 1)
 path.write_text(s)
 PY
@@ -262,6 +264,7 @@ shoot() { # <name> <countdown seconds>
 log "01 opening screen"
 xcrun simctl terminate "$UDID" in.thecontrarian.manorama >/dev/null 2>&1 || true
 xcrun simctl install "$UDID" "$(prep_app "$PLAIN_APP")" >/dev/null 2>&1
+xcrun simctl privacy "$UDID" grant photos in.thecontrarian.manorama >/dev/null
 xcrun simctl launch "$UDID" in.thecontrarian.manorama >/dev/null 2>&1
 # A cold simulator takes longer than 5s to paint the bundled door, and a
 # launch-splash frame is nearly as bad a lie as a black one: measured points
@@ -283,6 +286,7 @@ printf '  %-30s %s\n' 01-opening-screen.png "$dimensions"
 
 log "02 curtain, 03 first image, 04 controls"
 xcrun simctl install "$UDID" "$(prep_app "$HARNESS_APP")" >/dev/null 2>&1
+xcrun simctl privacy "$UDID" grant photos in.thecontrarian.manorama >/dev/null
 for pair in "0:02-gallery-curtain.png" "1:03-first-image-hover.png" "2:04-controls-popover.png"; do
   state="${pair%%:*}"; name="${pair#*:}"
   curl -sf "http://localhost:$PORT/state/$state" >/dev/null

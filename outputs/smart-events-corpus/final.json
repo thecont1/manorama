@@ -1,0 +1,112 @@
+{
+  "folder-01" : {
+    "elapsedMilliseconds" : 683,
+    "eventCount" : 33,
+    "itemCount" : 189,
+    "largestEventSizes" : [
+      34,
+      34,
+      17,
+      15,
+      14,
+      13,
+      10,
+      6
+    ],
+    "metadataReadCount" : 189,
+    "multiDayCount" : 11,
+    "screenshotCount" : 0,
+    "subDayEventCount" : 11
+  },
+  "folder-02" : {
+    "elapsedMilliseconds" : 219,
+    "eventCount" : 18,
+    "itemCount" : 64,
+    "largestEventSizes" : [
+      13,
+      8,
+      6,
+      4,
+      4,
+      4,
+      3,
+      3
+    ],
+    "metadataReadCount" : 64,
+    "multiDayCount" : 9,
+    "screenshotCount" : 0,
+    "subDayEventCount" : 9
+  },
+  "folder-03" : {
+    "elapsedMilliseconds" : 310,
+    "eventCount" : 4,
+    "itemCount" : 95,
+    "largestEventSizes" : [
+      51,
+      27,
+      15,
+      2
+    ],
+    "metadataReadCount" : 95,
+    "multiDayCount" : 3,
+    "screenshotCount" : 0,
+    "subDayEventCount" : 3
+  },
+  "folder-04" : {
+    "elapsedMilliseconds" : 446,
+    "eventCount" : 10,
+    "itemCount" : 122,
+    "largestEventSizes" : [
+      29,
+      18,
+      16,
+      14,
+      13,
+      10,
+      8,
+      8
+    ],
+    "metadataReadCount" : 122,
+    "multiDayCount" : 4,
+    "screenshotCount" : 0,
+    "subDayEventCount" : 4
+  },
+  "folder-05" : {
+    "elapsedMilliseconds" : 650,
+    "eventCount" : 55,
+    "itemCount" : 204,
+    "largestEventSizes" : [
+      15,
+      13,
+      12,
+      8,
+      7,
+      7,
+      7,
+      7
+    ],
+    "metadataReadCount" : 204,
+    "multiDayCount" : 29,
+    "screenshotCount" : 0,
+    "subDayEventCount" : 29
+  },
+  "folder-06" : {
+    "elapsedMilliseconds" : 625,
+    "eventCount" : 94,
+    "itemCount" : 210,
+    "largestEventSizes" : [
+      17,
+      8,
+      7,
+      7,
+      6,
+      5,
+      4,
+      4
+    ],
+    "metadataReadCount" : 210,
+    "multiDayCount" : 21,
+    "screenshotCount" : 0,
+    "subDayEventCount" : 21
+  }
+}

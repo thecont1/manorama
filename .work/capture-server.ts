@@ -45,17 +45,16 @@ const PORT = Number(process.env.CAPTURE_PORT ?? 4181)
 const CAPTURE_CANVAS = process.env.CAPTURE_BACKGROUND === 'dark' || process.env.CAPTURE_BACKGROUND === 'light'
   ? process.env.CAPTURE_BACKGROUND : 'none'
 
-/** The owner's public gallery, which stands in for the private list. */
-const PUBLIC_MANIFEST = 'https://manorama.xyz/api/gallery/thecontrarian/italy'
+/** The public gallery by default; evidence runs may supply a local manifest. */
+const MANIFEST_SOURCE = process.env.CAPTURE_MANIFEST ?? 'https://manorama.xyz/api/gallery/thecontrarian/italy'
 const PHOTO_DIR = process.env.CAPTURE_PHOTO_DIR ?? '/Users/home/Library/CloudStorage/Dropbox/italy'
-const FIRST_ORIGINAL = `${PHOTO_DIR}/MS201810-Italy0005.jpg`
 const FIRST_CAPTURE_PATH = '/__capture/first-original.jpg'
 const FIRST_CAPTURE_BASE = `http://localhost:${PORT}`
 // NativeManifest rewrites relative paths against apiBase (manorama.xyz), not the
 // WebView's origin. Keep this absolute so it stays on the local harness.
 const FIRST_CAPTURE_URL = `http://localhost:${PORT}${FIRST_CAPTURE_PATH}`
-const OWNER_SLUG = 'thecontrarian'
-const OWNER_NAME = 'Mahesh Shantaram'
+const OWNER_SLUG = process.env.CAPTURE_OWNER_SLUG ?? 'thecontrarian'
+const OWNER_NAME = process.env.CAPTURE_OWNER_NAME ?? 'Mahesh Shantaram'
 /** The label the owner's own iPhone registered with the account. */
 const DEVICE_LABEL = 'iPhone 17 Pro Max'
 
@@ -73,7 +72,9 @@ let openRun: (() => void) | null = null
 /** The same `variants[0].src ?? src` the row renders, made absolute — the
  *  manifest answers with proxy paths, and the webview has to be able to fetch
  *  them from the production origin. */
-const absolute = (src: string) => (src.startsWith('/') ? `https://manorama.xyz${src}` : src)
+const absolute = (src: string) => src.startsWith('/__capture/')
+  ? `${FIRST_CAPTURE_BASE}${src}`
+  : src.startsWith('/') ? `https://manorama.xyz${src}` : src
 
 /** True pixel dimensions of the owner's local originals, keyed by filename.
  *  The public manifest advertises 256x171 — the thumbnail variant, not the
@@ -117,9 +118,13 @@ const localGallery = async () => {
 }
 
 const buildFixture = async () => {
-  const response = await fetch(PUBLIC_MANIFEST, { signal: AbortSignal.timeout(30000) })
-  if (!response.ok) throw new Error(`fixture source answered ${response.status}`)
-  const body = (await response.json()) as Json
+  const body = MANIFEST_SOURCE.startsWith('file://')
+    ? await Bun.file(new URL(MANIFEST_SOURCE)).json() as Json
+    : await (async () => {
+        const response = await fetch(MANIFEST_SOURCE, { signal: AbortSignal.timeout(30000) })
+        if (!response.ok) throw new Error(`fixture source answered ${response.status}`)
+        return await response.json() as Json
+      })()
   const manifest = body.manifest as Json
   if (!Array.isArray(manifest?.images) || !manifest.images.length || !body.settings) {
     throw new Error('Capture fixture requires a gallery, settings and at least one photograph')
@@ -279,7 +284,7 @@ const PREBOOT = async (which: number) => {
   var real = window.fetch.bind(window)
   window.fetch = function (input, init) {
     var url = typeof input === 'string' ? input : (input && input.url) ? input.url : String(input)
-    if (url.indexOf('/api/gallery/thecontrarian/italy') !== -1) {
+    if (url.indexOf('/api/gallery/') !== -1) {
       return Promise.resolve(new Response(JSON.stringify(gallery), {
         status: 200,
         headers: { 'content-type': 'application/json' }
@@ -311,9 +316,9 @@ const PREBOOT = async (which: number) => {
     window.__demoBilling = { tier: 'free', isPro: false, customerInfo: { entitlements: { active: {} } } }
     log('billing seeded: free')
   }
-  // The harness URL carries the public gallery, which the gallery states need
-  // and this one must not have: left in place the island would open \`italy\`
-  // instead of the owner's own list. Rewritten before the island reads it.
+  // The harness URL carries the gallery, which the gallery states need and this
+  // one must not have: left in place the island would open that gallery instead
+  // of the owner's own list. Rewritten before the island reads it.
   if (window.location.search) {
     window.history.replaceState(null, '', window.location.pathname)
     log('cleared the harness query for the account surface')
@@ -362,7 +367,7 @@ const PREBOOT = async (which: number) => {
     if (url.indexOf('/api/galleries') !== -1) {
       if (init && init.method === 'POST') {
         window.__captureImport = JSON.parse(init.body)
-        return Promise.resolve(json({ galleryUrl: '/thecontrarian/italy' }))
+        return Promise.resolve(json({ galleryUrl: ${JSON.stringify(`/${OWNER_SLUG}/${(fixture?.gallery.manifest as Json).slug}`)} }))
       }
       // The editor's writes are recorded and answered here. A fixture must
       // never reach the owner's real galleries.
@@ -966,11 +971,12 @@ const server = Bun.serve({
 })
 
 async function html(source: string) {
+  const gallerySlug = String((fixture?.gallery.manifest as Json)?.slug ?? 'italy')
   const setup = `<script>
     window.__captureGeneration = ${generation};
     // A capture-only selection, equivalent to choosing Canvas in the UI; the
     // unmodified plain opening-screen bundle still starts with Blank.
-    localStorage.setItem('manorama:view:italy', JSON.stringify({ background: ${JSON.stringify(CAPTURE_CANVAS)} }));
+    localStorage.setItem(${JSON.stringify(`manorama:view:${gallerySlug}`)}, JSON.stringify({ background: ${JSON.stringify(CAPTURE_CANVAS)} }));
     ${requestTier ? `window.__demoBilling = { tier: '${requestTier}', isPro: ${requestTier === 'pro'}, customerInfo: { entitlements: { active: {} } } };` : ''}
     window.__captureErrors = [];
     window.addEventListener('error', (event) => window.__captureErrors.push(event.message));
