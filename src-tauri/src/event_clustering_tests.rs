@@ -654,6 +654,17 @@ fn whole_root_replacement_invalidates_status_scans_and_existing_leases() {
         root_identity: source.root_identity.unwrap(),
         member: member.unwrap(),
     };
+    #[cfg(windows)]
+    {
+        // Windows forbids renaming a pinned directory; retain the old lease
+        // value so replacement still has to invalidate its identity.
+        let mut asset = asset;
+        fs::create_dir_all(&fixture.paths.store).unwrap();
+        asset.member.parent = Arc::new(open_root(&fixture.paths.store).unwrap());
+        drop(member);
+        drop(root);
+        state.0.lock().unwrap().assets.clear();
+    }
     fs::rename(&fixture.a, fixture.a.with_file_name("original-dump")).unwrap();
     fs::rename(&fixture.b, &fixture.a).unwrap();
     let mut inner = state.0.lock().unwrap();

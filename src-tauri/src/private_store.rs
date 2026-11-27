@@ -152,18 +152,12 @@ pub(crate) fn write_0600(path: &Path, contents: &[u8]) -> Result<(), String> {
 /// A protected DACL containing only the process user's SID. New temporary
 /// files inherit it before bytes are written; no username/env lookup or shell.
 #[cfg(windows)]
-fn windows_private_parent(parent: &Path) -> Result<(), String> {
-    use std::{os::windows::ffi::OsStrExt, ptr};
+fn windows_current_user_sid() -> Result<String, String> {
+    use std::ptr;
     use windows_sys::Win32::{
-        Foundation::{CloseHandle, LocalFree},
-        Security::Authorization::{
-            ConvertSidToStringSidW, ConvertStringSecurityDescriptorToSecurityDescriptorW,
-            SDDL_REVISION_1,
-        },
-        Security::{
-            GetTokenInformation, SetFileSecurityW, TokenUser, DACL_SECURITY_INFORMATION,
-            PROTECTED_DACL_SECURITY_INFORMATION, TOKEN_QUERY, TOKEN_USER,
-        },
+        Foundation::LocalFree,
+        Security::Authorization::ConvertSidToStringSidW,
+        Security::{GetTokenInformation, TokenUser, TOKEN_QUERY, TOKEN_USER},
         System::Threading::{GetCurrentProcess, OpenProcessToken},
     };
     unsafe {
@@ -197,36 +191,54 @@ fn windows_private_parent(parent: &Path) -> Result<(), String> {
             }
             let sid = String::from_utf16_lossy(std::slice::from_raw_parts(sid_text, len));
             LocalFree(sid_text.cast());
-            let sddl: Vec<u16> = format!("D:P(A;OICI;FA;;;{sid})")
-                .encode_utf16()
-                .chain(Some(0))
-                .collect();
-            let mut descriptor = ptr::null_mut();
-            if ConvertStringSecurityDescriptorToSecurityDescriptorW(
-                sddl.as_ptr(),
-                SDDL_REVISION_1,
-                &mut descriptor,
-                ptr::null_mut(),
-            ) == 0
-            {
-                return Err(std::io::Error::last_os_error().to_string());
-            }
-            let path: Vec<u16> = parent.as_os_str().encode_wide().chain(Some(0)).collect();
-            let ok = SetFileSecurityW(
-                path.as_ptr(),
-                DACL_SECURITY_INFORMATION | PROTECTED_DACL_SECURITY_INFORMATION,
-                descriptor,
-            );
-            let error = std::io::Error::last_os_error();
-            LocalFree(descriptor.cast());
-            if ok == 0 {
-                Err(error.to_string())
-            } else {
-                Ok(())
-            }
+            Ok(sid)
         })();
-        CloseHandle(token);
+        windows_sys::Win32::Foundation::CloseHandle(token);
         result
+    }
+}
+
+#[cfg(windows)]
+fn windows_private_parent(parent: &Path) -> Result<(), String> {
+    use std::{os::windows::ffi::OsStrExt, ptr};
+    use windows_sys::Win32::{
+        Foundation::LocalFree,
+        Security::Authorization::{
+            ConvertStringSecurityDescriptorToSecurityDescriptorW, SDDL_REVISION_1,
+        },
+        Security::{
+            SetFileSecurityW, DACL_SECURITY_INFORMATION, PROTECTED_DACL_SECURITY_INFORMATION,
+        },
+    };
+    unsafe {
+        let sid = windows_current_user_sid()?;
+        let sddl: Vec<u16> = format!("D:P(A;OICI;FA;;;{sid})")
+            .encode_utf16()
+            .chain(Some(0))
+            .collect();
+        let mut descriptor = ptr::null_mut();
+        if ConvertStringSecurityDescriptorToSecurityDescriptorW(
+            sddl.as_ptr(),
+            SDDL_REVISION_1,
+            &mut descriptor,
+            ptr::null_mut(),
+        ) == 0
+        {
+            return Err(std::io::Error::last_os_error().to_string());
+        }
+        let path: Vec<u16> = parent.as_os_str().encode_wide().chain(Some(0)).collect();
+        let ok = SetFileSecurityW(
+            path.as_ptr(),
+            DACL_SECURITY_INFORMATION | PROTECTED_DACL_SECURITY_INFORMATION,
+            descriptor,
+        );
+        let error = std::io::Error::last_os_error();
+        LocalFree(descriptor.cast());
+        if ok == 0 {
+            Err(error.to_string())
+        } else {
+            Ok(())
+        }
     }
 }
 
@@ -369,6 +381,7 @@ mod tests {
         let file = parent.join("index.json");
         write_0600(&file, b"first").unwrap();
         write_0600(&file, b"replacement").unwrap();
+        let sid = windows_current_user_sid().unwrap();
         for path in [&parent, &file] {
             let wide: Vec<u16> = path.as_os_str().encode_wide().chain(Some(0)).collect();
             unsafe {
@@ -411,7 +424,7 @@ mod tests {
                 LocalFree(text.cast());
                 assert_eq!(sddl.matches("(A;").count(), 1, "{sddl}");
                 assert_eq!(sddl.matches("(").count(), 1, "{sddl}");
-                assert!(sddl.contains(";FA;;;S-1-5-"), "{sddl}");
+                assert!(sddl.contains(&format!(";;;{sid})")), "{sddl}");
             }
         }
     }
