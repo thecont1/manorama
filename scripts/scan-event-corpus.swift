@@ -60,6 +60,11 @@ struct CorpusScanner {
         let names = Array(arguments[3...]).sorted()
         var reports: [String: Any] = [:]
 
+        // The caller passes a scratch root that may not exist yet on a fresh
+        // run; the per-scan children below stay exclusive (no intermediates),
+        // so this parent must be in place before the loop.
+        try FileManager.default.createDirectory(at: scratch, withIntermediateDirectories: true)
+
         for (index, name) in names.enumerated() {
             let folderLabel = String(format: "folder-%02d", index + 1)
             // A unique working directory per scan: reusing a fixed path would

@@ -71,8 +71,10 @@ rsync -a --delete \
 # dependency directory removed; use the primary checkout's tree in that case.
 dependencies="$repo/node_modules"
 if [[ ! -d "$dependencies" ]]; then
-  common_git_dir="$(git -C "$repo" rev-parse --path-format=absolute --git-common-dir)"
-  dependencies="$(dirname "$common_git_dir")/node_modules"
+  # The first worktree entry is always the primary checkout; asking Git beats
+  # assuming the common git directory's parent is where that checkout lives.
+  primary="$(git -C "$repo" worktree list --porcelain | awk '/^worktree /{ print substr($0, 10); exit }')"
+  dependencies="$primary/node_modules"
 fi
 [[ -d "$dependencies" ]] || { printf 'Missing dependency tree: %s\n' "$dependencies" >&2; exit 1; }
 ln -sfn "$dependencies" "$root/node_modules"

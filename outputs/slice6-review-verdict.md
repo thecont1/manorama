@@ -95,7 +95,7 @@ P3 (informational, non-blocking): an upgraded pre-release slice-4 dev build coul
 
 - `scripts/test-all-surfaces.sh` (new) gates every lane behind an env-var (`MANORAMA_SKIP_*`), records `PASS | name` on success, `FAIL | name | exit N` on failure, and `SKIPPED: <reason> | name` when a prerequisite (cargo, bun, Xcode, Java 21, Android SDK/NDK, cargo-ndk, Docker rust:1 cache, `MANORAMA_IOS_SIMULATOR_ID`, `MANORAMA_ANDROID_SERIAL`, `MANORAMA_LINUX_DOCKER`) is missing. It exits non-zero on any FAIL and never fakes a mobile or Linux pass on a host without the prerequisites. That is exactly the honest behavior the brief requires.
 - `scripts/test-android-libraries.sh` (new) enforces two ABIs, each ≤ 1.5 MiB, each exporting all three JNI symbols, by unzipping the debug APK and running `llvm-readelf`. It fails rather than reports a false pass.
-- iOS CI now seeds seven event-demo JPEGs (`scripts/seed-ios-event-photos.swift`) with a per-run unique prefix and asserts the `3/2/2` grouping plus no leaked `rootPath` — matching the plan's acceptance criterion. The seeded Swift test `testSeededPhotoKitEventsGroupByCaptureDate` reads the same prefix from `EVENT_FIXTURE_PREFIX`, so a stale device cannot silently satisfy it.
+- iOS CI now seeds seven event-demo JPEGs (`scripts/seed-ios-event-photos.swift`) with a per-run unique prefix and asserts the `3/2/2` grouping plus no leaked `rootPath` — matching the plan's acceptance criterion. The seeded Swift test `testSeededPhotoKitEventsGroupByCaptureDate` reads the same prefix from the marker file or `EVENT_FIXTURE_PREFIX` and fails when neither is present: the `"event-demo-"` fallback could match stale assets left by an earlier batch, so the seven-asset assertion no longer runs without a this-run prefix — a stale device cannot silently satisfy it.
 - `ios/App/App/PrivacyInfo.xcprivacy` now correctly documents that the declaration and download preference live in protected app-private state (Keychain), not UserDefaults; CA92.1 covers only unrelated Preferences/vault-display settings. That is more truthful than the pre-Slice-6 wording.
 - `docs/PLAN-Event-Clustering-All-Surfaces.md` § Status ("slices 1–5 verified locally; slice 6 in progress"), § Android (physical Pixel remains owner/device gate), § macOS evidence (packaged sandboxed six-state remains a release gate) all explicitly disclaim hardware/packaged gates. The five remaining gates (iPhone 17 Pro, iPad Pro 13 M5, MacBook Pro, Pixel, packaged six-state) are named as unavailable owner gates.
 - `docs/event-clustering-bridge-contract.md` § 3 and the serialization paragraph match implementation: dump approval separate from gallery `roots.json`, `roots.json` renderer-writable but never event media, "Desktop serializes clear/change with the asset-response handoff."
@@ -147,8 +147,10 @@ six-criterion findings above still hold and nothing here weakens them.
    `Documents/event-fixture-prefix.txt` (via `simctl get_app_container … data`) before
    `test-without-building`; `EventAssetImagesTests.testSeededPhotoKitEventsGroupByCaptureDate`
    (`.swift:504-509`) reads that marker first, then falls back to the `EVENT_FIXTURE_PREFIX` env,
-   then to `"event-demo-"`. This is because arbitrary shell exports are not inherited into the
-   xcodebuild test-runner process, so the env var alone was not a reliable channel.
+   and fails the test when neither is present. The earlier `"event-demo-"` default was retired:
+   it could match stale assets from an earlier batch, so a missing marker no longer runs the
+   assertion at all. The env fallback exists because arbitrary shell exports are not inherited
+   into the xcodebuild test-runner process, so the env var alone was not a reliable channel.
 
 **No-scan semantics — preserved and strengthened.** `replace_source` returns `item_count: 0`
 (:338) and performs no enumeration; the removed off-lock `enumerate` was the only metadata read at

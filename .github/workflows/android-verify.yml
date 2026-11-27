@@ -94,8 +94,9 @@ jobs:
             test "$bytes" -le 3145728 || { echo "::error::$entry is $bytes bytes"; exit 1; }
             symbols=$(unzip -p "$apk" "$entry" | "$nm" --dyn-syms -)
             for symbol in cluster decodeIndex encodeIndex; do
-              grep -q "Java_in_thecontrarian_manorama_events_RustBridge_${symbol}" <<<"$symbols" || {
-                echo "::error::$entry lacks $symbol"; exit 1;
+              want="Java_in_thecontrarian_manorama_events_RustBridge_${symbol}"
+              awk -v want="$want" '$NF == want { found=1 } END { exit !found }' <<<"$symbols" || {
+                echo "::error::$entry lacks the exact export $want"; exit 1;
               }
             done
             echo "$entry: $bytes bytes; three JNI exports present"

@@ -23,7 +23,9 @@ while IFS= read -r entry; do
   symbols="$(unzip -p "$APK" "$entry" | "$READELF" --dyn-syms -)"
   for symbol in cluster decodeIndex encodeIndex; do
     export_name="Java_in_thecontrarian_manorama_events_RustBridge_${symbol}"
-    [[ "$symbols" == *"$export_name"* ]] || { printf '%s lacks %s\n' "$entry" "$export_name" >&2; exit 1; }
+    # Substring matching would pass a RustBridge_clusterLegacy export for
+    # RustBridge_cluster; the name field must equal the required JNI name.
+    awk -v want="$export_name" '$NF == want { found=1 } END { exit !found }' <<<"$symbols"       || { printf '%s lacks the exact export %s\n' "$entry" "$export_name" >&2; exit 1; }
   done
   printf '%s: %s bytes; three JNI exports present\n' "$entry" "$bytes"
 done < <(unzip -Z1 "$APK" 'lib/*/libmanorama_events.so')

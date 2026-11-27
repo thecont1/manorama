@@ -502,11 +502,11 @@ final class EventAssetImagesTests: XCTestCase {
         let all = PHAsset.fetchAssets(with: .image, options: nil)
         let marker = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
             .appendingPathComponent("event-fixture-prefix.txt")
-        let prefix = (try? String(contentsOf: marker, encoding: .utf8))
+        let prefix = try XCTUnwrap((try? String(contentsOf: marker, encoding: .utf8))
             .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
             .flatMap { $0.isEmpty ? nil : $0 }
-            ?? ProcessInfo.processInfo.environment["EVENT_FIXTURE_PREFIX"]
-            ?? "event-demo-"
+            ?? ProcessInfo.processInfo.environment["EVENT_FIXTURE_PREFIX"],
+            "Neither event-fixture-prefix.txt nor EVENT_FIXTURE_PREFIX names this run's batch; the retired event-demo fallback could match stale assets from an earlier run")
         var seeded: [PHAsset] = []
         all.enumerateObjects { asset, _, _ in
             if PHAssetResource.assetResources(for: asset).contains(where: {
