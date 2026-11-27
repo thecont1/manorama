@@ -661,7 +661,6 @@ fn whole_root_replacement_invalidates_status_scans_and_existing_leases() {
         // value so replacement still has to invalidate its identity.
         fs::create_dir_all(&fixture.paths.store).unwrap();
         asset.member.parent = Arc::new(open_root(&fixture.paths.store).unwrap());
-        drop(member);
         drop(root);
         state.0.lock().unwrap().assets.clear();
     }
