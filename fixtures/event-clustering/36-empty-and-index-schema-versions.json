@@ -1,0 +1,47 @@
+{
+  "calendar" : {
+    "identifier" : "gregorian",
+    "secondsFromGMT" : 0
+  },
+  "config" : {
+    "burstThresholdSeconds" : 3,
+    "sessionDistanceKm" : 5,
+    "sessionGapHours" : 3.5,
+    "transitBypassMinutes" : 45,
+    "tripDistanceFromHomeKm" : 50,
+    "tripOvernightGapHours" : 18,
+    "visualSplitFeaturePrintDistance" : 1,
+    "visualSplitMaxDistanceKm" : 0.5,
+    "visualSplitMinGapHours" : 1.5
+  },
+  "expected" : {
+    "events" : [
+
+    ],
+    "screenshotItemIds" : [
+
+    ],
+    "unplacedItemIds" : [
+
+    ]
+  },
+  "indexCases" : [
+    {
+      "expectedReusable" : true,
+      "schemaVersion" : 1
+    },
+    {
+      "expectedReusable" : false,
+      "schemaVersion" : 0
+    },
+    {
+      "expectedReusable" : false,
+      "schemaVersion" : 2
+    }
+  ],
+  "items" : [
+
+  ],
+  "schemaVersion" : 1,
+  "sourceId" : "test-source"
+}

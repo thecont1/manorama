@@ -1,0 +1,29 @@
+.camera-roll-pill { flex: none; white-space: nowrap; }
+.camera-roll-pill[aria-pressed="true"] { border-color: var(--pink, #ff1493); color: var(--pink, #ff1493); }
+.camera-roll-heading { display: flex; align-items: center; gap: .75rem; margin-block-end: 1.25rem; }
+.camera-roll-heading h2 { margin: 0; font-size: clamp(1.75rem, 6vw, 2.5rem); line-height: 1; letter-spacing: -.04em; }
+.event-viewer { position: fixed; inset: 0; z-index: 100; background: var(--bg, #0a0a0a); color: var(--text, #eee); }
+/* The shared viewer names its exit Library. Camera Roll supplies its own
+   return control without changing the shared viewer contract. */
+.event-viewer [data-chrome-library] { display: none; }
+.event-viewer-return { position: fixed; inset-block-start: calc(env(safe-area-inset-top, 0px) + .75rem); inset-inline-start: .75rem; z-index: 40; }
+.event-section { container: events / inline-size; }
+.event-grid { display: grid; inline-size: 100%; grid-template-columns: repeat(auto-fit, minmax(min(100%, 16rem), 1fr)); gap: 1.5rem 1rem; padding: 0; list-style: none; }
+.event-card { min-inline-size: 0; }
+.native-list-card .camera-roll-mode .event-card-open { display: flex; flex-direction: column; align-items: start; gap: .4rem; inline-size: 100%; color: inherit; font: inherit; text-align: start; background: none; border: 0; padding: 0; cursor: pointer; }
+.event-card-cover { display: grid; place-items: center; inline-size: 100%; aspect-ratio: 3 / 2; }
+.event-card-cover img { display: block; inline-size: auto; block-size: auto; max-inline-size: 100%; max-block-size: 100%; object-fit: contain; }
+.event-card-open strong { font-size: 1rem; font-weight: 500; }
+.event-days { display: flex; flex-wrap: wrap; gap: .25rem; margin-block-start: .5rem; }
+.event-card-open { overflow-wrap: anywhere; }
+.event-days button { min-block-size: 2.75rem; }
+.event-card-open:focus-visible, .event-days button:focus-visible { outline: 2px solid var(--pink, #ff1493); outline-offset: 4px; }
+@media (hover: hover) { .event-card-open:hover strong { color: var(--pink, #ff1493); } }
+.event-cloud { position: fixed; inset: 20% 1rem auto; z-index: 30; display: grid; justify-items: center; gap: .6rem; margin-inline: auto; max-inline-size: 28rem; color: var(--text, inherit); text-align: center; }
+.event-cloud-actions { display: flex; justify-content: center; flex-wrap: wrap; gap: .5rem; }
+.event-picker { position: fixed; inset: 0; z-index: 50; background: var(--bg, #0a0a0a); color: var(--text, #eee); padding: env(safe-area-inset-top, 1rem) 1rem 1rem; overflow-y: auto; overscroll-behavior: contain; }
+.event-picker-grid { display: flex; flex-wrap: wrap; align-content: start; gap: 0; margin-block-start: 1rem; }
+.event-picker-grid button { position: relative; display: grid; place-items: center; block-size: 18dvh; min-inline-size: 2.75rem; max-inline-size: 100%; padding: 0; border: 0; background: none; color: inherit; cursor: pointer; }
+.event-picker-grid button[aria-current="true"] { outline: 3px solid var(--pink, #ff1493); outline-offset: -3px; }
+.event-picker-grid img { display: block; object-fit: contain; max-inline-size: 100%; max-block-size: 100%; }
+.event-picker-grid button:focus-visible { outline: 3px solid var(--pink, #ff1493); outline-offset: -3px; }

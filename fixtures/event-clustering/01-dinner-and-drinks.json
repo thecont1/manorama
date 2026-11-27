@@ -1,0 +1,88 @@
+{
+  "calendar" : {
+    "identifier" : "gregorian",
+    "secondsFromGMT" : 0
+  },
+  "config" : {
+    "burstThresholdSeconds" : 3,
+    "sessionDistanceKm" : 5,
+    "sessionGapHours" : 3.5,
+    "transitBypassMinutes" : 45,
+    "tripDistanceFromHomeKm" : 50,
+    "tripOvernightGapHours" : 18,
+    "visualSplitFeaturePrintDistance" : 1,
+    "visualSplitMaxDistanceKm" : 0.5,
+    "visualSplitMinGapHours" : 1.5
+  },
+  "expected" : {
+    "events" : [
+      {
+        "coverItemId" : "d4",
+        "endDate" : 1773531000,
+        "id" : "evt_85a72998ad6338be5437",
+        "isMultiDay" : false,
+        "itemIds" : [
+          "d1",
+          "d2",
+          "d3",
+          "d4",
+          "d5",
+          "d6"
+        ],
+        "startDate" : 1773516600
+      }
+    ],
+    "screenshotItemIds" : [
+
+    ],
+    "unplacedItemIds" : [
+
+    ]
+  },
+  "items" : [
+    {
+      "id" : "d1",
+      "isScreenshot" : false,
+      "latitude" : 18.5167,
+      "longitude" : 73.8562,
+      "timestamp" : 1773516600
+    },
+    {
+      "id" : "d2",
+      "isScreenshot" : false,
+      "latitude" : 18.5167,
+      "longitude" : 73.8562,
+      "timestamp" : 1773517920
+    },
+    {
+      "id" : "d3",
+      "isScreenshot" : false,
+      "latitude" : 18.5257,
+      "longitude" : 73.8682,
+      "timestamp" : 1773520800
+    },
+    {
+      "id" : "d4",
+      "isScreenshot" : false,
+      "latitude" : 18.5287,
+      "longitude" : 73.8732,
+      "timestamp" : 1773523800
+    },
+    {
+      "id" : "d5",
+      "isScreenshot" : false,
+      "latitude" : 18.5347,
+      "longitude" : 73.8672,
+      "timestamp" : 1773528900
+    },
+    {
+      "id" : "d6",
+      "isScreenshot" : false,
+      "latitude" : 18.5347,
+      "longitude" : 73.8672,
+      "timestamp" : 1773531000
+    }
+  ],
+  "schemaVersion" : 1,
+  "sourceId" : "test-source"
+}

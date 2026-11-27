@@ -1,0 +1,103 @@
+{
+  "calendar" : {
+    "identifier" : "gregorian",
+    "secondsFromGMT" : 0
+  },
+  "config" : {
+    "burstThresholdSeconds" : 3,
+    "sessionDistanceKm" : 5,
+    "sessionGapHours" : 3.5,
+    "transitBypassMinutes" : 45,
+    "tripDistanceFromHomeKm" : 50,
+    "tripOvernightGapHours" : 18,
+    "visualSplitFeaturePrintDistance" : 1,
+    "visualSplitMaxDistanceKm" : 0.5,
+    "visualSplitMinGapHours" : 1.5
+  },
+  "expected" : {
+    "events" : [
+      {
+        "coverItemId" : "b2",
+        "endDate" : 1773525600,
+        "id" : "evt_85a72998ad6338be5437",
+        "isMultiDay" : false,
+        "itemIds" : [
+          "d1",
+          "d2",
+          "b1",
+          "b2",
+          "b3",
+          "d3"
+        ],
+        "startDate" : 1773516600
+      }
+    ],
+    "screenshotItemIds" : [
+      "s1",
+      "s2"
+    ],
+    "unplacedItemIds" : [
+
+    ]
+  },
+  "items" : [
+    {
+      "id" : "d1",
+      "isScreenshot" : false,
+      "latitude" : 18.5167,
+      "longitude" : 73.8562,
+      "timestamp" : 1773516600
+    },
+    {
+      "id" : "d2",
+      "isScreenshot" : false,
+      "latitude" : 18.5167,
+      "longitude" : 73.8612,
+      "timestamp" : 1773519000
+    },
+    {
+      "id" : "b1",
+      "isScreenshot" : false,
+      "latitude" : 18.5167,
+      "longitude" : 73.8612,
+      "timestamp" : 1773520800
+    },
+    {
+      "id" : "b2",
+      "isScreenshot" : false,
+      "latitude" : 18.5167,
+      "longitude" : 73.8612,
+      "timestamp" : 1773520801
+    },
+    {
+      "id" : "b3",
+      "isScreenshot" : false,
+      "latitude" : 18.5167,
+      "longitude" : 73.8612,
+      "timestamp" : 1773520802
+    },
+    {
+      "id" : "s1",
+      "isScreenshot" : true,
+      "latitude" : 18.5167,
+      "longitude" : 73.8612,
+      "timestamp" : 1773521100
+    },
+    {
+      "id" : "s2",
+      "isScreenshot" : true,
+      "latitude" : 18.5167,
+      "longitude" : 73.8612,
+      "timestamp" : 1773522120
+    },
+    {
+      "id" : "d3",
+      "isScreenshot" : false,
+      "latitude" : 18.5167,
+      "longitude" : 73.8612,
+      "timestamp" : 1773525600
+    }
+  ],
+  "schemaVersion" : 1,
+  "sourceId" : "test-source"
+}

@@ -1,0 +1,47 @@
+{
+  "calendar" : {
+    "identifier" : "gregorian",
+    "secondsFromGMT" : 0
+  },
+  "config" : {
+    "burstThresholdSeconds" : 3,
+    "sessionDistanceKm" : 5,
+    "sessionGapHours" : 3.5,
+    "transitBypassMinutes" : 45,
+    "tripDistanceFromHomeKm" : 50,
+    "tripOvernightGapHours" : 18,
+    "visualSplitFeaturePrintDistance" : 1,
+    "visualSplitMaxDistanceKm" : 0.5,
+    "visualSplitMinGapHours" : 1.5
+  },
+  "expected" : {
+    "events" : [
+      {
+        "coverItemId" : "same-frame",
+        "endDate" : 1773478800,
+        "id" : "evt_40eaf61924a3f80000b4",
+        "isMultiDay" : false,
+        "itemIds" : [
+          "same-frame"
+        ],
+        "startDate" : 1773478800
+      }
+    ],
+    "screenshotItemIds" : [
+
+    ],
+    "unplacedItemIds" : [
+
+    ]
+  },
+  "items" : [
+    {
+      "fileModTime" : 1773480000.5,
+      "id" : "same-frame",
+      "isScreenshot" : false,
+      "timestamp" : 1773478800
+    }
+  ],
+  "schemaVersion" : 1,
+  "sourceId" : "fixture:कैमरा|été"
+}

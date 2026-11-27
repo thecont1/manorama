@@ -1,0 +1,228 @@
+{
+  "calendar" : {
+    "identifier" : "gregorian",
+    "secondsFromGMT" : 0
+  },
+  "config" : {
+    "burstThresholdSeconds" : 3,
+    "sessionDistanceKm" : 5,
+    "sessionGapHours" : 3.5,
+    "transitBypassMinutes" : 45,
+    "tripDistanceFromHomeKm" : 50,
+    "tripOvernightGapHours" : 18,
+    "visualSplitFeaturePrintDistance" : 1,
+    "visualSplitMaxDistanceKm" : 0.5,
+    "visualSplitMinGapHours" : 1.5
+  },
+  "expected" : {
+    "events" : [
+      {
+        "coverItemId" : "shoots/ms202603-trip0002.JPG",
+        "endDate" : 1772524800,
+        "id" : "evt_33e5b0f0c5278c81ad42",
+        "isMultiDay" : true,
+        "itemIds" : [
+          "shoots/MS202603-Trip0001-Enhanced-NR.jpg",
+          "shoots/ms202603-trip0002.JPG",
+          "shoots/MS202603-Trip0003.jpg"
+        ],
+        "startDate" : 1772352000,
+        "subDays" : [
+          {
+            "date" : 1772352000,
+            "id" : "2026-03-01",
+            "itemIds" : [
+              "shoots/MS202603-Trip0001-Enhanced-NR.jpg",
+              "shoots/ms202603-trip0002.JPG"
+            ]
+          },
+          {
+            "date" : 1772524800,
+            "id" : "2026-03-03",
+            "itemIds" : [
+              "shoots/MS202603-Trip0003.jpg"
+            ]
+          }
+        ]
+      },
+      {
+        "coverItemId" : "other/MS202603-Trip0001.jpg",
+        "endDate" : 1772542800,
+        "id" : "evt_d1dccdfe77d5374ed065",
+        "isMultiDay" : false,
+        "itemIds" : [
+          "other/MS202603-Trip0001.jpg"
+        ],
+        "startDate" : 1772542800
+      },
+      {
+        "coverItemId" : "sequence/DSCF0100.jpg",
+        "endDate" : 1772719200,
+        "id" : "evt_85e4ffcb669ed3af1dd7",
+        "isMultiDay" : false,
+        "itemIds" : [
+          "sequence/DSCF0100.jpg",
+          "sequence/DSCF0105.jpg"
+        ],
+        "startDate" : 1772697600
+      },
+      {
+        "coverItemId" : "sequence/DSCF0117.jpg",
+        "endDate" : 1772809200,
+        "id" : "evt_7c4dbd1ae4275b985635",
+        "isMultiDay" : false,
+        "itemIds" : [
+          "sequence/DSCF0117.jpg",
+          "sequence/DSCF0118.jpg"
+        ],
+        "startDate" : 1772787600
+      },
+      {
+        "coverItemId" : "sequence/IMG_20260307_090000.jpg",
+        "endDate" : 1772874000,
+        "id" : "evt_4ff7ed297f5c7df65c96",
+        "isMultiDay" : false,
+        "itemIds" : [
+          "sequence/IMG_20260307_090000.jpg"
+        ],
+        "startDate" : 1772874000
+      },
+      {
+        "coverItemId" : "sequence/IMG_20260307_130000.jpg",
+        "endDate" : 1772888400,
+        "id" : "evt_fc108bebf6bde9f51cb1",
+        "isMultiDay" : false,
+        "itemIds" : [
+          "sequence/IMG_20260307_130000.jpg"
+        ],
+        "startDate" : 1772888400
+      },
+      {
+        "coverItemId" : "long/MS202603-Trip0001.jpg",
+        "endDate" : 1773993600,
+        "id" : "evt_a10d1f784dfc97c8b717",
+        "isMultiDay" : false,
+        "itemIds" : [
+          "long/MS202603-Trip0001.jpg"
+        ],
+        "startDate" : 1773993600
+      },
+      {
+        "coverItemId" : "long/MS202603-Trip0002.jpg",
+        "endDate" : 1775808000,
+        "id" : "evt_f286c9499d95c0bdfb79",
+        "isMultiDay" : false,
+        "itemIds" : [
+          "long/MS202603-Trip0002.jpg"
+        ],
+        "startDate" : 1775808000
+      },
+      {
+        "coverItemId" : "overflow/MS202603-Trip99999999999999999999.jpg",
+        "endDate" : 1775980800,
+        "id" : "evt_7efa5c05e7176be22b06",
+        "isMultiDay" : false,
+        "itemIds" : [
+          "overflow/MS202603-Trip99999999999999999999.jpg"
+        ],
+        "startDate" : 1775980800
+      },
+      {
+        "coverItemId" : "overflow/MS202603-Trip99999999999999999998.jpg",
+        "endDate" : 1776002400,
+        "id" : "evt_8589e782ef3df90505d5",
+        "isMultiDay" : false,
+        "itemIds" : [
+          "overflow/MS202603-Trip99999999999999999998.jpg"
+        ],
+        "startDate" : 1776002400
+      }
+    ],
+    "screenshotItemIds" : [
+
+    ],
+    "unplacedItemIds" : [
+
+    ]
+  },
+  "indexCases" : [
+    {
+      "expectedReusable" : true,
+      "schemaVersion" : 1
+    }
+  ],
+  "items" : [
+    {
+      "id" : "shoots/MS202603-Trip0001-Enhanced-NR.jpg",
+      "isScreenshot" : false,
+      "timestamp" : 1772352000
+    },
+    {
+      "id" : "shoots/ms202603-trip0002.JPG",
+      "isScreenshot" : false,
+      "timestamp" : 1772366400
+    },
+    {
+      "id" : "shoots/MS202603-Trip0003.jpg",
+      "isScreenshot" : false,
+      "timestamp" : 1772524800
+    },
+    {
+      "id" : "other/MS202603-Trip0001.jpg",
+      "isScreenshot" : false,
+      "timestamp" : 1772542800
+    },
+    {
+      "id" : "sequence/DSCF0100.jpg",
+      "isScreenshot" : false,
+      "timestamp" : 1772697600
+    },
+    {
+      "id" : "sequence/DSCF0105.jpg",
+      "isScreenshot" : false,
+      "timestamp" : 1772719200
+    },
+    {
+      "id" : "sequence/DSCF0117.jpg",
+      "isScreenshot" : false,
+      "timestamp" : 1772787600
+    },
+    {
+      "id" : "sequence/DSCF0118.jpg",
+      "isScreenshot" : false,
+      "timestamp" : 1772809200
+    },
+    {
+      "id" : "sequence/IMG_20260307_090000.jpg",
+      "isScreenshot" : false,
+      "timestamp" : 1772874000
+    },
+    {
+      "id" : "sequence/IMG_20260307_130000.jpg",
+      "isScreenshot" : false,
+      "timestamp" : 1772888400
+    },
+    {
+      "id" : "long/MS202603-Trip0001.jpg",
+      "isScreenshot" : false,
+      "timestamp" : 1773993600
+    },
+    {
+      "id" : "long/MS202603-Trip0002.jpg",
+      "isScreenshot" : false,
+      "timestamp" : 1775808000
+    },
+    {
+      "id" : "overflow/MS202603-Trip99999999999999999999.jpg",
+      "isScreenshot" : false,
+      "timestamp" : 1775980800
+    },
+    {
+      "id" : "overflow/MS202603-Trip99999999999999999998.jpg",
+      "isScreenshot" : false,
+      "timestamp" : 1776002400
+    }
+  ],
+  "schemaVersion" : 1,
+  "sourceId" : "test-source"
+}

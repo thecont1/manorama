@@ -60,6 +60,8 @@ captures/
 # External native build folder generated in Android Studio 2.2 and later
 .externalNativeBuild
 .cxx/
+# cargo-ndk outputs, rebuilt by preBuild
+app/src/main/jniLibs/
 
 # Google Services (e.g. APIs or Firebase)
 # google-services.json

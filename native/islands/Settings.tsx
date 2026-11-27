@@ -12,6 +12,7 @@ import type { AccountIdentity } from '../lib/api'
 import type { NativeTier } from '../lib/billing'
 import type { VaultSettingsController } from '../lib/vault-settings'
 import VaultSettings from './VaultSettings'
+import { CameraRollFolderAction } from './CameraRoll'
 
 type HouseCardAction = { label: string; onClick: () => void; disabled?: boolean }
 
@@ -154,6 +155,7 @@ export default function Settings(props: Props) {
           control={<Switch checked={globalViewEnabled === true} label={`Let galleries show photographs already saved on ${nativeDeviceLabel()}`} disabled={props.globalViewBusy || globalViewEnabled === null} onChange={props.onGlobalView} />}
         />
         {globalViewEnabled ? <ActionRow label="Open photo picker" onClick={props.onOpenPicker} /> : null}
+        <CameraRollFolderAction />
         <p class="m-note m-panel-note">The picker lets galleries show photographs already saved on {nativeDeviceLabel()}.</p>
       </ActionGroup>
       <ActionGroup label="Vault" note="Everything stays encrypted and on the device.">

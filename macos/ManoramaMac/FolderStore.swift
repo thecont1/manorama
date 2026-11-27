@@ -1,4 +1,36 @@
+import Darwin
 import Foundation
+
+/// The object a raw-dump declaration refers to, independent of its pathname.
+///
+/// A bookmark preserves the grant, not the identity of the directory that
+/// happens to occupy the resolved path today. Persisting both numbers lets
+/// every raw-dump boundary reject a replacement before it is trusted.
+struct NativeFileIdentity: Codable, Hashable {
+    let device: UInt64
+    let inode: UInt64
+
+    init(device: UInt64, inode: UInt64) {
+        self.device = device
+        self.inode = inode
+    }
+
+    init?(_ metadata: stat) {
+        self.device = UInt64(bitPattern: Int64(metadata.st_dev))
+        self.inode = metadata.st_ino
+    }
+
+    init?(directoryAt url: URL) {
+        var metadata = stat()
+        guard url.path.withCString({ lstat($0, &metadata) }) == 0,
+              metadata.st_mode & S_IFMT == S_IFDIR else { return nil }
+        self.init(metadata)
+    }
+
+    func matches(_ metadata: stat) -> Bool {
+        device == UInt64(bitPattern: Int64(metadata.st_dev)) && inode == metadata.st_ino
+    }
+}
 
 /// The folders the media handler answers for.
 ///
@@ -51,6 +83,64 @@ final class FolderStore: ObservableObject {
         var isAvailable: Bool = true
         /// The source kind, kept so the UI can label it without re-stat'ing.
         var sourceKind: String = "folder"
+        /// Whether this folder is the raw dump the events page groups into
+        /// events. At most one entry carries it: one dump per device is the
+        /// rule the bridge contract sets, and a second one would make
+        /// "which camera roll is this event from" unanswerable.
+        var isRawDump: Bool = false
+        /// Device and inode of the directory actually chosen as the dump.
+        /// Nil is a legacy declaration and is never treated as trusted.
+        var rawDumpRootIdentity: NativeFileIdentity? = nil
+
+        /// The memberwise initialiser, written out because the custom
+        /// `init(from:)` below takes the synthesised one away, and
+        /// `add(folder:)` needs it.
+        init(
+            id: UUID,
+            name: String,
+            bookmark: String,
+            isAvailable: Bool = true,
+            sourceKind: String = "folder",
+            isRawDump: Bool = false,
+            rawDumpRootIdentity: NativeFileIdentity? = nil
+        ) {
+            self.id = id
+            self.name = name
+            self.bookmark = bookmark
+            self.isAvailable = isAvailable
+            self.sourceKind = sourceKind
+            self.isRawDump = isRawDump
+            self.rawDumpRootIdentity = rawDumpRootIdentity
+        }
+
+        private enum CodingKeys: String, CodingKey {
+            case id, name, bookmark, isAvailable, sourceKind, isRawDump, rawDumpRootIdentity
+        }
+
+        /*
+         * Explicit decoding, and it is not a style choice.
+         *
+         * `load()` decodes with `try?`, so a single missing key is not an
+         * error the user can be shown — it is every folder grant in the
+         * file vanishing on launch, with the library empty and nothing
+         * said about why. `isRawDump` is exactly such a key: the
+         * `folders.json` written before this feature has no such field,
+         * and the synthesised decoder asks for a non-optional property by
+         * name whatever default it carries. So every field that has a
+         * default is read with `decodeIfPresent` and answered with its own
+         * default, and the boundary suite proves it against a hand-written
+         * legacy file rather than against this type's encoder.
+         */
+        init(from decoder: Decoder) throws {
+            let container = try decoder.container(keyedBy: CodingKeys.self)
+            id = try container.decode(UUID.self, forKey: .id)
+            name = try container.decode(String.self, forKey: .name)
+            bookmark = try container.decode(String.self, forKey: .bookmark)
+            isAvailable = try container.decodeIfPresent(Bool.self, forKey: .isAvailable) ?? true
+            sourceKind = try container.decodeIfPresent(String.self, forKey: .sourceKind) ?? "folder"
+            isRawDump = try container.decodeIfPresent(Bool.self, forKey: .isRawDump) ?? false
+            rawDumpRootIdentity = try container.decodeIfPresent(NativeFileIdentity.self, forKey: .rawDumpRootIdentity)
+        }
     }
 
     @Published private(set) var entries: [Entry] = []
@@ -232,5 +322,46 @@ final class FolderStore: ObservableObject {
             return url
         }
         return nil
+    }
+
+    // MARK: - The raw dump
+
+    /// The trusted raw-dump declaration, if there is one.
+    ///
+    /// Older files can carry `isRawDump` without an identity. They remain
+    /// visible as declarations in `entries`, but require a fresh pick rather
+    /// than becoming an authority merely because the old JSON said so.
+    var rawDumpEntry: Entry? {
+        entries.first { $0.isRawDump && $0.rawDumpRootIdentity != nil }
+    }
+
+    /// Declare one verified folder as the raw dump, clearing every other mark.
+    ///
+    /// The identity comes from the object pinned when the user picked it, not
+    /// from a later pathname lookup. Returns false for an unknown entry.
+    @discardableResult
+    func markRawDump(_ id: UUID, identity: NativeFileIdentity) -> Bool {
+        guard let index = entries.firstIndex(where: { $0.id == id }) else { return false }
+        var changed = !entries[index].isRawDump || entries[index].rawDumpRootIdentity != identity
+        entries[index].isRawDump = true
+        entries[index].rawDumpRootIdentity = identity
+        for other in entries.indices where other != index {
+            guard entries[other].isRawDump || entries[other].rawDumpRootIdentity != nil else { continue }
+            entries[other].isRawDump = false
+            entries[other].rawDumpRootIdentity = nil
+            changed = true
+        }
+        if changed { save() }
+        return true
+    }
+
+    /// Clearing the dump declaration does not revoke the folder grant.
+    func clearRawDumpMark() {
+        guard entries.contains(where: \.isRawDump) else { return }
+        for index in entries.indices {
+            entries[index].isRawDump = false
+            entries[index].rawDumpRootIdentity = nil
+        }
+        save()
     }
 }

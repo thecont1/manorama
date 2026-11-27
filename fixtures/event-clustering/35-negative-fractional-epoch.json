@@ -1,0 +1,53 @@
+{
+  "calendar" : {
+    "identifier" : "gregorian",
+    "secondsFromGMT" : 0
+  },
+  "config" : {
+    "burstThresholdSeconds" : 3,
+    "sessionDistanceKm" : 5,
+    "sessionGapHours" : 3.5,
+    "transitBypassMinutes" : 45,
+    "tripDistanceFromHomeKm" : 50,
+    "tripOvernightGapHours" : 18,
+    "visualSplitFeaturePrintDistance" : 1,
+    "visualSplitMaxDistanceKm" : 0.5,
+    "visualSplitMinGapHours" : 1.5
+  },
+  "expected" : {
+    "events" : [
+      {
+        "coverItemId" : "after",
+        "endDate" : 0.5,
+        "id" : "evt_5152dfe4efc3abaae4db",
+        "isMultiDay" : false,
+        "itemIds" : [
+          "before",
+          "after"
+        ],
+        "startDate" : -0.5
+      }
+    ],
+    "screenshotItemIds" : [
+
+    ],
+    "unplacedItemIds" : [
+
+    ]
+  },
+  "items" : [
+    {
+      "fileModTime" : -1.5,
+      "id" : "before",
+      "isScreenshot" : false,
+      "timestamp" : -0.5
+    },
+    {
+      "id" : "after",
+      "isScreenshot" : false,
+      "timestamp" : 0.5
+    }
+  ],
+  "schemaVersion" : 1,
+  "sourceId" : "epoch-source"
+}

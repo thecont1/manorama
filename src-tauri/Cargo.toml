@@ -30,3 +30,18 @@ tauri-plugin-http = "2.7.0"
 # to get_password in the next and the vault key "persists" nowhere.
 keyring = { version = "3", features = ["apple-native"] }
 uuid = { version = "1.20.0", features = ["v4"] }
+# The verified metadata-only engine; shell policy stays in event_clustering.rs.
+manorama_events = { package = "event-clustering", path = "../crates/event-clustering", features = ["fs-scan"] }
+notify = "8"
+# Resolve the OS's IANA rules, not today's offset (which loses historical DST).
+iana-time-zone = "0.1"
+cap-std = "=4.0.3"
+cap-fs-ext = "=4.0.3"
+kamadak-exif = "0.6"
+url = "2"
+
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_Security", "Win32_Security_Authorization", "Win32_System_Threading", "Win32_System_Memory", "Win32_Storage_FileSystem"] }
+
+[dev-dependencies]
+tempfile = "3"

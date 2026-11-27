@@ -1,0 +1,61 @@
+{
+  "calendar" : {
+    "identifier" : "gregorian",
+    "secondsFromGMT" : 0
+  },
+  "config" : {
+    "burstThresholdSeconds" : 3,
+    "sessionDistanceKm" : 5,
+    "sessionGapHours" : 0.0009722222222222222,
+    "transitBypassMinutes" : 45,
+    "tripDistanceFromHomeKm" : 50,
+    "tripOvernightGapHours" : 18,
+    "visualSplitFeaturePrintDistance" : 1,
+    "visualSplitMaxDistanceKm" : 0.5,
+    "visualSplitMinGapHours" : 1.5
+  },
+  "expected" : {
+    "events" : [
+      {
+        "coverItemId" : "b0",
+        "endDate" : 1788264000,
+        "id" : "evt_b90b7372c80853c366de",
+        "isMultiDay" : false,
+        "itemIds" : [
+          "b0"
+        ],
+        "startDate" : 1788264000
+      },
+      {
+        "coverItemId" : "b1",
+        "endDate" : 1788264004,
+        "id" : "evt_84a935a1838ef1cfca9b",
+        "isMultiDay" : false,
+        "itemIds" : [
+          "b1"
+        ],
+        "startDate" : 1788264004
+      }
+    ],
+    "screenshotItemIds" : [
+
+    ],
+    "unplacedItemIds" : [
+
+    ]
+  },
+  "items" : [
+    {
+      "id" : "b0",
+      "isScreenshot" : false,
+      "timestamp" : 1788264000
+    },
+    {
+      "id" : "b1",
+      "isScreenshot" : false,
+      "timestamp" : 1788264004
+    }
+  ],
+  "schemaVersion" : 1,
+  "sourceId" : "test-source"
+}

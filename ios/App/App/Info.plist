@@ -291,6 +291,13 @@
 	</array>
 	<key>UIViewControllerBasedStatusBarAppearance</key>
 	<true/>
+	<!-- Event grouping reads the library's own dates and locations on this
+	     device and stops there; the prompt says so because the feature's
+	     whole promise is that nothing about the camera roll leaves it. -->
+	<key>NSPhotoLibraryUsageDescription</key>
+	<string>Manorama groups and displays the photos you allow into events on this device. Photos, dates, locations and thumbnails stay here and are never uploaded. Indexing and thumbnails never download from iCloud; opening an iCloud original downloads through Photos only when you choose.</string>
+	<key>PHPhotoLibraryPreventAutomaticLimitedAccessAlert</key>
+	<true/>
 	<!-- MEGA's CDN estate is mixed: attribute/preview edges
 	     (gfs*.userstorage.mega.co.nz) still serve TLS ≤1.2 with non-PFS
 	     ciphers, which default ATS rejects with -1200. The desktop shells

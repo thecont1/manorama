@@ -1,9 +1,14 @@
 name: Windows desktop build
 
-# Manual only: release control stays with the owner (#40). Dispatch it,
-# wait for the artifact, download the .exe/.msi.
+# Packaging remains manual and owner-controlled (#40). PRs run tests only.
 on:
   workflow_dispatch:
+  pull_request:
+    paths:
+      - 'src-tauri/**'
+      - 'crates/event-clustering/**'
+      - 'fixtures/event-clustering/**'
+      - '.github/workflows/desktop-windows.yml'
 
 # The build runs third-party install scripts; they get a read-only token and
 # no copy of it in .git/config.
@@ -11,7 +16,36 @@ permissions:
   contents: read
 
 jobs:
+  test-events-windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@39008827e6b4319a349e9a42dfc90579dd25f1ca # stable
+      - name: Test portable metadata engine and Windows cloud flags
+        env:
+          CARGO_TARGET_DIR: ${{ runner.temp }}/manorama-events-tauri-target
+        run: cargo test --locked --manifest-path Cargo.toml -p event-clustering --all-features
+
+  test-shell-windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@39008827e6b4319a349e9a42dfc90579dd25f1ca # stable
+      - uses: oven-sh/setup-bun@v2
+      - run: bun install --frozen-lockfile
+      - name: Build local frontend for Tauri context (no provider credentials)
+        run: bun run build:desktop
+      - name: Test Rust shell private storage and event boundaries
+        env:
+          CARGO_TARGET_DIR: ${{ runner.temp }}/manorama-events-tauri-target
+        run: cargo test --locked --manifest-path src-tauri/Cargo.toml --all-targets
+
   build-windows:
+    if: github.event_name == 'workflow_dispatch'
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v7
