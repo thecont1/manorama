@@ -16,7 +16,13 @@ use tauri_plugin_fs::FsExt;
 /// `readDir`/`exists` list inside it and never contains `**`; event media uses
 /// separate opaque leases instead of renderer-constructed file URLs.
 fn allow_root(app: &AppHandle, dir: &PathBuf) -> Result<(), String> {
-    // Event assets have their own opaque leases; this scope is only for galleries.
+    // The raw dump can never reach here — picker and drop both guard against
+    // it before granting — so gallery roots keep the asset-protocol grant
+    // their convertFileSrc display path needs. Event media stays behind the
+    // opaque manorama-event leases either way.
+    app.asset_protocol_scope()
+        .allow_directory(dir, true)
+        .map_err(|e| e.to_string())?;
     app.fs_scope()
         .allow_directory(dir, true)
         .map_err(|e| e.to_string())?;
@@ -132,9 +138,23 @@ fn handle_folder_drag(app: &AppHandle, event: &tauri::DragDropEvent) {
                 pending.0
             };
             // Scope first, emit second — the page scans the moment the event
-            // lands, and the scan must not race its grant.
+            // lands, and the scan must not race its grant. The raw-dump
+            // conflict is checked before granting, not only at commit: event
+            // media must stay behind opaque leases, never a renderer scope.
             for dir in &dirs {
-                let _ = allow_root(app, dir);
+                let conflicted = app
+                    .state::<event_clustering::EventState>()
+                    .0
+                    .lock()
+                    .map(|inner| {
+                        inner
+                            .guard_gallery_roots(std::slice::from_ref(dir))
+                            .is_err()
+                    })
+                    .unwrap_or(true);
+                if !conflicted {
+                    let _ = allow_root(app, dir);
+                }
             }
             let emitted: Vec<String> = dirs
                 .iter()

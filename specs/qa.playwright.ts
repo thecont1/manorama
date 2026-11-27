@@ -2447,7 +2447,7 @@ test.describe("display and info sheets", () => {
       const group = view.getByRole("radiogroup", { name, exact: true });
       await expect(group).toHaveCSS("background-color", "rgba(0, 0, 0, 0)");
       const selected = group.getByRole("radio", { checked: true });
-      expect(await selected.evaluate((el) => getComputedStyle(el).backgroundColor)).not.toBe("rgba(0, 0, 0, 0)");
+      await expect(selected).not.toHaveCSS("background-color", "rgba(0, 0, 0, 0)");
     }
 
     const arrows = view.getByRole("switch", { name: "Arrows" });
@@ -2456,7 +2456,7 @@ test.describe("display and info sheets", () => {
     await expect(track).toHaveCSS("background-color", "rgba(0, 0, 0, 0)");
     await arrows.click();
     await expect(arrows).toHaveAttribute("aria-checked", "true");
-    expect(await track.evaluate((el) => getComputedStyle(el).backgroundColor)).not.toBe("rgba(0, 0, 0, 0)");
+    await expect(track).not.toHaveCSS("background-color", "rgba(0, 0, 0, 0)");
   });
 
   test("axe is clean with the display sheet and the info sheet open", async ({

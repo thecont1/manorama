@@ -37,9 +37,19 @@ import org.junit.runner.RunWith
 @RunWith(AndroidJUnit4::class)
 class EventBridgeInstrumentationTest {
     @get:Rule
-    val permissions = GrantPermissionRule.grant(
-        android.Manifest.permission.READ_MEDIA_IMAGES,
-        android.Manifest.permission.ACCESS_MEDIA_LOCATION,
+    val permissions: GrantPermissionRule = GrantPermissionRule.grant(
+        // Grant only what exists on the test device: READ_MEDIA_IMAGES arrived
+        // in API 33, ACCESS_MEDIA_LOCATION in API 29, and older devices use
+        // READ_EXTERNAL_STORAGE. A rule naming a missing permission crashes
+        // before any test body can skip itself.
+        *buildList {
+            if (Build.VERSION.SDK_INT >= 33) {
+                add(android.Manifest.permission.READ_MEDIA_IMAGES)
+            } else {
+                add(android.Manifest.permission.READ_EXTERNAL_STORAGE)
+            }
+            if (Build.VERSION.SDK_INT >= 29) add(android.Manifest.permission.ACCESS_MEDIA_LOCATION)
+        }.toTypedArray(),
     )
 
     private lateinit var context: Context
@@ -73,10 +83,12 @@ class EventBridgeInstrumentationTest {
         assumeTrue(Build.VERSION.SDK_INT >= 29)
         val first = insertFixture("EventBridgeA", 12.5, 34.5)
         insertFixture("EventBridgeB", 56.5, 67.5)
-        assertEquals(
-            PackageManager.PERMISSION_GRANTED,
-            context.checkSelfPermission(android.Manifest.permission.READ_MEDIA_IMAGES),
-        )
+        val photoPermission = if (Build.VERSION.SDK_INT >= 33) {
+            android.Manifest.permission.READ_MEDIA_IMAGES
+        } else {
+            android.Manifest.permission.READ_EXTERNAL_STORAGE
+        }
+        assertEquals(PackageManager.PERMISSION_GRANTED, context.checkSelfPermission(photoPermission))
         assertEquals(
             PackageManager.PERMISSION_GRANTED,
             context.checkSelfPermission(android.Manifest.permission.ACCESS_MEDIA_LOCATION),

@@ -322,9 +322,9 @@ fn wrong_fingerprint_and_unknown_schema_are_discarded_and_rebuilt() {
         let mut json: serde_json::Value =
             serde_json::from_slice(&fs::read(&path).unwrap()).unwrap();
         if field == "schemaVersion" {
-            json[field] = serde_json::json!(999);
+            json["index"][field] = serde_json::json!(999);
         } else {
-            json["source"][field] = serde_json::json!(uuid::Uuid::new_v4().to_string());
+            json["index"]["source"][field] = serde_json::json!(uuid::Uuid::new_v4().to_string());
         }
         private_store::write_0600(&path, &serde_json::to_vec(&json).unwrap()).unwrap();
         let state = fixture.state();
@@ -390,9 +390,12 @@ fn wire_dates_are_ms_but_index_dates_are_seconds() {
     let stored: serde_json::Value =
         serde_json::from_slice(&fs::read(fixture.paths.config.join(INDEX_FILE)).unwrap()).unwrap();
     assert_eq!(
-        stored["source"]["lastIndexedAt"].as_f64().unwrap(),
+        stored["index"]["source"]["lastIndexedAt"].as_f64().unwrap(),
         index.source.last_indexed_at
     );
+    // The zone that interpreted undated EXIF fields is part of the same
+    // document — a scan written in one zone can never be reused in another.
+    assert!(stored["indexedZone"].is_string());
     assert_eq!(inner.index.as_ref().unwrap().source.source_kind, "folder");
 }
 #[test]
@@ -527,14 +530,22 @@ fn asset_ids_batch_and_network_requests_are_validated() {
         "a//one.png",
         "a/./one.png",
         "a/../one.png",
-        "C:/one.png",
-        "a\\one.png",
         "one\0.png",
         "one\n.png",
         "one.txt",
         "file://a.png",
     ] {
         assert!(validate_batch(&[id.into()], None, None).is_err(), "{id:?}");
+    }
+    // Backslashes, drive letters and stream separators are illegal only where
+    // the host filesystem treats them as separators; on Unix both are ordinary
+    // filename bytes the scanner legitimately indexes.
+    for id in ["C:/one.png", "a\\one.png"] {
+        if cfg!(windows) {
+            assert!(validate_batch(&[id.into()], None, None).is_err(), "{id:?}");
+        } else {
+            assert!(validate_batch(&[id.into()], None, None).is_ok(), "{id:?}");
+        }
     }
     assert!(validate_batch(&vec!["one.png".into(); 65], None, None).is_err());
     let sixty_four: Vec<String> = (0..64).map(|index| format!("{index}.png")).collect();

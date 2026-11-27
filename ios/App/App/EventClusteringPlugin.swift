@@ -58,10 +58,6 @@ final class EventSourceStateStore {
     func read() throws -> State {
         if let cached { return cached }
         var next = State()
-        defer {
-            for key in Self.legacyKeys { defaults.removeObject(forKey: key) }
-            try? removeIfPresent(legacyIndexURL)
-        }
         if FileManager.default.fileExists(atPath: stateURL.path) {
             let data = try Data(contentsOf: stateURL)
             let decoder = JSONDecoder(); decoder.dateDecodingStrategy = .secondsSince1970
@@ -76,6 +72,10 @@ final class EventSourceStateStore {
         try EventPrivateFiles.directory(directory)
         if !FileManager.default.fileExists(atPath: indexURL.path) { next.header = nil }
         try save(next)
+        // Legacy preferences retire only after the protected copy exists: a
+        // failed first write (out of space, locked device) must leave them in
+        // place so the retry still has a configuration to migrate.
+        for key in Self.legacyKeys { defaults.removeObject(forKey: key) }
         return next
     }
     func update(_ change: (inout State) -> Void) throws {

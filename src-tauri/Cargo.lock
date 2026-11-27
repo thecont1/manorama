@@ -1113,7 +1113,6 @@ dependencies = [
  "chrono",
  "chrono-tz",
  "kamadak-exif",
- "libc",
  "serde",
  "serde_json",
  "sha2",

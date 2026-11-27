@@ -78,7 +78,12 @@ public enum DumpMetadataParser {
         // and inventing a timestamp is not one of them.
         guard let components = dateComponents(from: text), components.year != nil else { return nil }
 
-        var calendar = localCalendar
+        // EXIF year/month/day fields are proleptic Gregorian — a user whose
+        // system calendar is Buddhist or Japanese would otherwise read the
+        // header's 2026 as a different epoch year. Only the timezone comes
+        // from the caller's calendar.
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = localCalendar.timeZone
         if let offset = tzOffsetSeconds(exif["OffsetTimeOriginal"] as? String ?? exif["OffsetTime"] as? String) {
             calendar.timeZone = TimeZone(secondsFromGMT: offset) ?? localCalendar.timeZone
         }

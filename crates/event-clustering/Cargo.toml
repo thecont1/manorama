@@ -20,6 +20,8 @@ serde = { version = "1", features = ["derive"] }
 serde_json = { version = "1", features = ["float_roundtrip"] }
 sha2 = "0.10"
 # No host clock/locale: fixed offsets and bundled IANA rules must reproduce DST fixtures.
+# Correctness wins over a second tzdb copy: Android must honor the requested
+# zone even when it differs from the device's ambient zone.
 chrono = { version = "0.4", default-features = false, features = ["std"] }
 chrono-tz = { version = "0.10", default-features = false }
 # Descriptor-rooted traversal prevents ancestor replacement from escaping the grant.
@@ -30,8 +32,3 @@ cap-fs-ext = { version = "=4.0.3", optional = true }
 unicode-normalization = "0.1"
 kamadak-exif = { version = "0.6", optional = true }
 jni = { version = "0.21", default-features = false, optional = true }
-
-[target.'cfg(target_os = "android")'.dependencies]
-# bionic already carries the device's IANA rules; shipping chrono-tz's second
-# copy in every .so exceeds the per-ABI budget.
-libc = "0.2"

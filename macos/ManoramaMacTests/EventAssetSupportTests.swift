@@ -622,9 +622,17 @@ final class EventAssetSupportTests {
         check("production WKWebView configuration registers the event scheme",
               protocolWebView.configuration.urlSchemeHandler(forURLScheme: "manorama-event") === handler
                   && protocolWebView.configuration.urlSchemeHandler(forURLScheme: "manorama") === handler)
+        // Production never navigates its main document to the event scheme —
+        // the viewer cancels that and embeds the capability as an <img>
+        // subresource. The probe mirrors the real path: a bundle fixture
+        // served from manorama://localhost embedding the capability.
+        let probeFixture = temporary.appendingPathComponent("event-probe.html")
+        try """
+        <!doctype html><html><body><img src="\(originalCapability.absoluteString)"></body></html>
+        """.write(to: probeFixture, atomically: true, encoding: .utf8)
         let probe = EventProtocolProbe()
         protocolWebView.navigationDelegate = probe
-        protocolWebView.load(URLRequest(url: originalCapability))
+        protocolWebView.load(URLRequest(url: URL(string: "manorama://localhost/event-probe.html")!))
         let deadline = Date().addingTimeInterval(15)
         var protocolResult = probe.snapshot()
         while !protocolResult.completed && Date() < deadline {

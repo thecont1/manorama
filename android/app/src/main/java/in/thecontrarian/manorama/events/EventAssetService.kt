@@ -320,8 +320,11 @@ internal class EventAssetService(
 
     private fun sampleSize(width: Int, height: Int, target: Int): Int {
         if (width <= 0 || height <= 0) return 1
+        // The long edge decides: a panorama whose short edge is already small
+        // must still be downsampled, or the decoder allocates hundreds of MiB
+        // before any scaling runs.
         var sample = 1
-        while (height / (sample * 2) >= target && width / (sample * 2) >= target) sample *= 2
+        while (maxOf(width, height) / (sample * 2) >= target) sample *= 2
         return sample
     }
 

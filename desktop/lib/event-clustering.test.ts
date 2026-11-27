@@ -167,6 +167,10 @@ describe('native event assets', () => {
       [{ ...ready('a.jpg'), url: 'https://example.com/a.jpg' }],
       [{ ...ready('a.jpg'), url: 'file:///tmp/a.jpg' }],
       [{ ...ready('a.jpg'), url: 'file:///tmp/a.jpg?download=1' }],
+      // A mobile thumbnail URL passes the shared file-url parser; only the
+      // desktop wrapper's lease-only restriction rejects it. This row keeps
+      // the two checks distinguishable.
+      [{ ...ready('a.jpg'), url: `file:///data/user/0/in.thecontrarian.manorama/cache/event-thumbs/${'0123456789abcdef'.repeat(4)}.jpg` }],
       [{ ...ready('a.jpg'), width: 0 }],
       [{ ...ready('a.jpg'), state: 'cloudOnly' }],
       [{ id: 'a.jpg', url: null, width: 0, height: 0, state: 'ready' }],

@@ -72,6 +72,13 @@ class EventClusteringPlugin : Plugin() {
     private var downloadDialog: AlertDialog? = null
     private var downloadDialogId: String? = null
 
+    // Cancellation tokens are recorded when a request is queued, not when it
+    // starts: a cancel that lands while the request still waits on assetWorker
+    // must stop it from ever opening a prompt or issuing a lease.
+    private val assetCallLock = Any()
+    private val assetCallTokens = mutableMapOf<String, Long>()
+    private var assetCallCounter = 0L
+
     private enum class PermissionAction { PICK, LIMITED }
 
     override fun load() {
@@ -200,6 +207,7 @@ class EventClusteringPlugin : Plugin() {
     @PluginMethod
     fun clearRawDumpRoot(call: PluginCall) {
         submitSettled(worker, { message -> main.post { call.reject(message) } }, "The Camera Roll folder could not be cleared") {
+            synchronized(assetCallLock) { assetCallTokens.clear() }
             assets.clear()
             observer.stop()
             dismissDownloadDialog()
@@ -222,25 +230,48 @@ class EventClusteringPlugin : Plugin() {
 
     @PluginMethod
     fun getEventAssetImage(call: PluginCall) {
-        val assetGeneration = assets.generation()
         val request = runCatching { parseAssetRequest(call) }.getOrNull()
         if (request == null) {
             call.reject("Invalid event photograph request")
             return
         }
+        val tokens = synchronized(assetCallLock) {
+            request.ids.associateWith { id ->
+                val token = ++assetCallCounter
+                assetCallTokens[id] = token
+                token
+            }
+        }
+        fun tokensCurrent(): Boolean = synchronized(assetCallLock) {
+            request.ids.all { assetCallTokens[it] == tokens[it] }
+        }
         try {
             assetWorker.execute {
                 try {
-                    if (assets.generation() != assetGeneration) {
+                    if (!tokensCurrent()) {
                         main.post { call.reject("Event photograph request cancelled") }
                         return@execute
                     }
+                    // Generation and state must agree: the source transition
+                    // clears assets on the worker thread while this task reads
+                    // on assetWorker, so re-check the generation after reading
+                    // state. A mismatch means the request straddled a switch
+                    // and must not serve the retired source's photographs.
+                    val assetGeneration = assets.generation()
                     val state = stateStore.read()
+                    if (assets.generation() != assetGeneration || !tokensCurrent()) {
+                        main.post { call.reject("Event photograph request cancelled") }
+                        return@execute
+                    }
                     if (!eventSourceReachable(state, hasPhotoPermission(), source::count)) {
                         main.post { call.reject("Camera Roll access is not available") }
                         return@execute
                     }
                     val records = request.ids.map { source.record(it, state.bucketId) }
+                    if (assets.generation() != assetGeneration || !tokensCurrent()) {
+                        main.post { call.reject("Event photograph request cancelled") }
+                        return@execute
+                    }
                     val allowNetwork = request.allowNetwork && state.downloadCloudOnOpen
                     val replies = assets.request(
                         request.ids,
@@ -270,6 +301,9 @@ class EventClusteringPlugin : Plugin() {
             return
         }
         try {
+            synchronized(assetCallLock) {
+                ids.forEach { assetCallTokens.remove(it) }
+            }
             assets.cancel(ids)
             if (downloadDialogId in ids) dismissDownloadDialog()
             call.resolve()
@@ -466,6 +500,7 @@ class EventClusteringPlugin : Plugin() {
                                 val bucket = buckets.getOrNull(which - 1)
                                 val label = labels[which]
                                 val sourceId = bucket?.let { "mediastore-bucket-${it.id}" } ?: "mediastore-library"
+                                synchronized(assetCallLock) { assetCallTokens.clear() }
                                 assets.clear()
                                 stateStore.indexFile.delete()
                                 stateStore.update {
@@ -589,8 +624,14 @@ class EventClusteringPlugin : Plugin() {
     }
 
     private fun libraryChanged() {
-        worker.execute {
-            if (stateStore.read().enabled) notifyListeners("eventLibraryChanged", JSObject())
+        // A stale observer delivery can arrive after teardown has shut the
+        // worker down; a rejected execution must not throw on the main thread.
+        try {
+            worker.execute {
+                if (stateStore.read().enabled) notifyListeners("eventLibraryChanged", JSObject())
+            }
+        } catch (_: RejectedExecutionException) {
+            Unit
         }
     }
 

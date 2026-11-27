@@ -70,6 +70,18 @@ final class DumpMetadataParserTests: XCTestCase {
         XCTAssertEqual(date, utc.date(from: { var c = DateComponents(); c.year = 2026; c.month = 6; c.day = 1; c.hour = 14; c.minute = 0; c.second = 45; return c }()))
     }
 
+    func testBuddhistSystemCalendarDoesNotShiftExifYears() {
+        // EXIF writes Gregorian years. A device running the Buddhist
+        // calendar must not read "2026" as BE 2026 (= CE 1483).
+        var buddhist = Calendar(identifier: .buddhist)
+        buddhist.timeZone = TimeZone(secondsFromGMT: 0)!
+        let date = DumpMetadataParser.captureDate(
+            exif: ["DateTimeOriginal": "2026:06:01 14:00:00"],
+            localCalendar: buddhist
+        )
+        XCTAssertEqual(date, utc.date(from: { var c = DateComponents(); c.year = 2026; c.month = 6; c.day = 1; c.hour = 14; return c }()))
+    }
+
     // MARK: - GPS
 
     func testDecimalDegreesWithReferences() throws {

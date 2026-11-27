@@ -531,10 +531,28 @@ final class EventAssetImagesTests: XCTestCase {
             let ids = (cluster["itemIds"] as? [String]) ?? []
             return ids.contains(where: expectedIds.contains)
         }
-        let counts = fixtureClusters.map { cluster in
-            Set((cluster["itemIds"] as? [String]) ?? []).intersection(expectedIds).count
-        }.filter { $0 > 0 }.sorted()
-        XCTAssertEqual(counts, [2, 2, 3])
+        // Membership, not just sizes: two clusters exchanging one fixture id
+        // would still count [2, 2, 3]. The fixture definition groups by
+        // capture day, so the expected partition comes from the assets
+        // themselves rather than a hard-coded identifier list.
+        let dayFormatter = DateFormatter()
+        dayFormatter.calendar = Calendar(identifier: .gregorian)
+        dayFormatter.timeZone = TimeZone.current
+        dayFormatter.dateFormat = "yyyy-MM-dd"
+        var byDay: [String: Set<String>] = [:]
+        for asset in seeded {
+            let day = asset.creationDate.map { dayFormatter.string(from: $0) } ?? "undated"
+            byDay[day, default: []].insert(asset.localIdentifier)
+        }
+        let expectedGroups = byDay.values.sorted { $0.sorted().lexicographicallyPrecedes($1.sorted()) }
+        let actualGroups = fixtureClusters.map { cluster in
+            Set((cluster["itemIds"] as? [String]) ?? []).intersection(expectedIds)
+        }.filter { !$0.isEmpty }
+        XCTAssertEqual(
+            actualGroups.map { $0.sorted() }.sorted { $0.lexicographicallyPrecedes($1) },
+            expectedGroups.map { $0.sorted() }.sorted { $0.lexicographicallyPrecedes($1) },
+            "each cluster's fixture membership must match the capture-day partition"
+        )
         let actualIds = Set(fixtureClusters.flatMap { ($0["itemIds"] as? [String]) ?? [] })
             .intersection(expectedIds)
         XCTAssertEqual(actualIds, expectedIds)

@@ -121,6 +121,16 @@ fn calendar_is_explicit_and_dst_aware() {
     assert!(Calendar::fixed_offset(86400).is_err());
     assert_eq!(Calendar::default().day_key(-0.5).unwrap(), "1969-12-31");
     let ny = Calendar::iana("America/New_York").unwrap();
+    // 2026-01-02 04:30 UTC is still January 1 in New York regardless of the
+    // host device's zone; Android previously inherited the ambient zone here.
+    assert_eq!(ny.day_key(1_767_328_200.0).unwrap(), "2026-01-01");
+    assert_eq!(
+        Calendar::fixed_offset(0)
+            .unwrap()
+            .day_key(1_767_328_200.0)
+            .unwrap(),
+        "2026-01-02"
+    );
     let before = capture_date(
         &fields(json!({"DateTimeOriginal": "2026:03:08 01:30:00"})),
         &ny,

@@ -60,6 +60,16 @@ struct SavedDeclaration {
     source: Option<Declaration>,
 }
 
+/// The persisted scan cache carries the zone that interpreted its undated EXIF
+/// fields. A declaration/index pair that disagrees is a cache miss, never a
+/// reuse of timestamps parsed against the wrong zone.
+#[derive(Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct StoredIndex {
+    indexed_zone: String,
+    index: EventIndex,
+}
+
 pub(crate) struct EventState(pub Arc<Mutex<Inner>>);
 
 #[derive(Default)]
@@ -119,18 +129,19 @@ pub(crate) struct Inner {
 
 impl EventState {
     pub fn load(paths: StorePaths) -> Result<Self, String> {
-        let saved = match private_store::read_optional(&paths.config.join(DECLARATION_FILE))? {
-            Some(bytes) => {
-                serde_json::from_slice::<SavedDeclaration>(&bytes).map_err(|e| e.to_string())?
-            }
-            None => SavedDeclaration {
-                device_id: uuid::Uuid::new_v4().to_string(),
-                source: None,
-            },
+        let fresh = || SavedDeclaration {
+            device_id: uuid::Uuid::new_v4().to_string(),
+            source: None,
         };
-        if uuid::Uuid::parse_str(&saved.device_id).is_err() {
-            return Err("Invalid private device identity".into());
-        }
+        // A corrupt declaration must not take the whole desktop shell down:
+        // the source simply becomes unconfigured, exactly as if never chosen.
+        let saved = match private_store::read_optional(&paths.config.join(DECLARATION_FILE))? {
+            Some(bytes) => serde_json::from_slice::<SavedDeclaration>(&bytes)
+                .ok()
+                .filter(|saved| uuid::Uuid::parse_str(&saved.device_id).is_ok())
+                .unwrap_or_else(fresh),
+            None => fresh(),
+        };
         let mut inner = Inner {
             paths,
             device_id: saved.device_id,
@@ -142,9 +153,13 @@ impl EventState {
             assets: AssetLeases::default(),
         };
         if let Some(source) = &inner.source {
-            let approved = private_store::raw_dump_roots_at(&inner.paths)?
-                .iter()
-                .any(|root| crate::same_path(Path::new(root), &source.root_path));
+            let approved = private_store::raw_dump_roots_at(&inner.paths)
+                .map(|roots| {
+                    roots
+                        .iter()
+                        .any(|root| crate::same_path(Path::new(root), &source.root_path))
+                })
+                .unwrap_or(false);
             if !approved
                 || source.root_identity.is_none()
                 || uuid::Uuid::parse_str(&source.source_id).is_err()
@@ -153,20 +168,29 @@ impl EventState {
                 private_store::remove_private(&inner.paths.config.join(INDEX_FILE))?;
                 inner.save_declaration()?;
             } else {
-                guard_dump_candidate(&inner.paths, &source.root_path)?;
-                let bytes = private_store::read_optional(&inner.paths.config.join(INDEX_FILE))?;
-                inner.index = bytes
-                    .as_deref()
-                    .and_then(|bytes| {
-                        EventIndex::reusable(bytes, &inner.device_id, &source.source_id)
-                    })
-                    .filter(|index| {
-                        index.source.source_kind == EventIndex::FOLDER_SOURCE_KIND
-                            && index.source.label == source.label
-                            && index.config == ClusteringConfig::default()
+                if let Err(error) = guard_dump_candidate(&inner.paths, &source.root_path) {
+                    eprintln!("raw dump declaration disabled: {error}");
+                    inner.source = None;
+                    let _ = private_store::remove_private(&inner.paths.config.join(INDEX_FILE));
+                    let _ = inner.save_declaration();
+                } else {
+                    let bytes = private_store::read_optional(&inner.paths.config.join(INDEX_FILE))?;
+                    inner.index = bytes.as_deref().and_then(|bytes| {
+                        let stored = serde_json::from_slice::<StoredIndex>(bytes).ok()?;
+                        if Some(stored.indexed_zone.as_str()) != source.indexed_zone.as_deref() {
+                            return None;
+                        }
+                        (stored.index.schema_version == manorama_events::SCHEMA_VERSION
+                            && stored.index.matches(&inner.device_id, &source.source_id)
+                            && stored.index.encode().is_ok()
+                            && stored.index.source.source_kind == EventIndex::FOLDER_SOURCE_KIND
+                            && stored.index.source.label == source.label
+                            && stored.index.config == ClusteringConfig::default())
+                        .then_some(stored.index)
                     });
-                if bytes.is_some() && inner.index.is_none() {
-                    private_store::remove_private(&inner.paths.config.join(INDEX_FILE))?;
+                    if bytes.is_some() && inner.index.is_none() {
+                        private_store::remove_private(&inner.paths.config.join(INDEX_FILE))?;
+                    }
                 }
             }
         } else {
@@ -209,9 +233,7 @@ fn root_path_identity(root: &Path) -> Result<FileIdentity, String> {
     {
         let dir = Dir::open_ambient_dir(root, cap_std::ambient_authority())
             .map_err(|_| "Raw dump is unavailable")?;
-        let metadata = dir
-            .dir_metadata()
-            .map_err(|_| "Raw dump is unavailable")?;
+        let metadata = dir.dir_metadata().map_err(|_| "Raw dump is unavailable")?;
         FileIdentity::from_handle(&metadata)
     }
 }
@@ -403,14 +425,27 @@ impl Inner {
             return Err("Raw dump changed during scan".into());
         }
         open_source_root(&ticket.source)?;
+        let stored = StoredIndex {
+            indexed_zone: ticket.zone.clone(),
+            index: index.clone(),
+        };
         private_store::write_0600(
             &self.paths.config.join(INDEX_FILE),
-            &index.encode().map_err(|e| e.to_string())?,
+            &serde_json::to_vec(&stored).map_err(|e| e.to_string())?,
         )?;
+        let previous_zone = self
+            .source
+            .as_ref()
+            .and_then(|source| source.indexed_zone.clone());
         if let Some(source) = &mut self.source {
             source.indexed_zone = Some(ticket.zone.clone());
         }
-        self.save_declaration()?;
+        if let Err(error) = self.save_declaration() {
+            if let Some(source) = &mut self.source {
+                source.indexed_zone = previous_zone;
+            }
+            return Err(error);
+        }
         let reply = scan_reply(&index, &ticket.source.root_path, reads);
         self.index = Some(index);
         Ok(reply)
@@ -427,11 +462,16 @@ struct ScanTicket {
 }
 impl ScanTicket {
     fn run(&self) -> Result<(EventIndex, usize), String> {
-        open_source_root(&self.source)?;
+        let root = open_source_root(&self.source)?;
         let calendar = Calendar::iana(&self.zone).map_err(|e| e.to_string())?;
         let config = ClusteringConfig::default();
-        let scan = fs_scan::scan(&self.source.root_path, self.cache.as_ref(), &calendar)
-            .map_err(|_| "Raw dump is unavailable or could not be scanned".to_string())?;
+        let scan = fs_scan::scan_open_root(
+            &root,
+            &self.source.root_path,
+            self.cache.as_ref(),
+            &calendar,
+        )
+        .map_err(|_| "Raw dump is unavailable or could not be scanned".to_string())?;
         let items = scan.item_cache.values().cloned().collect::<Vec<_>>();
         let result = EventClusterer::new(&self.source.source_id, config.clone(), calendar)
             .map_err(|e| e.to_string())?
@@ -667,7 +707,7 @@ fn valid_id(id: &str) -> bool {
     !id.is_empty()
         && id.len() <= 4096
         && !id.chars().any(|c| c.is_control())
-        && !id.contains(['\\', ':'])
+        && (!cfg!(windows) || !id.contains(['\\', ':']))
         && !id.starts_with('/')
         && id
             .split('/')
@@ -1066,21 +1106,46 @@ fn respond_event_asset(
     request: &Request<Vec<u8>>,
     respond: impl FnOnce(Response<Vec<u8>>),
 ) {
-    // Keep clear/change serialized through the response handoff. A cloned lease
-    // must not return bytes after the source has already been forgotten.
-    let Ok(inner) = state.lock() else {
+    // Keep clear/change serialized through the response handoff, but not
+    // through the read itself: asset bytes can be large, and holding the
+    // state lock across them would freeze every other Camera Roll command.
+    // The lease is re-validated at handoff, so bytes are never returned for
+    // a source that has already been forgotten.
+    let uri = request.uri().to_string();
+    let token = request_token(&uri).unwrap_or_default();
+    let asset = {
+        let Ok(inner) = state.lock() else {
+            respond(asset_error(StatusCode::NOT_FOUND));
+            return;
+        };
+        inner
+            .assets
+            .get(token)
+            .filter(|asset| lease_is_current(&inner, asset))
+            .cloned()
+    };
+    let Some(asset) = asset else {
         respond(asset_error(StatusCode::NOT_FOUND));
         return;
     };
-    let response = inner
-        .assets
-        .get(request_token(request.uri().to_string().as_str()).unwrap_or_default())
-        .filter(|asset| lease_is_current(&inner, asset))
-        .map_or_else(
-            || asset_error(StatusCode::NOT_FOUND),
-            |asset| asset_response(asset, request),
-        );
-    respond(response);
+    let response = asset_response(&asset, request);
+    // The lock is re-acquired for the handoff itself: clear/change stay
+    // serialized behind the response callback, but never behind the read.
+    match state.lock() {
+        Ok(inner) => {
+            let current = inner
+                .assets
+                .get(token)
+                .filter(|lease| lease_is_current(&inner, lease))
+                .is_some_and(|lease| lease.generation == asset.generation);
+            respond(if current {
+                response
+            } else {
+                asset_error(StatusCode::NOT_FOUND)
+            });
+        }
+        Err(_) => respond(asset_error(StatusCode::NOT_FOUND)),
+    }
 }
 
 pub(crate) fn serve_event_asset<R: Runtime>(

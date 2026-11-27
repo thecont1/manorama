@@ -140,6 +140,9 @@ final class EventAssetImages {
         let asset: EventPhotoAsset
         let url: URL?
         let complete: (Reply) -> Void
+        /// At most four chunks may wait for the owner queue; the producer
+        /// thread blocks on the fifth instead of growing memory unbounded.
+        let slots = DispatchSemaphore(value: 4)
         var thumbnail: PHImageRequestID?
         var resource: PHAssetResourceDataRequestID?
         var file: FileHandle?
@@ -303,7 +306,20 @@ final class EventAssetImages {
                 }
             }, dataReceived: { [weak self] data in
                 guard let self else { return }
+                // PhotoKit does not wait for this handler, so an unbounded
+                // async handoff would hold every chunk in memory until the
+                // owner queue drains. A small semaphore creates real
+                // backpressure; a synchronous test double on the owner queue
+                // itself bypasses it, or the wait would deadlock the queue.
+                if DispatchQueue.getSpecific(key: self.queueKey) == true {
+                    guard self.pending[key]?.token == operation.token, let file = operation.file else { return }
+                    do { try file.write(contentsOf: data) }
+                    catch { self.cancelKey(key) }
+                    return
+                }
+                operation.slots.wait()
                 self.queue.async {
+                    defer { operation.slots.signal() }
                     guard self.pending[key]?.token == operation.token, let file = operation.file else { return }
                     do { try file.write(contentsOf: data) }
                     catch { self.cancelKey(key) }

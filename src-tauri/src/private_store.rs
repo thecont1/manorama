@@ -95,8 +95,6 @@ pub fn read_private_file(app: AppHandle, name: String) -> Result<Option<String>,
 pub(crate) fn write_0600(path: &Path, contents: &[u8]) -> Result<(), String> {
     let parent = path.parent().ok_or("Private file needs a parent")?;
     fs::create_dir_all(parent).map_err(|e| e.to_string())?;
-    #[cfg(windows)]
-    windows_private_parent(parent)?;
     let tmp = parent.join(format!(
         ".{}.{}.tmp",
         path.file_name()
@@ -113,6 +111,11 @@ pub(crate) fn write_0600(path: &Path, contents: &[u8]) -> Result<(), String> {
         #[cfg(unix)]
         file.set_permissions(fs::Permissions::from_mode(0o600))
             .map_err(|e| e.to_string())?;
+        // Windows mirrors the POSIX per-file mode, not a directory rewrite:
+        // the ACL lands on the temp file and survives the rename, so a
+        // caller-selected --store directory keeps its own access policy.
+        #[cfg(windows)]
+        windows_private_file(&tmp)?;
         file.write_all(contents).map_err(|e| e.to_string())?;
         file.sync_all().map_err(|e| e.to_string())?;
         drop(file);
@@ -199,7 +202,7 @@ fn windows_current_user_sid() -> Result<String, String> {
 }
 
 #[cfg(windows)]
-fn windows_private_parent(parent: &Path) -> Result<(), String> {
+fn windows_private_file(file: &Path) -> Result<(), String> {
     use std::{os::windows::ffi::OsStrExt, ptr};
     use windows_sys::Win32::{
         Foundation::LocalFree,
@@ -226,7 +229,7 @@ fn windows_private_parent(parent: &Path) -> Result<(), String> {
         {
             return Err(std::io::Error::last_os_error().to_string());
         }
-        let path: Vec<u16> = parent.as_os_str().encode_wide().chain(Some(0)).collect();
+        let path: Vec<u16> = file.as_os_str().encode_wide().chain(Some(0)).collect();
         let ok = SetFileSecurityW(
             path.as_ptr(),
             DACL_SECURITY_INFORMATION | PROTECTED_DACL_SECURITY_INFORMATION,

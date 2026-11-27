@@ -325,90 +325,195 @@ where
 pub fn ingest(file: &DumpedFile, calendar: &Calendar) -> DumpIngest {
     ingest_with_header(file, calendar, |_| read_header(file))
 }
-pub fn scan(
-    root: &Path,
+
+fn ingest_scanned_file(
+    file: &DumpedFile,
+    cache: Option<&EventIndex>,
+    calendar: &Calendar,
+    result: &mut ScanResult,
+) {
+    let mod_time = if file.pixels_are_local && windows_pixels_are_local(file.windows_attributes) {
+        file.modification_time
+    } else {
+        None
+    };
+    if let Some(cache) = cache {
+        if !cache.needs_metadata_read(&file.relative_path, mod_time) {
+            result.item_cache.insert(
+                file.relative_path.clone(),
+                cache.item_cache[&file.relative_path].clone(),
+            );
+            return;
+        }
+    }
+    let ingested = ingest(file, calendar);
+    result.metadata_read_count += usize::from(ingested.header_was_opened);
+    if let Some(item) = ingested.item {
+        result.item_cache.insert(item.id.clone(), item);
+    } else {
+        result.unplaced_item_ids.push(file.relative_path.clone());
+    }
+}
+
+/// Depth-first scan through an already verified root capability. Each file is
+/// ingested while its parent handle is naturally open, so populated folders do
+/// not accumulate one descriptor per entry across the scan.
+fn scan_walk(
+    dir: Arc<Dir>,
+    display_root: &Path,
+    relative_dir: &Path,
+    cache: Option<&EventIndex>,
+    calendar: &Calendar,
+    result: &mut ScanResult,
+) -> io::Result<()> {
+    for entry in dir.entries()? {
+        let name = PathBuf::from(entry?.file_name());
+        let Some(text) = name.to_str() else { continue };
+        if text.starts_with('.') {
+            continue;
+        }
+        let metadata = dir.symlink_metadata(&name)?;
+        if !windows_entry_is_visible(attributes(&metadata), metadata.file_type().is_symlink()) {
+            continue;
+        }
+        let relative = relative_dir.join(&name);
+        if metadata.is_dir() {
+            if ["app", "photoslibrary", "imoviewindow"].iter().any(|ext| {
+                name.extension()
+                    .is_some_and(|s| s.eq_ignore_ascii_case(ext))
+            }) {
+                continue;
+            }
+            let child = Arc::new(dir.open_dir_nofollow(&name)?);
+            scan_walk(child, display_root, &relative, cache, calendar, result)?;
+        } else if metadata.is_file() {
+            let ext = name
+                .extension()
+                .and_then(|s| s.to_str())
+                .unwrap_or("")
+                .to_ascii_lowercase();
+            if !IMAGE_EXTENSIONS.contains(&ext.as_str()) {
+                continue;
+            }
+            let file = DumpedFile {
+                path: display_root.join(&relative),
+                relative_path: relative
+                    .to_str()
+                    .unwrap()
+                    .replace(std::path::MAIN_SEPARATOR, "/"),
+                modification_time: metadata.modified().ok().map(epoch),
+                creation_time: metadata.created().ok().map(epoch),
+                pixels_are_local: local(&metadata),
+                windows_attributes: attributes(&metadata),
+                parent: dir.clone(),
+                bound_name: name,
+            };
+            ingest_scanned_file(&file, cache, calendar, result);
+        }
+    }
+    Ok(())
+}
+
+/// Scan through a root handle that the caller has already verified. The path is
+/// used only for display names and header-provider compatibility, never to open
+/// the root again.
+pub fn scan_open_root(
+    root_dir: &Dir,
+    display_root: &Path,
     cache: Option<&EventIndex>,
     calendar: &Calendar,
 ) -> io::Result<ScanResult> {
     // The consumer must pass a fingerprint-checked index (EventIndex::reusable).
     let mut result = ScanResult::default();
-    for file in enumerate(root)? {
-        let mod_time = if file.pixels_are_local && windows_pixels_are_local(file.windows_attributes)
-        {
-            file.modification_time
-        } else {
-            None
-        };
-        if let Some(cache) = cache {
-            if !cache.needs_metadata_read(&file.relative_path, mod_time) {
-                result.item_cache.insert(
-                    file.relative_path.clone(),
-                    cache.item_cache[&file.relative_path].clone(),
-                );
-                continue;
-            }
-        }
-        let ingested = ingest(&file, calendar);
-        result.metadata_read_count += usize::from(ingested.header_was_opened);
-        if let Some(item) = ingested.item {
-            result.item_cache.insert(item.id.clone(), item);
-        } else {
-            result.unplaced_item_ids.push(file.relative_path);
-        }
-    }
+    let root = root_dir.try_clone()?;
+    scan_walk(
+        Arc::new(root),
+        display_root,
+        Path::new(""),
+        cache,
+        calendar,
+        &mut result,
+    )?;
+    result.unplaced_item_ids.sort();
     Ok(result)
+}
+
+pub fn scan(
+    root: &Path,
+    cache: Option<&EventIndex>,
+    calendar: &Calendar,
+) -> io::Result<ScanResult> {
+    let dir = Dir::open_ambient_dir(root, ambient_authority())?;
+    scan_open_root(&dir, root, cache, calendar)
 }
 
 #[cfg(all(test, unix))]
 mod capability_tests {
     use super::*;
     use std::os::unix::fs::symlink;
+
+    struct TestDir(PathBuf);
+    impl TestDir {
+        fn new(prefix: &str) -> Self {
+            let root = PathBuf::from(
+                std::env::var_os("CARGO_TARGET_DIR").unwrap_or_else(|| std::env::temp_dir().into()),
+            );
+            for suffix in 0..100u32 {
+                let path = root.join(format!("{prefix}-{}-{suffix}", std::process::id()));
+                if fs::create_dir(&path).is_ok() {
+                    return Self(path);
+                }
+            }
+            panic!("could not create an isolated capability-test directory");
+        }
+    }
+    impl Drop for TestDir {
+        fn drop(&mut self) {
+            let _ = fs::remove_dir_all(&self.0);
+        }
+    }
+
     #[test]
     fn directory_replacement_before_open_is_rejected_without_foreign_names() {
-        let base = PathBuf::from(
-            std::env::var_os("CARGO_TARGET_DIR").unwrap_or_else(|| std::env::temp_dir().into()),
-        )
-        .join(format!("cap-before-{}", std::process::id()));
-        fs::create_dir_all(base.join("root/sub")).unwrap();
-        fs::create_dir_all(base.join("outside")).unwrap();
-        fs::write(base.join("outside/private.jpg"), b"foreign").unwrap();
-        let dir = Arc::new(Dir::open_ambient_dir(base.join("root"), ambient_authority()).unwrap());
+        let base = TestDir::new("cap-before");
+        fs::create_dir_all(base.0.join("root/sub")).unwrap();
+        fs::create_dir_all(base.0.join("outside")).unwrap();
+        fs::write(base.0.join("outside/private.jpg"), b"foreign").unwrap();
+        let dir =
+            Arc::new(Dir::open_ambient_dir(base.0.join("root"), ambient_authority()).unwrap());
         let mut found = vec![];
         let result = walk(
             dir,
-            &base.join("root"),
+            &base.0.join("root"),
             Path::new(""),
             &mut found,
             &mut |_| {
-                fs::rename(base.join("root/sub"), base.join("root/old-sub")).unwrap();
-                symlink(base.join("outside"), base.join("root/sub")).unwrap();
+                fs::rename(base.0.join("root/sub"), base.0.join("root/old-sub")).unwrap();
+                symlink(base.0.join("outside"), base.0.join("root/sub")).unwrap();
             },
         );
         assert!(result.is_err());
         assert!(found.is_empty());
-        fs::remove_dir_all(base).unwrap();
     }
     #[test]
     fn ancestor_replacement_during_walk_keeps_child_directory_pinned() {
-        let base = PathBuf::from(
-            std::env::var_os("CARGO_TARGET_DIR").unwrap_or_else(|| std::env::temp_dir().into()),
-        )
-        .join(format!("cap-during-{}", std::process::id()));
-        fs::create_dir_all(base.join("root/sub/nested")).unwrap();
-        fs::create_dir_all(base.join("outside/nested")).unwrap();
-        fs::write(base.join("root/sub/nested/local.jpg"), b"local").unwrap();
-        fs::write(base.join("outside/nested/private.jpg"), b"foreign").unwrap();
-        let dir = Arc::new(Dir::open_ambient_dir(base.join("root"), ambient_authority()).unwrap());
+        let base = TestDir::new("cap-during");
+        fs::create_dir_all(base.0.join("root/sub/nested")).unwrap();
+        fs::create_dir_all(base.0.join("outside/nested")).unwrap();
+        fs::write(base.0.join("root/sub/nested/local.jpg"), b"local").unwrap();
+        fs::write(base.0.join("outside/nested/private.jpg"), b"foreign").unwrap();
+        let dir =
+            Arc::new(Dir::open_ambient_dir(base.0.join("root"), ambient_authority()).unwrap());
         let mut found = vec![];
         walk(
             dir,
-            &base.join("root"),
+            &base.0.join("root"),
             Path::new(""),
             &mut found,
             &mut |relative| {
                 if relative == Path::new("sub/nested") {
-                    fs::rename(base.join("root/sub"), base.join("root/old-sub")).unwrap();
-                    symlink(base.join("outside"), base.join("root/sub")).unwrap();
+                    fs::rename(base.0.join("root/sub"), base.0.join("root/old-sub")).unwrap();
+                    symlink(base.0.join("outside"), base.0.join("root/sub")).unwrap();
                 }
             },
         )
@@ -419,6 +524,5 @@ mod capability_tests {
             found[0].parent.read(&found[0].bound_name).unwrap(),
             b"local"
         );
-        fs::remove_dir_all(base).unwrap();
     }
 }
