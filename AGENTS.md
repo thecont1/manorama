@@ -26,9 +26,18 @@ The product thesis, which explains most of the invariants below: **the viewing e
 is the product.** Not the dashboard, not the feed, not the social graph. Someone opened a
 link to look at photographs. Everything else is in service of that, or it is out.
 
-We are now taking it native — Capacitor for iOS, Tauri for desktop later — because a local
-client can do things the web cannot: an encrypted on-device thumbnail vault, true offline
-viewing, honest colour and refresh rate, peer-to-peer sharing.
+We are now taking it native — Capacitor for iOS, a SwiftUI shell for macOS,
+Tauri for Windows and Linux — because a local client can do things the web
+cannot: an encrypted on-device thumbnail vault, true offline viewing, honest
+colour and refresh rate, peer-to-peer sharing.
+
+The desktop shells are not interchangeable. `macos/ManoramaMac` (SwiftUI +
+WKWebView) is the ONLY macOS codebase — the Tauri shell in `src-tauri/` is
+retired for macOS and remains only for the Windows and Linux builds.
+`desktop/` is the shared web bundle both shells host, so web-layer changes
+still land there; macOS-native behaviour — sign-in, deep links, the opener,
+the vault — lives in `macos/ManoramaMac`. When a task says "the macOS app",
+it means the SwiftUI shell; never route a macOS change through `src-tauri/`.
 
 ---
 
@@ -109,6 +118,9 @@ app/lib/             Worker-side: provider scanners, OAuth, session, repositorie
                      Also thin re-export shims for everything moved to packages/core.
 app/api.ts           Session-gated API surface
 native/              (being built) client-only SPA entry, Capacitor shells, vault, billing, ads
+desktop/             shared desktop web bundle hosted by the macOS and Windows shells
+macos/               SwiftUI macOS shell (ManoramaMac) + boundary tests — the only macOS code
+src-tauri/           Tauri shell — the Windows and Linux builds; retired for macOS
 migrations/          D1 migrations
 specs/               acceptance specs (*.playwright.ts) plus shared helpers
 ```

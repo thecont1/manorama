@@ -64,6 +64,7 @@ body.manorama-desktop {
   letter-spacing: -.03em;
   line-height: 1.12;
 }
+.desktop-welcome-h1-line { display: block; }
 .desktop-welcome h1 em {
   font-family: inherit;
   font-style: italic;

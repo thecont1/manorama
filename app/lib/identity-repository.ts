@@ -76,6 +76,67 @@ const refreshIdentityMetadata = async (
   ).bind(input.email ?? null, input.displayName ?? null, provider, subject).run()
 }
 
+/** Onboarding rows outlive the native 404 by minutes, not days — the web
+ *  round trip either completes promptly or the name was never owed. */
+export const APPLE_ONBOARDING_TTL_MINUTES = 15
+
+/** Stash the verified name Apple sent with the first native consent, keyed
+ *  by the subject it belongs to. Only ever written for an identity no
+ *  account knows — once the account exists the ordinary metadata refresh
+ *  carries the name. Consumption is keyed by the same subject completing a
+ *  full provider round trip, so nothing here is forgeable: the row only
+ *  ever reaches the person the name describes. */
+export const stashAppleOnboarding = async (
+  subject: string,
+  displayName: string,
+  env: UserRepositoryEnv,
+): Promise<void> => {
+  const db = requireDb(env)
+  const validated = checked({ provider: 'apple', subject, displayName })
+  if (!validated.displayName) return
+  await db.prepare(
+    `INSERT INTO apple_onboarding (subject, display_name, expires_at)
+     VALUES (?, ?, datetime('now', '+${APPLE_ONBOARDING_TTL_MINUTES} minutes'))
+     ON CONFLICT (subject) DO UPDATE SET display_name = excluded.display_name, expires_at = excluded.expires_at`,
+  ).bind(validated.subject, validated.displayName).run()
+}
+
+/** Read for the interstitial — deliberately NOT a delete. Account creation
+ *  can fail after this read, and a row already consumed would lose the name
+ *  to a transient fault the user can simply retry past; the delete belongs
+ *  to the success path. Expired rows answer absent and are reaped here as
+ *  they are the only rows reads can prove dead. */
+export const readAppleOnboarding = async (
+  subject: string,
+  env: UserRepositoryEnv,
+): Promise<string | null> => {
+  const db = requireDb(env)
+  const validated = checked({ provider: 'apple', subject })
+  const row = await db.prepare(
+    `SELECT display_name, (expires_at > datetime('now')) AS live FROM apple_onboarding WHERE subject = ?`,
+  ).bind(validated.subject).first<{ display_name: string; live: number }>()
+  if (!row) return null
+  if (!row.live) {
+    await db.prepare("DELETE FROM apple_onboarding WHERE subject = ? AND expires_at <= datetime('now')")
+      .bind(validated.subject).run()
+    return null
+  }
+  return row.display_name
+}
+
+/** The success-half of the read: once the account exists the stash can never
+ *  serve again — a later sign-in for the subject finds the account and skips
+ *  the interstitial entirely. Best-effort at the call site; a missed delete
+ *  leaves a row that expires in minutes. */
+export const deleteAppleOnboarding = async (
+  subject: string,
+  env: UserRepositoryEnv,
+): Promise<void> => {
+  const db = requireDb(env)
+  const validated = checked({ provider: 'apple', subject })
+  await db.prepare('DELETE FROM apple_onboarding WHERE subject = ?').bind(validated.subject).run()
+}
+
 export const findAccountByIdentity = async (
   provider: AuthProvider,
   subject: string,

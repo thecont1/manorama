@@ -8,7 +8,7 @@ import {
   SignJWT,
 } from 'jose'
 import type { JWTPayload } from 'jose'
-import { appleAuthorizeUrl, createAppleClientSecret, fetchAppleIdentity } from './apple-auth'
+import { appleAuthorizeUrl, createAppleClientSecret, fetchAppleIdentity, verifyNativeAppleIdentity } from './apple-auth'
 import type { OidcDependencies } from './oidc'
 
 const CLIENT_ID = 'com.manorama.signin'
@@ -272,5 +272,54 @@ describe('apple identity exchange', () => {
     await expect(fetchAppleIdentity(EXCHANGE, {} as typeof env, d)).rejects.toThrow()
     await expect(fetchAppleIdentity(EXCHANGE, { ...env, APPLE_PRIVATE_KEY: ' ' }, d)).rejects.toThrow()
     expect(stub.calls).toHaveLength(0)
+  })
+})
+
+describe('verifyNativeAppleIdentity', () => {
+  const NATIVE_AUD = 'in.thecontrarian.manorama.desktop'
+  const nativeClaims = (overrides: Record<string, unknown> = {}) => ({
+    iss: 'https://appleid.apple.com',
+    aud: NATIVE_AUD,
+    sub: 'apple-sub-native',
+    nonce: 'native-nonce-1',
+    exp: Math.floor(Date.now() / 1000) + 300,
+    iat: Math.floor(Date.now() / 1000),
+    ...overrides,
+  })
+  const deps = { keyResolver }
+
+  test('a valid native token verifies to the apple identity', async () => {
+    const token = await sign(nativeClaims({ email: 'n@privaterelay.appleid.com', email_verified: 'true' }))
+    const identity = await verifyNativeAppleIdentity({ identityToken: token, nonce: 'native-nonce-1' }, deps)
+    expect(identity?.provider).toBe('apple')
+    expect(identity?.subject).toBe('apple-sub-native')
+    expect(identity?.email).toBe('n@privaterelay.appleid.com')
+  })
+
+  test('the web service audience is refused', async () => {
+    const token = await sign(nativeClaims({ aud: CLIENT_ID }))
+    expect(await verifyNativeAppleIdentity({ identityToken: token, nonce: 'native-nonce-1' }, deps)).toBeNull()
+  })
+
+  test('a wrong nonce is refused', async () => {
+    const token = await sign(nativeClaims())
+    expect(await verifyNativeAppleIdentity({ identityToken: token, nonce: 'other-nonce' }, deps)).toBeNull()
+  })
+
+  test('a token signed by another key is refused', async () => {
+    const other = await generateKeyPair('RS256')
+    const token = await sign(nativeClaims(), other.privateKey)
+    expect(await verifyNativeAppleIdentity({ identityToken: token, nonce: 'native-nonce-1' }, deps)).toBeNull()
+  })
+
+  test('an expired token is refused', async () => {
+    const token = await sign(nativeClaims({ exp: Math.floor(Date.now() / 1000) - 300 }))
+    expect(await verifyNativeAppleIdentity({ identityToken: token, nonce: 'native-nonce-1' }, deps)).toBeNull()
+  })
+
+  test('an unverified email claim does not ride along', async () => {
+    const token = await sign(nativeClaims({ email: 'n@x.com' }))
+    const identity = await verifyNativeAppleIdentity({ identityToken: token, nonce: 'native-nonce-1' }, deps)
+    expect(identity?.email).toBeUndefined()
   })
 })
