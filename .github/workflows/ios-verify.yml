@@ -19,7 +19,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        device: ['iPhone 17 Pro Max', 'iPad Pro 13-inch (M5)']
+        device: ['iPhone 18 Pro Max', 'iPad Pro 13-inch (M5)']
     steps:
       - uses: actions/checkout@v7
       - uses: oven-sh/setup-bun@v2
