@@ -502,11 +502,11 @@ final class EventAssetImagesTests: XCTestCase {
         let all = PHAsset.fetchAssets(with: .image, options: nil)
         let marker = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
             .appendingPathComponent("event-fixture-prefix.txt")
-        let prefix = (try? String(contentsOf: marker, encoding: .utf8))
+        let prefix = try XCTUnwrap((try? String(contentsOf: marker, encoding: .utf8))
             .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
             .flatMap { $0.isEmpty ? nil : $0 }
-            ?? ProcessInfo.processInfo.environment["EVENT_FIXTURE_PREFIX"]
-            ?? "event-demo-"
+            ?? ProcessInfo.processInfo.environment["EVENT_FIXTURE_PREFIX"],
+            "Neither event-fixture-prefix.txt nor EVENT_FIXTURE_PREFIX names this run's batch; the retired event-demo fallback could match stale assets from an earlier run")
         var seeded: [PHAsset] = []
         all.enumerateObjects { asset, _, _ in
             if PHAssetResource.assetResources(for: asset).contains(where: {
@@ -532,26 +532,35 @@ final class EventAssetImagesTests: XCTestCase {
             return ids.contains(where: expectedIds.contains)
         }
         // Membership, not just sizes: two clusters exchanging one fixture id
-        // would still count [2, 2, 3]. The fixture definition groups by
-        // capture day, so the expected partition comes from the assets
-        // themselves rather than a hard-coded identifier list.
-        let dayFormatter = DateFormatter()
-        dayFormatter.calendar = Calendar(identifier: .gregorian)
-        dayFormatter.timeZone = TimeZone.current
-        dayFormatter.dateFormat = "yyyy-MM-dd"
-        var byDay: [String: Set<String>] = [:]
+        // would still count [2, 2, 3]. The fixture is three time-separated
+        // sessions — [01, 02, 03], [04, 05], [06, 07] in the seed script's
+        // numbering — not a capture-day partition: the morning and evening of
+        // 15 March sit ten hours apart, well past the 3.5-hour session gap, so
+        // they are distinct events by design in every timezone. The numeric
+        // suffix in each seeded filename is the session contract, so the
+        // expected partition comes from the assets themselves rather than a
+        // hard-coded identifier list.
+        var bySession: [Int: Set<String>] = [:]
         for asset in seeded {
-            let day = asset.creationDate.map { dayFormatter.string(from: $0) } ?? "undated"
-            byDay[day, default: []].insert(asset.localIdentifier)
+            let name = PHAssetResource.assetResources(for: asset)
+                .map(\.originalFilename)
+                .first { $0.hasPrefix(prefix) && $0.hasSuffix(".jpg") } ?? ""
+            let digits = name.dropFirst(prefix.count).dropLast(4)
+            guard let number = Int(digits), (1...7).contains(number) else {
+                XCTFail("seeded asset \(asset.localIdentifier) carries unexpected filename \(name)")
+                continue
+            }
+            let session = number <= 3 ? 0 : (number <= 5 ? 1 : 2)
+            bySession[session, default: []].insert(asset.localIdentifier)
         }
-        let expectedGroups = byDay.values.sorted { $0.sorted().lexicographicallyPrecedes($1.sorted()) }
+        let expectedGroups = bySession.values.sorted { $0.sorted().lexicographicallyPrecedes($1.sorted()) }
         let actualGroups = fixtureClusters.map { cluster in
             Set((cluster["itemIds"] as? [String]) ?? []).intersection(expectedIds)
         }.filter { !$0.isEmpty }
         XCTAssertEqual(
             actualGroups.map { $0.sorted() }.sorted { $0.lexicographicallyPrecedes($1) },
             expectedGroups.map { $0.sorted() }.sorted { $0.lexicographicallyPrecedes($1) },
-            "each cluster's fixture membership must match the capture-day partition"
+            "each cluster's fixture membership must match the seed script's three-session partition"
         )
         let actualIds = Set(fixtureClusters.flatMap { ($0["itemIds"] as? [String]) ?? [] })
             .intersection(expectedIds)

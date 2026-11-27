@@ -1,0 +1,104 @@
+name: Android event bridge
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  detect:
+    runs-on: ubuntu-latest
+    outputs:
+      present: ${{ steps.check.outputs.present }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - id: check
+        name: Check Android event sources
+        run: |
+          if [ -f android/app/src/main/java/in/thecontrarian/manorama/events/EventClusteringPlugin.kt ]; then
+            echo "present=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "present=false" >> "$GITHUB_OUTPUT"
+          fi
+
+  verify:
+    needs: detect
+    if: needs.detect.outputs.present == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+
+      - uses: actions/setup-java@d1374f8ac74474200d16ef8ecee22c7ae7a51880 # v6
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-linux-android,armv7-linux-androideabi,x86_64-linux-android
+
+      - run: bun install --frozen-lockfile
+      - run: bun run build:native
+      - run: bunx cap sync android
+
+      - name: Install Android SDK and cargo-ndk
+        run: |
+          set -euo pipefail
+          sdkmanager="$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager"
+          set +e
+          yes | "$sdkmanager" 'platforms;android-36' 'build-tools;36.0.0' 'ndk;27.2.12479018' >/dev/null
+          sdk_status=${PIPESTATUS[1]}
+          set -e
+          if [ "$sdk_status" -ne 0 ]; then
+            exit "$sdk_status"
+          fi
+          echo "ANDROID_NDK_HOME=$ANDROID_HOME/ndk/27.2.12479018" >> "$GITHUB_ENV"
+          cargo install cargo-ndk --locked --version 4.1.2
+
+      - name: Cache Rust build inputs
+        uses: actions/cache@v4
+        with:
+          path: |
+            target
+            ~/.cargo/registry
+            ~/.cargo/git
+          key: android-events-${{ runner.os }}-${{ hashFiles('Cargo.lock') }}-${{ github.workflow_sha }}
+
+      - name: Test and package the Android bridge
+        working-directory: android
+        run: ./gradlew --no-daemon test assembleDebug
+
+      - name: Verify packaged event libraries
+        working-directory: android
+        run: |
+          set -euo pipefail
+          apk=app/build/outputs/apk/debug/app-debug.apk
+          nm="$(find "$ANDROID_NDK_HOME/toolchains/llvm/prebuilt" -path '*/bin/llvm-readelf' -print -quit)"
+          test -n "$nm"
+          count=0
+          for entry in $(unzip -Z1 "$apk" 'lib/*/libmanorama_events.so'); do
+            count=$((count + 1))
+            bytes=$(unzip -p "$apk" "$entry" | wc -c)
+            # Debug libs carry chrono-tz's embedded IANA database; release strips smaller.
+            test "$bytes" -le 3145728 || { echo "::error::$entry is $bytes bytes"; exit 1; }
+            symbols=$(unzip -p "$apk" "$entry" | "$nm" --dyn-syms -)
+            for symbol in cluster decodeIndex encodeIndex; do
+              want="Java_in_thecontrarian_manorama_events_RustBridge_${symbol}"
+              awk -v want="$want" '$NF == want { found=1 } END { exit !found }' <<<"$symbols" || {
+                echo "::error::$entry lacks the exact export $want"; exit 1;
+              }
+            done
+            echo "$entry: $bytes bytes; three JNI exports present"
+          done
+          test "$count" -eq 3 || { echo "::error::expected three ABI libraries, found $count"; exit 1; }

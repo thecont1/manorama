@@ -28,7 +28,15 @@ const tauriBridge = (): RawDumpBridge => ({
   listen: async (event, handler) => {
     const { listen } = await import('@tauri-apps/api/event')
     const unlisten = await listen<unknown>(event, (message) => handler(message.payload))
-    return unlisten
+    // Tauri's teardown dereferences the event plugin internals; where those
+    // are absent the rejection escapes the closure as an unhandled rejection.
+    // Contain it here so subscriptions may proceed in any runtime while a dead
+    // emitter can never poison an unrelated test or page.
+    return () => {
+      try {
+        void Promise.resolve(unlisten()).catch(() => {})
+      } catch { /* a dead emitter must not outlive its runtime */ }
+    }
   },
 })
 
