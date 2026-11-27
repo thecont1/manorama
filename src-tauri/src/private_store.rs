@@ -388,7 +388,9 @@ mod tests {
         let sid = windows_current_user_sid().unwrap();
         let sid: Vec<u16> = sid.encode_utf16().chain(Some(0)).collect();
         let mut expected_sid = ptr::null_mut();
-        assert_ne!(ConvertStringSidToSidW(sid.as_ptr(), &mut expected_sid), 0);
+        unsafe {
+            assert_ne!(ConvertStringSidToSidW(sid.as_ptr(), &mut expected_sid), 0);
+        }
         for path in [&parent, &file] {
             let wide: Vec<u16> = path.as_os_str().encode_wide().chain(Some(0)).collect();
             unsafe {
