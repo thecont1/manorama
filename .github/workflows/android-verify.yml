@@ -99,4 +99,4 @@ jobs:
             done
             echo "$entry: $bytes bytes; three JNI exports present"
           done
-          test "$count" -eq 2 || { echo "::error::expected two ABI libraries, found $count"; exit 1; }
+          test "$count" -eq 3 || { echo "::error::expected three ABI libraries, found $count"; exit 1; }
