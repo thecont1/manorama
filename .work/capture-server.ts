@@ -229,20 +229,35 @@ const buildFixture = async () => {
 }
 
 const DIM_CACHE = '/tmp/manorama-capture-dims.json'
+/** The cache is only valid for the fixture pair that produced it: a different
+ *  manifest or photo directory can reuse a filename for a different photograph,
+ *  and keyed-by-filename-alone would hand its dimensions to the wrong image. */
+const DIM_SCOPE = `${MANIFEST_SOURCE}|${PHOTO_DIR}`
+
+type DimEntry = { width: number; height: number }
 
 /** Photograph sizes the fixture has already resolved, kept between runs. */
 const BunnyDims = {
-  async read(): Promise<Record<string, { width: number; height: number }>> {
+  async read(): Promise<Record<string, DimEntry>> {
     try {
-      const stored = await Bun.file(DIM_CACHE).json()
-      return stored && typeof stored === 'object' ? stored : {}
+      const stored = await Bun.file(DIM_CACHE).json() as Record<string, Record<string, DimEntry> | string>
+      const scoped = stored?.scopes
+      if (!scoped || typeof scoped !== 'object') return {}
+      const entries = (scoped as Record<string, Record<string, DimEntry>>)[DIM_SCOPE]
+      return entries && typeof entries === 'object' ? entries : {}
     } catch {
       return {}
     }
   },
-  async write(dims: Record<string, { width: number; height: number }>): Promise<void> {
+  async write(dims: Record<string, DimEntry>): Promise<void> {
     try {
-      await Bun.write(DIM_CACHE, JSON.stringify(dims, null, 2))
+      let scopes: Record<string, Record<string, DimEntry>> = {}
+      try {
+        const stored = await Bun.file(DIM_CACHE).json() as { scopes?: Record<string, Record<string, DimEntry>> }
+        if (stored?.scopes && typeof stored.scopes === 'object') scopes = stored.scopes
+      } catch { /* A corrupt or legacy cache is rewritten below. */ }
+      scopes[DIM_SCOPE] = dims
+      await Bun.write(DIM_CACHE, JSON.stringify({ scopes }, null, 2))
     } catch { /* A missing cache only means the next run pays for the fetch. */ }
   },
 }
@@ -932,9 +947,16 @@ const server = Bun.serve({
           // materializes a placeholder. The public original is the fallback.
         }
       }
-      // The public provider proxy returns the same original JPEG, transiently,
-      // without resizing or writing image bytes to the server or disk.
-      const remote = await fetch(absolute(image.src as string))
+      // A source that already points back into this harness must not be
+      // fetched: the request would re-enter this very handler and recurse.
+      // Only the public provider proxy is a valid fallback — it returns the
+      // same original JPEG, transiently, without resizing or writing image
+      // bytes to the server or disk.
+      const original = image.src as string
+      if (original.startsWith('/__capture/') || absolute(original).startsWith(`${FIRST_CAPTURE_BASE}/__capture/`)) {
+        return new Response('original unavailable', { status: 502 })
+      }
+      const remote = await fetch(absolute(original))
       if (!remote.ok) return new Response('original unavailable', { status: 502 })
       return new Response(remote.body, {
         headers: { 'content-type': remote.headers.get('content-type') ?? 'image/jpeg', 'cache-control': 'no-store' },

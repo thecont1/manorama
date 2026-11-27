@@ -184,6 +184,15 @@ Wire types and validators live in `packages/core/event-clustering.ts`. The six s
 commands are `pick_raw_dump_root`, `get_raw_dump_status`, `scan_raw_dump_events`,
 `clear_raw_dump_root`, `get_event_asset_image` and `reveal_event_asset`.
 
+> [!IMPORTANT]
+> Those implementation files — `packages/core/event-clustering.ts`,
+> `crates/event-clustering/`, the Swift engine and every shell bridge — live on the
+> [#273](https://github.com/thecont1/manorama/pull/273) branch
+> (`feat/camera-roll-smart-events`). They are absent from this checkout until that
+> branch merges; the status table above describes the feature branch, not main.
+> Confirm the files exist (`ls crates/event-clustering native/EventClustering`)
+> before continuing any feature work from this document.
+
 ## Verification commands
 
 - Apple engine tests: `scripts/test-event-clustering.sh`.

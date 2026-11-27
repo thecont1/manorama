@@ -62,8 +62,14 @@ struct CorpusScanner {
 
         for (index, name) in names.enumerated() {
             let folderLabel = String(format: "folder-%02d", index + 1)
-            let config = scratch.appendingPathComponent(folderLabel, isDirectory: true)
-            try FileManager.default.createDirectory(at: config, withIntermediateDirectories: true)
+            // A unique working directory per scan: reusing a fixed path would
+            // merge state left by a crashed invocation, and the cleanup below
+            // could then remove a directory this invocation never created.
+            // Because the name cannot pre-exist, the defer only ever targets
+            // this scan's own scratch — never the corpus or a shared directory.
+            let config = scratch.appendingPathComponent(
+                "\(folderLabel)-\(UUID().uuidString)", isDirectory: true)
+            try FileManager.default.createDirectory(at: config, withIntermediateDirectories: false)
             defer { try? FileManager.default.removeItem(at: config) }
             let store = RawDumpEventStore(configDir: config)
             let started = Date()

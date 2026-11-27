@@ -373,8 +373,8 @@ Unknown schema versions are discarded.
 | :--- | :--- | :--- | :--- | :--- |
 | macOS (`macos/ManoramaMac`) | `desktop/` | Swift | `NativeBridge` snake_case commands | implemented |
 | Windows / Linux (`src-tauri`) | `desktop/` | Rust | Tauri `invoke`, explicit `generate_handler!` | implemented |
-| iOS / iPadOS (`ios/App/App`) | `native/dist` | Swift | `registerPluginInstance(EventClusteringPlugin())`, camelCase methods under `EventClustering` | implemented |
-| Android (`android/`) | `native/dist` | Rust via JNI | registered Kotlin Capacitor plugin | implemented |
+| iOS / iPadOS (`ios/App/App`) | `native/dist` | Swift | `registerPluginInstance(EventClusteringPlugin())`, camelCase methods under `EventClustering` | pending — implementation files are on the [#273](https://github.com/thecont1/manorama/pull/273) branch and absent from checkouts that predate its merge |
+| Android (`android/`) | `native/dist` | Rust via JNI | registered Kotlin Capacitor plugin | pending — implementation files are on the [#273](https://github.com/thecont1/manorama/pull/273) branch and absent from checkouts that predate its merge |
 | Web app (`app/`) | `app/` | none | none | absent by invariant 7 |
 
 `desktop/lib/event-clustering.ts` dynamically imports Tauri's `invoke` and

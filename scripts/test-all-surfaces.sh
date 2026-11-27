@@ -49,6 +49,14 @@ has_bun() {
 
 java21_home() {
   local candidate
+  # A caller-exported JAVA_HOME wins over every heuristic, but only when it
+  # really is a Java 21 home — a wrong-version export must not shadow the
+  # working candidates below.
+  if [[ -n "${JAVA_HOME:-}" && -x "$JAVA_HOME/bin/java" ]] \
+    && [[ "$("$JAVA_HOME/bin/java" -version 2>&1)" == *'version "21'* ]]; then
+    printf '%s\n' "$JAVA_HOME"
+    return 0
+  fi
   for candidate in \
     /opt/homebrew/opt/openjdk@21/libexec/openjdk.jdk/Contents/Home \
     /usr/local/opt/openjdk@21/libexec/openjdk.jdk/Contents/Home \
@@ -86,15 +94,18 @@ else
 fi
 
 if lane_enabled RUST; then
-  if command -v cargo >/dev/null 2>&1; then
+  if ! command -v cargo >/dev/null 2>&1; then
+    skip 'Rust core feature matrix' 'cargo is not installed'
+    skip 'Rust core Clippy' 'cargo is not installed'
+  elif [[ ! -f "$ROOT/crates/event-clustering/Cargo.toml" ]]; then
+    skip 'Rust core feature matrix' 'the event-clustering package is not in this checkout; it merges with the camera-roll feature branch'
+    skip 'Rust core Clippy' 'the event-clustering package is not in this checkout; it merges with the camera-roll feature branch'
+  else
     run 'Rust core default features' cargo test --locked -p event-clustering
     run 'Rust core fs-scan' cargo test --locked -p event-clustering --features fs-scan
     run 'Rust core android bridge' cargo test --locked -p event-clustering --features android
     run 'Rust core fs-scan and android bridge' cargo test --locked -p event-clustering --features fs-scan,android
     run 'Rust core Clippy' cargo clippy --locked -p event-clustering --all-targets --features fs-scan,android -- -D warnings
-  else
-    skip 'Rust core feature matrix' 'cargo is not installed'
-    skip 'Rust core Clippy' 'cargo is not installed'
   fi
 else
   skip 'Rust core feature matrix' 'disabled by MANORAMA_SKIP_RUST'
@@ -144,6 +155,8 @@ fi
 if lane_enabled PLAYWRIGHT; then
   if ! has_bun; then
     skip 'Desktop Camera Roll Playwright' 'bun or installed dependencies are missing'
+  elif [[ ! -f "$ROOT/specs/desktop-events.playwright.ts" ]]; then
+    skip 'Desktop Camera Roll Playwright' 'specs/desktop-events.playwright.ts is not in this checkout; it merges with the camera-roll feature branch'
   elif ! command -v curl >/dev/null 2>&1; then
     skip 'Desktop Camera Roll Playwright' 'curl is unavailable for server readiness checks'
   elif [[ -n "${DESKTOP_URL:-}" ]]; then

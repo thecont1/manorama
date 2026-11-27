@@ -13,7 +13,24 @@ permissions:
   contents: read
 
 jobs:
+  detect:
+    runs-on: ubuntu-latest
+    outputs:
+      present: ${{ steps.check.outputs.present }}
+    steps:
+      - uses: actions/checkout@v7
+      - id: check
+        name: Check iOS event sources
+        run: |
+          if [ -f ios/App/App/EventClusteringPlugin.swift ]; then
+            echo "present=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "present=false" >> "$GITHUB_OUTPUT"
+          fi
+
   simulator:
+    needs: detect
+    if: needs.detect.outputs.present == 'true'
     runs-on: xcode-27
     timeout-minutes: 45
     strategy:
@@ -22,26 +39,12 @@ jobs:
         device: ['iPhone 18 Pro Max', 'iPad Pro 13-inch (M5)']
     steps:
       - uses: actions/checkout@v7
-      - id: event-sources
-        name: Check iOS event sources
-        run: |
-          if [ -f ios/App/App/EventClusteringPlugin.swift ]; then
-            echo "present=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "present=false" >> "$GITHUB_OUTPUT"
-          fi
       - uses: oven-sh/setup-bun@v2
-        if: steps.event-sources.outputs.present == 'true'
       - run: bun install --frozen-lockfile
-        if: steps.event-sources.outputs.present == 'true'
       - run: bunx tsc --noEmit
-        if: steps.event-sources.outputs.present == 'true'
       - run: bun run build:native --configLoader runner
-        if: steps.event-sources.outputs.present == 'true'
       - run: bunx cap copy ios
-        if: steps.event-sources.outputs.present == 'true'
       - name: Select an installed simulator
-        if: steps.event-sources.outputs.present == 'true'
         env:
           DEVICE_NAME: ${{ matrix.device }}
         run: |
@@ -57,14 +60,12 @@ jobs:
               env.write('SIMULATOR_ID=' + sorted(matches)[-1][1] + '\n')
           PY
       - name: Build simulator tests (no signing or upload)
-        if: steps.event-sources.outputs.present == 'true'
         run: |
           xcodebuild -project ios/App/App.xcodeproj -scheme App -configuration Debug \
             -destination "platform=iOS Simulator,id=$SIMULATOR_ID" \
             -derivedDataPath "$RUNNER_TEMP/event-derived" \
             -clonedSourcePackagesDirPath "$RUNNER_TEMP/event-spm" build-for-testing
       - name: Seed synthetic Photos media
-        if: steps.event-sources.outputs.present == 'true'
         run: |
           set -euo pipefail
           fixture_prefix="event-demo-$(date +%s)-${RANDOM}-"
@@ -83,7 +84,6 @@ jobs:
           "$RUNNER_TEMP/event-seed" "$RUNNER_TEMP/event-photos" "$fixture_prefix"
           xcrun simctl addmedia "$SIMULATOR_ID" "$RUNNER_TEMP/event-photos/"*.jpg
       - name: Run seeded PhotoKit and lifecycle tests
-        if: steps.event-sources.outputs.present == 'true'
         run: |
           xcodebuild -project ios/App/App.xcodeproj -scheme App -configuration Debug \
             -destination "platform=iOS Simulator,id=$SIMULATOR_ID" \
@@ -92,7 +92,7 @@ jobs:
             -resultBundlePath "$RUNNER_TEMP/event-tests.xcresult" \
             -parallel-testing-enabled NO test-without-building
       - uses: actions/upload-artifact@v6
-        if: always() && steps.event-sources.outputs.present == 'true'
+        if: always()
         with:
           name: events-${{ matrix.device }}
           path: ${{ runner.temp }}/event-tests.xcresult

@@ -29,8 +29,8 @@ Before writing code, align with how **Manorama** is built in `macos/ManoramaMac/
    * When a user points macOS Manorama to a Google Drive for Desktop or Proton Drive sync folder, many files exist as **cloud-only placeholders** (managed via macOS File Provider).
    * **DO NOT** decode full image bitmaps (`NSImage(contentsOf:)`, `UIImage`, or `Data(contentsOf:)`) during indexing—this forces the cloud sync client to download gigabytes of files over the network and stalls the machine.
    * **DO** extract metadata strictly via `CGImageSourceCreateWithURL` with `kCGImageSourceShouldCache: false` (which reads only the first ~32–64 KB EXIF header, matching the pattern in `NativeBridge.imageDimensions`), falling back gracefully to `URLResourceValues` (`creationDate`, `contentModificationDate`) if a cloud placeholder refuses partial byte reads.
-5. **Existing Media Streaming (`LocalSchemeHandler`):**
-   * Existing `LocalSchemeHandler` already serves any image inside `grantedRoots.all()`. Because the macOS Raw Dump folder is registered in `FolderStore` and `grantedRoots`, the `WKWebView` viewer can immediately render event covers and open any clustered event in Manorama's existing photostrip/grid viewer with **zero changes to media streaming**.
+5. **Existing Media Streaming (`LocalSchemeHandler`):** — **superseded, kept for history.**
+   * ~~Existing `LocalSchemeHandler` already serves any image inside `grantedRoots.all()`.~~ This approach was replaced during implementation: event media is never served through the renderer-visible filesystem roots. The shipped design issues native-owned, verified opaque leases per asset instead — see `docs/event-clustering-bridge-contract.md` for the lease contract that replaced this section. Do not implement media streaming as described here.
 
 ---
 
@@ -129,7 +129,7 @@ Run a deterministic, configurable pipeline on the extracted `MediaMetadataItem` 
   * **macOS:** Add `isRawDump: Bool = false` to `FolderStore.Entry` in `folders.json` (enforcing at most one active Raw Dump folder at a time) and register its root in `grantedRoots`.
   * **iOS:** Persist `cameraRollDumpEnabled: Bool` in `library-prefs.json` (or `device.json` per device ID).
 * **Cached Event Index (`events-index.json`):**
-  * Persist in `configDir` via `NativeBridge.write0600(to:data:)` (and optionally register in `NativeBridge.privateFiles` if the web bundle reads it directly via `read_private_file`).
+  * Persist in `configDir` via `NativeBridge.write0600(to:data:)`. The parenthetical option that once stood here — registering the index in `NativeBridge.privateFiles` so the web bundle could read it directly via `read_private_file` — is **superseded and must not be implemented**: the index never becomes renderer-readable. The page's way in is the scan command's answer, exactly as `docs/event-clustering-bridge-contract.md` specifies.
   * **Schema:**
     1. `sourceFingerprint`: Device ID (`stableDeviceId()`) + folder bookmark ID (macOS) or `"photokit-library"` (iOS) + `lastIndexedAt` timestamp.
     2. `itemCache`: `[String: MediaMetadataItem]` keyed by relative path (`id`) or `PHAsset.localIdentifier` so subsequent rescans compare `fileModTime` and skip re-reading EXIF headers for unchanged files.
