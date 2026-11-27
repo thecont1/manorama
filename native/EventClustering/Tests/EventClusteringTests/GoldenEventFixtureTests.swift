@@ -207,6 +207,24 @@ final class GoldenEventFixtureTests: XCTestCase {
             item("s2", date(1, 2, 9), lat: home.latitude, lon: home.longitude, screenshot: true),
             item("s1", date(1, 1, 9), lat: home.latitude, lon: home.longitude, screenshot: true),
         ], eventCount: 0))
+        cases.append(GoldenEventScenario(name: "38-filename-shoot-signals", items: [
+            item("shoots/MS202603-Trip0001-Enhanced-NR.jpg", date(3, 1, 8)),
+            item("shoots/ms202603-trip0002.JPG", date(3, 1, 12)),
+            item("shoots/MS202603-Trip0003.jpg", date(3, 3, 8)),
+            item("other/MS202603-Trip0001.jpg", date(3, 3, 13)),
+            item("sequence/DSCF0100.jpg", date(3, 5, 8)),
+            item("sequence/DSCF0105.jpg", date(3, 5, 14)),
+            item("sequence/DSCF0117.jpg", date(3, 6, 9)),
+            item("sequence/DSCF0118.jpg", date(3, 6, 15)),
+            item("sequence/IMG_20260307_090000.jpg", date(3, 7, 9)),
+            item("sequence/IMG_20260307_130000.jpg", date(3, 7, 13)),
+            item("long/MS202603-Trip0001.jpg", date(3, 20, 8)),
+            item("long/MS202603-Trip0002.jpg", date(4, 10, 8)),
+            item("overflow/MS202603-Trip99999999999999999999.jpg", date(4, 12, 8)),
+            item("overflow/MS202603-Trip99999999999999999998.jpg", date(4, 12, 14)),
+        ], eventCount: 10, multiDayCount: 1, coverItemId: "overflow/MS202603-Trip99999999999999999998.jpg", indexCases: [
+            FixtureIndexCase(schemaVersion: 1, expectedReusable: true),
+        ]))
         return cases
     }()
 
@@ -262,10 +280,11 @@ final class GoldenEventFixtureTests: XCTestCase {
     func testNegativeFractionalEpoch() throws { try verify("35-negative-fractional-epoch") }
     func testEmptyAndIndexSchemaVersions() throws { try verify("36-empty-and-index-schema-versions") }
     func testScreenshotsOnlyNeverInferHome() throws { try verify("37-screenshots-only-never-infer-home") }
+    func testFilenameShootSignals() throws { try verify("38-filename-shoot-signals") }
 
     func testFixtureInventoryAndSharedSchemaVersion() throws {
-        XCTAssertEqual(Self.scenarios.count, 37)
-        XCTAssertEqual(Set(Self.scenarios.map(\.name)).count, 37)
+        XCTAssertEqual(Self.scenarios.count, 38)
+        XCTAssertEqual(Set(Self.scenarios.map(\.name)).count, 38)
         XCTAssertEqual(GoldenEventFixture.supportedSchemaVersion, EventIndex.schemaVersion)
         if GoldenFixtureStore.exporting { return }
         let files = try FileManager.default.contentsOfDirectory(at: GoldenFixtureStore.directory, includingPropertiesForKeys: nil)

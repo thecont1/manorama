@@ -2,6 +2,7 @@ use crate::calendar::{
     date_interval, date_midpoint_reference, distance_from_reference, swift_date,
 };
 use crate::{
+    filename::{self, FilenameSignal},
     haversine_km, Calendar, ClusteringConfig, Error, EventCluster, EventClusteringResult,
     EventDayGroup, GeoCell, MediaMetadataItem,
 };
@@ -72,6 +73,14 @@ impl Session<'_> {
             points.iter().map(|p| p.1).sum::<f64>() / points.len() as f64,
         ))
     }
+}
+fn sequence_bounds(group: &[Session<'_>]) -> Option<(u64, u64)> {
+    let first = group.first()?.bursts.first()?.members.first()?;
+    let last = group.last()?.bursts.last()?.members.last()?;
+    Some((
+        filename::sequence_number(&first.id)?,
+        filename::sequence_number(&last.id)?,
+    ))
 }
 impl EventClusterer {
     pub fn new(
@@ -236,6 +245,7 @@ impl EventClusterer {
             }
             previous_away = away;
         }
+        let groups = self.merge_filename_groups(groups);
         let events = groups
             .iter()
             .map(|g| self.event(g))
@@ -246,6 +256,75 @@ impl EventClusterer {
             unplaced_item_ids: vec![],
         })
     }
+    fn merge_filename_groups<'a>(&self, groups: Vec<Vec<Session<'a>>>) -> Vec<Vec<Session<'a>>> {
+        const NAMED_MAX_SPAN: f64 = 14.0 * 86_400.0;
+        const SEQUENCE_MAX_GAP: u64 = 12;
+        const SEQUENCE_MAX_TIME_GAP: f64 = 18.0 * 3_600.0;
+        const SEQUENCE_MAX_SPAN: f64 = 72.0 * 3_600.0;
+
+        let mut candidates = groups.into_iter();
+        let Some(first) = candidates.next() else {
+            return Vec::new();
+        };
+        let mut merged = vec![first];
+        let mut current_signal = self.group_filename_signal(&merged[0]);
+        for candidate in candidates {
+            let candidate_signal = self.group_filename_signal(&candidate);
+            let joins = match (&current_signal, &candidate_signal) {
+                (Some(FilenameSignal::Named { .. }), Some(FilenameSignal::Named { .. }))
+                    if current_signal == candidate_signal =>
+                {
+                    date_interval(
+                        candidate.last().unwrap().end(),
+                        merged.last().unwrap()[0].start(),
+                    ) <= NAMED_MAX_SPAN
+                }
+                (Some(FilenameSignal::Sequence { .. }), Some(FilenameSignal::Sequence { .. }))
+                    if current_signal == candidate_signal =>
+                {
+                    sequence_bounds(merged.last().unwrap())
+                        .zip(sequence_bounds(&candidate))
+                        .is_some_and(|((_, previous), (next, _))| {
+                            next > previous
+                                && next - previous <= SEQUENCE_MAX_GAP
+                                && date_interval(
+                                    candidate[0].start(),
+                                    merged.last().unwrap().last().unwrap().end(),
+                                ) <= SEQUENCE_MAX_TIME_GAP
+                                && date_interval(
+                                    candidate.last().unwrap().end(),
+                                    merged.last().unwrap()[0].start(),
+                                ) <= SEQUENCE_MAX_SPAN
+                        })
+                }
+                _ => false,
+            };
+            if joins {
+                merged.last_mut().unwrap().extend(candidate);
+            } else {
+                merged.push(candidate);
+                current_signal = candidate_signal;
+            }
+        }
+        merged
+    }
+
+    fn group_filename_signal(&self, group: &[Session<'_>]) -> Option<FilenameSignal> {
+        let mut signal = None;
+        for item in group
+            .iter()
+            .flat_map(|session| &session.bursts)
+            .flat_map(|burst| &burst.members)
+        {
+            let next = filename::signal(&item.id)?;
+            if signal.as_ref().is_some_and(|current| current != &next) {
+                return None;
+            }
+            signal = Some(next);
+        }
+        signal
+    }
+
     fn event(&self, group: &[Session<'_>]) -> Result<EventCluster, Error> {
         // Groups, sessions and bursts are created nonempty; no input-controlled indexing.
         let start = group[0].start();

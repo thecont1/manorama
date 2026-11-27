@@ -16,6 +16,7 @@ import Foundation
  *   2  Sessions      split on silence or on a jump, with a transit bypass
  *   3  Trips         merge travel sessions across short overnights
  *   4  Vision        optional tie-breaker inside the ambiguous gap band
+ *   5  Names         rejoin explicit shoots and nearby filename sequences
  *
  * Pass 4 is the only one that can ask a second framework for help, and it
  * is expressed as an injected probe rather than a `Vision` import: the
@@ -111,7 +112,8 @@ public struct EventClusterer: Sendable {
             sessions = sessions.flatMap { refine($0) }
         }
 
-        let groups = mergeTrips(sessions, homeBase: home)
+        // An explicit shoot name is stronger evidence than a quiet afternoon gap.
+        let groups = mergeFilenameGroups(mergeTrips(sessions, homeBase: home))
         let events = groups.map { event(from: $0) }
 
         return EventClusteringResult(
@@ -329,6 +331,62 @@ public struct EventClusterer: Sendable {
         return km > config.tripDistanceFromHomeKm
     }
 
+    // MARK: - Pass 5: filename evidence
+
+    private func mergeFilenameGroups(_ groups: [[Session]]) -> [[Session]] {
+        let namedMaxSpan: TimeInterval = 14 * 86_400
+        let sequenceMaxGap: UInt64 = 12
+        let sequenceMaxTimeGap: TimeInterval = 18 * 3_600
+        let sequenceMaxSpan: TimeInterval = 72 * 3_600
+        guard let first = groups.first else { return [] }
+        var merged = [first]
+        var currentSignal = filenameSignal(for: first)
+
+        for candidate in groups.dropFirst() {
+            let candidateSignal = filenameSignal(for: candidate)
+            let current = merged[merged.count - 1]
+            var joins = false
+            switch (currentSignal, candidateSignal) {
+            case (.named?, .named?) where currentSignal == candidateSignal:
+                joins = candidate[candidate.count - 1].end.timeIntervalSince(current[0].start) <= namedMaxSpan
+            case (.sequence?, .sequence?) where currentSignal == candidateSignal:
+                if let (_, previous) = sequenceBounds(current),
+                   let (next, _) = sequenceBounds(candidate) {
+                    joins = next > previous && next - previous <= sequenceMaxGap
+                        && candidate[0].start.timeIntervalSince(current[current.count - 1].end) <= sequenceMaxTimeGap
+                        && candidate[candidate.count - 1].end.timeIntervalSince(current[0].start) <= sequenceMaxSpan
+                }
+            default:
+                break
+            }
+            if joins {
+                merged[merged.count - 1].append(contentsOf: candidate)
+            } else {
+                merged.append(candidate)
+                currentSignal = candidateSignal
+            }
+        }
+        return merged
+    }
+
+    private func filenameSignal(for group: [Session]) -> FilenameSignal? {
+        var found: FilenameSignal?
+        for id in group.flatMap(\.allIds) {
+            guard let next = FilenameSignal.parse(id) else { return nil }
+            if let found, found != next { return nil }
+            found = next
+        }
+        return found
+    }
+
+    private func sequenceBounds(_ group: [Session]) -> (first: UInt64, last: UInt64)? {
+        guard let first = group.first?.bursts.first?.members.first,
+              let last = group.last?.bursts.last?.members.last,
+              let firstNumber = FilenameSignal.sequenceNumber(first.id),
+              let lastNumber = FilenameSignal.sequenceNumber(last.id) else { return nil }
+        return (firstNumber, lastNumber)
+    }
+
     // MARK: - Event assembly
 
     /// Turn a group of sessions into the record the index and the page see.
@@ -413,5 +471,104 @@ public struct EventClusterer: Sendable {
         let seconds = Int64(start.timeIntervalSince1970.rounded(.down))
         let digest = SHA256Digest.hex("\(sourceId)|\(seconds)")
         return "evt_\(digest.prefix(20))"
+    }
+}
+
+private enum FilenameSignal: Equatable {
+    case named(folder: String, yearMonth: Int, label: String)
+    case sequence(folder: String, prefix: String)
+
+    static func parse(_ id: String) -> FilenameSignal? {
+        guard let (folder, stem) = stemBytes(id), !stem.isEmpty else { return nil }
+        var bytes = stem
+        stripEnhancedSuffix(&bytes)
+        guard !bytes.isEmpty else { return nil }
+        return named(folder: folder, bytes: bytes) ?? sequence(folder: folder, bytes: bytes)
+    }
+
+    static func sequenceNumber(_ id: String) -> UInt64? {
+        guard let (_, stem) = stemBytes(id) else { return nil }
+        var bytes = stem
+        stripEnhancedSuffix(&bytes)
+        guard let trailing = trailingDigits(bytes) else { return nil }
+        return parseDigits(Array(bytes[trailing.start..<bytes.count]))
+    }
+
+    private static func named(folder: String, bytes: [UInt8]) -> FilenameSignal? {
+        guard bytes.count >= 10,
+              bytes[0] == 77 || bytes[0] == 109,
+              bytes[1] == 83 || bytes[1] == 115,
+              let yearMonth = parseDigits(Array(bytes[2..<8])),
+              (1900...9999).contains(Int(yearMonth / 100)),
+              (1...12).contains(Int(yearMonth % 100)),
+              bytes[8] == 45 || bytes[8] == 95,
+              let trailing = trailingDigits(Array(bytes[9...])) else { return nil }
+        let start = 9 + trailing.start
+        guard parseDigits(Array(bytes[start...])) != nil else { return nil }
+        var label = Array(bytes[9..<start])
+        while let last = label.last, last == 45 || last == 95 || last == 32 { label.removeLast() }
+        guard !label.isEmpty,
+              label.filter(isASCIIAlpha).count >= 3,
+              label.allSatisfy({ isASCIIAlphanumeric($0) || [45, 95, 32, 46, 39].contains($0) }) else { return nil }
+        return .named(folder: folder, yearMonth: Int(yearMonth), label: asciiLower(label))
+    }
+
+    private static func sequence(folder: String, bytes: [UInt8]) -> FilenameSignal? {
+        guard let trailing = trailingDigits(bytes),
+              parseDigits(Array(bytes[trailing.start..<bytes.count])) != nil else { return nil }
+        var prefix = Array(bytes[..<trailing.start])
+        while let last = prefix.last, last == 45 || last == 95 || last == 32 { prefix.removeLast() }
+        guard prefix.filter(isASCIIAlpha).count >= 3,
+              prefix.allSatisfy({ isASCIIAlpha($0) || $0 == 45 || $0 == 95 }) else { return nil }
+        let normalizedPrefix = asciiLower(prefix)
+        if normalizedPrefix == "img", trailing.count == 14 { return nil }
+        return .sequence(folder: folder, prefix: normalizedPrefix)
+    }
+
+    private static func stemBytes(_ id: String) -> (folder: String, bytes: [UInt8])? {
+        let normalized = id.replacingOccurrences(of: "\\", with: "/")
+        let parts = normalized.split(separator: "/", omittingEmptySubsequences: false)
+        guard let filename = parts.last,
+              let dot = filename.lastIndex(of: "."), dot != filename.startIndex else { return nil }
+        return (String(parts.dropLast().joined(separator: "/")), Array(filename[..<dot].utf8))
+    }
+
+    private static func stripEnhancedSuffix(_ bytes: inout [UInt8]) {
+        let suffix = Array("-enhanced-nr".utf8)
+        while bytes.count >= suffix.count,
+              Array(bytes.suffix(suffix.count)).map({ $0 >= 65 && $0 <= 90 ? $0 + 32 : $0 }) == suffix {
+            bytes.removeLast(suffix.count)
+        }
+    }
+
+    private static func trailingDigits(_ bytes: [UInt8]) -> (start: Int, count: Int)? {
+        guard let last = bytes.last, isASCIIDigit(last) else { return nil }
+        var start = bytes.count
+        while start > 0 && isASCIIDigit(bytes[start - 1]) { start -= 1 }
+        return (start, bytes.count - start)
+    }
+
+    private static func parseDigits(_ bytes: [UInt8]) -> UInt64? {
+        guard !bytes.isEmpty, bytes.allSatisfy(isASCIIDigit) else { return nil }
+        var value: UInt64 = 0
+        for byte in bytes {
+            let product = value.multipliedReportingOverflow(by: 10)
+            guard !product.overflow else { return nil }
+            let sum = product.partialValue.addingReportingOverflow(UInt64(byte - 48))
+            guard !sum.overflow else { return nil }
+            value = sum.partialValue
+        }
+        return value
+    }
+
+    private static func isASCIIDigit(_ byte: UInt8) -> Bool { byte >= 48 && byte <= 57 }
+    private static func isASCIIAlpha(_ byte: UInt8) -> Bool {
+        (byte >= 65 && byte <= 90) || (byte >= 97 && byte <= 122)
+    }
+    private static func isASCIIAlphanumeric(_ byte: UInt8) -> Bool {
+        isASCIIAlpha(byte) || isASCIIDigit(byte)
+    }
+    private static func asciiLower(_ bytes: [UInt8]) -> String {
+        String(decoding: bytes.map { $0 >= 65 && $0 <= 90 ? $0 + 32 : $0 }, as: UTF8.self)
     }
 }

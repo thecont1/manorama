@@ -137,6 +137,7 @@ fixtures! {
     negative_epoch => "35-negative-fractional-epoch",
     empty_schema => "36-empty-and-index-schema-versions",
     screenshots_only => "37-screenshots-only-never-infer-home",
+    filename_shoot_signals => "38-filename-shoot-signals",
 }
 #[test]
 fn fixture_inventory_is_complete() {
@@ -149,6 +150,6 @@ fn fixture_inventory_is_complete() {
     actual.sort();
     let mut expected: Vec<_> = NAMES.iter().map(|s| s.to_string()).collect();
     expected.sort();
-    assert_eq!(expected.len(), 37);
+    assert_eq!(expected.len(), 38);
     assert_eq!(actual, expected, "missing or unconsumed fixture");
 }

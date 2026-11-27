@@ -119,6 +119,10 @@ Run a deterministic, configurable pipeline on the extracted `MediaMetadataItem` 
    * *Use sparingly:* Only invoke `VNGenerateImageFeaturePrintRequest` on boundary photos when an ambiguous gap occurs (e.g., `1.5 hours < Δt <= 3.5 hours` at the exact same GPS coordinate, such as an afternoon family gathering transitioning into an evening party).
    * Compute `featurePrintA.computeDistance(&distance, to: featurePrintB)` and split the session only if visual distance exceeds a calibrated threshold.
    * On macOS, **skip** this step if the file is an unhydrated cloud placeholder (`URLUbiquitousItemDownloadingStatusKey != .current`).
+6. **Pass 5 — Filename Evidence:**
+   * Rejoin only adjacent groups whose members all expose the same conservative, folder-scoped filename signal.
+   * Explicit `MSYYYYMM-LabelNNNN` shoots may span up to 14 days; same-folder alphabetic sequences require increasing numbers no more than 12 apart, an 18-hour capture gap and a 72-hour total span. Fourteen-digit `IMG_YYYYMMDDHHMMSS` timestamps are not sequence evidence.
+   * This pass affects folder-backed IDs that expose filenames. Current iOS `PHAsset.localIdentifier` values do not, so iOS retains the spatiotemporal baseline.
 
 ### Layer 4: Persistence & Incremental Sync
 * **Source Declaration Persistence:**

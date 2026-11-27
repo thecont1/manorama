@@ -4,6 +4,7 @@
 pub mod android;
 mod calendar;
 mod cluster;
+mod filename;
 #[cfg(feature = "fs-scan")]
 pub mod fs_scan;
 mod geo;

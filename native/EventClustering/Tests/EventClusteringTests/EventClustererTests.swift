@@ -306,6 +306,140 @@ final class EventClustererTests: XCTestCase {
         XCTAssertEqual(events.count, 1)
     }
 
+    // MARK: - Filename evidence
+
+    func testExplicitNamedShootsRejoinAcrossDaysWithoutCrossingFolders() {
+        let items = [
+            item("shoots/MS202603-Trip0001-Enhanced-NR.jpg", date(2026, 3, 1, 8)),
+            item("shoots/ms202603-trip0002.JPG", date(2026, 3, 1, 12)),
+            item("shoots/MS202603-Trip0003.jpg", date(2026, 3, 3, 8)),
+        ]
+        let result = clusterer().cluster(items)
+        XCTAssertEqual(result.events.count, 1)
+        XCTAssertEqual(result.events.first?.itemIds, items.map(\.id))
+        XCTAssertEqual(result.events.first?.coverItemId, items[1].id)
+        XCTAssertEqual(result.events.first?.isMultiDay, true)
+        XCTAssertEqual(result.events.first?.subDays?.count, 2)
+
+        let crossed = [
+            item("one/MS202603-Trip0001.jpg", date(2026, 3, 1, 8)),
+            item("two/MS202603-Trip0002.jpg", date(2026, 3, 1, 12)),
+        ]
+        XCTAssertEqual(clusterer().cluster(crossed).events.count, 2)
+    }
+
+    func testNamedShootMergeHasAFourteenDayCeiling() {
+        for (interval, expected) in [(TimeInterval(14 * 86_400), 1), (TimeInterval(14 * 86_400 + 1), 2)] {
+            let items = [
+                item("shoots/MS202603-Trip0001.jpg", date(2026, 3, 1, 8)),
+                item("shoots/MS202603-Trip0002.jpg", date(2026, 3, 1, 8).addingTimeInterval(interval)),
+            ]
+            XCTAssertEqual(clusterer().cluster(items).events.count, expected)
+        }
+    }
+
+    func testFilenameSpanUsesTheFinalSessionOfATravelGroup() {
+        let start = date(2026, 3, 1, 8)
+        let homeStart = date(2026, 1, 1, 9)
+        let homeItems = (0..<20).map { index in
+            item("home\(index)", homeStart.addingTimeInterval(TimeInterval(index) * 86_400), lat: home.latitude, lon: home.longitude)
+        }
+        var named = homeItems
+        named.append(item("shoots/MS202603-Trip0001.jpg", start, lat: away.latitude, lon: away.longitude))
+        let namedCandidateIds = (2...14).map { "shoots/MS202603-Trip\(String(format: "%04d", $0)).jpg" }
+        let namedCandidateStart = date(2026, 3, 10, 18)
+        for (index, id) in namedCandidateIds.enumerated() {
+            named.append(item(id, namedCandidateStart.addingTimeInterval(TimeInterval(index) * 10 * 3_600), lat: away.latitude, lon: away.longitude))
+        }
+        let namedEvents = clusterer().cluster(named).events.filter {
+            $0.itemIds.contains(where: { $0.hasPrefix("shoots/") })
+        }
+        XCTAssertEqual(namedEvents.count, 2)
+        XCTAssertEqual(namedEvents.first?.itemIds, ["shoots/MS202603-Trip0001.jpg"])
+        XCTAssertEqual(namedEvents.last?.itemIds, namedCandidateIds)
+
+        var sequence = homeItems
+        sequence.append(item("sequence/DSCF0100.jpg", start, lat: away.latitude, lon: away.longitude))
+        let sequenceCandidateIds = (101...105).map { "sequence/DSCF\(String(format: "%04d", $0)).jpg" }
+        let sequenceCandidateStart = date(2026, 3, 3, 18)
+        for (index, id) in sequenceCandidateIds.enumerated() {
+            sequence.append(item(id, sequenceCandidateStart.addingTimeInterval(TimeInterval(index) * 10 * 3_600), lat: away.latitude, lon: away.longitude))
+        }
+        let sequenceEvents = clusterer().cluster(sequence).events.filter {
+            $0.itemIds.contains(where: { $0.hasPrefix("sequence/") })
+        }
+        XCTAssertEqual(sequenceEvents.count, 2)
+        XCTAssertEqual(sequenceEvents.first?.itemIds, ["sequence/DSCF0100.jpg"])
+        XCTAssertEqual(sequenceEvents.last?.itemIds, sequenceCandidateIds)
+    }
+
+    func testOverflowingFilenameNumbersAndNonASCIICaseFoldsCreateNoSignal() {
+        let pairs = [
+            [
+                "shoots/MS202603-Trip99999999999999999999.jpg",
+                "shoots/MS202603-Trip99999999999999999998.jpg",
+            ],
+            [
+                "sequence/DSCF99999999999999999999.jpg",
+                "sequence/DSCF99999999999999999998.jpg",
+            ],
+            [
+                "shoots/MS202603-Trip0001\renhanced-nr.jpg",
+                "shoots/MS202603-Trip0002\renhanced-nr.jpg",
+            ],
+        ]
+        for pair in pairs {
+            let items = [
+                item(pair[0], date(2026, 3, 1, 8)),
+                item(pair[1], date(2026, 3, 1, 14)),
+            ]
+            XCTAssertEqual(clusterer().cluster(items).events.count, 2, pair[0])
+        }
+    }
+
+    func testFilenameSequencesRequireCloseNumbersAndCaptureTimes() {
+        let items = [
+            item("sequence/DSCF0100.jpg", date(2026, 3, 1, 8)),
+            item("sequence/DSCF0105.jpg", date(2026, 3, 1, 14)),
+            item("sequence/DSCF0117.jpg", date(2026, 3, 2, 14)),
+            item("sequence/DSCF0118.jpg", date(2026, 3, 2, 20)),
+        ]
+        let result = clusterer().cluster(items)
+        XCTAssertEqual(result.events.count, 2)
+        XCTAssertEqual(result.events[0].itemIds, [items[0].id, items[1].id])
+        XCTAssertEqual(result.events[1].itemIds, [items[2].id, items[3].id])
+
+        for (number, expected) in [(112, 1), (113, 2)] {
+            let pair = [
+                item("sequence/DSCF0100.jpg", date(2026, 3, 1, 8)),
+                item("sequence/DSCF\(number).jpg", date(2026, 3, 1, 12)),
+            ]
+            XCTAssertEqual(clusterer().cluster(pair).events.count, expected)
+        }
+    }
+
+    func testFilenameSequencesAreBoundedAndTimestampNamesAreNotSequences() {
+        let start = date(2026, 3, 1, 8)
+        let chained = (0..<7).map { index in
+            item("sequence/DSCF\(index).jpg", start.addingTimeInterval(index < 6 ? TimeInterval(index * 12 * 3_600) : TimeInterval(73 * 3_600)))
+        }
+        let result = clusterer().cluster(chained)
+        XCTAssertEqual(result.events.count, 2)
+        XCTAssertEqual(result.events[0].itemIds.count, 6)
+        XCTAssertEqual(result.events[1].itemIds, [chained[6].id])
+
+        let timestamped = [
+            item("sequence/IMG_20260301_090000.jpg", start),
+            item("sequence/IMG_20260301_130000.jpg", start.addingTimeInterval(4 * 3_600)),
+        ]
+        XCTAssertEqual(clusterer().cluster(timestamped).events.count, 2)
+        let ordinary = [
+            item("sequence/IMG_0001.jpg", start),
+            item("sequence/IMG_0002.jpg", start.addingTimeInterval(4 * 3_600)),
+        ]
+        XCTAssertEqual(clusterer().cluster(ordinary).events.count, 1)
+    }
+
     // MARK: - Empty and degenerate input
 
     func testScreenshotsOnlyDumpProducesNoEvents() {

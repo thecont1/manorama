@@ -530,6 +530,283 @@ fn canonical_accents_and_ascii_preserve_opaque_ids_and_source_bytes() {
     );
 }
 #[test]
+fn explicit_named_shoots_rejoin_across_days_without_crossing_folders() {
+    let items = vec![
+        MediaMetadataItem::new("shoots/MS202603-Trip0001-Enhanced-NR.jpg", 0.0),
+        MediaMetadataItem::new("shoots/ms202603-trip0002.JPG", 4.0 * 3_600.0),
+        MediaMetadataItem::new("shoots/MS202603-Trip0003.jpg", 48.0 * 3_600.0),
+    ];
+    let result = cluster(
+        &items,
+        "source",
+        &ClusteringConfig::default(),
+        &Calendar::default(),
+    )
+    .unwrap();
+    assert_eq!(result.events.len(), 1);
+    assert_eq!(
+        result.events[0].item_ids,
+        items.iter().map(|i| i.id.as_str()).collect::<Vec<_>>()
+    );
+    assert_eq!(result.events[0].cover_item_id, items[1].id);
+    assert!(result.events[0].is_multi_day);
+    assert_eq!(result.events[0].sub_days.as_ref().unwrap().len(), 2);
+
+    let crossed = vec![
+        MediaMetadataItem::new("one/MS202603-Trip0001.jpg", 0.0),
+        MediaMetadataItem::new("two/MS202603-Trip0002.jpg", 4.0 * 3_600.0),
+    ];
+    assert_eq!(
+        cluster(
+            &crossed,
+            "source",
+            &ClusteringConfig::default(),
+            &Calendar::default()
+        )
+        .unwrap()
+        .events
+        .len(),
+        2
+    );
+}
+
+#[test]
+fn named_shoot_merge_has_a_fourteen_day_ceiling() {
+    for (hours, expected) in [(14.0 * 24.0, 1), (14.0 * 24.0 + 1.0 / 3_600.0, 2)] {
+        let items = vec![
+            MediaMetadataItem::new("shoots/MS202603-Trip0001.jpg", 0.0),
+            MediaMetadataItem::new("shoots/MS202603-Trip0002.jpg", hours * 3_600.0),
+        ];
+        assert_eq!(
+            cluster(
+                &items,
+                "source",
+                &ClusteringConfig::default(),
+                &Calendar::default()
+            )
+            .unwrap()
+            .events
+            .len(),
+            expected
+        );
+    }
+}
+
+#[test]
+fn filename_span_uses_the_final_session_of_a_travel_group() {
+    let home = (18.5167, 73.8562);
+    let away = (20.2954, 73.9846);
+    let located = |id: &str, timestamp: f64, coordinate: (f64, f64)| {
+        let mut item = MediaMetadataItem::new(id, timestamp);
+        item.latitude = Some(coordinate.0);
+        item.longitude = Some(coordinate.1);
+        item
+    };
+    let day = 86_400.0;
+    let start = 8.0 * 3_600.0;
+    let home_items = (0..20)
+        .map(|index| located(&format!("home{index}"), (index as f64 - 20.0) * day, home))
+        .collect::<Vec<_>>();
+
+    let mut named = home_items.clone();
+    named.push(located("shoots/MS202603-Trip0001.jpg", start, away));
+    let named_candidate_ids = (2..=14)
+        .map(|number| format!("shoots/MS202603-Trip{number:04}.jpg"))
+        .collect::<Vec<_>>();
+    for (index, id) in named_candidate_ids.iter().enumerate() {
+        named.push(located(
+            id,
+            9.0 * day + 18.0 * 3_600.0 + index as f64 * 10.0 * 3_600.0,
+            away,
+        ));
+    }
+    let result = cluster(
+        &named,
+        "source",
+        &ClusteringConfig::default(),
+        &Calendar::default(),
+    )
+    .unwrap();
+    let named_events = result
+        .events
+        .iter()
+        .filter(|event| event.item_ids.iter().any(|id| id.starts_with("shoots/")))
+        .collect::<Vec<_>>();
+    assert_eq!(named_events.len(), 2);
+    assert_eq!(named_events[0].item_ids, ["shoots/MS202603-Trip0001.jpg"]);
+    assert_eq!(named_events[1].item_ids, named_candidate_ids);
+
+    let mut sequence = home_items;
+    sequence.push(located("sequence/DSCF0100.jpg", start, away));
+    let sequence_candidate_ids = (101..=105)
+        .map(|number| format!("sequence/DSCF{number:04}.jpg"))
+        .collect::<Vec<_>>();
+    for (index, id) in sequence_candidate_ids.iter().enumerate() {
+        sequence.push(located(
+            id,
+            2.0 * day + 18.0 * 3_600.0 + index as f64 * 10.0 * 3_600.0,
+            away,
+        ));
+    }
+    let result = cluster(
+        &sequence,
+        "source",
+        &ClusteringConfig::default(),
+        &Calendar::default(),
+    )
+    .unwrap();
+    let sequence_events = result
+        .events
+        .iter()
+        .filter(|event| event.item_ids.iter().any(|id| id.starts_with("sequence/")))
+        .collect::<Vec<_>>();
+    assert_eq!(sequence_events.len(), 2);
+    assert_eq!(sequence_events[0].item_ids, ["sequence/DSCF0100.jpg"]);
+    assert_eq!(sequence_events[1].item_ids, sequence_candidate_ids);
+}
+
+#[test]
+fn overflowing_filename_numbers_and_non_ascii_case_folds_create_no_signal() {
+    for ids in [
+        [
+            "shoots/MS202603-Trip99999999999999999999.jpg".to_owned(),
+            "shoots/MS202603-Trip99999999999999999998.jpg".to_owned(),
+        ],
+        [
+            "sequence/DSCF99999999999999999999.jpg".to_owned(),
+            "sequence/DSCF99999999999999999998.jpg".to_owned(),
+        ],
+        [
+            "shoots/MS202603-Trip0001\renhanced-nr.jpg".to_owned(),
+            "shoots/MS202603-Trip0002\renhanced-nr.jpg".to_owned(),
+        ],
+    ] {
+        let items = vec![
+            MediaMetadataItem::new(ids[0].clone(), 0.0),
+            MediaMetadataItem::new(ids[1].clone(), 6.0 * 3_600.0),
+        ];
+        assert_eq!(
+            cluster(
+                &items,
+                "source",
+                &ClusteringConfig::default(),
+                &Calendar::default()
+            )
+            .unwrap()
+            .events
+            .len(),
+            2,
+            "{}",
+            ids[0]
+        );
+    }
+}
+
+#[test]
+fn filename_sequences_require_close_numbers_and_capture_times() {
+    let items = vec![
+        MediaMetadataItem::new("sequence/DSCF0100.jpg", 0.0),
+        MediaMetadataItem::new("sequence/DSCF0105.jpg", 6.0 * 3_600.0),
+        MediaMetadataItem::new("sequence/DSCF0117.jpg", 30.0 * 3_600.0),
+        MediaMetadataItem::new("sequence/DSCF0118.jpg", 36.0 * 3_600.0),
+    ];
+    let result = cluster(
+        &items,
+        "source",
+        &ClusteringConfig::default(),
+        &Calendar::default(),
+    )
+    .unwrap();
+    assert_eq!(result.events.len(), 2);
+    assert_eq!(
+        result.events[0].item_ids,
+        [items[0].id.clone(), items[1].id.clone()]
+    );
+    assert_eq!(
+        result.events[1].item_ids,
+        [items[2].id.clone(), items[3].id.clone()]
+    );
+
+    for (number, expected) in [(112, 1), (113, 2)] {
+        let pair = vec![
+            MediaMetadataItem::new("sequence/DSCF0100.jpg", 0.0),
+            MediaMetadataItem::new(format!("sequence/DSCF{number:04}.jpg"), 4.0 * 3_600.0),
+        ];
+        assert_eq!(
+            cluster(
+                &pair,
+                "source",
+                &ClusteringConfig::default(),
+                &Calendar::default()
+            )
+            .unwrap()
+            .events
+            .len(),
+            expected
+        );
+    }
+}
+
+#[test]
+fn filename_sequences_are_bounded_and_timestamp_names_are_not_sequences() {
+    let chained = (0..7)
+        .map(|index| {
+            MediaMetadataItem::new(
+                format!("sequence/DSCF{index:04}.jpg"),
+                if index < 6 {
+                    index as f64 * 12.0 * 3_600.0
+                } else {
+                    73.0 * 3_600.0
+                },
+            )
+        })
+        .collect::<Vec<_>>();
+    let result = cluster(
+        &chained,
+        "source",
+        &ClusteringConfig::default(),
+        &Calendar::default(),
+    )
+    .unwrap();
+    assert_eq!(result.events.len(), 2);
+    assert_eq!(result.events[0].item_ids.len(), 6);
+    assert_eq!(result.events[1].item_ids, [chained[6].id.clone()]);
+
+    let timestamped = vec![
+        MediaMetadataItem::new("sequence/IMG_20260301_090000.jpg", 0.0),
+        MediaMetadataItem::new("sequence/IMG_20260301_130000.jpg", 4.0 * 3_600.0),
+    ];
+    assert_eq!(
+        cluster(
+            &timestamped,
+            "source",
+            &ClusteringConfig::default(),
+            &Calendar::default()
+        )
+        .unwrap()
+        .events
+        .len(),
+        2
+    );
+    let ordinary = vec![
+        MediaMetadataItem::new("sequence/IMG_0001.jpg", 0.0),
+        MediaMetadataItem::new("sequence/IMG_0002.jpg", 4.0 * 3_600.0),
+    ];
+    assert_eq!(
+        cluster(
+            &ordinary,
+            "source",
+            &ClusteringConfig::default(),
+            &Calendar::default()
+        )
+        .unwrap()
+        .events
+        .len(),
+        1
+    );
+}
+
+#[test]
 fn date_precision_is_not_second_rounding_and_doubles_stay_unquantized() {
     // Date(timeIntervalSince1970:) values from the independent Swift probe.
     for (input, expected) in [
