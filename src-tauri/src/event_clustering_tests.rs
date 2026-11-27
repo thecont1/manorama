@@ -649,7 +649,8 @@ fn whole_root_replacement_invalidates_status_scans_and_existing_leases() {
     let source = state.0.lock().unwrap().source.clone().unwrap();
     let root = open_source_root(&source).unwrap();
     let (_, member) = prepare_asset(&root, &fixture.a, "one.png".to_string());
-    let asset = VerifiedAsset {
+    #[allow(unused_mut)]
+    let mut asset = VerifiedAsset {
         generation: state.0.lock().unwrap().generation,
         root_identity: source.root_identity.unwrap(),
         member: member.unwrap(),
@@ -658,7 +659,6 @@ fn whole_root_replacement_invalidates_status_scans_and_existing_leases() {
     {
         // Windows forbids renaming a pinned directory; retain the old lease
         // value so replacement still has to invalidate its identity.
-        let mut asset = asset;
         fs::create_dir_all(&fixture.paths.store).unwrap();
         asset.member.parent = Arc::new(open_root(&fixture.paths.store).unwrap());
         drop(member);
