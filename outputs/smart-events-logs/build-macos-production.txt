@@ -1,0 +1,108 @@
+==> building the Library bundle
+vite v8.3.5 building client environment for production...
+transforming...
+✓ 455 modules transformed.
+rendering chunks...
+`transformWithEsbuild` is deprecated and will be removed in the future. Please migrate to `transformWithOxc`.
+computing gzip size...
+desktop/dist/assets/mega-crypto.worker-BuTWRc6X.js           3.46 kB
+desktop/dist/index.html                                      8.29 kB │ gzip:   2.88 kB
+desktop/dist/assets/index-CFa2hfrP.css                     137.13 kB │ gzip:  24.93 kB
+desktop/dist/assets/__vite-browser-external-CMKvhEMQ.js      0.14 kB │ gzip:   0.15 kB │ map:     0.24 kB
+desktop/dist/assets/dist-js-C4ojSMYq.js                      0.17 kB │ gzip:   0.17 kB │ map:     3.47 kB
+desktop/dist/assets/app-BoCldAig.js                          0.26 kB │ gzip:   0.22 kB │ map:    10.56 kB
+desktop/dist/assets/dist-js-khYYvvm0.js                      0.31 kB │ gzip:   0.24 kB │ map:     5.10 kB
+desktop/dist/assets/web-DMjF9E8Y.js                          0.40 kB │ gzip:   0.28 kB │ map:     1.28 kB
+desktop/dist/assets/constants-Bg1U039S.js                    0.42 kB │ gzip:   0.28 kB │ map:     4.75 kB
+desktop/dist/assets/native-CWGvRpmO.js                       0.81 kB │ gzip:   0.37 kB │ map:     2.83 kB
+desktop/dist/assets/web-DCUrUPnN.js                          0.83 kB │ gzip:   0.42 kB │ map:     2.93 kB
+desktop/dist/assets/web-C-DGWdY9.js                          0.88 kB │ gzip:   0.44 kB │ map:     2.19 kB
+desktop/dist/assets/event-A_kuQJII.js                        1.08 kB │ gzip:   0.58 kB │ map:    10.45 kB
+desktop/dist/assets/web-C5IXjSsb.js                          1.23 kB │ gzip:   0.58 kB │ map:     4.02 kB
+desktop/dist/assets/bigInteger-ZP23c-Xg.js                   1.76 kB │ gzip:   0.94 kB │ map:    11.81 kB
+desktop/dist/assets/dist-js-BzbbOXKr.js                      1.96 kB │ gzip:   0.92 kB │ map:    10.80 kB
+desktop/dist/assets/encrypted-client-B8T1V6PO.js             2.10 kB │ gzip:   0.73 kB │ map:     5.30 kB
+desktop/dist/assets/scan-budget-CNib7qy2.js                  2.22 kB │ gzip:   1.14 kB │ map:    11.90 kB
+desktop/dist/assets/base-BDhttBfV.js                         2.81 kB │ gzip:   1.02 kB │ map:    10.31 kB
+desktop/dist/assets/src-D3eu1A72.js                          3.58 kB │ gzip:   1.14 kB │ map:    15.02 kB
+desktop/dist/assets/noble_hashes.min-DX-OwyP0.js             3.74 kB │ gzip:   1.76 kB │ map:    11.49 kB
+desktop/dist/assets/legacy-BNLy2Xbt.js                       5.25 kB │ gzip:   2.31 kB │ map:    62.97 kB
+desktop/dist/assets/unbzip2-stream.min-D7gqvNov.js           7.79 kB │ gzip:   4.08 kB │ map:    17.30 kB
+desktop/dist/assets/ente-client-COG9KH3s.js                  8.44 kB │ gzip:   3.74 kB │ map:    35.92 kB
+desktop/dist/assets/web-CbpzICO3.js                          8.47 kB │ gzip:   2.84 kB │ map:    35.36 kB
+desktop/dist/assets/proton-client-Dr3I40Lc.js                9.96 kB │ gzip:   4.19 kB │ map:    43.81 kB
+desktop/dist/assets/sha512.min-DDm6lvcZ.js                  15.09 kB │ gzip:   6.67 kB │ map:    37.57 kB
+desktop/dist/assets/nacl-fast.min-CSYorbRP.js               16.89 kB │ gzip:   6.41 kB │ map:    46.52 kB
+desktop/dist/assets/noble_post_quantum.min-C_Fe3L6q.js      17.01 kB │ gzip:   6.96 kB │ map:    47.21 kB
+desktop/dist/assets/mega-client-jLdJER0q.js                 17.86 kB │ gzip:   7.12 kB │ map:    85.30 kB
+desktop/dist/assets/argon2id.min-DH8hIMSd.js                18.32 kB │ gzip:   6.66 kB │ map:    31.44 kB
+desktop/dist/assets/srp-ufn7nA-A.js                         23.07 kB │ gzip:  10.97 kB │ map:    85.50 kB
+desktop/dist/assets/jsmimeparser-DQ0KSfdd.js                23.15 kB │ gzip:   8.22 kB │ map:   174.20 kB
+desktop/dist/assets/dist-CtGMRVD1.js                        36.50 kB │ gzip:  11.62 kB │ map:    58.92 kB
+desktop/dist/assets/noble_curves.min-CBSl-a_-.js            44.10 kB │ gzip:  17.19 kB │ map:   109.07 kB
+desktop/dist/assets/legacy_ciphers.min-Y2rUHVVw.js          51.64 kB │ gzip:  23.44 kB │ map:    96.12 kB
+desktop/dist/assets/dist-CaPM4XW0.js                       248.75 kB │ gzip:  60.62 kB │ map:   959.83 kB
+desktop/dist/assets/api-Bog6bY3b.js                        277.97 kB │ gzip:  77.85 kB │ map:   756.15 kB
+desktop/dist/assets/dist-DNMV3HVB.js                       456.35 kB │ gzip: 140.56 kB │ map:   983.22 kB
+desktop/dist/assets/index-B_LgRMG4.js                      484.21 kB │ gzip: 161.20 kB │ map: 2,243.82 kB
+desktop/dist/assets/libsodium-wrappers-DebryiTX.js         533.91 kB │ gzip: 189.07 kB │ map:   710.51 kB
+desktop/dist/assets/heic-decode-CyN_5F0t.js              2,042.20 kB │ gzip: 724.46 kB │ map: 2,158.88 kB
+
+[33m[INEFFECTIVE_DYNAMIC_IMPORT] [0m../../node_modules/@tauri-apps/api/core.js is dynamically imported by desktop/lib/event-clustering.ts, desktop/lib/providers/oauth.ts, desktop/lib/session.ts but also statically imported by desktop/islands/Catalogue.tsx, desktop/lib/key-store.ts, desktop/lib/tauri.ts, desktop/lib/vault.ts, ../../node_modules/@tauri-apps/api/app.js, ..., dynamic import will not move module into another chunk.
+
+[plugin builtin:vite-reporter]
+(!) Some chunks are larger than 500 kB after minification. Consider:
+- Using dynamic import() to code-split the application
+- Use build.rolldownOptions.output.codeSplitting to improve chunking: https://rolldown.rs/reference/OutputOptions.codeSplitting
+- Adjust chunk size limit for this warning via build.chunkSizeWarningLimit.
+✓ built in 901ms
+==> staging the viewer bundle into the app resources
+==> compiling the Swift app
+Xcode 27.1
+swift-driver version: 1.168.6 Apple Swift version 6.4 (swiftlang-6.4.0.34.1 clang-2100.3.34.1)
+macOS SDK: 27.0 (/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX27.0.sdk)
+macos/ManoramaMac/AppModel.swift:339:24: warning: capture of 'token' with non-Sendable type '(any NSObjectProtocol)?' in a '@Sendable' closure [#SendableClosureCaptures]
+337 |                       window.occlusionState.contains(.visible) else { return }
+338 |                 self.applyWindowChrome(window)
+339 |                 if let token {
+    |                        `- warning: capture of 'token' with non-Sendable type '(any NSObjectProtocol)?' in a '@Sendable' closure [#SendableClosureCaptures]
+340 |                     NotificationCenter.default.removeObserver(token)
+341 |                 }
+
+/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX27.0.sdk/usr/include/objc/NSObject.h:15:11: note: protocol 'NSObjectProtocol' does not conform to the 'Sendable' protocol
+ 13 | @class NSString, NSMethodSignature, NSInvocation;
+ 14 |
+ 15 | @protocol NSObject
+    |           `- note: protocol 'NSObjectProtocol' does not conform to the 'Sendable' protocol
+ 16 |
+ 17 | - (BOOL)isEqual:(id)object;
+
+macos/ManoramaMac/AppModel.swift:1:1: warning: add '@preconcurrency' to suppress 'Sendable'-related warnings from module 'ObjectiveC' [#AddPreconcurrencyImport]
+  1 | import AppKit
+    | `- warning: add '@preconcurrency' to suppress 'Sendable'-related warnings from module 'ObjectiveC' [#AddPreconcurrencyImport]
+  2 | import ImageIO
+  3 | import SwiftUI
+
+[#AddPreconcurrencyImport]: <https://docs.swift.org/compiler/documentation/diagnostics/add-preconcurrency-import>
+[#SendableClosureCaptures]: <https://docs.swift.org/compiler/documentation/diagnostics/sendable-closure-captures>
+macos/ManoramaMac/LocalSchemeHandler.swift:487:21: warning: capture of 'stream' with non-Sendable type 'InputStream' in an isolated local function; this is an error in the Swift 6 language mode
+485 |         DispatchQueue.global(qos: .userInitiated).async {
+486 |             stream.open()
+487 |             defer { stream.close() }
+    |                     `- warning: capture of 'stream' with non-Sendable type 'InputStream' in an isolated local function; this is an error in the Swift 6 language mode
+488 |             var data = Data()
+489 |             var buffer = [UInt8](repeating: 0, count: 64 * 1024)
+
+/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX27.0.sdk/System/Library/Frameworks/Foundation.framework/Headers/NSStream.h:155:12: note: class 'InputStream' does not conform to the 'Sendable' protocol
+153 | ///
+154 | /// Return <doc://com.apple.documentation/documentation/swift/true> if there is more data to read in the stream, <doc://com.apple.documentation/documentation/swift/false> if there is not. If you want to be semantically compatible with `NSInputStream`, return <doc://com.apple.documentation/documentation/swift/true> if a read must be attempted to determine if bytes are available.
+155 | @interface NSInputStream : NSStream
+    |            `- note: class 'InputStream' does not conform to the 'Sendable' protocol
+156 | /// Reads up to a given number of bytes into a given buffer.
+157 | /// - Parameters:
+binary: minos 15.0, linked sdk 27.0
+==> assembling the .app bundle
+==> signing the app bundle
+macos/ManoramaMac/build/manorama.app: replacing existing signature
+==> done: macos/ManoramaMac/build/manorama.app
+    run: open 'macos/ManoramaMac/build/manorama.app'
