@@ -126,7 +126,8 @@ Run a deterministic, configurable pipeline on the extracted `MediaMetadataItem` 
 
 ### Layer 4: Persistence & Incremental Sync
 * **Source Declaration Persistence:**
-  * **macOS:** Add `isRawDump: Bool = false` to `FolderStore.Entry` in `folders.json` (enforcing at most one active Raw Dump folder at a time) and register its root in `grantedRoots`.
+  * **macOS:** Add `isRawDump: Bool = false` to `FolderStore.Entry` in `folders.json` (enforcing at most one active Raw Dump folder at a time) and persist its security-scoped bookmark there. The raw dump root must **not** appear in the set supplied by `FolderStore.grantedRoots()` / `NativeBridge.rebuildGrantedRoots()`: that set feeds the media handler and the paths resolved by `/local/`, and including the dump root would let renderer-constructed paths reach event media outside the verified-lease protocol. Event media is lease-only — see `docs/event-clustering-bridge-contract.md`. The bookmark exists so native code can open the security scope for scanning and lease fulfilment through `FolderStore.startAccess(_:)` on the `isRawDump` entry; it is never a renderer-facing grant.
+    * *Reveal and path-grant checks, decided:* `reveal_event_asset` does not depend on `grantedRoots` at all — it validates the asset id against the scan index's declared members (as the bridge contract specifies) and asks Finder to reveal only that member, so excluding the dump root does not break reveal. Renderer-facing path-grant checks (`grantedPath`) must keep rejecting renderer-supplied paths inside the dump root, which is exactly what the exclusion achieves; native-internal reads never pass through that renderer-facing check.
   * **iOS:** Persist `cameraRollDumpEnabled: Bool` in `library-prefs.json` (or `device.json` per device ID).
 * **Cached Event Index (`events-index.json`):**
   * Persist in `configDir` via `NativeBridge.write0600(to:data:)`. The parenthetical option that once stood here — registering the index in `NativeBridge.privateFiles` so the web bundle could read it directly via `read_private_file` — is **superseded and must not be implemented**: the index never becomes renderer-readable. The page's way in is the scan command's answer, exactly as `docs/event-clustering-bridge-contract.md` specifies.
@@ -146,7 +147,7 @@ Expose clean, Tauri-compatible `invoke` commands in `NativeBridge.run(_:args:hea
 
 | Command Name | Arguments | Return Value / Behavior |
 | :--- | :--- | :--- |
-| `pick_raw_dump_root` | `{}` | **macOS:** Opens `NSOpenPanel`, saves security-scoped bookmark in `FolderStore` with `isRawDump = true`, updates `grantedRoots`, returns `{ label, itemCount }`.<br>**iOS:** Requests `PHPhotoLibrary.requestAuthorization(for: .readWrite)`, enables flag in `library-prefs.json`. |
+| `pick_raw_dump_root` | `{}` | **macOS:** Opens `NSOpenPanel`, saves security-scoped bookmark in `FolderStore` with `isRawDump = true`, returns `{ label, itemCount }`. The root is kept **out of** `grantedRoots` / `rebuildGrantedRoots()` so the media handler and `/local/` can never serve it; event media stays lease-only.<br>**iOS:** Requests `PHPhotoLibrary.requestAuthorization(for: .readWrite)`, enables flag in `library-prefs.json`. |
 | `get_raw_dump_status` | `{}` | Returns `{ configured: Bool, label: String?, isAvailable: Bool, lastIndexedAt: Int?, eventCount: Int }` without leaking raw filesystem paths. |
 | `scan_raw_dump_events` | `{ force?: Bool }` | Runs incremental metadata scan + `EventClusterer` off-main (`offMain`), persists `events-index.json` via `write0600`, returns `{ clusters: EventCluster[], screenshotCount: Int }`. |
 | `clear_raw_dump_root` | `{}` | Unmarks `isRawDump` in `FolderStore` / `library-prefs.json` and deletes `events-index.json`. |

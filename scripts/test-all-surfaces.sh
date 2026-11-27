@@ -264,20 +264,30 @@ export ANDROID_NDK_HOME="$ANDROID_NDK"
 
 if lane_enabled ANDROID; then
   java_home="$(java21_home || true)"
+  # The packaged-JNI lane inspects the crate's libraries, so the crate's absence
+  # is the most fundamental reason the lane cannot run, ahead of missing tools.
+  jni_crate_reason=''
+  if [[ ! -f "$ROOT/crates/event-clustering/Cargo.toml" ]]; then
+    jni_crate_reason='the event-clustering package is not in this checkout; it merges with the camera-roll feature branch'
+  fi
   if [[ -z "$java_home" ]]; then
     skip 'Android JVM and debug package' 'Java 21 is not installed'
-    skip 'Android packaged JNI libraries' 'Java 21 is not installed'
+    skip 'Android packaged JNI libraries' "${jni_crate_reason:-Java 21 is not installed}"
   elif ! command -v cargo-ndk >/dev/null 2>&1; then
     skip 'Android JVM and debug package' 'cargo-ndk is not installed'
-    skip 'Android packaged JNI libraries' 'cargo-ndk is not installed'
+    skip 'Android packaged JNI libraries' "${jni_crate_reason:-cargo-ndk is not installed}"
   elif [[ ! -x "$ANDROID_ADB" || ! -d "$ANDROID_SDK/platforms/android-36" || ! -d "$ANDROID_NDK" ]]; then
     skip 'Android JVM and debug package' 'Android SDK 36 or NDK 27.2.12479018 is not configured'
-    skip 'Android packaged JNI libraries' 'Android SDK 36 or NDK 27.2.12479018 is not configured'
+    skip 'Android packaged JNI libraries' "${jni_crate_reason:-Android SDK 36 or NDK 27.2.12479018 is not configured}"
   else
     export JAVA_HOME="$java_home"
     export PATH="$JAVA_HOME/bin:$PATH"
     run_at 'Android JVM and debug package' "$ROOT/android" ./gradlew --no-daemon :app:testDebugUnitTest :app:assembleDebug
-    run 'Android packaged JNI libraries' bash scripts/test-android-libraries.sh
+    if [[ -n "$jni_crate_reason" ]]; then
+      skip 'Android packaged JNI libraries' "$jni_crate_reason"
+    else
+      run 'Android packaged JNI libraries' bash scripts/test-android-libraries.sh
+    fi
   fi
 
   android_serial="${MANORAMA_ANDROID_SERIAL:-}"

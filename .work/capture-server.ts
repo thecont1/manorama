@@ -270,9 +270,15 @@ async function originalBytes(image: Json): Promise<Uint8Array> {
     const bytes = new Uint8Array(await file.arrayBuffer())
     if (bytes.length > 0 && bytes.length === file.size) return bytes
   } catch { /* Unmaterialized Dropbox file; use the public original below. */ }
+  const target = absolute(image.src as string)
+  if (target.startsWith(`${FIRST_CAPTURE_BASE}/__capture/`)) {
+    // A source that already points at this harness would re-enter the photo
+    // route forever. The caller treats a throw as "keep the declared size".
+    throw new Error(`Original ${image.filename} resolves back to the capture harness`)
+  }
   let response: Response | undefined
   for (let attempt = 0; attempt < 2; attempt++) {
-    response = await fetch(absolute(image.src as string), { signal: AbortSignal.timeout(12000) })
+    response = await fetch(target, { signal: AbortSignal.timeout(12000) })
     if (response.ok || (response.status < 500 && response.status !== 429)) break
     await response.body?.cancel()
     if (attempt < 1) await Bun.sleep(500)
