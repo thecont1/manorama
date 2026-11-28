@@ -119,6 +119,11 @@ if [ -f "src-tauri/icons/icon.icns" ]; then
   cp "src-tauri/icons/icon.icns" "$APP_BUNDLE/Contents/Resources/icon.icns"
 fi
 
+# The release version lives in the Tauri config; hardcoding it here let the
+# macOS artifact ship as 0.5.2 inside the v0.6.0 release.
+APP_VERSION="$(python3 -c "import json; print(json.load(open('src-tauri/tauri.conf.json'))['version'])")"
+[[ -n "$APP_VERSION" ]] || { echo "FATAL: could not read the release version from src-tauri/tauri.conf.json" >&2; exit 1; }
+
 cat > "$APP_BUNDLE/Contents/Info.plist" <<PLIST
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -130,8 +135,8 @@ cat > "$APP_BUNDLE/Contents/Info.plist" <<PLIST
   <key>CFBundleIdentifier</key><string>$BUNDLE_ID</string>
   <key>CFBundleIconFile</key><string>icon.icns</string>
   <key>CFBundlePackageType</key><string>APPL</string>
-  <key>CFBundleShortVersionString</key><string>0.5.2</string>
-  <key>CFBundleVersion</key><string>0.5.2</string>
+  <key>CFBundleShortVersionString</key><string>$APP_VERSION</string>
+  <key>CFBundleVersion</key><string>$APP_VERSION</string>
   <key>LSMinimumSystemVersion</key><string>15.0</string>
   <key>LSApplicationCategoryType</key><string>public.app-category.photography</string>
   <!-- Mass-market exemption (5D992): the app encrypts user data at rest but
